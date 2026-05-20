@@ -53,6 +53,10 @@ export default function Processos() {
   const filtroFase = searchParams.get("fase");
   const filtroMateria = searchParams.get("materia");
   const filtroParceiro = searchParams.get("parceiro");
+  const filtroComarca = searchParams.get("comarca");
+  const filtroVara = searchParams.get("vara");
+  const filtroStatus = searchParams.get("status");
+  const filtroPendencia = searchParams.get("pendencia");
 
   const fetchAll = useCallback(async () => {
     const { data } = await supabase
@@ -87,6 +91,10 @@ export default function Processos() {
       if (filtroFase && p.fase_processual !== filtroFase) return false;
       if (filtroMateria && p.materia !== filtroMateria) return false;
       if (filtroParceiro && p.parceiro !== filtroParceiro) return false;
+      if (filtroComarca && p.comarca_uf !== filtroComarca) return false;
+      if (filtroVara && p.vara_juizo_origem !== filtroVara) return false;
+      if (filtroStatus && p.status_tarefa !== filtroStatus) return false;
+      if (filtroPendencia && p.tipo_pendencia !== filtroPendencia) return false;
       if (search) {
         const s = search.toLowerCase();
         const inNumero = p.numero_processo.toLowerCase().includes(s);
@@ -96,7 +104,7 @@ export default function Processos() {
       }
       return true;
     });
-  }, [processos, filtroFase, filtroMateria, filtroParceiro, search]);
+  }, [processos, filtroFase, filtroMateria, filtroParceiro, filtroComarca, filtroVara, filtroStatus, filtroPendencia, search]);
 
   const valorTotal = useMemo(() =>
     filtered.reduce((sum, p) => sum + (Number(p.valor_causa) || 0), 0),
@@ -118,7 +126,7 @@ export default function Processos() {
 
   const clearAllFilters = () => { setSearchParams({}); setSearch(""); };
 
-  const hasFilters = !!(filtroFase || filtroMateria || filtroParceiro || search);
+  const hasFilters = !!(filtroFase || filtroMateria || filtroParceiro || filtroComarca || filtroVara || filtroStatus || filtroPendencia || search);
 
   return (
     <>
