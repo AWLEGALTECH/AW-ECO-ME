@@ -1,0 +1,42 @@
+# CLAUDE.md — AW ECO ME
+
+## Contexto
+
+Sistema de gestão processual para o **Dr. Matheus Enes**.
+
+Fork enxuto do AW-ECO (Martins Pontes Advocacia), focado em **80/20** do controle de processos.
+Não inclui: atendimento WhatsApp, CRM, financeiro, marketing, publicações, gerador de docs.
+
+## Stack
+
+- **Frontend:** React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + Recharts
+- **Backend:** Supabase (projeto único)
+- **Package manager:** bun (`bun install`, `bun run dev`)
+
+## Supabase
+
+| Projeto | Ref | Org |
+|---------|-----|-----|
+| AW-ECO ME | `wvltdjspytysuoybcfgb` | `grvarbsdgwylyppjwmoz` (luan-asaf-company) |
+
+Cliente: `src/integrations/supabase/client.ts` → `supabase`
+
+## Tabelas
+
+- `profiles` (id, email, nome, avatar_url)
+- `clientes` (id, nome, cpf_cnpj, telefone, email, endereco, observacoes)
+- `processos` — campos espelhando a planilha original:
+  - `numero_processo` (único)
+  - `cliente_id` (FK)
+  - `materia`, `fase_processual`, `tipo_pendencia`, `status_tarefa`, `parceiro`
+  - `vara_juizo_origem`, `comarca_uf`
+  - `data_ultimo_andamento`, `prazo_processual`
+  - `valor_causa`, `observacoes`
+
+## Regras
+
+1. **DB:** sempre via `supabase/migrations/` — nunca SQL manual
+2. **Testes:** rodar `bun run build` para verificar typecheck/build
+3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
+4. **Push:** nunca fazer push sem pedir permissão
+5. **Fidelidade à planilha:** nomes de campos espelham a aba ADV da planilha original — não renomear sem combinar
