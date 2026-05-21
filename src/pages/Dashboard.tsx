@@ -150,7 +150,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Processos</p>
-              <p className="text-3xl font-bold font-display mt-1">{stats.total}</p>
+              <p className="text-3xl font-medium font-display mt-1">{stats.total}</p>
             </div>
             <Briefcase className="h-8 w-8 text-primary/60" />
           </div>
@@ -160,7 +160,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Clientes</p>
-              <p className="text-3xl font-bold font-display mt-1">{totalClientes}</p>
+              <p className="text-3xl font-medium font-display mt-1">{totalClientes}</p>
             </div>
             <Users className="h-8 w-8 text-primary/60" />
           </div>
@@ -170,7 +170,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Total</p>
-              <p className="text-2xl font-bold font-display mt-1" title={fmtBRLfull(stats.valorTotal)}>
+              <p className="text-2xl font-medium font-display mt-1" title={fmtBRLfull(stats.valorTotal)}>
                 {fmtBRL(stats.valorTotal)}
               </p>
             </div>
@@ -182,7 +182,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Médio</p>
-              <p className="text-2xl font-bold font-display mt-1" title={fmtBRLfull(stats.valorMedio)}>
+              <p className="text-2xl font-medium font-display mt-1" title={fmtBRLfull(stats.valorMedio)}>
                 {fmtBRL(stats.valorMedio)}
               </p>
             </div>
@@ -197,7 +197,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Em Andamento</p>
-              <p className="text-2xl font-bold font-display mt-1">{stats.emAndamento}</p>
+              <p className="text-2xl font-medium font-display mt-1">{stats.emAndamento}</p>
             </div>
             <PlayCircle className="h-7 w-7 text-primary/60" />
           </div>
@@ -206,7 +206,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
-              <p className="text-2xl font-bold font-display mt-1">{stats.suspensos}</p>
+              <p className="text-2xl font-medium font-display mt-1">{stats.suspensos}</p>
             </div>
             <PauseCircle className="h-7 w-7 text-primary/60" />
           </div>
@@ -215,7 +215,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
-              <p className="text-2xl font-bold font-display mt-1">{stats.arquivados}</p>
+              <p className="text-2xl font-medium font-display mt-1">{stats.arquivados}</p>
             </div>
             <Archive className="h-7 w-7 text-primary/60" />
           </div>
@@ -224,7 +224,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Com Pendência</p>
-              <p className="text-2xl font-bold font-display mt-1">{stats.comPendencia}</p>
+              <p className="text-2xl font-medium font-display mt-1">{stats.comPendencia}</p>
             </div>
             <AlertCircle className="h-7 w-7 text-primary/60" />
           </div>
