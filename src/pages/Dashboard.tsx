@@ -10,10 +10,24 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-const fmtBRL = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 const fmtBRLfull = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+// Renderiza o valor em BRL com a casa dos centavos em fonte menor (0.55em)
+// para que o valor inteiro seja a parte visualmente dominante.
+function Money({ value, className }: { value: number; className?: string }) {
+  const formatted = fmtBRLfull(value);
+  const idx = formatted.lastIndexOf(",");
+  if (idx === -1) return <span className={className}>{formatted}</span>;
+  const main = formatted.slice(0, idx);
+  const cents = formatted.slice(idx);
+  return (
+    <span className={className}>
+      {main}
+      <span className="text-[0.55em] opacity-70 ml-0.5 align-baseline tabular-nums">{cents}</span>
+    </span>
+  );
+}
 const fmtDate = (d: string) => {
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
@@ -163,12 +177,10 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground mt-1">
               Soma das causas em andamento — exclui processos arquivados
             </p>
-            <p
-              className="text-5xl sm:text-6xl font-bold font-display mt-4 tracking-tight"
-              title={fmtBRLfull(stats.valorAjuizado)}
-            >
-              {fmtBRL(stats.valorAjuizado)}
-            </p>
+            <Money
+              value={stats.valorAjuizado}
+              className="block text-5xl sm:text-6xl font-normal font-display mt-4 tracking-tight"
+            />
           </div>
           <div className="hidden sm:flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
             <Gavel className="h-8 w-8 text-primary" />
@@ -182,36 +194,30 @@ export default function Dashboard() {
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Ativo</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">sem suspensos nem arquivados</p>
-            <p
-              className="text-2xl font-bold font-display mt-2"
-              title={fmtBRLfull(stats.valorAtivo)}
-            >
-              {fmtBRL(stats.valorAtivo)}
-            </p>
+            <Money
+              value={stats.valorAtivo}
+              className="block text-2xl font-normal font-display mt-2"
+            />
           </div>
         </SpotlightCard>
         <SpotlightCard onClick={() => navigate("/processos?fase=SUSPENSO")} className="cursor-pointer">
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas paradas</p>
-            <p
-              className="text-2xl font-bold font-display mt-2"
-              title={fmtBRLfull(stats.valorSuspensos)}
-            >
-              {fmtBRL(stats.valorSuspensos)}
-            </p>
+            <Money
+              value={stats.valorSuspensos}
+              className="block text-2xl font-normal font-display mt-2"
+            />
           </div>
         </SpotlightCard>
         <SpotlightCard onClick={() => navigate("/processos?fase=ARQUIVADO")} className="cursor-pointer">
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas encerradas</p>
-            <p
-              className="text-2xl font-bold font-display mt-2"
-              title={fmtBRLfull(stats.valorArquivados)}
-            >
-              {fmtBRL(stats.valorArquivados)}
-            </p>
+            <Money
+              value={stats.valorArquivados}
+              className="block text-2xl font-normal font-display mt-2"
+            />
           </div>
         </SpotlightCard>
       </div>
@@ -242,9 +248,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Total</p>
-              <p className="text-2xl font-normal font-display mt-1" title={fmtBRLfull(stats.valorTotal)}>
-                {fmtBRL(stats.valorTotal)}
-              </p>
+              <Money value={stats.valorTotal} className="block text-2xl font-normal font-display mt-1" />
             </div>
             <DollarSign className="h-8 w-8 text-primary/60" />
           </div>
@@ -254,9 +258,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Médio</p>
-              <p className="text-2xl font-normal font-display mt-1" title={fmtBRLfull(stats.valorMedio)}>
-                {fmtBRL(stats.valorMedio)}
-              </p>
+              <Money value={stats.valorMedio} className="block text-2xl font-normal font-display mt-1" />
             </div>
             <TrendingUp className="h-8 w-8 text-primary/60" />
           </div>
