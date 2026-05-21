@@ -23,12 +23,47 @@ function _hashSnapshot(payload) {
 }
 
 function _montarPayloadPreCliente() {
+  // Dois fluxos no writer geram cliente:
+  //   1. KIT (contrato + procuracao):    state.dadosKit (campos cliente_*)
+  //   2. PETICAO (lobby -> pacote1..3):  state.dadosPacote1/2/3 + produtoSelecionado
+  const ehKit = state.dadosKit && state.dadosKit.cliente_nome_completo;
+
+  if (ehKit) {
+    const d = state.dadosKit;
+    const modalidade = state.modalidadeSelecionada || {};
+    const reus = Array.isArray(d.causa_reus) ? d.causa_reus.filter(Boolean) : [];
+    return {
+      nome:              d.cliente_nome_completo || null,
+      cpf_cnpj:          d.cliente_cpf || null,
+      rg:                d.cliente_rg || null,
+      orgao_expedidor:   d.cliente_orgao_expedidor || null,
+      estado_civil:      d.cliente_estado_civil || null,
+      profissao:         d.cliente_profissao || null,
+      nacionalidade:     d.cliente_nacionalidade || null,
+      telefone:          null,
+      email:             null,
+      endereco_completo: d.cliente_endereco_completo || null,
+      produto:           modalidade.nome || modalidade.id || 'Kit Contrato + Procuração',
+      rubricas:          reus.length ? reus : null,  // reaproveita coluna pra listar reus
+      valor_lastro:      null,
+      valor_causa:       Number(d.honorarios_valor_total) || Number(d.honorarios_valor_inicial) || null,
+      dados_completos: {
+        fluxo: 'kit',
+        dadosKit: d,
+        modalidade: { id: modalidade.id, nome: modalidade.nome },
+        gerado_em: new Date().toISOString(),
+      },
+      status: 'aguardando_assinatura',
+      origem: 'writer',
+    };
+  }
+
+  // Fluxo PETICAO
   const p1 = state.dadosPacote1 || {};
   const p2 = state.dadosPacote2 || {};
   const p3 = state.dadosPacote3 || {};
   const produto = state.produtoSelecionado || {};
 
-  // Rubricas marcadas (objeto com booleans → array de strings)
   const rubricasMarcadas = Object.keys(state.rubricas || {})
     .filter(k => state.rubricas[k] === true || (typeof state.rubricas[k] === 'object' && state.rubricas[k] && state.rubricas[k].marcada));
 
@@ -48,6 +83,7 @@ function _montarPayloadPreCliente() {
     valor_lastro:      Number(p3.valor_lastro) || null,
     valor_causa:       Number(p3.valor_causa) || null,
     dados_completos: {
+      fluxo: 'peticao',
       pacote1: p1,
       pacote2: p2,
       pacote3: p3,

@@ -460,6 +460,17 @@ async function gerarKitPecas() {
     );
     state.arquivoKitContrato = contratoBlob;
     state.arquivoKitProcuracao = procuracaoBlob;
+
+    // Envia pre-cliente pro aw-eco-me (fire-and-forget — nao bloqueia se falhar)
+    console.log('[pre-cliente/kit] gerarKitPecas concluido, salvarPreCliente=', typeof salvarPreCliente);
+    if (typeof salvarPreCliente === 'function') {
+      salvarPreCliente()
+        .then(r => console.log('[pre-cliente/kit] resultado:', r))
+        .catch(e => console.error('[pre-cliente/kit] excecao:', e));
+    } else {
+      console.error('[pre-cliente/kit] funcao salvarPreCliente nao carregada!');
+    }
+
     await animacao;
     navegarPara('kitDone');
   } catch (err) {
