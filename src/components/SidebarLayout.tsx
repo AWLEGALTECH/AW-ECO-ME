@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { GlobalSearch } from "@/components/GlobalSearch";
 import { UserPanel } from "@/components/UserPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { Outlet, useLocation, Navigate } from "react-router-dom";
@@ -57,7 +56,7 @@ export function SidebarLayout() {
             <div className="flex items-center gap-2">
               <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
             </div>
-            {location.pathname.startsWith("/clientes") ? <GlobalSearch /> : <div />}
+            <div />
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground hidden md:inline font-mono">
                 {user?.email}
