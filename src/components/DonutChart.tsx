@@ -21,17 +21,15 @@ interface DonutChartProps {
 const renderActiveShape = (props: any) => {
   const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
   return (
-    <g style={{ filter: `drop-shadow(0 0 10px ${fill})` }}>
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius + 4}
-        startAngle={startAngle - 0.5}
-        endAngle={endAngle + 0.5}
-        fill={fill}
-      />
-    </g>
+    <Sector
+      cx={cx}
+      cy={cy}
+      innerRadius={innerRadius}
+      outerRadius={outerRadius + 3}
+      startAngle={startAngle}
+      endAngle={endAngle}
+      fill={fill}
+    />
   );
 };
 
