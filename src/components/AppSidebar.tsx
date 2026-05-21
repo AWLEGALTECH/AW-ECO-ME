@@ -40,7 +40,7 @@ export function AppSidebar() {
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
-            <span className="font-semibold text-sm tracking-tight text-foreground leading-none">{appConfig.name}</span>
+            <span className="font-medium text-sm tracking-tight text-foreground leading-none">{appConfig.name}</span>
             <span className="text-[9px] text-muted-foreground uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
           </div>
         )}
@@ -49,7 +49,7 @@ export function AppSidebar() {
       <SidebarContent className="py-1 overflow-y-auto scrollbar-thin">
         <SidebarGroup>
           {!collapsed && (
-            <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-semibold text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
+            <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary opacity-80" />
               AW System
             </SidebarGroupLabel>

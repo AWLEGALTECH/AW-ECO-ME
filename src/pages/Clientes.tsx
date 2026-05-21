@@ -90,7 +90,7 @@ export default function Clientes() {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display text-3xl font-bold">Clientes</h2>
+        <h2 className="font-display text-3xl font-medium tracking-tight">Clientes</h2>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />Novo Cliente</Button>

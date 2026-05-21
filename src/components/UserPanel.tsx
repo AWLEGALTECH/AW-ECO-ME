@@ -136,7 +136,7 @@ export function UserPanel() {
               </div>
             ) : (
               <p
-                className="font-display font-semibold cursor-pointer hover:underline"
+                className="font-display font-medium cursor-pointer hover:underline"
                 onClick={() => setEditingName(true)}
                 title="Clique para editar"
               >
@@ -156,7 +156,7 @@ export function UserPanel() {
 
         {/* Theme section */}
         <div className="py-4 space-y-4">
-          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Aparência</h4>
+          <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Aparência</h4>
 
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Modo Escuro</span>

@@ -51,7 +51,7 @@ function FloatingInput({
         className={cn(
           "pointer-events-none absolute left-4 transition-all duration-200 ease-out",
           active
-            ? "top-2 text-[10px] font-semibold tracking-wider uppercase text-primary"
+            ? "top-2 text-[10px] font-medium tracking-wider uppercase text-primary"
             : "top-4 text-sm text-muted-foreground"
         )}
       >
@@ -114,7 +114,7 @@ export default function Auth() {
                 <span className="text-lg font-black text-primary-foreground tracking-tighter">AW</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground">
+                <h1 className="text-xl font-medium tracking-tight text-foreground">
                   AW <span className="text-primary">LEGALTECH</span>
                 </h1>
               </div>
@@ -122,7 +122,7 @@ export default function Auth() {
           </motion.div>
 
           <motion.div custom={1} variants={fadeUp} className="mb-8">
-            <h2 className="text-3xl font-semibold leading-tight mb-2 tracking-tight">
+            <h2 className="text-3xl font-medium leading-tight mb-2 tracking-tight">
               {isSignup ? "Criar Conta" : "Bem-vindo de volta"}
             </h2>
             <p className="text-sm text-muted-foreground">
@@ -155,7 +155,7 @@ export default function Auth() {
               <button
                 type="submit"
                 disabled={loading}
-                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-all duration-300 hover:brightness-110 hover:shadow-[0_0_30px_hsla(270,100%,50%,0.4)] disabled:opacity-50 disabled:pointer-events-none"
+                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-all duration-300 hover:brightness-110 hover:shadow-[0_0_30px_hsla(270,100%,50%,0.4)] disabled:opacity-50 disabled:pointer-events-none"
               >
                 {loading ? (
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
@@ -172,7 +172,7 @@ export default function Auth() {
           <motion.div custom={6} variants={fadeUp} className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               {isSignup ? "Ja tem uma conta?" : "Nao tem uma conta?"}
-              <button type="button" onClick={() => setIsSignup(!isSignup)} className="ml-1 font-semibold text-primary hover:text-primary/80 transition-colors">
+              <button type="button" onClick={() => setIsSignup(!isSignup)} className="ml-1 font-medium text-primary hover:text-primary/80 transition-colors">
                 {isSignup ? "Entrar" : "Criar conta"}
               </button>
             </p>
@@ -196,7 +196,7 @@ export default function Auth() {
             <span className="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
             <span className="text-xs font-medium text-white/80 tracking-widest uppercase">Powered by AW Intelligence</span>
           </div>
-          <h1 className="text-white text-5xl font-semibold leading-[1.15] tracking-tight">
+          <h1 className="text-white text-5xl font-medium leading-[1.15] tracking-tight">
             Inteligencia Juridica<br />
             <span className="text-primary">Unificada.</span>
           </h1>

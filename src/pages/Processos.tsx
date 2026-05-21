@@ -131,7 +131,7 @@ export default function Processos() {
   return (
     <>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h2 className="font-display text-3xl font-bold">Processos</h2>
+        <h2 className="font-display text-3xl font-medium tracking-tight">Processos</h2>
         <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>
       </div>
 

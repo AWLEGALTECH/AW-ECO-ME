@@ -140,7 +140,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display text-3xl font-bold">Dashboard</h2>
+        <h2 className="font-display text-3xl font-medium tracking-tight">Dashboard</h2>
         <p className="text-sm text-muted-foreground mt-1">Visão geral · aba ADV</p>
       </div>
 

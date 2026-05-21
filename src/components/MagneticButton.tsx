@@ -38,7 +38,7 @@ export function MagneticButton({ children, className, onClick, variant = "primar
       onClick={onClick}
       style={{ x: springX, y: springY }}
       className={cn(
-        "magnetic-btn relative inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-colors",
+        "magnetic-btn relative inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium transition-colors",
         variant === "primary" &&
           "bg-gradient-to-r from-[hsl(210,80%,50%)] to-[hsl(230,70%,55%)] text-white shadow-[0_0_20px_hsla(210,80%,50%,0.3)] hover:shadow-[0_0_30px_hsla(210,80%,50%,0.5)]",
         variant === "ghost" &&
