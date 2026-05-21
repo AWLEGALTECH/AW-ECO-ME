@@ -12,8 +12,13 @@ function renderDone(view) {
   const p = state.produtoSelecionado;
 
   // Envia pre-cliente pro aw-eco-me (silencioso — nao bloqueia UI mesmo se falhar)
+  console.log('[pre-cliente] renderDone chamado, salvarPreCliente=', typeof salvarPreCliente);
   if (typeof salvarPreCliente === 'function') {
-    salvarPreCliente().catch(e => console.error('[pre-cliente] falha:', e));
+    salvarPreCliente()
+      .then(r => console.log('[pre-cliente] resultado:', r))
+      .catch(e => console.error('[pre-cliente] excecao:', e));
+  } else {
+    console.error('[pre-cliente] funcao salvarPreCliente nao carregada! Verifique se src/pre-cliente.js esta no index.html.');
   }
 
   const hasImage = p.capa && p.capa.length > 0;

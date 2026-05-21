@@ -61,19 +61,21 @@ function _montarPayloadPreCliente() {
 }
 
 async function salvarPreCliente() {
+  console.log('[pre-cliente] salvarPreCliente() invocado');
   try {
     const payload = _montarPayloadPreCliente();
+    console.log('[pre-cliente] payload montado:', payload);
 
     // dedup: nao envia 2x o mesmo cliente+produto na mesma sessao
     const hash = _hashSnapshot(payload);
     if (_ultimoPreClienteEnviado === hash) {
-      console.log('[pre-cliente] ja enviado nesta sessao, skip');
+      console.log('[pre-cliente] ja enviado nesta sessao (hash igual), skip');
       return { ok: true, skipped: true };
     }
 
     // valida minimo (nome eh NOT NULL no banco)
     if (!payload.nome) {
-      console.warn('[pre-cliente] nome ausente, nao envia');
+      console.warn('[pre-cliente] nome ausente em state.dadosPacote1.nome_completo, nao envia. state =', JSON.parse(JSON.stringify(state)));
       return { ok: false, error: 'nome_ausente' };
     }
 
