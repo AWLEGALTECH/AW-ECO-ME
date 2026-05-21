@@ -13,8 +13,11 @@ export default {
       },
     },
     fontFamily: {
-      body: ["Inter", "sans-serif"],
-      mono: ["JetBrains Mono", "Fira Code", "monospace"],
+      sans: ["Montserrat", "sans-serif"],
+      body: ["Montserrat", "sans-serif"],
+      display: ["Montserrat", "sans-serif"],
+      mono: ["Montserrat", "sans-serif"],
+      serif: ["Montserrat", "sans-serif"],
     },
     extend: {
       colors: {

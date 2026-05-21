@@ -35,13 +35,13 @@ export function AppSidebar() {
         onClick={() => navigate("/dashboard")}
         className={`flex items-center h-14 shrink-0 border-b border-white/[0.06] transition-colors hover:bg-white/[0.02] ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 ring-1 ring-violet-400/30 shrink-0">
-          <Scale className="h-4 w-4 text-violet-400" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/30 shrink-0">
+          <Scale className="h-4 w-4 text-primary" />
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
-            <span className="font-bold text-sm tracking-tight text-foreground leading-none">{appConfig.name}</span>
-            <span className="text-[9px] text-cyan-400/70 uppercase tracking-[0.15em] font-mono leading-none mt-1">{appConfig.tagline}</span>
+            <span className="font-semibold text-sm tracking-tight text-foreground leading-none">{appConfig.name}</span>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
           </div>
         )}
       </button>
@@ -49,8 +49,8 @@ export function AppSidebar() {
       <SidebarContent className="py-1 overflow-y-auto scrollbar-thin">
         <SidebarGroup>
           {!collapsed && (
-            <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-semibold text-cyan-400 opacity-70 px-3 pt-3 pb-1 flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400 opacity-80" />
+            <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-semibold text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary opacity-80" />
               AW System
             </SidebarGroupLabel>
           )}
@@ -65,7 +65,7 @@ export function AppSidebar() {
                       tooltip={item.title}
                       className={
                         isActive
-                          ? "bg-cyan-500/15 text-cyan-300 rounded-xl mx-1"
+                          ? "bg-primary/15 text-primary rounded-xl mx-1"
                           : "text-sidebar-foreground hover:bg-white/[0.06] hover:text-foreground rounded-xl mx-1 transition-colors"
                       }
                     >
@@ -85,13 +85,13 @@ export function AppSidebar() {
       <SidebarFooter className="border-t border-white/[0.05] p-3">
         {!collapsed ? (
           <div className="flex items-center gap-2">
-            <Zap className="h-3 w-3 text-cyan-400/60 shrink-0" />
-            <p className="text-[9px] text-muted-foreground font-mono tracking-widest uppercase">
+            <Zap className="h-3 w-3 text-primary/60 shrink-0" />
+            <p className="text-[9px] text-muted-foreground tracking-widest uppercase">
               {appConfig.name} v0.1
             </p>
           </div>
         ) : (
-          <Zap className="h-3 w-3 text-cyan-400/50 mx-auto" />
+          <Zap className="h-3 w-3 text-primary/50 mx-auto" />
         )}
       </SidebarFooter>
     </Sidebar>

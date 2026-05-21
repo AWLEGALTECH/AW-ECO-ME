@@ -114,7 +114,7 @@ export default function Auth() {
                 <span className="text-lg font-black text-primary-foreground tracking-tighter">AW</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground" style={{fontFamily:'Lato,Inter,sans-serif'}}>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">
                   AW <span className="text-primary">LEGALTECH</span>
                 </h1>
               </div>
@@ -122,10 +122,10 @@ export default function Auth() {
           </motion.div>
 
           <motion.div custom={1} variants={fadeUp} className="mb-8">
-            <h2 style={{fontFamily:'EB Garamond,serif', fontSize:'1.9rem', fontWeight:600, lineHeight:1.2, marginBottom:'0.5rem', color:'inherit'}}>
+            <h2 className="text-3xl font-semibold leading-tight mb-2 tracking-tight">
               {isSignup ? "Criar Conta" : "Bem-vindo de volta"}
             </h2>
-            <p style={{fontFamily:'Lato,Inter,sans-serif'}} className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {isSignup ? "Preencha seus dados para solicitar acesso" : "Acesse sua plataforma de gestao juridica"}
             </p>
           </motion.div>
@@ -194,13 +194,13 @@ export default function Auth() {
         <div className="relative z-10 flex h-full flex-col items-center justify-center px-12 text-center">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-2 backdrop-blur-sm">
             <span className="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
-            <span style={{fontFamily:'Lato,sans-serif'}} className="text-xs font-medium text-white/80 tracking-widest uppercase">Powered by AW Intelligence</span>
+            <span className="text-xs font-medium text-white/80 tracking-widest uppercase">Powered by AW Intelligence</span>
           </div>
-          <h1 style={{fontFamily:'EB Garamond,serif', fontSize:'3.5rem', fontWeight:600, lineHeight:1.15, color:'white'}}>
+          <h1 className="text-white text-5xl font-semibold leading-[1.15] tracking-tight">
             Inteligencia Juridica<br />
-            <span style={{background:'linear-gradient(135deg, hsl(270,100%,75%), hsl(190,100%,65%))', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent'}}>Unificada.</span>
+            <span className="text-primary">Unificada.</span>
           </h1>
-          <p style={{fontFamily:'Lato,sans-serif'}} className="mt-6 max-w-md text-base leading-relaxed text-white/70">
+          <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">
             A tradicao e excelencia de Martins Pontes Advocacia, potencializadas pela tecnologia do AW ECO.
           </p>
         </div>

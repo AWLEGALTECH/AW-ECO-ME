@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Lato:wght@300;400;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -26,7 +26,7 @@ html, body, #root {
     --secondary-foreground: 210 30% 80%;
     --muted: 222 47% 9%;
     --muted-foreground: 210 20% 60%;
-    --accent: 190 100% 45%;
+    --accent: 270 100% 62%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
@@ -51,11 +51,12 @@ html, body, #root {
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Lato', 'Inter', sans-serif;
+    font-family: 'Montserrat', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'EB Garamond', serif;
+    font-family: 'Montserrat', sans-serif;
+    letter-spacing: -0.01em;
   }
 }
 

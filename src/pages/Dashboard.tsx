@@ -152,7 +152,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Processos</p>
               <p className="text-3xl font-bold font-display mt-1">{stats.total}</p>
             </div>
-            <Briefcase className="h-8 w-8 text-cyan-400/60" />
+            <Briefcase className="h-8 w-8 text-primary/60" />
           </div>
         </SpotlightCard>
 
@@ -162,7 +162,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Clientes</p>
               <p className="text-3xl font-bold font-display mt-1">{totalClientes}</p>
             </div>
-            <Users className="h-8 w-8 text-violet-400/60" />
+            <Users className="h-8 w-8 text-primary/60" />
           </div>
         </SpotlightCard>
 
@@ -174,7 +174,7 @@ export default function Dashboard() {
                 {fmtBRL(stats.valorTotal)}
               </p>
             </div>
-            <DollarSign className="h-8 w-8 text-emerald-400/60" />
+            <DollarSign className="h-8 w-8 text-primary/60" />
           </div>
         </SpotlightCard>
 
@@ -186,7 +186,7 @@ export default function Dashboard() {
                 {fmtBRL(stats.valorMedio)}
               </p>
             </div>
-            <TrendingUp className="h-8 w-8 text-amber-400/60" />
+            <TrendingUp className="h-8 w-8 text-primary/60" />
           </div>
         </SpotlightCard>
       </div>
@@ -199,7 +199,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Em Andamento</p>
               <p className="text-2xl font-bold font-display mt-1">{stats.emAndamento}</p>
             </div>
-            <PlayCircle className="h-7 w-7 text-emerald-400/60" />
+            <PlayCircle className="h-7 w-7 text-primary/60" />
           </div>
         </SpotlightCard>
         <SpotlightCard onClick={() => navigate("/processos?fase=SUSPENSO")} className="cursor-pointer">
@@ -208,7 +208,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
               <p className="text-2xl font-bold font-display mt-1">{stats.suspensos}</p>
             </div>
-            <PauseCircle className="h-7 w-7 text-amber-400/60" />
+            <PauseCircle className="h-7 w-7 text-primary/60" />
           </div>
         </SpotlightCard>
         <SpotlightCard onClick={() => navigate("/processos?fase=ARQUIVADO")} className="cursor-pointer">
@@ -217,7 +217,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
               <p className="text-2xl font-bold font-display mt-1">{stats.arquivados}</p>
             </div>
-            <Archive className="h-7 w-7 text-muted-foreground" />
+            <Archive className="h-7 w-7 text-primary/60" />
           </div>
         </SpotlightCard>
         <SpotlightCard>
@@ -226,7 +226,7 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Com Pendência</p>
               <p className="text-2xl font-bold font-display mt-1">{stats.comPendencia}</p>
             </div>
-            <AlertCircle className="h-7 w-7 text-rose-400/60" />
+            <AlertCircle className="h-7 w-7 text-primary/60" />
           </div>
         </SpotlightCard>
       </div>
