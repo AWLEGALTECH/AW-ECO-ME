@@ -25,7 +25,7 @@ export function MeshGradientBackground() {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(600px circle at var(--mx, 50%) var(--my, 50%), hsla(187, 100%, 50%, 0.04), transparent 40%)",
+            "radial-gradient(600px circle at var(--mx, 50%) var(--my, 50%), hsla(var(--primary) / 0.05), transparent 40%)",
         }}
       />
     </div>
