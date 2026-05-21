@@ -9,7 +9,7 @@ export default function Writer() {
   return (
     <div className="h-full w-full flex flex-col -m-3 sm:-m-6">
       <iframe
-        src="/writer/index.html"
+        src="/writer-app/index.html"
         title="AW Writer"
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
