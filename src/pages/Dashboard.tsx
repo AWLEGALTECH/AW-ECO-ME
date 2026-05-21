@@ -11,7 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 const fmtBRL = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 const fmtBRLfull = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 const fmtDate = (d: string) => {
@@ -164,7 +164,7 @@ export default function Dashboard() {
               Soma das causas em andamento — exclui processos arquivados
             </p>
             <p
-              className="text-5xl sm:text-6xl font-normal font-display mt-4 tracking-tight"
+              className="text-5xl sm:text-6xl font-bold font-display mt-4 tracking-tight"
               title={fmtBRLfull(stats.valorAjuizado)}
             >
               {fmtBRL(stats.valorAjuizado)}
@@ -183,7 +183,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Ativo</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">sem suspensos nem arquivados</p>
             <p
-              className="text-2xl font-normal font-display mt-2"
+              className="text-2xl font-bold font-display mt-2"
               title={fmtBRLfull(stats.valorAtivo)}
             >
               {fmtBRL(stats.valorAtivo)}
@@ -195,7 +195,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas paradas</p>
             <p
-              className="text-2xl font-normal font-display mt-2"
+              className="text-2xl font-bold font-display mt-2"
               title={fmtBRLfull(stats.valorSuspensos)}
             >
               {fmtBRL(stats.valorSuspensos)}
@@ -207,7 +207,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas encerradas</p>
             <p
-              className="text-2xl font-normal font-display mt-2"
+              className="text-2xl font-bold font-display mt-2"
               title={fmtBRLfull(stats.valorArquivados)}
             >
               {fmtBRL(stats.valorArquivados)}
