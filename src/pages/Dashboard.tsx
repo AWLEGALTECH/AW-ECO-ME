@@ -6,7 +6,7 @@ import { DonutChart } from "@/components/DonutChart";
 import {
   Briefcase, Users, DollarSign, TrendingUp,
   PlayCircle, PauseCircle, Archive, AlertCircle,
-  CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks,
+  CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks, Gavel,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -107,9 +107,16 @@ export default function Dashboard() {
 
   const stats = useMemo(() => {
     const total = processos.length;
-    const valorTotal = processos.reduce((s, p) => s + (Number(p.valor_causa) || 0), 0);
+    const sumValor = (list: Processo[]) => list.reduce((s, p) => s + (Number(p.valor_causa) || 0), 0);
+    const valorTotal = sumValor(processos);
     const comValor = processos.filter((p) => p.valor_causa != null);
     const valorMedio = comValor.length ? valorTotal / comValor.length : 0;
+
+    // Soma de valores por estado processual
+    const valorAjuizado   = sumValor(processos.filter((p) => p.fase_processual !== "ARQUIVADO"));
+    const valorAtivo      = sumValor(processos.filter((p) => p.fase_processual !== "ARQUIVADO" && p.fase_processual !== "SUSPENSO"));
+    const valorSuspensos  = sumValor(processos.filter((p) => p.fase_processual === "SUSPENSO"));
+    const valorArquivados = sumValor(processos.filter((p) => p.fase_processual === "ARQUIVADO"));
 
     const suspensos = processos.filter((p) => p.fase_processual === "SUSPENSO").length;
     const arquivados = processos.filter((p) => p.fase_processual === "ARQUIVADO").length;
@@ -122,7 +129,11 @@ export default function Dashboard() {
       .filter((p) => p.prazo_processual && p.prazo_processual >= hoje && p.prazo_processual <= em30dias)
       .sort((a, b) => (a.prazo_processual ?? "").localeCompare(b.prazo_processual ?? ""));
 
-    return { total, valorTotal, valorMedio, suspensos, arquivados, emAndamento, comPendencia, prazosProximos };
+    return {
+      total, valorTotal, valorMedio,
+      valorAjuizado, valorAtivo, valorSuspensos, valorArquivados,
+      suspensos, arquivados, emAndamento, comPendencia, prazosProximos,
+    };
   }, [processos]);
 
   const distFase = useMemo(() => countBy(processos, (p) => p.fase_processual), [processos]);
@@ -142,6 +153,67 @@ export default function Dashboard() {
       <div>
         <h2 className="font-display text-3xl font-medium tracking-tight">Dashboard</h2>
         <p className="text-sm text-muted-foreground mt-1">Visão geral · aba ADV</p>
+      </div>
+
+      {/* Destaque: Valor Ajuizado */}
+      <SpotlightCard className="p-8 border-primary/20">
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Valor Ajuizado</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Soma das causas em andamento — exclui processos arquivados
+            </p>
+            <p
+              className="text-5xl sm:text-6xl font-normal font-display mt-4 tracking-tight"
+              title={fmtBRLfull(stats.valorAjuizado)}
+            >
+              {fmtBRL(stats.valorAjuizado)}
+            </p>
+          </div>
+          <div className="hidden sm:flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
+            <Gavel className="h-8 w-8 text-primary" />
+          </div>
+        </div>
+      </SpotlightCard>
+
+      {/* Quebra do valor por status */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <SpotlightCard>
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Ativo</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5">sem suspensos nem arquivados</p>
+            <p
+              className="text-2xl font-normal font-display mt-2"
+              title={fmtBRLfull(stats.valorAtivo)}
+            >
+              {fmtBRL(stats.valorAtivo)}
+            </p>
+          </div>
+        </SpotlightCard>
+        <SpotlightCard onClick={() => navigate("/processos?fase=SUSPENSO")} className="cursor-pointer">
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas paradas</p>
+            <p
+              className="text-2xl font-normal font-display mt-2"
+              title={fmtBRLfull(stats.valorSuspensos)}
+            >
+              {fmtBRL(stats.valorSuspensos)}
+            </p>
+          </div>
+        </SpotlightCard>
+        <SpotlightCard onClick={() => navigate("/processos?fase=ARQUIVADO")} className="cursor-pointer">
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas encerradas</p>
+            <p
+              className="text-2xl font-normal font-display mt-2"
+              title={fmtBRLfull(stats.valorArquivados)}
+            >
+              {fmtBRL(stats.valorArquivados)}
+            </p>
+          </div>
+        </SpotlightCard>
       </div>
 
       {/* KPIs principais */}
