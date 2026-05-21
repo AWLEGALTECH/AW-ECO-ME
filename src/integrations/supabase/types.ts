@@ -16,6 +16,7 @@ export type Database = {
         Row: {
           cpf_cnpj: string | null
           created_at: string
+          drive_folder_url: string | null
           email: string | null
           endereco: string | null
           id: string
@@ -27,6 +28,7 @@ export type Database = {
         Insert: {
           cpf_cnpj?: string | null
           created_at?: string
+          drive_folder_url?: string | null
           email?: string | null
           endereco?: string | null
           id?: string
@@ -38,6 +40,7 @@ export type Database = {
         Update: {
           cpf_cnpj?: string | null
           created_at?: string
+          drive_folder_url?: string | null
           email?: string | null
           endereco?: string | null
           id?: string
@@ -58,6 +61,7 @@ export type Database = {
           cpf_cnpj: string | null
           created_at: string
           dados_completos: Json
+          drive_folder_url: string | null
           email: string | null
           endereco_completo: string | null
           estado_civil: string | null
@@ -86,6 +90,7 @@ export type Database = {
           cpf_cnpj?: string | null
           created_at?: string
           dados_completos?: Json
+          drive_folder_url?: string | null
           email?: string | null
           endereco_completo?: string | null
           estado_civil?: string | null
@@ -114,6 +119,7 @@ export type Database = {
           cpf_cnpj?: string | null
           created_at?: string
           dados_completos?: Json
+          drive_folder_url?: string | null
           email?: string | null
           endereco_completo?: string | null
           estado_civil?: string | null

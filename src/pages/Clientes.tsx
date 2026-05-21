@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Plus, Search, Eye, Trash2 } from "lucide-react";
+import { Plus, Search, Eye, Trash2, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface Cliente {
@@ -137,7 +137,14 @@ export default function Clientes() {
             <TableBody>
               {filtered.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/clientes/${c.id}`)}>
-                  <TableCell className="font-medium hover:underline">{c.nome}</TableCell>
+                  <TableCell className="font-medium hover:underline">
+                    <span className="inline-flex items-center gap-2.5">
+                      <span className="h-7 w-7 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
+                        <User className="h-3.5 w-3.5 text-primary" />
+                      </span>
+                      {c.nome}
+                    </span>
+                  </TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{c.cpf_cnpj || "—"}</TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{c.telefone || "—"}</TableCell>
                   <TableCell>{c.processos_count}</TableCell>

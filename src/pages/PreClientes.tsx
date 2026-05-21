@@ -10,8 +10,12 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { appConfig } from "@/config/app-config";
 
 interface PreCliente {
@@ -40,6 +44,79 @@ const fmtBRL = (v: number | null) =>
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
 
+function ConfirmarDialog({ pre, onConfirm }: { pre: PreCliente; onConfirm: (driveUrl: string) => Promise<void> | void }) {
+  const [open, setOpen] = useState(false);
+  const [drive, setDrive] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const driveValido =
+    /^https?:\/\/(drive|docs)\.google\.com\//i.test(drive.trim());
+
+  const handleConfirmar = async () => {
+    if (!driveValido) {
+      toast.error("Cole um link válido do Google Drive (drive.google.com / docs.google.com).");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onConfirm(drive.trim());
+      setOpen(false);
+      setDrive("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDrive(""); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500">
+          <CheckCircle2 className="h-4 w-4 mr-1.5" />
+          Confirmar cadastro
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Confirmar cadastro de {pre.nome}?</DialogTitle>
+          <DialogDescription>
+            Vai criar um cliente em Clientes com os dados do pré-cadastro. Pra continuar, informe a pasta do Google Drive desse cliente — ela vai ficar vinculada ao perfil dele e guardar os documentos.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="drive-url" className="flex items-center gap-2 text-sm">
+            <FolderOpen className="h-4 w-4 text-primary" />
+            Pasta do Google Drive <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="drive-url"
+            type="url"
+            placeholder="https://drive.google.com/drive/folders/..."
+            value={drive}
+            onChange={(e) => setDrive(e.target.value)}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter" && driveValido && !busy) handleConfirmar(); }}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Cole o link da pasta (a URL que aparece quando você abre a pasta no Drive). Tem que começar com <code className="text-foreground/80">drive.google.com</code> ou <code className="text-foreground/80">docs.google.com</code>.
+          </p>
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancelar</Button>
+          <Button
+            onClick={handleConfirmar}
+            disabled={!driveValido || busy}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {busy ? "Confirmando…" : "Confirmar cadastro"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const STATUS_META: Record<PreCliente["status"], { label: string; color: string; Icon: any }> = {
   aguardando_assinatura: { label: "Aguardando assinatura", color: "text-amber-400 border-amber-400/30 bg-amber-400/5", Icon: Clock },
   confirmado:            { label: "Confirmado",            color: "text-emerald-400 border-emerald-400/30 bg-emerald-400/5", Icon: CheckCircle2 },
@@ -66,7 +143,7 @@ export default function PreClientes() {
     refetchOnWindowFocus: true,
   });
 
-  const confirmar = async (pre: PreCliente) => {
+  const confirmar = async (pre: PreCliente, driveFolderUrl: string) => {
     if (!user) return;
     const { data: novoCliente, error: errCli } = await supabase
       .from("clientes")
@@ -77,6 +154,7 @@ export default function PreClientes() {
         email: pre.email,
         endereco: pre.endereco_completo,
         observacoes: `Originado do Writer · Produto: ${pre.produto || "—"}${pre.rg ? ` · RG: ${pre.rg}` : ""}${pre.profissao ? ` · ${pre.profissao}` : ""}`,
+        drive_folder_url: driveFolderUrl,
       })
       .select()
       .single();
@@ -89,6 +167,7 @@ export default function PreClientes() {
         cliente_id: novoCliente.id,
         confirmed_at: new Date().toISOString(),
         confirmed_by: user.id,
+        drive_folder_url: driveFolderUrl,
       })
       .eq("id", pre.id);
     if (errPre) { toast.error("Cliente criado, mas falhou atualizar pré-cliente: " + errPre.message); }
@@ -228,26 +307,7 @@ export default function PreClientes() {
 
                 {podeAgir && (
                   <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500">
-                          <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                          Confirmar cadastro
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Confirmar cadastro de {pre.nome}?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Vai criar um cliente em Clientes com os dados do pré-cadastro e marcar o pré-cliente como confirmado. Não pode ser desfeito automaticamente.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => confirmar(pre)}>Confirmar</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                    <ConfirmarDialog pre={pre} onConfirm={(driveUrl) => confirmar(pre, driveUrl)} />
 
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
