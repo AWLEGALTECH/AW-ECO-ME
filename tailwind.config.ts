@@ -13,11 +13,11 @@ export default {
       },
     },
     fontFamily: {
-      sans:    ["Inter", "system-ui", "-apple-system", "sans-serif"],
-      body:    ["Inter", "system-ui", "-apple-system", "sans-serif"],
-      display: ["Inter Tight", "Inter", "system-ui", "sans-serif"],
-      serif:   ["Fraunces", "ui-serif", "Georgia", "serif"],
-      mono:    ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
+      sans:    ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
+      body:    ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
+      display: ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
+      serif:   ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
+      mono:    ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
     },
     extend: {
       colors: {

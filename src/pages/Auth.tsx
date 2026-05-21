@@ -198,7 +198,7 @@ export default function Auth() {
           </div>
           <h1 className="text-white text-5xl font-medium leading-[1.1] tracking-tight">
             Inteligencia Juridica<br />
-            <span className="font-serif italic font-light text-primary">Unificada.</span>
+            <span className="text-primary">Unificada.</span>
           </h1>
           <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">
             A tradicao e excelencia de Martins Pontes Advocacia, potencializadas pela tecnologia do AW ECO.
