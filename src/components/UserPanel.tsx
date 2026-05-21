@@ -12,17 +12,9 @@ import { LogOut, Upload, User, Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-const ACCENT_COLORS = [
-  { key: "blue" as const, label: "Azul", hsl: "210 70% 50%" },
-  { key: "green" as const, label: "Verde", hsl: "142 71% 45%" },
-  { key: "red" as const, label: "Vermelho", hsl: "0 72% 51%" },
-  { key: "purple" as const, label: "Roxo", hsl: "270 60% 50%" },
-  { key: "gold" as const, label: "Dourado", hsl: "38 92% 50%" },
-];
-
 export function UserPanel() {
   const { user, profile, signOut } = useAuth();
-  const { mode, color, setMode, setColor } = useTheme();
+  const { mode, setMode } = useTheme();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || null);
@@ -161,23 +153,6 @@ export function UserPanel() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Modo Escuro</span>
             <Switch checked={mode === "dark"} onCheckedChange={(v) => setMode(v ? "dark" : "light")} />
-          </div>
-
-          <div>
-            <span className="text-sm font-medium block mb-2">Cor de Destaque</span>
-            <div className="flex gap-2">
-              {ACCENT_COLORS.map((c) => (
-                <button
-                  key={c.key}
-                  onClick={() => setColor(c.key)}
-                  className={`h-8 w-8 rounded-full border-2 transition-all ${
-                    color === c.key ? "border-foreground scale-110" : "border-transparent"
-                  }`}
-                  style={{ backgroundColor: `hsl(${c.hsl})` }}
-                  title={c.label}
-                />
-              ))}
-            </div>
           </div>
         </div>
 
