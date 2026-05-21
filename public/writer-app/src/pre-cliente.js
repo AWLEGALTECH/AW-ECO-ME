@@ -121,7 +121,9 @@ async function salvarPreCliente() {
         'apikey': PRE_CLIENTE_SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${PRE_CLIENTE_SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
+        // 'return=minimal' evita o RETURNING (que falharia, pois anon
+        // nao tem SELECT em pre_clientes — so authenticated tem).
+        'Prefer': 'return=minimal',
       },
       body: JSON.stringify(payload),
     });
@@ -132,10 +134,9 @@ async function salvarPreCliente() {
       return { ok: false, error: txt };
     }
 
-    const [created] = await resp.json();
     _ultimoPreClienteEnviado = hash;
-    console.log('[pre-cliente] criado:', created.id);
-    return { ok: true, id: created.id };
+    console.log('[pre-cliente] criado com sucesso (status ' + resp.status + ')');
+    return { ok: true };
   } catch (e) {
     console.error('[pre-cliente] excecao:', e);
     return { ok: false, error: String(e) };
