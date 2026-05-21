@@ -12,8 +12,8 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  mode: "light",
-  color: "blue",
+  mode: "dark",
+  color: "purple",
   setMode: () => {},
   setColor: () => {},
 });
@@ -44,25 +44,25 @@ function applyTheme(mode: "light" | "dark", color: ThemeColor) {
     root.classList.remove("dark");
   }
 
-  if (color !== "blue") {
-    const c = mode === "dark" ? DARK_COLOR_MAP[color] : COLOR_MAP[color];
-    root.style.setProperty("--primary", c.primary);
-    root.style.setProperty("--ring", COLOR_MAP[color].ring);
-    if (mode === "dark" && "primaryFg" in c) {
-      root.style.setProperty("--primary-foreground", (c as any).primaryFg);
-    }
+  const c = mode === "dark" ? DARK_COLOR_MAP[color] : COLOR_MAP[color];
+  root.style.setProperty("--primary", c.primary);
+  root.style.setProperty("--ring", COLOR_MAP[color].ring);
+  if (mode === "dark" && "primaryFg" in c) {
+    root.style.setProperty("--primary-foreground", (c as any).primaryFg);
   } else {
-    // Reset to defaults
-    root.style.removeProperty("--primary");
-    root.style.removeProperty("--ring");
     root.style.removeProperty("--primary-foreground");
   }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [mode, setModeState] = useState<"light" | "dark">("light");
-  const [color, setColorState] = useState<ThemeColor>("blue");
+  const [mode, setModeState] = useState<"light" | "dark">("dark");
+  const [color, setColorState] = useState<ThemeColor>("purple");
+
+  // Apply default theme on mount
+  useEffect(() => {
+    applyTheme("dark", "purple");
+  }, []);
 
   // Load from profile
   useEffect(() => {
@@ -74,8 +74,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       .single()
       .then(({ data }) => {
         if (data) {
-          const m = (data.theme_mode as "light" | "dark") || "light";
-          const c = (data.theme_color as ThemeColor) || "blue";
+          const m = (data.theme_mode as "light" | "dark") || "dark";
+          const c = (data.theme_color as ThemeColor) || "purple";
           setModeState(m);
           setColorState(c);
           applyTheme(m, c);
