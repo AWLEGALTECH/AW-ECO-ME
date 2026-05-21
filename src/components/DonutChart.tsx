@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { PieChart, Pie, Cell, Sector, ResponsiveContainer } from "recharts";
+import { AnimatePresence, motion } from "framer-motion";
 
 const COLORS = [
-  "hsl(270, 100%, 50%)",
-  "hsl(270, 80%, 65%)",
-  "hsl(270, 60%, 40%)",
+  "hsl(270, 100%, 62%)",
+  "hsl(270, 80%, 72%)",
+  "hsl(270, 60%, 48%)",
+  "hsl(270, 35%, 78%)",
   "hsl(0, 0%, 55%)",
-  "hsl(270, 40%, 75%)",
-  "hsl(0, 0%, 40%)",
+  "hsl(0, 0%, 38%)",
 ];
 
 interface DonutChartProps {
@@ -18,32 +19,16 @@ interface DonutChartProps {
 }
 
 const renderActiveShape = (props: any) => {
-  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
   return (
-    <g>
-      <text x={cx} y={cy - 8} textAnchor="middle" fill="hsl(0,0%,100%)" fontSize={14} fontWeight={600}>
-        {payload.name}
-      </text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fill="hsl(0,0%,69%)" fontSize={12}>
-        {value} ({(percent * 100).toFixed(0)}%)
-      </text>
+    <g style={{ filter: `drop-shadow(0 0 10px ${fill})` }}>
       <Sector
         cx={cx}
         cy={cy}
         innerRadius={innerRadius}
-        outerRadius={outerRadius + 8}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
-        style={{ filter: "drop-shadow(0 0 8px hsla(270,100%,50%,0.3))" }}
-      />
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius - 4}
-        outerRadius={innerRadius - 1}
-        startAngle={startAngle}
-        endAngle={endAngle}
+        outerRadius={outerRadius + 4}
+        startAngle={startAngle - 0.5}
+        endAngle={endAngle + 0.5}
         fill={fill}
       />
     </g>
@@ -58,10 +43,13 @@ export function DonutChart({ data, height = 280, emptyMessage = "Sem dados", onS
     return <p className="text-center text-muted-foreground py-8">{emptyMessage}</p>;
   }
 
+  const active = activeIndex !== undefined ? data[activeIndex] : undefined;
+  const activePct = active && total > 0 ? Math.round((active.value / total) * 100) : 0;
+
   return (
     <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
-      <div className="w-full sm:flex-1 min-w-0">
-        <ResponsiveContainer width="100%" height={height}>
+      <div className="relative w-full sm:flex-1 min-w-0" style={{ height }}>
+        <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               activeIndex={activeIndex}
@@ -69,43 +57,97 @@ export function DonutChart({ data, height = 280, emptyMessage = "Sem dados", onS
               data={data}
               cx="50%"
               cy="50%"
-              innerRadius={55}
-              outerRadius={85}
+              innerRadius={62}
+              outerRadius={90}
+              paddingAngle={1.5}
+              cornerRadius={4}
               dataKey="value"
               onMouseEnter={(_, index) => setActiveIndex(index)}
               onMouseLeave={() => setActiveIndex(undefined)}
               onClick={(_, index) => onSliceClick?.(data[index].name)}
               style={onSliceClick ? { cursor: "pointer" } : undefined}
               animationBegin={0}
-              animationDuration={800}
+              animationDuration={650}
+              animationEasing="ease-out"
             >
               {data.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="hsl(var(--card))" strokeWidth={2} />
+                <Cell
+                  key={i}
+                  fill={COLORS[i % COLORS.length]}
+                  stroke="transparent"
+                  style={{
+                    transition: "opacity 240ms ease, filter 240ms ease",
+                    opacity: activeIndex === undefined || activeIndex === i ? 1 : 0.35,
+                    outline: "none",
+                  }}
+                />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
+
+        {/* Center label — animated with Framer Motion */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+          <AnimatePresence mode="wait">
+            {active ? (
+              <motion.div
+                key={active.name}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+              >
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground max-w-[120px] truncate mx-auto">
+                  {active.name}
+                </p>
+                <p className="text-2xl font-medium tabular-nums mt-0.5">{active.value}</p>
+                <p className="text-[11px] text-muted-foreground tabular-nums">{activePct}%</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="total"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+              >
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Total</p>
+                <p className="text-2xl font-medium tabular-nums mt-0.5">{total}</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
-      <div className="flex flex-row flex-wrap sm:flex-col gap-2 sm:min-w-[140px] justify-center">
-        {data.map((entry, i) => (
-          <div
-            key={entry.name}
-            className="flex items-center gap-2 text-sm cursor-pointer transition-opacity"
-            style={{ opacity: activeIndex !== undefined && activeIndex !== i ? 0.4 : 1 }}
-            onMouseEnter={() => setActiveIndex(i)}
-            onMouseLeave={() => setActiveIndex(undefined)}
-            onClick={() => onSliceClick?.(entry.name)}
-          >
-            <span
-              className="h-2.5 w-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: COLORS[i % COLORS.length] }}
-            />
-            <span className="text-muted-foreground truncate">{entry.name}</span>
-            <span className="ml-auto font-medium text-foreground tabular-nums">
-              {total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0}%
-            </span>
-          </div>
-        ))}
+
+      <div className="flex flex-row flex-wrap sm:flex-col gap-1.5 sm:min-w-[150px] justify-center">
+        {data.map((entry, i) => {
+          const pct = total > 0 ? Math.round((entry.value / total) * 100) : 0;
+          const isActive = activeIndex === i;
+          const isDimmed = activeIndex !== undefined && !isActive;
+          return (
+            <div
+              key={entry.name}
+              className="flex items-center gap-2 text-sm cursor-pointer rounded-md px-2 py-1 transition-all duration-200"
+              style={{
+                opacity: isDimmed ? 0.4 : 1,
+                background: isActive ? "rgba(255,255,255,0.04)" : "transparent",
+              }}
+              onMouseEnter={() => setActiveIndex(i)}
+              onMouseLeave={() => setActiveIndex(undefined)}
+              onClick={() => onSliceClick?.(entry.name)}
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full shrink-0 transition-transform duration-200"
+                style={{
+                  backgroundColor: COLORS[i % COLORS.length],
+                  transform: isActive ? "scale(1.3)" : "scale(1)",
+                }}
+              />
+              <span className="text-muted-foreground truncate flex-1">{entry.name}</span>
+              <span className="font-medium text-foreground tabular-nums">{pct}%</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
