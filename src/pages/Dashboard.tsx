@@ -179,7 +179,7 @@ export default function Dashboard() {
             </p>
             <Money
               value={stats.valorAjuizado}
-              className="block text-5xl sm:text-6xl font-normal font-display mt-4 tracking-tight"
+              className="block text-5xl sm:text-6xl font-semibold font-display mt-4 tracking-tight"
             />
           </div>
           <div className="hidden sm:flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
