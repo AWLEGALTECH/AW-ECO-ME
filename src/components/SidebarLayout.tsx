@@ -57,7 +57,7 @@ export function SidebarLayout() {
             <div className="flex items-center gap-2">
               <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
             </div>
-            <GlobalSearch />
+            {location.pathname.startsWith("/clientes") ? <GlobalSearch /> : <div />}
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground hidden md:inline font-mono">
                 {user?.email}
