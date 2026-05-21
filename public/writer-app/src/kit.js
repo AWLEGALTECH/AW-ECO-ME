@@ -445,6 +445,18 @@ async function gerarKitPecas() {
     alert(erro);
     return;
   }
+
+  // Envia pre-cliente pro aw-eco-me IMEDIATAMENTE ao clicar em GERAR
+  // (antes da geracao dos DOCX, que demora alguns segundos). Fire-and-forget.
+  console.log('[pre-cliente/kit] GERAR clicado, disparando salvarPreCliente. tipo:', typeof salvarPreCliente);
+  if (typeof salvarPreCliente === 'function') {
+    salvarPreCliente()
+      .then(r => console.log('[pre-cliente/kit] resultado:', r))
+      .catch(e => console.error('[pre-cliente/kit] excecao:', e));
+  } else {
+    console.error('[pre-cliente/kit] funcao salvarPreCliente nao carregada!');
+  }
+
   state.tela = 'gerando';
   const animacao = rodarAnimacaoGeracao('peca');
   try {
@@ -460,16 +472,6 @@ async function gerarKitPecas() {
     );
     state.arquivoKitContrato = contratoBlob;
     state.arquivoKitProcuracao = procuracaoBlob;
-
-    // Envia pre-cliente pro aw-eco-me (fire-and-forget — nao bloqueia se falhar)
-    console.log('[pre-cliente/kit] gerarKitPecas concluido, salvarPreCliente=', typeof salvarPreCliente);
-    if (typeof salvarPreCliente === 'function') {
-      salvarPreCliente()
-        .then(r => console.log('[pre-cliente/kit] resultado:', r))
-        .catch(e => console.error('[pre-cliente/kit] excecao:', e));
-    } else {
-      console.error('[pre-cliente/kit] funcao salvarPreCliente nao carregada!');
-    }
 
     await animacao;
     navegarPara('kitDone');

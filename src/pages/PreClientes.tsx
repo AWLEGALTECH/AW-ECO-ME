@@ -62,6 +62,8 @@ export default function PreClientes() {
       if (error) throw error;
       return (data || []) as unknown as PreCliente[];
     },
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
   });
 
   const confirmar = async (pre: PreCliente) => {
