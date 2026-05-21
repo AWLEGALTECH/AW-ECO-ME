@@ -196,7 +196,7 @@ export default function Dashboard() {
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">sem suspensos nem arquivados</p>
             <Money
               value={stats.valorAtivo}
-              className="block text-2xl font-normal font-display mt-2 text-emerald-400"
+              className="block text-2xl font-semibold font-display mt-2 text-emerald-400"
             />
           </div>
         </SpotlightCard>
@@ -206,7 +206,7 @@ export default function Dashboard() {
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas paradas</p>
             <Money
               value={stats.valorSuspensos}
-              className="block text-2xl font-normal font-display mt-2 text-amber-400"
+              className="block text-2xl font-semibold font-display mt-2 text-amber-400"
             />
           </div>
         </SpotlightCard>
@@ -216,7 +216,7 @@ export default function Dashboard() {
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas encerradas</p>
             <Money
               value={stats.valorArquivados}
-              className="block text-2xl font-normal font-display mt-2"
+              className="block text-2xl font-semibold font-display mt-2"
             />
           </div>
         </SpotlightCard>
