@@ -15,6 +15,7 @@ import Clientes from "./pages/Clientes";
 import ClienteDetail from "./pages/ClienteDetail";
 import Processos from "./pages/Processos";
 import ProcessoDetail from "./pages/ProcessoDetail";
+import Writer from "./pages/Writer";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -53,6 +54,7 @@ const App = () => (
                 <Route path="/clientes/:id" element={<ClienteDetail />} />
                 <Route path="/processos" element={<Processos />} />
                 <Route path="/processos/:id" element={<ProcessoDetail />} />
+                <Route path="/writer" element={<Writer />} />
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />

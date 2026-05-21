@@ -1,7 +1,7 @@
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { appConfig } from "@/config/app-config";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,6 +21,7 @@ const navItems: NavItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Clientes",  url: "/clientes",  icon: Users },
   { title: "Processos", url: "/processos", icon: Briefcase },
+  { title: "Writer",    url: "/writer",    icon: PenSquare },
 ];
 
 export function AppSidebar() {
