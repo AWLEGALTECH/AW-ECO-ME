@@ -1,7 +1,9 @@
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -15,13 +17,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-interface NavItem { title: string; url: string; icon: any }
+interface NavItem { title: string; url: string; icon: any; badgeKey?: string }
 
 const navItems: NavItem[] = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Clientes",  url: "/clientes",  icon: Users },
-  { title: "Processos", url: "/processos", icon: Briefcase },
-  { title: "Writer",    url: "/writer",    icon: PenSquare },
+  { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard },
+  { title: "Clientes",      url: "/clientes",      icon: Users },
+  { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature, badgeKey: "pendentes" },
+  { title: "Processos",     url: "/processos",     icon: Briefcase },
+  { title: "Writer",        url: "/writer",        icon: PenSquare },
 ];
 
 export function AppSidebar() {
@@ -29,6 +32,19 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Badge: contagem de pre-clientes aguardando assinatura (atualiza a cada 30s)
+  const { data: pendentesCount } = useQuery({
+    queryKey: ["pre_clientes_pendentes_count"],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("pre_clientes")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "aguardando_assinatura");
+      return count || 0;
+    },
+    refetchInterval: 30_000,
+  });
 
   return (
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
@@ -72,7 +88,16 @@ export function AppSidebar() {
                     >
                       <NavLink to={item.url} end className="" activeClassName="">
                         <item.icon className="h-4 w-4 shrink-0" />
-                        {!collapsed && <span className="text-sm">{item.title}</span>}
+                        {!collapsed && (
+                          <span className="text-sm flex-1 flex items-center justify-between">
+                            {item.title}
+                            {item.badgeKey === "pendentes" && (pendentesCount ?? 0) > 0 && (
+                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {pendentesCount}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

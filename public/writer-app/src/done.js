@@ -10,6 +10,12 @@
 function renderDone(view) {
   const nome = state.dadosPacote1.nome_completo || 'Cliente';
   const p = state.produtoSelecionado;
+
+  // Envia pre-cliente pro aw-eco-me (silencioso — nao bloqueia UI mesmo se falhar)
+  if (typeof salvarPreCliente === 'function') {
+    salvarPreCliente().catch(e => console.error('[pre-cliente] falha:', e));
+  }
+
   const hasImage = p.capa && p.capa.length > 0;
   const coverStyle = hasImage ? `background-image: url('${p.capa}')` : '';
   const coverClass = hasImage ? 'has-image' : 'placeholder';
