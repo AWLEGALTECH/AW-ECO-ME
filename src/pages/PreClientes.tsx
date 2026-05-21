@@ -10,7 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 
 interface PreCliente {
@@ -24,6 +24,7 @@ interface PreCliente {
   email: string | null;
   endereco_completo: string | null;
   produto: string | null;
+  rubricas: string[] | null;
   valor_causa: number | null;
   status: "aguardando_assinatura" | "confirmado" | "cancelado";
   origem: string;
@@ -171,6 +172,12 @@ export default function PreClientes() {
                       <dd className="text-foreground truncate">{pre.produto}</dd>
                     </div>
                   )}
+                  {pre.rubricas && pre.rubricas.length > 0 && (
+                    <div className="flex gap-2">
+                      <dt className="text-muted-foreground w-20 shrink-0 flex items-center gap-1"><Scale className="h-3 w-3" />Réu</dt>
+                      <dd className="text-foreground truncate">{pre.rubricas.join(", ")}</dd>
+                    </div>
+                  )}
                   {pre.valor_causa != null && (
                     <div className="flex gap-2">
                       <dt className="text-muted-foreground w-20 shrink-0">Valor</dt>
@@ -212,7 +219,7 @@ export default function PreClientes() {
 
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive">
+                        <Button size="sm" className="bg-red-600 hover:bg-red-500 text-white">
                           <XCircle className="h-4 w-4 mr-1.5" />
                           Cancelar
                         </Button>
