@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Inter+Tight:wght@400;500;600;700&family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -51,12 +51,12 @@ html, body, #root {
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Montserrat', sans-serif;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Montserrat', sans-serif;
-    letter-spacing: -0.01em;
+    font-family: 'Inter Tight', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.015em;
   }
 }
 

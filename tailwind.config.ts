@@ -13,11 +13,11 @@ export default {
       },
     },
     fontFamily: {
-      sans: ["Montserrat", "sans-serif"],
-      body: ["Montserrat", "sans-serif"],
-      display: ["Montserrat", "sans-serif"],
-      mono: ["Montserrat", "sans-serif"],
-      serif: ["Montserrat", "sans-serif"],
+      sans:    ["Inter", "system-ui", "-apple-system", "sans-serif"],
+      body:    ["Inter", "system-ui", "-apple-system", "sans-serif"],
+      display: ["Inter Tight", "Inter", "system-ui", "sans-serif"],
+      serif:   ["Fraunces", "ui-serif", "Georgia", "serif"],
+      mono:    ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
     },
     extend: {
       colors: {
