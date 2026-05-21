@@ -47,10 +47,16 @@ function applyTheme(mode: "light" | "dark", color: ThemeColor) {
   const c = mode === "dark" ? DARK_COLOR_MAP[color] : COLOR_MAP[color];
   root.style.setProperty("--primary", c.primary);
   root.style.setProperty("--ring", COLOR_MAP[color].ring);
+  // accent acompanha o primary (usado em hover/highlight de itens
+  // como Select dropdown, Menu items, etc) — sem isso o tema fica
+  // com resíduos da cor anterior em controles do shadcn.
+  root.style.setProperty("--accent", c.primary);
   if (mode === "dark" && "primaryFg" in c) {
     root.style.setProperty("--primary-foreground", (c as any).primaryFg);
+    root.style.setProperty("--accent-foreground", (c as any).primaryFg);
   } else {
     root.style.removeProperty("--primary-foreground");
+    root.style.removeProperty("--accent-foreground");
   }
 }
 

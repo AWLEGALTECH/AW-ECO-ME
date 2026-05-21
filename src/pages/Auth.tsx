@@ -42,7 +42,7 @@ function FloatingInput({
         className={cn(
           "peer flex h-14 w-full rounded-xl border bg-card/60 px-4 pt-5 pb-2 text-sm text-foreground outline-none transition-all duration-300 backdrop-blur-sm",
           focused
-            ? "border-primary shadow-[0_0_20px_hsla(270,100%,50%,0.25)] ring-1 ring-primary/30"
+            ? "border-primary shadow-[0_0_20px_hsla(var(--primary)/0.25)] ring-1 ring-primary/30"
             : "border-border hover:border-muted-foreground/30"
         )}
       />
@@ -110,7 +110,7 @@ export default function Auth() {
         <motion.div initial="hidden" animate="show" className="relative z-10 mx-auto w-full max-w-sm">
           <motion.div custom={0} variants={fadeUp} className="mb-12">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-[0_0_20px_hsla(270,100%,62%,0.4)]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-[0_0_20px_hsla(var(--primary)/0.4)]">
                 <span className="text-lg font-black text-primary-foreground tracking-tighter">AW</span>
               </div>
               <div>
@@ -155,7 +155,7 @@ export default function Auth() {
               <button
                 type="submit"
                 disabled={loading}
-                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-all duration-300 hover:brightness-110 hover:shadow-[0_0_30px_hsla(270,100%,50%,0.4)] disabled:opacity-50 disabled:pointer-events-none"
+                className="group relative flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-all duration-300 hover:brightness-110 hover:shadow-[0_0_30px_hsla(var(--primary)/0.4)] disabled:opacity-50 disabled:pointer-events-none"
               >
                 {loading ? (
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
