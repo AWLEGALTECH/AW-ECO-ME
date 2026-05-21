@@ -1,15 +1,30 @@
 import { useState } from "react";
 import { PieChart, Pie, Cell, Sector, ResponsiveContainer } from "recharts";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTheme } from "@/hooks/useTheme";
 
-const COLORS = [
-  "hsl(270, 100%, 62%)",
-  "hsl(270, 80%, 72%)",
-  "hsl(270, 60%, 48%)",
-  "hsl(270, 35%, 78%)",
-  "hsl(0, 0%, 55%)",
-  "hsl(0, 0%, 38%)",
-];
+/**
+ * Paleta de 6 tons gerada por hue, variando saturação e luminosidade.
+ * Os últimos 2 tons são cinzas (neutros) para fatias menos relevantes.
+ */
+function buildPalette(hue: number): string[] {
+  return [
+    `hsl(${hue}, 100%, 62%)`,
+    `hsl(${hue}, 80%, 72%)`,
+    `hsl(${hue}, 65%, 46%)`,
+    `hsl(${hue}, 40%, 78%)`,
+    "hsl(0, 0%, 55%)",
+    "hsl(0, 0%, 38%)",
+  ];
+}
+
+const HUE_BY_THEME: Record<string, number> = {
+  blue: 210,
+  green: 142,
+  red: 0,
+  purple: 270,
+  gold: 38,
+};
 
 interface DonutChartProps {
   data: { name: string; value: number }[];
@@ -35,6 +50,8 @@ const renderActiveShape = (props: any) => {
 
 export function DonutChart({ data, height = 280, emptyMessage = "Sem dados", onSliceClick }: DonutChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+  const { color } = useTheme();
+  const COLORS = buildPalette(HUE_BY_THEME[color] ?? 270);
   const total = data.reduce((s, d) => s + d.value, 0);
 
   if (!data.length) {
