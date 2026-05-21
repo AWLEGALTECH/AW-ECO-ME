@@ -10,7 +10,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { appConfig } from "@/config/app-config";
 
 interface PreCliente {
@@ -50,6 +51,7 @@ export default function PreClientes() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [filtroStatus, setFiltroStatus] = useState<PreCliente["status"] | "todos">("aguardando_assinatura");
+  const [busca, setBusca] = useState("");
 
   const { data: preClientes, isLoading } = useQuery({
     queryKey: ["pre_clientes", filtroStatus],
@@ -92,6 +94,20 @@ export default function PreClientes() {
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
   };
 
+  const preClientesFiltrados = (preClientes ?? []).filter(p => {
+    if (!busca.trim()) return true;
+    const q = busca.trim().toLowerCase();
+    const haystack = [
+      p.nome,
+      p.cpf_cnpj,
+      p.produto,
+      p.telefone,
+      p.email,
+      ...(p.rubricas ?? []),
+    ].filter(Boolean).join(" ").toLowerCase();
+    return haystack.includes(q);
+  });
+
   const cancelar = async (pre: PreCliente) => {
     if (!user) return;
     const { error } = await supabase
@@ -133,21 +149,35 @@ export default function PreClientes() {
         </div>
       </header>
 
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por nome, CPF, produto ou réu…"
+          className="pl-9 h-11 bg-card/40 border-border"
+        />
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
-      ) : !preClientes?.length ? (
+      ) : !preClientesFiltrados.length ? (
         <SpotlightCard className="py-16 text-center">
           <FileSignature className="h-10 w-10 mx-auto text-muted-foreground/40" />
           <p className="mt-4 text-sm text-muted-foreground">
-            Nenhum pré-cliente {filtroStatus !== "todos" ? "neste status" : "ainda"}.
+            {busca.trim()
+              ? `Nenhum pré-cliente encontrado para "${busca}"`
+              : `Nenhum pré-cliente ${filtroStatus !== "todos" ? "neste status" : "ainda"}.`}
           </p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            Quando um contrato for gerado no Writer, ele aparece aqui pra confirmação.
-          </p>
+          {!busca.trim() && (
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Quando um contrato for gerado no Writer, ele aparece aqui pra confirmação.
+            </p>
+          )}
         </SpotlightCard>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {preClientes.map(pre => {
+          {preClientesFiltrados.map(pre => {
             const meta = STATUS_META[pre.status];
             const podeAgir = pre.status === "aguardando_assinatura";
             return (
