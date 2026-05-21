@@ -56,7 +56,7 @@ export function GlobalSearch() {
   return (
     <div ref={ref} className="relative hidden md:block">
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-primary-foreground/50" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input
           type="search"
           value={query}
@@ -72,7 +72,7 @@ export function GlobalSearch() {
           data-form-type="other"
           data-lpignore="true"
           data-1p-ignore="true"
-          className="w-64 pl-8 h-8 text-sm bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground placeholder:text-primary-foreground/50 focus-visible:ring-primary-foreground/30"
+          className="w-64 pl-8 h-8 text-sm bg-card/60 border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/50 [&::-webkit-search-cancel-button]:appearance-none"
         />
       </div>
       {open && (
