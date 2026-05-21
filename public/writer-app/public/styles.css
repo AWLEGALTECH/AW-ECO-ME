@@ -2,16 +2,16 @@
    TOKENS — alinhados com aw-eco-me (mesmas HSL do tailwind/theme)
    ========================================================================= */
 :root {
-  /* Backgrounds — mesmas do app (hsl 222 47% ...) */
-  --bg:          hsl(222 47% 4%);
-  --bg-modal:    hsl(222 47% 3% / 0.95);
-  --bg-card:     hsl(222 47% 6%);
-  --bg-glass:    hsl(222 47% 6% / 0.6);
+  /* Backgrounds — neutros (hsl 0 0% ...) sem viés de hue */
+  --bg:          hsl(0 0% 3%);
+  --bg-modal:    hsl(0 0% 2% / 0.95);
+  --bg-card:     hsl(0 0% 6%);
+  --bg-glass:    hsl(0 0% 6% / 0.6);
   --bg-row-hover: rgba(255, 255, 255, 0.03);
 
   --line-dim:    rgba(255, 255, 255, 0.04);
-  --line:        hsl(222 47% 12%);
-  --line-bright: hsl(222 47% 18%);
+  --line:        hsl(0 0% 14%);
+  --line-bright: hsl(0 0% 20%);
 
   /* Roxo — mesmo --primary do aw-eco-me (hsl 270 60% 60%) */
   --violet:             hsl(270 60% 60%);
@@ -24,11 +24,11 @@
   --violet-gradient:    linear-gradient(135deg, hsla(270, 60%, 60%, 0.12) 0%, hsla(270, 60%, 48%, 0.04) 100%);
 
   /* Texto — mesmas escalas do aw-eco-me */
-  --text:       hsl(210 40% 98%);
-  --text-dim:   hsl(210 20% 65%);
-  --text-mute:  hsl(210 15% 50%);
-  --text-faint: hsl(210 12% 38%);
-  --text-ghost: hsl(210 10% 28%);
+  --text:       hsl(0 0% 98%);
+  --text-dim:   hsl(0 0% 65%);
+  --text-mute:  hsl(0 0% 50%);
+  --text-faint: hsl(0 0% 38%);
+  --text-ghost: hsl(0 0% 28%);
 
   --red:         hsl(0 72% 60%);
   --green:       hsl(142 70% 55%);
@@ -97,7 +97,7 @@ input, select, textarea {
   align-items: center;
   justify-content: space-between;
   padding: 14px 32px;
-  background: hsl(222 47% 4% / 0.85);
+  background: hsl(0 0% 3% / 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
@@ -300,7 +300,7 @@ input, select, textarea {
   outline: none;
   border-color: var(--violet-border);
   box-shadow: 0 0 0 3px var(--violet-border-soft);
-  background: hsl(222 47% 6% / 0.9);
+  background: hsl(0 0% 6% / 0.9);
 }
 .search-bar-icon {
   position: absolute;
@@ -2901,10 +2901,10 @@ input, select, textarea {
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: hsla(222, 47%, 25%, 0.6);
+  background: hsla(0, 0%, 22%, 0.7);
   border-radius: 4px;
 }
-*::-webkit-scrollbar-thumb:hover { background: hsla(222, 47%, 35%, 0.8); }
+*::-webkit-scrollbar-thumb:hover { background: hsla(0, 0%, 32%, 0.9); }
 
 /* Selecao com cor primary */
 ::selection { background: var(--violet-bg); color: var(--text); }

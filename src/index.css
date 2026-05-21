@@ -14,33 +14,33 @@ html, body, #root {
 
 @layer base {
   :root {
-    --background: 222 47% 4%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 6%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 7%;
-    --popover-foreground: 210 40% 98%;
+    --background: 0 0% 3%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
     --primary: 270 100% 62%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 47% 10%;
-    --secondary-foreground: 210 30% 80%;
-    --muted: 222 47% 9%;
-    --muted-foreground: 210 20% 60%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 80%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 0 0% 60%;
     --accent: 270 100% 62%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 47% 12%;
-    --input: 222 47% 10%;
+    --border: 0 0% 14%;
+    --input: 0 0% 10%;
     --ring: 270 100% 62%;
     --radius: 0.875rem;
-    --sidebar-background: 222 47% 3%;
-    --sidebar-foreground: 210 30% 80%;
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 0 0% 80%;
     --sidebar-primary: 270 100% 62%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 47% 10%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 47% 12%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 14%;
     --sidebar-ring: 270 100% 62%;
   }
 }
