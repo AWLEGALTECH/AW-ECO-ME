@@ -81,6 +81,12 @@ const fmtBRL = (v: number | null) =>
 const fmtDate = (iso: string | null) =>
   !iso ? "—" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
 
+const fmtDateTime = (iso: string | null) =>
+  !iso ? "—" : new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }).format(new Date(iso));
+
 const ORIGEM_META: Record<string, { label: string; color: string }> = {
   writer:  { label: "Originado no Writer", color: "text-primary border-primary/30 bg-primary/10" },
   manual:  { label: "Cadastro Manual",     color: "text-muted-foreground border-border bg-muted/20" },
@@ -519,8 +525,8 @@ function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
             <h4 className="text-sm font-medium">Análise Documental</h4>
-            <span className="text-[11px] text-muted-foreground">
-              {fmtDate(demanda.created_at)}
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {fmtDateTime(demanda.created_at)}
             </span>
           </div>
           {filhas.length === 0 ? (
