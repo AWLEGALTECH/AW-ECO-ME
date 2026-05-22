@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -25,6 +25,7 @@ const navItems: NavItem[] = [
   { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature, badgeKey: "pendentes" },
   { title: "Processos",     url: "/processos",     icon: Briefcase },
   { title: "Writer",        url: "/writer",        icon: PenSquare },
+  { title: "Finder",        url: "/finder",        icon: ScanSearch },
 ];
 
 export function AppSidebar() {

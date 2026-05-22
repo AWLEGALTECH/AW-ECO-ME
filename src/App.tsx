@@ -16,6 +16,7 @@ import ClienteDetail from "./pages/ClienteDetail";
 import Processos from "./pages/Processos";
 import ProcessoDetail from "./pages/ProcessoDetail";
 import Writer from "./pages/Writer";
+import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
 import NotFound from "./pages/NotFound";
 
@@ -56,6 +57,7 @@ const App = () => (
                 <Route path="/processos" element={<Processos />} />
                 <Route path="/processos/:id" element={<ProcessoDetail />} />
                 <Route path="/writer" element={<Writer />} />
+                <Route path="/finder" element={<Finder />} />
                 <Route path="/pre-clientes" element={<PreClientes />} />
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>
