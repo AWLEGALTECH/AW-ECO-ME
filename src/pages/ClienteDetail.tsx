@@ -553,9 +553,23 @@ function PrePipeline({
   };
 
   const irParaFinder = async () => {
-    // Marca a análise documental como "em andamento" e direciona pro Finder
-    const ad = demandas.find(d => d.etapa === "analise_documental");
-    if (ad && ad.status === "pendente") {
+    // Garante que existe uma analise_documental pra esse cliente.
+    // Se nao tem (cliente antigo ou criado manualmente), cria agora.
+    let ad = demandas.find(d => d.etapa === "analise_documental");
+    if (!ad) {
+      const { data: nova, error } = await supabase.from("demandas" as any).insert({
+        cliente_id: clienteId,
+        tipo: "pre_protocolo",
+        etapa: "analise_documental",
+        titulo: "Análise documental inicial",
+        descricao: "Identificar quais descontos do cliente são ajuizáveis.",
+        status: "em_andamento",
+        created_by: userId,
+        ordem: 0,
+      }).select().single();
+      if (error) { toast.error("Erro ao iniciar pipeline: " + error.message); return; }
+      ad = nova as any;
+    } else if (ad.status === "pendente") {
       await supabase.from("demandas" as any).update({ status: "em_andamento" }).eq("id", ad.id);
     }
     const params = new URLSearchParams({ cliente: clienteId, nome: cliente.nome });
@@ -589,11 +603,27 @@ function PrePipeline({
 
   if (demandas.length === 0) {
     return (
-      <EmptyState
-        icon={ClipboardList}
-        title="Pipeline ainda não iniciado"
-        hint="Quando o pré-cliente é confirmado, uma análise documental é criada automaticamente como ponto de partida."
-      />
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-5 py-4 flex items-center gap-4">
+          <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+            <ClipboardList className="h-5 w-5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">Pipeline pré-protocolo ainda não iniciado</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Comece criando a análise documental — ela abre o Finder pra você processar os extratos do cliente.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={irParaFinder}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white shrink-0"
+          >
+            <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
+            Iniciar pipeline
+          </Button>
+        </div>
+      </div>
     );
   }
 
