@@ -765,6 +765,34 @@ async function handleFileTabela(ev) {
   await processarTabelaXlsx(file);
 }
 
+// Baixa a planilha vinculada (URL gravada no Supabase) e processa
+// como se fosse upload do user. Idempotente — pula se ja tem planilha.
+async function carregarPlanilhaDaAnaliseVinculada(url) {
+  if (!url) return { ok: false, reason: 'sem url' };
+  if (state.anexos && state.anexos.tabelaXlsx && typeof state.anexos.tabelaXlsx === 'object') {
+    return { ok: true, skipped: 'ja carregada' };
+  }
+  try {
+    console.log('[writer] baixando planilha da analise vinculada:', url);
+    const resp = await fetch(url, { mode: 'cors' });
+    if (!resp.ok) {
+      console.warn('[writer] download planilha falhou', resp.status);
+      return { ok: false, error: 'http ' + resp.status };
+    }
+    const blob = await resp.blob();
+    const fileName = url.split('/').pop() || 'analise-vinculada.xlsx';
+    const file = new File([blob], decodeURIComponent(fileName), {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    await processarTabelaXlsx(file);
+    console.log('[writer] planilha da analise vinculada carregada');
+    return { ok: true };
+  } catch (e) {
+    console.warn('[writer] excecao baixando planilha', e);
+    return { ok: false, error: String(e) };
+  }
+}
+
 async function handleDropTabela(ev) {
   ev.preventDefault();
   ev.currentTarget.classList.remove('drag-over');

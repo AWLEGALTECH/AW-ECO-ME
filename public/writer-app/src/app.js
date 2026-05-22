@@ -65,6 +65,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   render();
   atualizarBtnConfig();
 
+  // Se ha planilha da analise vinculada, baixa e injeta como anexo do
+  // pacote 3 (Tabela de descontos). Fire-and-forget — quando completar,
+  // o re-render via processarTabelaXlsx atualiza a UI.
+  if (state.contextoAnaliseVinculada && state.contextoAnaliseVinculada.analise_url
+      && typeof carregarPlanilhaDaAnaliseVinculada === 'function') {
+    carregarPlanilhaDaAnaliseVinculada(state.contextoAnaliseVinculada.analise_url)
+      .catch(e => console.warn('[writer] falha planilha:', e));
+  }
+
   // Carrega lista completa de clientes em background (nao bloqueia)
   if (typeof fetchClientesAW === 'function') {
     fetchClientesAW().then(cs => {
