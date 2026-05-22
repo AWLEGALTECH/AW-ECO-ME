@@ -92,6 +92,21 @@ function renderLobby(view) {
         </div>
         <!-- [TEMP-MESMO-CLIENTE] END -->
       ` : ''}
+      ${state.contextoAnaliseVinculada ? (() => {
+        const sug = state.produtoSugeridoId
+          ? PRODUTOS.find(p => p.id === state.produtoSugeridoId)
+          : null;
+        return `
+        <!-- Banner: confeccao de peca a partir de analise vinculada do aw-eco-me -->
+        <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid hsla(270,60%,60%,0.35); border-radius:12px; background:hsla(270,60%,60%,0.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; line-height:1.45; animation:fadeSlide 0.4s ease both;">
+          <div style="flex:1; min-width:240px;">
+            <div style="font-weight:600; color:hsl(270 60% 78%); margin-bottom:4px; font-size:12px; letter-spacing:1.5px; text-transform:uppercase;">Confeccionando peça vinculada</div>
+            <div style="opacity:.92;">Cliente: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.dadosPacote1.nome_completo || 'sem nome')}</strong> · Desconto: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.contextoAnaliseVinculada.desconto || '—')}</strong></div>
+            ${sug ? `<div style="opacity:.75; margin-top:6px; font-size:12px;">💡 Sugestão: <strong style="color:hsl(270 60% 80%);">${escapeHtml(sug.nome)}</strong> ${state.produtoSugeridoMotivo ? `<span style="opacity:.7;">· ${escapeHtml(state.produtoSugeridoMotivo)}</span>` : ''}</div>` : ''}
+          </div>
+        </div>
+        `;
+      })() : ''}
       ${state.clienteParaReaproveitar ? `
         <!-- [BRIDGE-CLIENTE] banner do reaproveitamento de cliente entre fluxos. -->
         <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid rgba(120,180,255,.35); border-radius:10px; background:rgba(120,180,255,.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:14px; line-height:1.45; animation:fadeSlide 0.4s ease both;">

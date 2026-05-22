@@ -330,3 +330,34 @@ function gerarLastroEconomicoTrecho() {
   const lastro = calcularLastroFinanceiro(valorNum, ufCaso, state.dadosPacote3._lastro_seed);
   return lastro.ok ? lastro.texto_definitivo : `[Erro: ${lastro.motivo_fraqueza}]`;
 }
+
+/* =========================================================================
+   SUGESTÃO DE PRODUTO — heurística por keywords no nome do desconto
+   Recebe o "desconto" salvo na demanda (ex: "Título de Capitalização")
+   e tenta achar o produto correspondente em PRODUTOS.
+   Quando não bate em nenhum (ou bate em múltiplos), sugere Mix Bradesco.
+   ========================================================================= */
+function sugerirProdutoPorDesconto(desconto) {
+  if (!desconto || !Array.isArray(PRODUTOS)) return null;
+  const txt = String(desconto).toLowerCase();
+  const MAPA = [
+    { id: 3,  keywords: ['tarifa', 'saque terminal', 'emissao', 'extrato'] },
+    { id: 5,  keywords: ['juros', 'encargo', 'mora', 'mcp', 'mcc', 'elc'] },
+    { id: 1,  keywords: ['debito automatico', 'débito automático', 'débito autom'] },
+    { id: 6,  keywords: ['prestamista'] },
+    { id: 7,  keywords: ['vida e prev', 'vidaprev', 'vida & prev'] },
+    { id: 8,  keywords: ['capitaliza', 'título de cap', 'titulo de cap'] },
+    { id: 11, keywords: ['cesta'] },
+    { id: 12, keywords: ['anuidade'] },
+    { id: 13, keywords: ['cartao protegido', 'cartão protegido', 'cartão seg'] },
+  ];
+  for (const m of MAPA) {
+    if (m.keywords.some(k => txt.includes(k))) {
+      const p = PRODUTOS.find(p => p.id === m.id);
+      if (p) return { id: p.id, motivo: `Sugerido por bater com "${desconto}"` };
+    }
+  }
+  // Default: Mix Bradesco (id 14) — sempre disponivel pra cobrir misturas
+  const mix = PRODUTOS.find(p => p.id === 14);
+  return mix ? { id: mix.id, motivo: 'Nenhum produto específico identificado · use Mix Bradesco' } : null;
+}

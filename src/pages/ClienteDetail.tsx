@@ -17,7 +17,7 @@ import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
-  Lock, ScanSearch,
+  Lock, ScanSearch, PenSquare,
 } from "lucide-react";
 
 interface Cliente {
@@ -466,7 +466,7 @@ function EmptyState({ icon: Icon, title, hint }: { icon: any; title: string; hin
   );
 }
 
-function DemandaCard({ demanda }: { demanda: Demanda }) {
+function DemandaCard({ demanda, action }: { demanda: Demanda; action?: React.ReactNode }) {
   const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
   const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
   return (
@@ -488,22 +488,21 @@ function DemandaCard({ demanda }: { demanda: Demanda }) {
           {demanda.descricao && (
             <p className="text-xs text-muted-foreground mt-2">{demanda.descricao}</p>
           )}
-          {(demanda.peca_drive_url || demanda.protocolo_drive_url) && (
-            <div className="flex items-center gap-3 mt-2 text-[11px]">
-              {demanda.peca_drive_url && (
-                <a href={demanda.peca_drive_url} target="_blank" rel="noreferrer"
-                   className="text-primary hover:underline inline-flex items-center gap-1">
-                  <FileText className="h-3 w-3" /> Peça
-                </a>
-              )}
-              {demanda.protocolo_drive_url && (
-                <a href={demanda.protocolo_drive_url} target="_blank" rel="noreferrer"
-                   className="text-primary hover:underline inline-flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Protocolo
-                </a>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3 mt-2 text-[11px]">
+            {demanda.peca_drive_url && (
+              <a href={demanda.peca_drive_url} target="_blank" rel="noreferrer"
+                 className="text-primary hover:underline inline-flex items-center gap-1">
+                <FileText className="h-3 w-3" /> Planilha
+              </a>
+            )}
+            {demanda.protocolo_drive_url && (
+              <a href={demanda.protocolo_drive_url} target="_blank" rel="noreferrer"
+                 className="text-primary hover:underline inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Protocolo
+              </a>
+            )}
+            {action && <div className="ml-auto">{action}</div>}
+          </div>
         </div>
       </div>
     </div>
@@ -520,8 +519,8 @@ function PrePipeline({
   const [savingVinc, setSavingVinc] = useState(false);
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ClipboardList, hint: "Identificar descontos ajuizáveis no Finder." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Uma planilha por desconto identificado." },
+    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch,    hint: "Vincule análises do Finder ao cliente." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
     { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Peças geradas a partir das análises." },
     { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo", Icon: Send,          hint: "Peças prontas com link do Drive." },
   ];
@@ -550,6 +549,46 @@ function PrePipeline({
     analise_vinculada:     "Bloqueado — vincule pelo menos uma análise no Finder pra liberar.",
     confeccao_peca:        "Bloqueado — conclua ao menos uma análise vinculada pra liberar.",
     pronta_para_protocolo: "Bloqueado — conclua ao menos uma peça pra liberar.",
+  };
+
+  const confeccionarPeca = async (av: Demanda) => {
+    // Cria uma demanda de confeccao_peca vinculada a esta análise (idempotente)
+    const { data: existe } = await supabase
+      .from("demandas" as any)
+      .select("id")
+      .eq("cliente_id", clienteId)
+      .eq("etapa", "confeccao_peca")
+      .eq("analise_pai_id", av.id)
+      .maybeSingle();
+    if (!existe) {
+      await supabase.from("demandas" as any).insert({
+        cliente_id: clienteId,
+        tipo: "pre_protocolo",
+        etapa: "confeccao_peca",
+        titulo: `Peça — ${av.desconto || "desconto"}`,
+        descricao: "Confecção da peça a partir da análise vinculada.",
+        desconto: av.desconto,
+        status: "em_andamento",
+        analise_pai_id: av.id,
+        created_by: userId,
+        ordem: 2,
+      });
+      onChange();
+    }
+    // Abre o Writer com contexto pra preencher pacote 1 + sugestão do produto
+    const params = new URLSearchParams({
+      cliente: clienteId,
+      nome: cliente.nome,
+      modo: "peticao",
+      desconto: av.desconto || "",
+      analise_id: av.id,
+      analise_url: av.peca_drive_url || "",
+    });
+    if (cliente.cpf_cnpj) params.set("cpf", cliente.cpf_cnpj);
+    if (cliente.rg) params.set("rg", cliente.rg);
+    if (cliente.profissao) params.set("profissao", cliente.profissao);
+    if (cliente.endereco) params.set("endereco", cliente.endereco);
+    navigate(`/writer?${params.toString()}`);
   };
 
   const irParaFinder = async () => {
@@ -671,7 +710,7 @@ function PrePipeline({
                   className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 >
                   <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
-                  {itens.some(d => d.status !== "pendente") ? "Continuar no Finder" : "Iniciar no Finder"}
+                  Vincular análise
                 </Button>
               )}
               {ativa && g.key === "analise_vinculada" && (
@@ -689,16 +728,35 @@ function PrePipeline({
             {!ativa ? null : itens.length === 0 ? (
               <p className="text-xs text-muted-foreground/60 italic px-1">
                 {g.key === "analise_documental"
-                  ? "Clique em 'Iniciar no Finder' pra começar a análise dos extratos."
+                  ? "Clique em 'Vincular análise' pra começar a análise dos extratos no Finder."
                   : g.key === "analise_vinculada"
                   ? "Quando o Finder gerar planilhas, vincule cada uma aqui."
                   : g.key === "confeccao_peca"
-                  ? "As peças serão geradas a partir das análises vinculadas concluídas."
+                  ? "Clique em 'Confeccionar peça' em cada análise vinculada da etapa 2 pra gerar uma peça."
                   : "Peças prontas pra protocolo aparecerão aqui."}
               </p>
             ) : (
               <div className="space-y-2">
-                {itens.map(d => <DemandaCard key={d.id} demanda={d} />)}
+                {itens.map(d => {
+                  const isAnaliseVinc = d.etapa === "analise_vinculada";
+                  return (
+                    <DemandaCard
+                      key={d.id}
+                      demanda={d}
+                      action={
+                        isAnaliseVinc ? (
+                          <Button
+                            size="sm"
+                            onClick={() => confeccionarPeca(d)}
+                            className="h-7 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] px-3"
+                          >
+                            <PenSquare className="h-3 w-3 mr-1" /> Confeccionar peça
+                          </Button>
+                        ) : null
+                      }
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
