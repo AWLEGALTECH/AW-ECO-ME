@@ -172,6 +172,16 @@ function avancarCadeia() {
       .catch(e => console.warn('[cadeia] falha planilha:', e));
   }
 
+  // Puxa agencia/conta da nova analise vinculada e injeta no pacote3
+  if (prox.analise_id && typeof fetchAnaliseVinculadaMeta === 'function') {
+    fetchAnaliseVinculadaMeta(prox.analise_id).then(meta => {
+      if (!meta) return;
+      if (meta.agencia) state.dadosPacote3.numero_agencia = String(meta.agencia);
+      if (meta.conta)   state.dadosPacote3.numero_conta   = String(meta.conta);
+      if (state.tela === 'pacote3' && typeof render === 'function') render();
+    }).catch(() => {});
+  }
+
   // Re-render barra com nova posição + leva user pro lobby pra escolher produto
   renderBarraCadeia();
   if (typeof navegarPara === 'function') navegarPara('lobby');

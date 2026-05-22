@@ -68,6 +68,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (e) { console.warn('[writer] erro lendo contexto da URL:', e); }
 
+  // Puxa banco/agencia/conta da analise_vinculada (vindo do Finder) e
+  // pre-preenche pacote 3 (numero_agencia, numero_conta). Fire-and-forget
+  // — se chegar depois do render, o user ja vera na hora que abrir o pacote 3.
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const analiseId = sp.get('analise_id');
+    if (analiseId && typeof fetchAnaliseVinculadaMeta === 'function') {
+      fetchAnaliseVinculadaMeta(analiseId).then(meta => {
+        if (!meta) return;
+        state.dadosPacote3 = state.dadosPacote3 || {};
+        if (meta.agencia && !state.dadosPacote3.numero_agencia) {
+          state.dadosPacote3.numero_agencia = String(meta.agencia);
+        }
+        if (meta.conta && !state.dadosPacote3.numero_conta) {
+          state.dadosPacote3.numero_conta = String(meta.conta);
+        }
+        // Se o user ja estiver no pacote 3 quando isso chega, re-renderiza
+        if (state.tela === 'pacote3' && typeof render === 'function') render();
+      }).catch(e => console.warn('[analise-meta]', e));
+    }
+  } catch (e) { console.warn('[writer] erro ao buscar meta da analise:', e); }
+
   // Aguarda o cliente carregar ANTES do primeiro render — ai a UI ja sobe
   // com pacote 1 + pacote 2 preenchidos
   if (preloadClientePromise) {

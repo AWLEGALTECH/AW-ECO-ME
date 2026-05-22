@@ -67,6 +67,24 @@ async function fetchClientesAW() {
   }
 }
 
+// Puxa banco/agencia/conta de uma demanda analise_vinculada — usado pra
+// pre-preencher pacote 3 do writer quando vem de "Confeccionar peça".
+async function fetchAnaliseVinculadaMeta(demandaId) {
+  if (!demandaId) return null;
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/demandas?select=banco,agencia,conta&id=eq.${encodeURIComponent(demandaId)}&limit=1`,
+      { headers: _awHeaders() }
+    );
+    if (!resp.ok) { console.warn('[analise-meta] fetch', resp.status); return null; }
+    const rows = await resp.json();
+    return rows.length ? rows[0] : null;
+  } catch (e) {
+    console.warn('[analise-meta] erro', e);
+    return null;
+  }
+}
+
 async function fetchClienteAW(id) {
   if (!id) return null;
   try {
