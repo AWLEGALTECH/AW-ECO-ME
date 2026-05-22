@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
-  Mail, Phone, MapPin, CreditCard, IdCard, Sparkles, Plus, Send, LayoutGrid,
+  Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
 } from "lucide-react";
 
 interface Cliente {
@@ -85,7 +85,7 @@ const ORIGEM_META: Record<string, { label: string; color: string }> = {
 
 const ETAPA_META: Record<string, { label: string; ordem: number; Icon: any }> = {
   analise_documental:    { label: "Análise Documental",   ordem: 1, Icon: ClipboardList },
-  analise_vinculada:     { label: "Análise Vinculada",    ordem: 2, Icon: Sparkles },
+  analise_vinculada:     { label: "Análise Vinculada",    ordem: 2, Icon: GitBranch },
   confeccao_peca:        { label: "Confecção da Peça",    ordem: 3, Icon: FileText },
   pronta_para_protocolo: { label: "Pronta pra Protocolo", ordem: 4, Icon: Send },
   protocolada:           { label: "Protocolada",          ordem: 5, Icon: CheckCircle2 },
@@ -171,7 +171,7 @@ export default function ClienteDetail() {
 
   const ABAS: Array<{ key: AbaKey; label: string; Icon: any; count: number; hint: string }> = [
     { key: "resumo",    label: "Resumo",    Icon: LayoutGrid, count: 0,                hint: "Dados pessoais e contratos" },
-    { key: "demandas",  label: "Demandas",  Icon: Sparkles,   count: demandas.length,  hint: "Pré-protocolo e processual" },
+    { key: "demandas",  label: "Demandas",  Icon: ListTodo,   count: demandas.length,  hint: "Pré-protocolo e processual" },
     { key: "processos", label: "Processos", Icon: Briefcase,  count: processos.length, hint: "Ações ajuizadas" },
   ];
 
@@ -503,7 +503,7 @@ function PrePipeline({
 }: { demandas: Demanda[]; clienteId: string; userId: string | null; onChange: () => void }) {
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
     { key: "analise_documental",    label: "1. Análise Documental",    Icon: ClipboardList, hint: "Identificar descontos ajuizáveis." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: Sparkles,      hint: "Uma análise por desconto identificado." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Uma análise por desconto identificado." },
     { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Produção de cada peça." },
     { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo", Icon: Send,          hint: "Peças prontas com link do Drive." },
   ];
