@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -17,7 +16,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
-  Mail, Phone, MapPin, CreditCard, IdCard, Sparkles, Plus, Send,
+  Mail, Phone, MapPin, CreditCard, IdCard, Sparkles, Plus, Send, LayoutGrid,
 } from "lucide-react";
 
 interface Cliente {
@@ -27,6 +26,8 @@ interface Cliente {
   telefone: string | null;
   email: string | null;
   endereco: string | null;
+  rg: string | null;
+  profissao: string | null;
   observacoes: string | null;
   drive_folder_url: string | null;
   origem: string | null;
@@ -92,12 +93,14 @@ const ETAPA_META: Record<string, { label: string; ordem: number; Icon: any }> = 
 };
 
 const STATUS_META: Record<string, { label: string; color: string; Icon: any }> = {
-  pendente:     { label: "Pendente",     color: "text-amber-400 bg-amber-400/10 border-amber-400/30",   Icon: Clock },
-  em_andamento: { label: "Em andamento", color: "text-blue-400 bg-blue-400/10 border-blue-400/30",      Icon: Circle },
+  pendente:     { label: "Pendente",     color: "text-amber-400 bg-amber-400/10 border-amber-400/30",     Icon: Clock },
+  em_andamento: { label: "Em andamento", color: "text-blue-400 bg-blue-400/10 border-blue-400/30",         Icon: Circle },
   concluida:    { label: "Concluída",    color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", Icon: CheckCircle2 },
-  bloqueada:    { label: "Bloqueada",    color: "text-red-400 bg-red-400/10 border-red-400/30",         Icon: AlertCircle },
-  cancelada:    { label: "Cancelada",    color: "text-muted-foreground bg-muted/20 border-border",       Icon: Circle },
+  bloqueada:    { label: "Bloqueada",    color: "text-red-400 bg-red-400/10 border-red-400/30",            Icon: AlertCircle },
+  cancelada:    { label: "Cancelada",    color: "text-muted-foreground bg-muted/20 border-border",          Icon: Circle },
 };
+
+type AbaKey = "resumo" | "demandas" | "processos";
 
 export default function ClienteDetail() {
   const { id } = useParams<{ id: string }>();
@@ -108,6 +111,9 @@ export default function ClienteDetail() {
   const [processos, setProcessos] = useState<ProcessoLite[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [demandas, setDemandas] = useState<Demanda[]>([]);
+
+  const [aba, setAba] = useState<AbaKey>("resumo");
+  const [subDem, setSubDem] = useState<"pre" | "proc">("pre");
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Cliente | null>(null);
@@ -144,9 +150,11 @@ export default function ClienteDetail() {
         telefone: draft.telefone,
         email: draft.email,
         endereco: draft.endereco,
+        rg: draft.rg,
+        profissao: draft.profissao,
         observacoes: draft.observacoes,
         drive_folder_url: draft.drive_folder_url,
-      })
+      } as any)
       .eq("id", draft.id);
     setSaving(false);
     if (error) { toast.error("Erro ao salvar"); return; }
@@ -160,6 +168,12 @@ export default function ClienteDetail() {
   const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
   const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
   const demandasProc = demandas.filter(d => d.tipo === "processual");
+
+  const ABAS: Array<{ key: AbaKey; label: string; Icon: any; count: number; hint: string }> = [
+    { key: "resumo",    label: "Resumo",    Icon: LayoutGrid, count: 0,                hint: "Dados pessoais e contratos" },
+    { key: "demandas",  label: "Demandas",  Icon: Sparkles,   count: demandas.length,  hint: "Pré-protocolo e processual" },
+    { key: "processos", label: "Processos", Icon: Briefcase,  count: processos.length, hint: "Ações ajuizadas" },
+  ];
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -205,148 +219,151 @@ export default function ClienteDetail() {
         )}
       </header>
 
-      {/* TABS ============================================================== */}
-      <Tabs defaultValue="resumo" className="space-y-5">
-        <TabsList className="bg-card/40 border border-border">
-          <TabsTrigger value="resumo">Resumo</TabsTrigger>
-          <TabsTrigger value="contratos">
-            Contratos {contratos.length > 0 && <span className="ml-1.5 text-xs opacity-60">{contratos.length}</span>}
-          </TabsTrigger>
-          <TabsTrigger value="demandas">
-            Demandas {demandas.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandas.length}</span>}
-          </TabsTrigger>
-          <TabsTrigger value="processos">
-            Processos {processos.length > 0 && <span className="ml-1.5 text-xs opacity-60">{processos.length}</span>}
-          </TabsTrigger>
-        </TabsList>
+      {/* QUADRADOS DE NAVEGACAO ============================================ */}
+      <div className="grid grid-cols-3 gap-3">
+        {ABAS.map(a => {
+          const ativa = aba === a.key;
+          return (
+            <button
+              key={a.key}
+              onClick={() => setAba(a.key)}
+              className={`rounded-2xl border p-4 text-left transition-all ${
+                ativa
+                  ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
+                  : "border-border bg-card/40 hover:border-primary/20 hover:bg-card/60"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <a.Icon className={`h-5 w-5 ${ativa ? "text-primary" : "text-muted-foreground"}`} />
+                {a.count > 0 && (
+                  <span className={`text-xs tabular-nums px-1.5 h-5 rounded-full inline-flex items-center ${
+                    ativa ? "bg-primary/20 text-primary" : "bg-muted/30 text-muted-foreground"
+                  }`}>
+                    {a.count}
+                  </span>
+                )}
+              </div>
+              <p className={`mt-3 text-sm font-medium ${ativa ? "text-foreground" : "text-foreground/90"}`}>
+                {a.label}
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 mt-0.5">{a.hint}</p>
+            </button>
+          );
+        })}
+      </div>
 
-        {/* ============ RESUMO ============ */}
-        <TabsContent value="resumo" className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <Slot icon={CreditCard} label="CPF / CNPJ" value={cliente.cpf_cnpj} />
-            <Slot icon={Phone}      label="Telefone"  value={cliente.telefone} />
-            <Slot icon={Mail}       label="E-mail"    value={cliente.email} />
-            <Slot icon={IdCard}     label="RG"        value={extrairRG(cliente.observacoes)} />
-            <Slot icon={Briefcase}  label="Profissão" value={extrairProfissao(cliente.observacoes)} />
-            <Slot icon={FolderOpen} label="Pasta Drive" value={cliente.drive_folder_url} isLink />
-            <Slot icon={MapPin}     label="Endereço"  value={cliente.endereco} className="sm:col-span-2 lg:col-span-3" />
-            <Slot icon={FileText}   label="Observações" value={cliente.observacoes} className="sm:col-span-2 lg:col-span-3" />
+      {/* CONTEUDO DA ABA =================================================== */}
+      {aba === "resumo" && (
+        <div className="space-y-5">
+          <section className="space-y-2">
+            <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Dados pessoais</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <Slot icon={CreditCard} label="CPF / CNPJ" value={cliente.cpf_cnpj} />
+              <Slot icon={IdCard}     label="RG"         value={cliente.rg} />
+              <Slot icon={Briefcase}  label="Profissão"  value={cliente.profissao} />
+              <Slot icon={Phone}      label="Telefone"   value={cliente.telefone} />
+              <Slot icon={Mail}       label="E-mail"     value={cliente.email} />
+              <Slot icon={MapPin}     label="Endereço"   value={cliente.endereco} />
+              {cliente.observacoes && (
+                <Slot icon={FileText} label="Observações" value={cliente.observacoes} className="sm:col-span-2 lg:col-span-3" />
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
+              Contratos ({contratos.length})
+            </h2>
+            {contratos.length === 0 ? (
+              <p className="text-xs text-muted-foreground/60 italic px-1 py-3">Nenhum contrato registrado.</p>
+            ) : (
+              <ul className="space-y-2">
+                {contratos.map(ct => (
+                  <li key={ct.id} className="rounded-xl border border-border bg-card/40 px-4 py-3 flex items-center gap-3 hover:border-primary/30 transition-colors">
+                    <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
+                      <FileSignature className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">Contrato de {ct.modalidade}</span>
+                        <Badge variant="outline" className="text-[9px] uppercase tracking-wider">{ct.status}</Badge>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span>Assinatura: {fmtDate(ct.data_assinatura)}</span>
+                        {ct.valor_total != null && <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>}
+                        {ct.percentual_exito != null && <span>Êxito: {ct.percentual_exito}%</span>}
+                      </div>
+                    </div>
+                    {ct.drive_url && (
+                      <a href={ct.drive_url} target="_blank" rel="noreferrer"
+                         className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                         title="Abrir pasta do contrato no Drive">
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {aba === "demandas" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 max-w-md">
+            <SubTab active={subDem === "pre"}  onClick={() => setSubDem("pre")}  label="Pré-protocolo" count={demandasPre.length} />
+            <SubTab active={subDem === "proc"} onClick={() => setSubDem("proc")} label="Processuais"    count={demandasProc.length} />
           </div>
-        </TabsContent>
 
-        {/* ============ CONTRATOS ============ */}
-        <TabsContent value="contratos">
-          {contratos.length === 0 ? (
+          {subDem === "pre" ? (
+            <PrePipeline demandas={demandasPre} clienteId={cliente.id} userId={user?.id ?? null} onChange={load} />
+          ) : demandasProc.length === 0 ? (
             <EmptyState
-              icon={FileSignature}
-              title="Nenhum contrato registrado"
-              hint="Quando confirmar um pré-cliente, um contrato é criado automaticamente."
+              icon={Briefcase}
+              title="Nenhuma demanda processual"
+              hint="Demandas processuais aparecem aqui quando uma peça é protocolada e o processo é criado."
             />
           ) : (
             <div className="space-y-3">
-              {contratos.map(ct => (
-                <div key={ct.id} className="rounded-2xl border border-border bg-card/40 p-4 flex items-start gap-4 hover:border-primary/30 transition-colors">
-                  <div className="h-12 w-12 shrink-0 rounded-xl bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
-                    <FileSignature className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium">{ct.modalidade}</h3>
-                      <Badge variant="outline" className="text-[10px] uppercase tracking-wider">{ct.status}</Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                      <span>Assinatura: {fmtDate(ct.data_assinatura)}</span>
-                      {ct.valor_total != null && <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>}
-                      {ct.percentual_exito != null && <span>Êxito: {ct.percentual_exito}%</span>}
-                    </div>
-                  </div>
-                  {ct.drive_url && (
-                    <a
-                      href={ct.drive_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="shrink-0 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" /> Drive
-                    </a>
-                  )}
-                </div>
-              ))}
+              {demandasProc.map(d => <DemandaCard key={d.id} demanda={d} />)}
             </div>
           )}
-        </TabsContent>
+        </div>
+      )}
 
-        {/* ============ DEMANDAS ============ */}
-        <TabsContent value="demandas">
-          <Tabs defaultValue="pre" className="space-y-4">
-            <TabsList className="bg-card/40 border border-border">
-              <TabsTrigger value="pre">
-                Pré-protocolo {demandasPre.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandasPre.length}</span>}
-              </TabsTrigger>
-              <TabsTrigger value="proc">
-                Processuais {demandasProc.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandasProc.length}</span>}
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="pre">
-              <PrePipeline
-                demandas={demandasPre}
-                clienteId={cliente.id}
-                userId={user?.id ?? null}
-                onChange={load}
-              />
-            </TabsContent>
-
-            <TabsContent value="proc">
-              {demandasProc.length === 0 ? (
-                <EmptyState
-                  icon={Briefcase}
-                  title="Nenhuma demanda processual"
-                  hint="Demandas processuais aparecem aqui quando uma peça é protocolada e o processo é criado."
-                />
-              ) : (
-                <div className="space-y-3">
-                  {demandasProc.map(d => <DemandaCard key={d.id} demanda={d} onChange={load} />)}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </TabsContent>
-
-        {/* ============ PROCESSOS ============ */}
-        <TabsContent value="processos">
-          <Card className="bg-card/40 border-border">
-            <CardHeader><CardTitle className="text-base">Processos ({processos.length})</CardTitle></CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nº Processo</TableHead>
-                    <TableHead>Matéria</TableHead>
-                    <TableHead>Fase</TableHead>
-                    <TableHead className="text-right">Valor da Causa</TableHead>
+      {aba === "processos" && (
+        <Card className="bg-card/40 border-border">
+          <CardHeader><CardTitle className="text-base">Processos ({processos.length})</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nº Processo</TableHead>
+                  <TableHead>Matéria</TableHead>
+                  <TableHead>Fase</TableHead>
+                  <TableHead className="text-right">Valor da Causa</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {processos.map(p => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">
+                      <Link to={`/processos/${p.id}`} className="hover:underline">{p.numero_processo}</Link>
+                    </TableCell>
+                    <TableCell>{p.materia || "—"}</TableCell>
+                    <TableCell>{p.fase_processual ? <Badge variant="secondary">{p.fase_processual}</Badge> : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtBRL(p.valor_causa)}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {processos.map(p => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">
-                        <Link to={`/processos/${p.id}`} className="hover:underline">{p.numero_processo}</Link>
-                      </TableCell>
-                      <TableCell>{p.materia || "—"}</TableCell>
-                      <TableCell>{p.fase_processual ? <Badge variant="secondary">{p.fase_processual}</Badge> : "—"}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmtBRL(p.valor_causa)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {processos.length === 0 && (
-                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum processo.</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                ))}
+                {processos.length === 0 && (
+                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum processo.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* DIÁLOGO DE EDIÇÃO ================================================= */}
       <Dialog open={editing} onOpenChange={(v) => { if (!v) setEditing(false); }}>
@@ -359,8 +376,10 @@ export default function ClienteDetail() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
               <div className="sm:col-span-2"><Label>Nome</Label><Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></div>
               <div><Label>CPF/CNPJ</Label><Input value={draft.cpf_cnpj ?? ""} onChange={(e) => setDraft({ ...draft, cpf_cnpj: e.target.value })} /></div>
+              <div><Label>RG</Label><Input value={draft.rg ?? ""} onChange={(e) => setDraft({ ...draft, rg: e.target.value })} /></div>
+              <div className="sm:col-span-2"><Label>Profissão</Label><Input value={draft.profissao ?? ""} onChange={(e) => setDraft({ ...draft, profissao: e.target.value })} /></div>
               <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
+              <div><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
               <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
               <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
               <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={3} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
@@ -379,6 +398,28 @@ export default function ClienteDetail() {
 // =========================================================================
 // COMPONENTES AUXILIARES
 // =========================================================================
+
+function SubTab({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-xl border px-4 py-2.5 text-sm transition-all flex items-center justify-between gap-2 ${
+        active
+          ? "border-primary/40 bg-primary/10 text-primary ring-1 ring-primary/30"
+          : "border-border bg-card/40 text-muted-foreground hover:text-foreground hover:bg-card/60"
+      }`}
+    >
+      <span>{label}</span>
+      {count > 0 && (
+        <span className={`text-[10px] tabular-nums px-1.5 h-5 rounded-full inline-flex items-center ${
+          active ? "bg-primary/20" : "bg-muted/30"
+        }`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
 
 function Slot({
   icon: Icon, label, value, isLink, className,
@@ -413,7 +454,7 @@ function EmptyState({ icon: Icon, title, hint }: { icon: any; title: string; hin
   );
 }
 
-function DemandaCard({ demanda, onChange }: { demanda: Demanda; onChange: () => void }) {
+function DemandaCard({ demanda }: { demanda: Demanda }) {
   const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
   const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
   return (
@@ -457,15 +498,14 @@ function DemandaCard({ demanda, onChange }: { demanda: Demanda; onChange: () => 
   );
 }
 
-// Pipeline visual do pré-protocolo, com as 4 etapas e demandas agrupadas
 function PrePipeline({
   demandas, clienteId, userId, onChange,
 }: { demandas: Demanda[]; clienteId: string; userId: string | null; onChange: () => void }) {
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",    label: "1. Análise Documental",       Icon: ClipboardList, hint: "Identificar descontos ajuizáveis." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",      Icon: Sparkles,      hint: "Uma análise por desconto identificado." },
-    { key: "confeccao_peca",        label: "3. Confecção das Peças",      Icon: FileText,      hint: "Produção de cada peça." },
-    { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo",    Icon: Send,          hint: "Peças prontas com link do Drive." },
+    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ClipboardList, hint: "Identificar descontos ajuizáveis." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: Sparkles,      hint: "Uma análise por desconto identificado." },
+    { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Produção de cada peça." },
+    { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo", Icon: Send,          hint: "Peças prontas com link do Drive." },
   ];
 
   if (demandas.length === 0) {
@@ -539,7 +579,7 @@ function PrePipeline({
               </p>
             ) : (
               <div className="space-y-2">
-                {itens.map(d => <DemandaCard key={d.id} demanda={d} onChange={onChange} />)}
+                {itens.map(d => <DemandaCard key={d.id} demanda={d} />)}
               </div>
             )}
 
@@ -563,22 +603,4 @@ function PrePipeline({
       })}
     </div>
   );
-}
-
-// Helpers pra extrair RG e Profissão das observações (placeholder até termos colunas próprias)
-function extrairRG(obs: string | null): string | null {
-  if (!obs) return null;
-  const m = obs.match(/RG:\s*([^·\n]+)/i);
-  return m ? m[1].trim() : null;
-}
-function extrairProfissao(obs: string | null): string | null {
-  if (!obs) return null;
-  // Heurística: depois de "RG: ... ·" pega o que vem
-  const partes = obs.split("·").map(s => s.trim());
-  for (const parte of partes) {
-    if (!parte.toLowerCase().startsWith("rg") && parte.length > 0 && parte.length < 50) {
-      return parte;
-    }
-  }
-  return null;
 }

@@ -146,7 +146,7 @@ export default function PreClientes() {
   const confirmar = async (pre: PreCliente, driveFolderUrl: string) => {
     if (!user) return;
 
-    // 1. cria cliente (origem=writer)
+    // 1. cria cliente (origem=writer) com RG e profissao em colunas proprias
     const { data: novoCliente, error: errCli } = await supabase
       .from("clientes")
       .insert({
@@ -155,9 +155,9 @@ export default function PreClientes() {
         telefone: pre.telefone,
         email: pre.email,
         endereco: pre.endereco_completo,
-        observacoes: pre.rg || pre.profissao
-          ? `${pre.rg ? `RG: ${pre.rg}` : ""}${pre.rg && pre.profissao ? " · " : ""}${pre.profissao || ""}`.trim()
-          : null,
+        rg: pre.rg,
+        profissao: pre.profissao,
+        observacoes: null,
         drive_folder_url: driveFolderUrl,
         origem: "writer",
       } as any)
