@@ -575,7 +575,8 @@ function PrePipeline({
       });
       onChange();
     }
-    // Abre o Writer com contexto pra preencher pacote 1 + sugestão do produto
+    // Abre o Writer com contexto mínimo — o Writer puxa o cliente completo
+    // do Supabase (pacote 1 e pacote 2) usando o ID.
     const params = new URLSearchParams({
       cliente: clienteId,
       nome: cliente.nome,
@@ -584,10 +585,6 @@ function PrePipeline({
       analise_id: av.id,
       analise_url: av.peca_drive_url || "",
     });
-    if (cliente.cpf_cnpj) params.set("cpf", cliente.cpf_cnpj);
-    if (cliente.rg) params.set("rg", cliente.rg);
-    if (cliente.profissao) params.set("profissao", cliente.profissao);
-    if (cliente.endereco) params.set("endereco", cliente.endereco);
     navigate(`/writer?${params.toString()}`);
   };
 

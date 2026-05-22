@@ -16,15 +16,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sp = new URLSearchParams(window.location.search);
     const modo = sp.get('modo');
     const nome = sp.get('nome');
-    if (nome) {
-      // Sempre pre-preenche dadosPacote1 com qualificacao do cliente vindo
-      // do contexto (mesmo no fluxo kit, e util pra reaproveitar dados)
+    const clienteId = sp.get('cliente');
+    if (clienteId && typeof fetchClienteAW === 'function') {
+      // Puxa o cliente completo do Supabase do aw-eco-me — pacote 1 + 2
+      // ficam pre-preenchidos integralmente
+      fetchClienteAW(clienteId).then(c => {
+        if (c && typeof aplicarClienteNoState === 'function') {
+          aplicarClienteNoState(c);
+          if (typeof render === 'function') render();
+        }
+      });
+    } else if (nome) {
+      // Sem ID — pelo menos o nome vai vazio. Cobre cenarios legados.
       state.dadosPacote1 = state.dadosPacote1 || {};
       state.dadosPacote1.nome_completo  = nome;
-      state.dadosPacote1.cpf            = sp.get('cpf') || '';
-      state.dadosPacote1.rg             = sp.get('rg') || '';
-      state.dadosPacote1.profissao      = sp.get('profissao') || '';
-      state.dadosPacote1.endereco_completo = sp.get('endereco') || '';
       state.dadosPacote1.nacionalidade  = 'brasileiro';
     }
     if (modo === 'peticao') {
@@ -45,6 +50,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   render();
   atualizarBtnConfig();
+
+  // Carrega lista de clientes reais do aw-eco-me (assincrono, sem bloquear)
+  if (typeof fetchClientesAW === 'function') {
+    fetchClientesAW().then(cs => {
+      state.clientesAW = cs || [];
+      if (typeof render === 'function') render();
+    }).catch(e => console.warn('[clientes-aw]', e));
+  }
 
   // Intercepta o "Voltar" do navegador pra NÃO sair do app.
   // Empilha estado inicial e, em cada popstate, roteia pra tela anterior

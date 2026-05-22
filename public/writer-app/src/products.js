@@ -336,27 +336,10 @@ const PRODUTOS = [
   }
 ];
 
-const CLIENTES_MOCK = [
-  {
-    id: 1, nome_completo: 'JOÃO DA SILVA SANTOS', genero: 'masculino', nacionalidade: 'brasileiro',
-    estado_civil: 'casado', profissao: 'pedreiro', rg: '1234567-8', orgao_expedidor: 'SSP/AM',
-    cpf: '123.456.789-00', endereco_completo: 'Rua das Palmeiras, nº 123, Bairro Centro, Manaus/AM, CEP 69000-000',
-    idade: 47, numero_filhos: 3, idades_filhos: '5, 9 e 14 anos', conjuge_trabalha: 'nao',
-    renda_mensal: 1800, unico_provedor: 'sim', outros_dependentes: '',
-    tipo_moradia: 'alugada', condicao_saude: '', escolaridade: 'fundamental',
-    observacoes_livres: 'Trabalhador da construção civil há 20 anos, com renda variável conforme obras. Esposa desempregada desde 2023.',
-  },
-  {
-    id: 2, nome_completo: 'MARIA DOS SANTOS OLIVEIRA', genero: 'feminino', nacionalidade: 'brasileira',
-    estado_civil: 'divorciado', profissao: 'diarista', rg: '9876543-2', orgao_expedidor: 'SSP/AM',
-    cpf: '987.654.321-00', endereco_completo: 'Av. Torquato Tapajós, nº 500, Bairro Cidade Nova, Manaus/AM',
-    idade: 52, numero_filhos: 2, idades_filhos: '18 e 22 anos', conjuge_trabalha: 'nao_se_aplica',
-    renda_mensal: 1200, unico_provedor: 'sim',
-    outros_dependentes: 'Mãe idosa de 78 anos reside com a requerente',
-    tipo_moradia: 'propria', condicao_saude: '', escolaridade: 'fundamental',
-    observacoes_livres: 'Divorciada há 4 anos, sustenta sozinha a casa com renda informal.',
-  },
-];
+// CLIENTES_MOCK foi removido — agora puxamos clientes REAIS do Supabase
+// do aw-eco-me via clientes-supabase.js. state.clientesAW é a lista viva,
+// populada no boot e/ou sob demanda.
+const CLIENTES_MOCK = [];
 
 /* =========================================================================
    NAVEGAÇÃO

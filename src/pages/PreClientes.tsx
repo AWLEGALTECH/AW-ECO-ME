@@ -147,6 +147,7 @@ export default function PreClientes() {
     if (!user) return;
 
     // 1. cria cliente (origem=writer) com RG e profissao em colunas proprias
+    const dkInicial: any = (pre as any).dados_completos?.dadosKit ?? null;
     const { data: novoCliente, error: errCli } = await supabase
       .from("clientes")
       .insert({
@@ -157,6 +158,10 @@ export default function PreClientes() {
         endereco: pre.endereco_completo,
         rg: pre.rg,
         profissao: pre.profissao,
+        nacionalidade: pre.nacionalidade || dkInicial?.cliente_nacionalidade || null,
+        estado_civil: pre.estado_civil || dkInicial?.cliente_estado_civil || null,
+        orgao_expedidor: pre.orgao_expedidor || dkInicial?.cliente_orgao_expedidor || null,
+        genero: dkInicial?.cliente_genero || null,
         observacoes: null,
         drive_folder_url: driveFolderUrl,
         origem: "writer",

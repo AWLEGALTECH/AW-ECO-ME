@@ -1443,9 +1443,13 @@ function renderBlocoClientes() {
           <button type="button" class="custom-dropdown-option ${!sel ? 'selected' : ''}" onclick="selecionarCliente('')">
             <span>— Novo cliente —</span>
           </button>
-          ${CLIENTES_MOCK.map(c => `
-            <button type="button" class="custom-dropdown-option ${sel?.id === c.id ? 'selected' : ''}" onclick="selecionarCliente('${c.id}')">
-              <span><strong>${c.nome_completo}</strong> · ${c.cpf}</span>
+          ${(state.clientesAW || []).length === 0 ? `
+            <div style="padding:14px 16px;font-size:12px;color:var(--text-mute);">
+              ${state.clientesAW ? 'Nenhum cliente cadastrado ainda.' : 'Carregando clientes…'}
+            </div>
+          ` : (state.clientesAW || []).map(c => `
+            <button type="button" class="custom-dropdown-option ${sel?.aw_id === c.aw_id ? 'selected' : ''}" onclick="selecionarCliente('${c.aw_id}')">
+              <span><strong>${escapeHtml(c.nome_completo || '—')}</strong>${c.cpf ? ` · ${escapeHtml(c.cpf)}` : ''}</span>
             </button>
           `).join('')}
         </div>
@@ -1475,17 +1479,25 @@ function selecionarCliente(id) {
     state.clienteSelecionado = null;
     state.dadosPacote1 = {};
     state.dadosPacote2 = {};
-  } else {
-    const c = CLIENTES_MOCK.find(x => x.id === parseInt(id));
-    state.clienteSelecionado = c;
-    ['nome_completo','genero','nacionalidade','estado_civil','profissao','rg','orgao_expedidor','cpf','endereco_completo'].forEach(k => {
-      state.dadosPacote1[k] = c[k] || '';
-    });
-    ['idade','numero_filhos','idades_filhos','conjuge_trabalha','renda_mensal','unico_provedor','outros_dependentes','tipo_moradia','condicao_saude','escolaridade','observacoes_livres'].forEach(k => {
-      state.dadosPacote2[k] = c[k] ?? '';
+    render();
+    return;
+  }
+  // Acha pela lista carregada (state.clientesAW vem do Supabase via clientes-supabase.js)
+  const c = (state.clientesAW || []).find(x => x.aw_id === id);
+  if (c && typeof aplicarClienteNoState === 'function') {
+    aplicarClienteNoState(c);
+    render();
+    return;
+  }
+  // Fallback: busca direto se nao estiver no cache
+  if (typeof fetchClienteAW === 'function') {
+    fetchClienteAW(id).then(c2 => {
+      if (c2 && typeof aplicarClienteNoState === 'function') {
+        aplicarClienteNoState(c2);
+        render();
+      }
     });
   }
-  render();
 }
 
 /* =========================================================================
