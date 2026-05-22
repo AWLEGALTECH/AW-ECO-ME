@@ -765,19 +765,27 @@ function renderBlocoAnexoTabela() {
           </svg>
           <div class="anexo-dropzone-title">${pulado ? 'Você optou por anexar depois' : 'Arraste o XLSX ou clique para selecionar'}</div>
           <div class="anexo-dropzone-sub">Formatos aceitos: .xlsx, .xls · primeira aba será lida automaticamente</div>
-          <div class="anexo-dropzone-actions">
-            <label class="btn btn-primary btn-small">
-              <input type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onchange="handleFileTabela(event)" style="display:none">
-              Escolher arquivo
-            </label>
+          <div class="anexo-dropzone-actions" style="flex-direction:column;align-items:stretch;gap:12px;">
             ${state.contextoAnaliseVinculada && state.contextoAnaliseVinculada.analise_url ? `
-              <button class="btn btn-ghost btn-small" onclick="tentarBaixarPlanilhaVinculada()">Tentar baixar vinculada</button>
+              <button onclick="tentarBaixarPlanilhaVinculada()"
+                style="display:inline-flex;align-items:center;justify-content:center;gap:10px;background:hsla(270,60%,60%,0.18);border:1.5px solid hsla(270,60%,60%,0.55);border-radius:12px;color:hsl(270 60% 82%);font-family:Inter,sans-serif;font-size:0.82rem;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:16px 26px;cursor:pointer;transition:all 0.2s;box-shadow:0 0 28px hsla(270,60%,60%,0.18);"
+                onmouseenter="this.style.background='hsla(270,60%,60%,0.28)';this.style.boxShadow='0 0 36px hsla(270,60%,60%,0.35)';this.style.borderColor='hsla(270,60%,60%,0.80)';this.style.transform='translateY(-1px)';"
+                onmouseleave="this.style.background='hsla(270,60%,60%,0.18)';this.style.boxShadow='0 0 28px hsla(270,60%,60%,0.18)';this.style.borderColor='hsla(270,60%,60%,0.55)';this.style.transform='translateY(0)';">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Usar da Análise Vinculada
+              </button>
             ` : ''}
-            ${!pulado ? `
-              <button class="btn btn-ghost btn-small" onclick="pularTabelaXlsx()">Anexarei depois</button>
-            ` : `
-              <button class="btn btn-ghost btn-small" onclick="desfazerPularTabelaXlsx()">Voltar a anexar</button>
-            `}
+            <div style="display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;">
+              <label class="btn btn-primary btn-small">
+                <input type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onchange="handleFileTabela(event)" style="display:none">
+                Escolher outro arquivo
+              </label>
+              ${!pulado ? `
+                <button class="btn btn-ghost btn-small" onclick="pularTabelaXlsx()">Anexarei depois</button>
+              ` : `
+                <button class="btn btn-ghost btn-small" onclick="desfazerPularTabelaXlsx()">Voltar a anexar</button>
+              `}
+            </div>
           </div>
         </div>
       `}
