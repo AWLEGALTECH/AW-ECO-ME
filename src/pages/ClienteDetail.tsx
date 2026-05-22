@@ -555,18 +555,15 @@ function PrePipeline({
   const [savingVinc, setSavingVinc] = useState(false);
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch,    hint: "Vincule análises do Finder ao cliente." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
-    { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Peças geradas a partir das análises." },
-    { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo", Icon: Send,          hint: "Peças prontas com link do Drive." },
+    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,  hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
+    { key: "pronta_para_protocolo", label: "3. Peças Prontas pra Protocolo", Icon: Send,  hint: "Peças finalizadas no Writer, com link do Drive." },
   ];
 
-  // Lógica de bloqueio sequencial — cada etapa só fica "destravada" quando a
-  // anterior já entregou ALGUM resultado relevante:
-  // - 1 sempre liberada (ponto inicial)
-  // - 2 liberada quando existe alguma analise_vinculada (criada pelo Finder)
-  // - 3 liberada quando existe alguma analise_vinculada (mesmo pendente: já dá pra confeccionar)
-  // - 4 liberada quando alguma peça já saiu do writer pronta pro protocolo
+  // Lógica de bloqueio sequencial:
+  // - 1 sempre liberada
+  // - 2 liberada quando existe alguma analise_vinculada
+  // - 3 liberada quando alguma peça já saiu do writer pronta pro protocolo
   const temAnaliseVinculada = demandas.some(d => d.etapa === "analise_vinculada");
   const temPecaPronta       = demandas.some(d => d.etapa === "pronta_para_protocolo");
 
@@ -574,7 +571,6 @@ function PrePipeline({
     switch (key) {
       case "analise_documental":    return true;
       case "analise_vinculada":     return temAnaliseVinculada;
-      case "confeccao_peca":        return temAnaliseVinculada;
       case "pronta_para_protocolo": return temPecaPronta;
       default: return false;
     }
@@ -582,8 +578,7 @@ function PrePipeline({
 
   const hintBloqueio: Record<string, string> = {
     analise_vinculada:     "Bloqueado — vincule pelo menos uma análise no Finder pra liberar.",
-    confeccao_peca:        "Bloqueado — vincule alguma análise pra liberar a confecção.",
-    pronta_para_protocolo: "Bloqueado — gere ao menos uma peça pra liberar.",
+    pronta_para_protocolo: "Bloqueado — gere ao menos uma peça no Writer pra liberar.",
   };
 
   // Garante a existencia da demanda confeccao_peca pra essa analise vinculada.
@@ -821,9 +816,7 @@ function PrePipeline({
                   ? "Clique em 'Vincular análise' pra começar a análise dos extratos no Finder."
                   : g.key === "analise_vinculada"
                   ? "Quando o Finder gerar planilhas, vincule cada uma aqui."
-                  : g.key === "confeccao_peca"
-                  ? "Clique em 'Confeccionar peça' em cada análise vinculada da etapa 2 pra gerar uma peça."
-                  : "Peças prontas pra protocolo aparecerão aqui."}
+                  : "Quando você finalizar uma peça no Writer, ela aparece aqui."}
               </p>
             ) : g.key === "pronta_para_protocolo" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
