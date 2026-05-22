@@ -801,16 +801,7 @@ function PrePipeline({
                   Vincular análise
                 </Button>
               )}
-              {ativa && g.key === "analise_vinculada" && (
-                <Button
-                  size="sm"
-                  onClick={() => setDialogVincular(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Vincular análise
-                </Button>
-              )}
-              {ativa && g.key === "confeccao_peca" && analisesPendentes.length >= 2 && (
+              {ativa && g.key === "analise_vinculada" && analisesPendentes.length >= 2 && (
                 <Button
                   size="sm"
                   onClick={produzirCadeia}
