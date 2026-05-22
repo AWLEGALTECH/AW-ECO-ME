@@ -638,7 +638,7 @@ function PrePipeline({
                 <Button
                   size="sm"
                   onClick={irParaFinder}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 >
                   <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
                   {itens.some(d => d.status !== "pendente") ? "Continuar no Finder" : "Iniciar no Finder"}
@@ -647,9 +647,8 @@ function PrePipeline({
               {ativa && g.key === "analise_vinculada" && (
                 <Button
                   size="sm"
-                  variant="outline"
                   onClick={() => setDialogVincular(true)}
-                  className="text-xs"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" /> Vincular análise
                 </Button>
@@ -707,7 +706,7 @@ function PrePipeline({
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDialogVincular(false)} disabled={savingVinc}>Cancelar</Button>
-            <Button onClick={salvarAnaliseVinculada} disabled={savingVinc}>
+            <Button onClick={salvarAnaliseVinculada} disabled={savingVinc} className="bg-emerald-600 hover:bg-emerald-500 text-white">
               {savingVinc ? "Vinculando…" : "Vincular"}
             </Button>
           </DialogFooter>
