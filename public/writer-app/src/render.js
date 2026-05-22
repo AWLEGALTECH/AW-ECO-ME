@@ -732,7 +732,30 @@ function renderBlocoAnexoTabela() {
         <div class="anexo-badge">${anexado ? 'Anexada' : pulado ? 'Será anexada depois' : 'Obrigatória'}</div>
       </div>
 
-      ${anexado ? infoAnexado : `
+      ${anexado ? infoAnexado : state.planilhaCarregando ? `
+        <div class="anexo-dropzone" style="border-color:hsla(270,60%,60%,0.4); background:hsla(270,60%,60%,0.05);">
+          <div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-direction:column;padding:16px 0;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="hsl(270 60% 70%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            <div style="font-size:14px;font-weight:500;color:hsl(270 60% 80%);">Baixando planilha vinculada…</div>
+            <div style="font-size:11px;color:var(--text-mute);">Vamos anexar automaticamente assim que chegar</div>
+          </div>
+        </div>
+      ` : state.planilhaErro ? `
+        <div class="anexo-dropzone" style="border-color:hsla(0,72%,55%,0.4); background:hsla(0,72%,55%,0.05);">
+          <svg class="anexo-icon" viewBox="0 0 24 24" fill="none" stroke="hsl(0 72% 65%)" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div class="anexo-dropzone-title" style="color:hsl(0 72% 75%);">Não consegui baixar a planilha vinculada</div>
+          <div class="anexo-dropzone-sub">${state.planilhaErro} · você pode tentar de novo ou anexar manualmente</div>
+          <div class="anexo-dropzone-actions">
+            <button class="btn btn-primary btn-small" onclick="tentarBaixarPlanilhaVinculada()">Tentar de novo</button>
+            <label class="btn btn-ghost btn-small">
+              <input type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onchange="handleFileTabela(event)" style="display:none">
+              Anexar manualmente
+            </label>
+          </div>
+        </div>
+      ` : `
         <div class="anexo-dropzone" id="dropzoneTabela"
              ondragover="event.preventDefault(); this.classList.add('drag-over')"
              ondragleave="this.classList.remove('drag-over')"
@@ -747,6 +770,9 @@ function renderBlocoAnexoTabela() {
               <input type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onchange="handleFileTabela(event)" style="display:none">
               Escolher arquivo
             </label>
+            ${state.contextoAnaliseVinculada && state.contextoAnaliseVinculada.analise_url ? `
+              <button class="btn btn-ghost btn-small" onclick="tentarBaixarPlanilhaVinculada()">Tentar baixar vinculada</button>
+            ` : ''}
             ${!pulado ? `
               <button class="btn btn-ghost btn-small" onclick="pularTabelaXlsx()">Anexarei depois</button>
             ` : `
@@ -772,12 +798,19 @@ async function carregarPlanilhaDaAnaliseVinculada(url) {
   if (state.anexos && state.anexos.tabelaXlsx && typeof state.anexos.tabelaXlsx === 'object') {
     return { ok: true, skipped: 'ja carregada' };
   }
+  state.planilhaCarregando = true;
+  state.planilhaErro = null;
+  if (typeof render === 'function') render();
   try {
     console.log('[writer] baixando planilha da analise vinculada:', url);
-    const resp = await fetch(url, { mode: 'cors' });
+    const resp = await fetch(url, { mode: 'cors', cache: 'no-store' });
     if (!resp.ok) {
-      console.warn('[writer] download planilha falhou', resp.status);
-      return { ok: false, error: 'http ' + resp.status };
+      const msg = 'HTTP ' + resp.status;
+      console.warn('[writer] download planilha falhou', msg);
+      state.planilhaCarregando = false;
+      state.planilhaErro = msg;
+      if (typeof render === 'function') render();
+      return { ok: false, error: msg };
     }
     const blob = await resp.blob();
     const fileName = url.split('/').pop() || 'analise-vinculada.xlsx';
@@ -785,12 +818,24 @@ async function carregarPlanilhaDaAnaliseVinculada(url) {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
     await processarTabelaXlsx(file);
+    state.planilhaCarregando = false;
+    state.planilhaErro = null;
     console.log('[writer] planilha da analise vinculada carregada');
     return { ok: true };
   } catch (e) {
     console.warn('[writer] excecao baixando planilha', e);
+    state.planilhaCarregando = false;
+    state.planilhaErro = String(e && e.message || e);
+    if (typeof render === 'function') render();
     return { ok: false, error: String(e) };
   }
+}
+
+// Re-tenta o download (acionavel pelo botao no banner de erro)
+async function tentarBaixarPlanilhaVinculada() {
+  const url = state.contextoAnaliseVinculada && state.contextoAnaliseVinculada.analise_url;
+  if (!url) return;
+  await carregarPlanilhaDaAnaliseVinculada(url);
 }
 
 async function handleDropTabela(ev) {
