@@ -299,15 +299,10 @@ export default function ClienteDetail() {
                         {ct.reus && ct.reus.length > 0 && (
                           <span>Réu(s): <span className="text-foreground/90">{ct.reus.join(", ")}</span></span>
                         )}
-                        {ct.motivo && (
-                          <span>Motivo: <span className="text-foreground/90">{ct.motivo}</span></span>
-                        )}
                         {ct.valor_total != null && (
                           <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>
                         )}
-                        {ct.data_assinatura && (
-                          <span>Assinado em: {fmtDate(ct.data_assinatura)}</span>
-                        )}
+                        <span>Gerado em: {fmtDate(ct.created_at)}</span>
                       </div>
                     </div>
                     {ct.drive_url && (
