@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,8 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Save } from "lucide-react";
+import {
+  ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
+  ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
+  Mail, Phone, MapPin, CreditCard, IdCard, Sparkles, Plus, Send,
+} from "lucide-react";
 
 interface Cliente {
   id: string;
@@ -19,6 +28,9 @@ interface Cliente {
   email: string | null;
   endereco: string | null;
   observacoes: string | null;
+  drive_folder_url: string | null;
+  origem: string | null;
+  created_at: string;
 }
 
 interface ProcessoLite {
@@ -29,24 +41,91 @@ interface ProcessoLite {
   valor_causa: number | null;
 }
 
+interface Contrato {
+  id: string;
+  modalidade: string;
+  data_assinatura: string | null;
+  valor_total: number | null;
+  percentual_exito: number | null;
+  drive_url: string | null;
+  status: string;
+  observacoes: string | null;
+  created_at: string;
+}
+
+interface Demanda {
+  id: string;
+  tipo: "pre_protocolo" | "processual";
+  etapa: string;
+  titulo: string;
+  descricao: string | null;
+  desconto: string | null;
+  status: "pendente" | "em_andamento" | "concluida" | "bloqueada" | "cancelada";
+  analise_pai_id: string | null;
+  peca_drive_url: string | null;
+  protocolo_drive_url: string | null;
+  contrato_id: string | null;
+  processo_id: string | null;
+  ordem: number;
+  created_at: string;
+  completed_at: string | null;
+}
+
 const fmtBRL = (v: number | null) =>
   v == null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+const fmtDate = (iso: string | null) =>
+  !iso ? "—" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
+
+const ORIGEM_META: Record<string, { label: string; color: string }> = {
+  writer:  { label: "Originado no Writer", color: "text-primary border-primary/30 bg-primary/10" },
+  manual:  { label: "Cadastro Manual",     color: "text-muted-foreground border-border bg-muted/20" },
+};
+
+const ETAPA_META: Record<string, { label: string; ordem: number; Icon: any }> = {
+  analise_documental:    { label: "Análise Documental",   ordem: 1, Icon: ClipboardList },
+  analise_vinculada:     { label: "Análise Vinculada",    ordem: 2, Icon: Sparkles },
+  confeccao_peca:        { label: "Confecção da Peça",    ordem: 3, Icon: FileText },
+  pronta_para_protocolo: { label: "Pronta pra Protocolo", ordem: 4, Icon: Send },
+  protocolada:           { label: "Protocolada",          ordem: 5, Icon: CheckCircle2 },
+  processual:            { label: "Em andamento",         ordem: 6, Icon: Briefcase },
+};
+
+const STATUS_META: Record<string, { label: string; color: string; Icon: any }> = {
+  pendente:     { label: "Pendente",     color: "text-amber-400 bg-amber-400/10 border-amber-400/30",   Icon: Clock },
+  em_andamento: { label: "Em andamento", color: "text-blue-400 bg-blue-400/10 border-blue-400/30",      Icon: Circle },
+  concluida:    { label: "Concluída",    color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", Icon: CheckCircle2 },
+  bloqueada:    { label: "Bloqueada",    color: "text-red-400 bg-red-400/10 border-red-400/30",         Icon: AlertCircle },
+  cancelada:    { label: "Cancelada",    color: "text-muted-foreground bg-muted/20 border-border",       Icon: Circle },
+};
 
 export default function ClienteDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [processos, setProcessos] = useState<ProcessoLite[]>([]);
+  const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [demandas, setDemandas] = useState<Demanda[]>([]);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Cliente | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [{ data: cli }, { data: procs }] = await Promise.all([
+    const [cliRes, procRes, contRes, demRes] = await Promise.all([
       supabase.from("clientes").select("*").eq("id", id).single(),
-      supabase.from("processos").select("id, numero_processo, materia, fase_processual, valor_causa").eq("cliente_id", id).order("data_ultimo_andamento", { ascending: false, nullsFirst: false }),
+      supabase.from("processos").select("id, numero_processo, materia, fase_processual, valor_causa")
+        .eq("cliente_id", id).order("data_ultimo_andamento", { ascending: false, nullsFirst: false }),
+      supabase.from("contratos" as any).select("*").eq("cliente_id", id).order("created_at", { ascending: false }),
+      supabase.from("demandas" as any).select("*").eq("cliente_id", id).order("ordem", { ascending: true }).order("created_at", { ascending: true }),
     ]);
-    if (cli) setCliente(cli);
-    if (procs) setProcessos(procs);
+    if (cliRes.data) setCliente(cliRes.data as Cliente);
+    if (procRes.data) setProcessos(procRes.data);
+    if (contRes.data) setContratos(contRes.data as unknown as Contrato[]);
+    if (demRes.data) setDemandas(demRes.data as unknown as Demanda[]);
   }, [id]);
 
   useEffect(() => {
@@ -55,81 +134,451 @@ export default function ClienteDetail() {
   }, [load]);
 
   const handleSave = async () => {
-    if (!cliente) return;
+    if (!draft) return;
     setSaving(true);
     const { error } = await supabase
       .from("clientes")
       .update({
-        nome: cliente.nome,
-        cpf_cnpj: cliente.cpf_cnpj,
-        telefone: cliente.telefone,
-        email: cliente.email,
-        endereco: cliente.endereco,
-        observacoes: cliente.observacoes,
+        nome: draft.nome,
+        cpf_cnpj: draft.cpf_cnpj,
+        telefone: draft.telefone,
+        email: draft.email,
+        endereco: draft.endereco,
+        observacoes: draft.observacoes,
+        drive_folder_url: draft.drive_folder_url,
       })
-      .eq("id", cliente.id);
+      .eq("id", draft.id);
     setSaving(false);
     if (error) { toast.error("Erro ao salvar"); return; }
+    setCliente(draft);
+    setEditing(false);
     toast.success("Cliente atualizado");
   };
 
-  if (!cliente) {
-    return <div className="text-center text-muted-foreground py-8">Carregando...</div>;
-  }
+  if (!cliente) return <div className="text-center text-muted-foreground py-8">Carregando…</div>;
+
+  const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
+  const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
+  const demandasProc = demandas.filter(d => d.tipo === "processual");
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => navigate("/clientes")}>
-          <ArrowLeft className="h-4 w-4 mr-2" />Voltar
-        </Button>
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="h-4 w-4 mr-2" />{saving ? "Salvando..." : "Salvar"}
-        </Button>
-      </div>
+    <div className="space-y-6 max-w-6xl">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/clientes")} className="-ml-2">
+        <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
+      </Button>
 
-      <Card>
-        <CardHeader><CardTitle>{cliente.nome}</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><Label>Nome</Label><Input value={cliente.nome} onChange={(e) => setCliente({ ...cliente, nome: e.target.value })} /></div>
-          <div><Label>CPF/CNPJ</Label><Input value={cliente.cpf_cnpj ?? ""} onChange={(e) => setCliente({ ...cliente, cpf_cnpj: e.target.value })} /></div>
-          <div><Label>Telefone</Label><Input value={cliente.telefone ?? ""} onChange={(e) => setCliente({ ...cliente, telefone: e.target.value })} /></div>
-          <div><Label>E-mail</Label><Input type="email" value={cliente.email ?? ""} onChange={(e) => setCliente({ ...cliente, email: e.target.value })} /></div>
-          <div className="md:col-span-2"><Label>Endereço</Label><Input value={cliente.endereco ?? ""} onChange={(e) => setCliente({ ...cliente, endereco: e.target.value })} /></div>
-          <div className="md:col-span-2"><Label>Observações</Label><Textarea rows={3} value={cliente.observacoes ?? ""} onChange={(e) => setCliente({ ...cliente, observacoes: e.target.value })} /></div>
-        </CardContent>
-      </Card>
+      {/* HEADER ============================================================ */}
+      <header className="flex items-start gap-5">
+        <div className="h-20 w-20 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+          <User className="h-10 w-10 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2">
+            <h1 className="text-3xl font-medium tracking-tight truncate">{cliente.nome}</h1>
+            <button
+              onClick={() => { setDraft(cliente); setEditing(true); }}
+              className="mt-2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              title="Editar dados"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${origemMeta.color}`}>
+              {origemMeta.label}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Cliente desde {fmtDate(cliente.created_at)}
+            </span>
+          </div>
+        </div>
+        {cliente.drive_folder_url && (
+          <a
+            href={cliente.drive_folder_url}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 inline-flex items-center gap-2 px-4 h-10 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm hover:bg-primary/15 transition-colors"
+          >
+            <FolderOpen className="h-4 w-4" /> Abrir pasta no Drive
+            <ExternalLink className="h-3 w-3 opacity-60" />
+          </a>
+        )}
+      </header>
 
-      <Card>
-        <CardHeader><CardTitle>Processos ({processos.length})</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nº Processo</TableHead>
-                <TableHead>Matéria</TableHead>
-                <TableHead>Fase</TableHead>
-                <TableHead className="text-right">Valor da Causa</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {processos.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer">
-                  <TableCell className="font-medium">
-                    <Link to={`/processos/${p.id}`} className="hover:underline">{p.numero_processo}</Link>
-                  </TableCell>
-                  <TableCell>{p.materia || "—"}</TableCell>
-                  <TableCell>{p.fase_processual ? <Badge variant="secondary">{p.fase_processual}</Badge> : "—"}</TableCell>
-                  <TableCell className="text-right">{fmtBRL(p.valor_causa)}</TableCell>
-                </TableRow>
+      {/* TABS ============================================================== */}
+      <Tabs defaultValue="resumo" className="space-y-5">
+        <TabsList className="bg-card/40 border border-border">
+          <TabsTrigger value="resumo">Resumo</TabsTrigger>
+          <TabsTrigger value="contratos">
+            Contratos {contratos.length > 0 && <span className="ml-1.5 text-xs opacity-60">{contratos.length}</span>}
+          </TabsTrigger>
+          <TabsTrigger value="demandas">
+            Demandas {demandas.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandas.length}</span>}
+          </TabsTrigger>
+          <TabsTrigger value="processos">
+            Processos {processos.length > 0 && <span className="ml-1.5 text-xs opacity-60">{processos.length}</span>}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ============ RESUMO ============ */}
+        <TabsContent value="resumo" className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Slot icon={CreditCard} label="CPF / CNPJ" value={cliente.cpf_cnpj} />
+            <Slot icon={Phone}      label="Telefone"  value={cliente.telefone} />
+            <Slot icon={Mail}       label="E-mail"    value={cliente.email} />
+            <Slot icon={IdCard}     label="RG"        value={extrairRG(cliente.observacoes)} />
+            <Slot icon={Briefcase}  label="Profissão" value={extrairProfissao(cliente.observacoes)} />
+            <Slot icon={FolderOpen} label="Pasta Drive" value={cliente.drive_folder_url} isLink />
+            <Slot icon={MapPin}     label="Endereço"  value={cliente.endereco} className="sm:col-span-2 lg:col-span-3" />
+            <Slot icon={FileText}   label="Observações" value={cliente.observacoes} className="sm:col-span-2 lg:col-span-3" />
+          </div>
+        </TabsContent>
+
+        {/* ============ CONTRATOS ============ */}
+        <TabsContent value="contratos">
+          {contratos.length === 0 ? (
+            <EmptyState
+              icon={FileSignature}
+              title="Nenhum contrato registrado"
+              hint="Quando confirmar um pré-cliente, um contrato é criado automaticamente."
+            />
+          ) : (
+            <div className="space-y-3">
+              {contratos.map(ct => (
+                <div key={ct.id} className="rounded-2xl border border-border bg-card/40 p-4 flex items-start gap-4 hover:border-primary/30 transition-colors">
+                  <div className="h-12 w-12 shrink-0 rounded-xl bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
+                    <FileSignature className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium">{ct.modalidade}</h3>
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-wider">{ct.status}</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                      <span>Assinatura: {fmtDate(ct.data_assinatura)}</span>
+                      {ct.valor_total != null && <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>}
+                      {ct.percentual_exito != null && <span>Êxito: {ct.percentual_exito}%</span>}
+                    </div>
+                  </div>
+                  {ct.drive_url && (
+                    <a
+                      href={ct.drive_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" /> Drive
+                    </a>
+                  )}
+                </div>
               ))}
-              {processos.length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum processo.</TableCell></TableRow>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ============ DEMANDAS ============ */}
+        <TabsContent value="demandas">
+          <Tabs defaultValue="pre" className="space-y-4">
+            <TabsList className="bg-card/40 border border-border">
+              <TabsTrigger value="pre">
+                Pré-protocolo {demandasPre.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandasPre.length}</span>}
+              </TabsTrigger>
+              <TabsTrigger value="proc">
+                Processuais {demandasProc.length > 0 && <span className="ml-1.5 text-xs opacity-60">{demandasProc.length}</span>}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="pre">
+              <PrePipeline
+                demandas={demandasPre}
+                clienteId={cliente.id}
+                userId={user?.id ?? null}
+                onChange={load}
+              />
+            </TabsContent>
+
+            <TabsContent value="proc">
+              {demandasProc.length === 0 ? (
+                <EmptyState
+                  icon={Briefcase}
+                  title="Nenhuma demanda processual"
+                  hint="Demandas processuais aparecem aqui quando uma peça é protocolada e o processo é criado."
+                />
+              ) : (
+                <div className="space-y-3">
+                  {demandasProc.map(d => <DemandaCard key={d.id} demanda={d} onChange={load} />)}
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        {/* ============ PROCESSOS ============ */}
+        <TabsContent value="processos">
+          <Card className="bg-card/40 border-border">
+            <CardHeader><CardTitle className="text-base">Processos ({processos.length})</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nº Processo</TableHead>
+                    <TableHead>Matéria</TableHead>
+                    <TableHead>Fase</TableHead>
+                    <TableHead className="text-right">Valor da Causa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {processos.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">
+                        <Link to={`/processos/${p.id}`} className="hover:underline">{p.numero_processo}</Link>
+                      </TableCell>
+                      <TableCell>{p.materia || "—"}</TableCell>
+                      <TableCell>{p.fase_processual ? <Badge variant="secondary">{p.fase_processual}</Badge> : "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtBRL(p.valor_causa)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {processos.length === 0 && (
+                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum processo.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* DIÁLOGO DE EDIÇÃO ================================================= */}
+      <Dialog open={editing} onOpenChange={(v) => { if (!v) setEditing(false); }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar dados do cliente</DialogTitle>
+            <DialogDescription>Atualize os campos. O nome muda no topo da página depois de salvar.</DialogDescription>
+          </DialogHeader>
+          {draft && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+              <div className="sm:col-span-2"><Label>Nome</Label><Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></div>
+              <div><Label>CPF/CNPJ</Label><Input value={draft.cpf_cnpj ?? ""} onChange={(e) => setDraft({ ...draft, cpf_cnpj: e.target.value })} /></div>
+              <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
+              <div className="sm:col-span-2"><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
+              <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
+              <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
+              <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={3} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancelar</Button>
+            <Button onClick={handleSave} disabled={saving}>{saving ? "Salvando…" : "Salvar alterações"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+// =========================================================================
+// COMPONENTES AUXILIARES
+// =========================================================================
+
+function Slot({
+  icon: Icon, label, value, isLink, className,
+}: { icon: any; label: string; value: string | null; isLink?: boolean; className?: string }) {
+  const empty = !value;
+  return (
+    <div className={`rounded-xl border border-border bg-card/40 p-3.5 ${className || ""}`}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+        <Icon className="h-3 w-3" /> {label}
+      </div>
+      {empty ? (
+        <p className="text-sm text-muted-foreground/50 italic">não informado</p>
+      ) : isLink ? (
+        <a href={value!} target="_blank" rel="noreferrer"
+           className="text-sm text-primary hover:underline break-all inline-flex items-center gap-1">
+          {value} <ExternalLink className="h-3 w-3 opacity-60 shrink-0" />
+        </a>
+      ) : (
+        <p className="text-sm text-foreground break-words whitespace-pre-wrap">{value}</p>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, hint }: { icon: any; title: string; hint: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card/20 py-14 px-6 text-center">
+      <Icon className="h-10 w-10 mx-auto text-muted-foreground/40" />
+      <p className="mt-4 text-sm text-foreground">{title}</p>
+      <p className="text-xs text-muted-foreground/70 mt-1 max-w-md mx-auto">{hint}</p>
+    </div>
+  );
+}
+
+function DemandaCard({ demanda, onChange }: { demanda: Demanda; onChange: () => void }) {
+  const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
+  const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
+  return (
+    <div className="rounded-xl border border-border bg-card/40 p-4 hover:border-primary/30 transition-colors">
+      <div className="flex items-start gap-3">
+        <div className="h-9 w-9 shrink-0 rounded-lg bg-muted/30 flex items-center justify-center">
+          <etapa.Icon className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h4 className="text-sm font-medium truncate">{demanda.titulo}</h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{etapa.label}{demanda.desconto && ` · ${demanda.desconto}`}</p>
+            </div>
+            <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${status.color}`}>
+              <status.Icon className="h-2.5 w-2.5" /> {status.label}
+            </span>
+          </div>
+          {demanda.descricao && (
+            <p className="text-xs text-muted-foreground mt-2">{demanda.descricao}</p>
+          )}
+          {(demanda.peca_drive_url || demanda.protocolo_drive_url) && (
+            <div className="flex items-center gap-3 mt-2 text-[11px]">
+              {demanda.peca_drive_url && (
+                <a href={demanda.peca_drive_url} target="_blank" rel="noreferrer"
+                   className="text-primary hover:underline inline-flex items-center gap-1">
+                  <FileText className="h-3 w-3" /> Peça
+                </a>
+              )}
+              {demanda.protocolo_drive_url && (
+                <a href={demanda.protocolo_drive_url} target="_blank" rel="noreferrer"
+                   className="text-primary hover:underline inline-flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> Protocolo
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Pipeline visual do pré-protocolo, com as 4 etapas e demandas agrupadas
+function PrePipeline({
+  demandas, clienteId, userId, onChange,
+}: { demandas: Demanda[]; clienteId: string; userId: string | null; onChange: () => void }) {
+  const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
+    { key: "analise_documental",    label: "1. Análise Documental",       Icon: ClipboardList, hint: "Identificar descontos ajuizáveis." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",      Icon: Sparkles,      hint: "Uma análise por desconto identificado." },
+    { key: "confeccao_peca",        label: "3. Confecção das Peças",      Icon: FileText,      hint: "Produção de cada peça." },
+    { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo",    Icon: Send,          hint: "Peças prontas com link do Drive." },
+  ];
+
+  if (demandas.length === 0) {
+    return (
+      <EmptyState
+        icon={ClipboardList}
+        title="Pipeline ainda não iniciado"
+        hint="Quando o pré-cliente é confirmado, uma análise documental é criada automaticamente como ponto de partida."
+      />
+    );
+  }
+
+  const adicionarAnaliseVinculada = async (paiId: string) => {
+    const desconto = window.prompt("Qual desconto identificado? (ex: Tarifas, Mix Bradesco)");
+    if (!desconto) return;
+    const { error } = await supabase.from("demandas" as any).insert({
+      cliente_id: clienteId,
+      tipo: "pre_protocolo",
+      etapa: "analise_vinculada",
+      titulo: `Análise vinculada — ${desconto}`,
+      desconto,
+      status: "pendente",
+      analise_pai_id: paiId,
+      created_by: userId,
+      ordem: 1,
+    });
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Análise vinculada criada");
+    onChange();
+  };
+
+  return (
+    <div className="space-y-5">
+      {grupos.map(g => {
+        const itens = demandas.filter(d => d.etapa === g.key);
+        return (
+          <div key={g.key} className="rounded-2xl border border-border bg-card/30 p-5">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="flex items-start gap-3">
+                <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
+                  <g.Icon className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium">{g.label}</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{g.hint}</p>
+                </div>
+              </div>
+              {g.key === "analise_vinculada" && itens.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const pai = demandas.find(d => d.etapa === "analise_documental");
+                    if (!pai) { toast.error("Crie uma análise documental antes."); return; }
+                    adicionarAnaliseVinculada(pai.id);
+                  }}
+                  className="text-xs text-primary hover:text-primary"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar análise
+                </Button>
+              )}
+            </div>
+
+            {itens.length === 0 ? (
+              <p className="text-xs text-muted-foreground/60 italic px-1">
+                {g.key === "analise_vinculada"
+                  ? "Após concluir a análise documental, as análises vinculadas (uma por desconto) aparecem aqui."
+                  : g.key === "confeccao_peca"
+                  ? "As peças são geradas a partir das análises vinculadas concluídas."
+                  : "Sem itens nesta etapa."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {itens.map(d => <DemandaCard key={d.id} demanda={d} onChange={onChange} />)}
+              </div>
+            )}
+
+            {g.key === "analise_vinculada" && itens.length === 0 && demandas.some(d => d.etapa === "analise_documental") && (
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const pai = demandas.find(d => d.etapa === "analise_documental");
+                    if (pai) adicionarAnaliseVinculada(pai.id);
+                  }}
+                  className="text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar análise vinculada
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Helpers pra extrair RG e Profissão das observações (placeholder até termos colunas próprias)
+function extrairRG(obs: string | null): string | null {
+  if (!obs) return null;
+  const m = obs.match(/RG:\s*([^·\n]+)/i);
+  return m ? m[1].trim() : null;
+}
+function extrairProfissao(obs: string | null): string | null {
+  if (!obs) return null;
+  // Heurística: depois de "RG: ... ·" pega o que vem
+  const partes = obs.split("·").map(s => s.trim());
+  for (const parte of partes) {
+    if (!parte.toLowerCase().startsWith("rg") && parte.length > 0 && parte.length < 50) {
+      return parte;
+    }
+  }
+  return null;
 }

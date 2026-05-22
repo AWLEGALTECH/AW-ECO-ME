@@ -145,6 +145,8 @@ export default function PreClientes() {
 
   const confirmar = async (pre: PreCliente, driveFolderUrl: string) => {
     if (!user) return;
+
+    // 1. cria cliente (origem=writer)
     const { data: novoCliente, error: errCli } = await supabase
       .from("clientes")
       .insert({
@@ -153,13 +155,47 @@ export default function PreClientes() {
         telefone: pre.telefone,
         email: pre.email,
         endereco: pre.endereco_completo,
-        observacoes: `Originado do Writer · Produto: ${pre.produto || "—"}${pre.rg ? ` · RG: ${pre.rg}` : ""}${pre.profissao ? ` · ${pre.profissao}` : ""}`,
+        observacoes: pre.rg || pre.profissao
+          ? `${pre.rg ? `RG: ${pre.rg}` : ""}${pre.rg && pre.profissao ? " · " : ""}${pre.profissao || ""}`.trim()
+          : null,
         drive_folder_url: driveFolderUrl,
-      })
+        origem: "writer",
+      } as any)
       .select()
       .single();
     if (errCli) { toast.error("Erro ao criar cliente: " + errCli.message); return; }
 
+    // 2. cria contrato vinculado (modalidade puxa do produto do writer)
+    const { data: contrato, error: errContrato } = await supabase
+      .from("contratos" as any)
+      .insert({
+        cliente_id: novoCliente.id,
+        modalidade: pre.produto || "Êxito",
+        valor_total: pre.valor_causa,
+        drive_url: driveFolderUrl,
+        pre_cliente_id: pre.id,
+        status: "ativo",
+      })
+      .select()
+      .single();
+    if (errContrato) console.error("[confirmar] falha criando contrato:", errContrato);
+
+    // 3. cria a análise documental inicial (1ª etapa do pré-protocolo)
+    await supabase
+      .from("demandas" as any)
+      .insert({
+        cliente_id: novoCliente.id,
+        contrato_id: (contrato as any)?.id ?? null,
+        tipo: "pre_protocolo",
+        etapa: "analise_documental",
+        titulo: "Análise documental inicial",
+        descricao: "Identificar quais descontos do cliente são ajuizáveis.",
+        status: "pendente",
+        created_by: user.id,
+        ordem: 0,
+      });
+
+    // 4. fecha o pré-cliente
     const { error: errPre } = await supabase
       .from("pre_clientes")
       .update({
@@ -171,6 +207,7 @@ export default function PreClientes() {
       })
       .eq("id", pre.id);
     if (errPre) { toast.error("Cliente criado, mas falhou atualizar pré-cliente: " + errPre.message); }
+
     toast.success(`Cliente ${pre.nome} cadastrado com sucesso`);
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
   };

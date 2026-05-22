@@ -138,9 +138,9 @@ export default function Clientes() {
               {filtered.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/clientes/${c.id}`)}>
                   <TableCell className="font-medium hover:underline">
-                    <span className="inline-flex items-center gap-2.5">
-                      <span className="h-7 w-7 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
-                        <User className="h-3.5 w-3.5 text-primary" />
+                    <span className="inline-flex items-center gap-3">
+                      <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
+                        <User className="h-5 w-5 text-primary" />
                       </span>
                       {c.nome}
                     </span>
