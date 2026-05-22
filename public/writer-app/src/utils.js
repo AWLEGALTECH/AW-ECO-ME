@@ -343,6 +343,28 @@ function _normTxt(s) {
     .replace(/\s+/g, ' ').trim();
 }
 
+function _tokens(s) {
+  return _normTxt(s).split(/[\s.,\/_\-]+/).filter(t => t.length >= 2);
+}
+
+// Casa uma rubrica contra o texto do desconto.
+// Estrategia em camadas:
+//   1. Substring direto (cobre 'tarifa' em 'tarifa saque terminal')
+//   2. Match por tokens — cada token da rubrica precisa achar uma palavra
+//      do desconto que comece com ele (cobre 'bx.ant.financ' vs
+//      'bx antecipacao financeira': bx==bx, ant->antecipacao, financ->financeira)
+function _rubricaCasa(rubricaNorm, descontoNorm) {
+  if (!rubricaNorm || !descontoNorm) return false;
+  if (descontoNorm.includes(rubricaNorm) || rubricaNorm.includes(descontoNorm)) return true;
+  const tokensR = _tokens(rubricaNorm);
+  const tokensD = _tokens(descontoNorm);
+  if (tokensR.length === 0 || tokensD.length === 0) return false;
+  // Cada token da rubrica precisa achar uma palavra correspondente no desconto
+  return tokensR.every(tok => tokensD.some(w =>
+    w === tok || w.startsWith(tok) || tok.startsWith(w) || w.includes(tok) || tok.includes(w)
+  ));
+}
+
 function sugerirProdutoPorDesconto(desconto) {
   if (!desconto || !Array.isArray(PRODUTOS)) return null;
   const txt = _normTxt(desconto);
@@ -354,9 +376,7 @@ function sugerirProdutoPorDesconto(desconto) {
     if (!Array.isArray(p.rubricas)) continue;
     for (const r of p.rubricas) {
       const rNorm = _normTxt(r);
-      if (!rNorm) continue;
-      // match bidirecional: desconto contem rubrica OU rubrica contem desconto
-      if (txt.includes(rNorm) || rNorm.includes(txt)) {
+      if (_rubricaCasa(rNorm, txt)) {
         candidatos.set(p.id, p.nome);
         break;
       }
