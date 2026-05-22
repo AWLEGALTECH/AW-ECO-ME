@@ -17,6 +17,7 @@ import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
+  Lock, ScanSearch,
 } from "lucide-react";
 
 interface Cliente {
@@ -328,7 +329,7 @@ export default function ClienteDetail() {
           </div>
 
           {subDem === "pre" ? (
-            <PrePipeline demandas={demandasPre} clienteId={cliente.id} userId={user?.id ?? null} onChange={load} />
+            <PrePipeline demandas={demandasPre} cliente={cliente} userId={user?.id ?? null} onChange={load} />
           ) : demandasProc.length === 0 ? (
             <EmptyState
               icon={Briefcase}
@@ -510,14 +511,81 @@ function DemandaCard({ demanda }: { demanda: Demanda }) {
 }
 
 function PrePipeline({
-  demandas, clienteId, userId, onChange,
-}: { demandas: Demanda[]; clienteId: string; userId: string | null; onChange: () => void }) {
+  demandas, cliente, userId, onChange,
+}: { demandas: Demanda[]; cliente: Cliente; userId: string | null; onChange: () => void }) {
+  const clienteId = cliente.id;
+  const navigate = useNavigate();
+  const [dialogVincular, setDialogVincular] = useState(false);
+  const [vincForm, setVincForm] = useState({ desconto: "", planilha_url: "" });
+  const [savingVinc, setSavingVinc] = useState(false);
+
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ClipboardList, hint: "Identificar descontos ajuizáveis." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Uma análise por desconto identificado." },
-    { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Produção de cada peça." },
+    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ClipboardList, hint: "Identificar descontos ajuizáveis no Finder." },
+    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,     hint: "Uma planilha por desconto identificado." },
+    { key: "confeccao_peca",        label: "3. Confecção das Peças",   Icon: FileText,      hint: "Peças geradas a partir das análises." },
     { key: "pronta_para_protocolo", label: "4. Prontas pra Protocolo", Icon: Send,          hint: "Peças prontas com link do Drive." },
   ];
+
+  // Lógica de bloqueio sequencial — cada etapa só fica "destravada" quando a
+  // anterior já entregou ALGUM resultado relevante:
+  // - 1 sempre liberada (ponto inicial)
+  // - 2 liberada quando existe alguma analise_vinculada (criada pelo Finder)
+  // - 3 liberada quando existe alguma analise_vinculada concluida
+  // - 4 liberada quando existe alguma confeccao_peca concluida
+  const temAnaliseVinculada     = demandas.some(d => d.etapa === "analise_vinculada");
+  const temAnaliseVincConcluida = demandas.some(d => d.etapa === "analise_vinculada" && d.status === "concluida");
+  const temPecaConcluida        = demandas.some(d => d.etapa === "confeccao_peca" && d.status === "concluida");
+
+  const liberada = (key: string) => {
+    switch (key) {
+      case "analise_documental":    return true;
+      case "analise_vinculada":     return temAnaliseVinculada;
+      case "confeccao_peca":        return temAnaliseVincConcluida;
+      case "pronta_para_protocolo": return temPecaConcluida;
+      default: return false;
+    }
+  };
+
+  const hintBloqueio: Record<string, string> = {
+    analise_vinculada:     "Bloqueado — vincule pelo menos uma análise no Finder pra liberar.",
+    confeccao_peca:        "Bloqueado — conclua ao menos uma análise vinculada pra liberar.",
+    pronta_para_protocolo: "Bloqueado — conclua ao menos uma peça pra liberar.",
+  };
+
+  const irParaFinder = async () => {
+    // Marca a análise documental como "em andamento" e direciona pro Finder
+    const ad = demandas.find(d => d.etapa === "analise_documental");
+    if (ad && ad.status === "pendente") {
+      await supabase.from("demandas" as any).update({ status: "em_andamento" }).eq("id", ad.id);
+    }
+    const params = new URLSearchParams({ cliente: clienteId, nome: cliente.nome });
+    navigate(`/finder?${params.toString()}`);
+  };
+
+  const salvarAnaliseVinculada = async () => {
+    if (!vincForm.desconto.trim()) { toast.error("Informe o nome do desconto/banco"); return; }
+    if (!vincForm.planilha_url.trim()) { toast.error("Cole a URL da planilha gerada"); return; }
+    const pai = demandas.find(d => d.etapa === "analise_documental");
+    setSavingVinc(true);
+    const { error } = await supabase.from("demandas" as any).insert({
+      cliente_id: clienteId,
+      tipo: "pre_protocolo",
+      etapa: "analise_vinculada",
+      titulo: `Análise vinculada — ${vincForm.desconto.trim()}`,
+      desconto: vincForm.desconto.trim(),
+      peca_drive_url: vincForm.planilha_url.trim(),
+      status: "pendente",
+      analise_pai_id: pai?.id ?? null,
+      created_by: userId,
+      ordem: 1,
+    });
+    setSavingVinc(false);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Análise vinculada criada");
+    setVincForm({ desconto: "", planilha_url: "" });
+    setDialogVincular(false);
+    onChange();
+  };
 
   if (demandas.length === 0) {
     return (
@@ -529,89 +597,122 @@ function PrePipeline({
     );
   }
 
-  const adicionarAnaliseVinculada = async (paiId: string) => {
-    const desconto = window.prompt("Qual desconto identificado? (ex: Tarifas, Mix Bradesco)");
-    if (!desconto) return;
-    const { error } = await supabase.from("demandas" as any).insert({
-      cliente_id: clienteId,
-      tipo: "pre_protocolo",
-      etapa: "analise_vinculada",
-      titulo: `Análise vinculada — ${desconto}`,
-      desconto,
-      status: "pendente",
-      analise_pai_id: paiId,
-      created_by: userId,
-      ordem: 1,
-    });
-    if (error) { toast.error("Erro: " + error.message); return; }
-    toast.success("Análise vinculada criada");
-    onChange();
-  };
-
   return (
-    <div className="space-y-5">
-      {grupos.map(g => {
+    <div className="space-y-3">
+      {grupos.map((g, idx) => {
         const itens = demandas.filter(d => d.etapa === g.key);
+        const ativa = liberada(g.key);
+
         return (
-          <div key={g.key} className="rounded-2xl border border-border bg-card/30 p-5">
-            <div className="flex items-start justify-between gap-3 mb-4">
+          <div
+            key={g.key}
+            className={`rounded-2xl border p-5 transition-opacity ${
+              ativa
+                ? "border-border bg-card/30"
+                : "border-border/40 bg-muted/10 opacity-60"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex items-start gap-3">
-                <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
-                  <g.Icon className="h-4 w-4 text-primary" />
+                <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${
+                  ativa
+                    ? "bg-primary/15 ring-1 ring-primary/25"
+                    : "bg-muted/30 ring-1 ring-border/40"
+                }`}>
+                  {ativa ? (
+                    <g.Icon className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Lock className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </div>
                 <div>
                   <h3 className="text-sm font-medium">{g.label}</h3>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{g.hint}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {ativa ? g.hint : (hintBloqueio[g.key] || g.hint)}
+                  </p>
                 </div>
               </div>
-              {g.key === "analise_vinculada" && itens.length > 0 && (
+
+              {/* Ação principal da etapa quando ativa */}
+              {ativa && g.key === "analise_documental" && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    const pai = demandas.find(d => d.etapa === "analise_documental");
-                    if (!pai) { toast.error("Crie uma análise documental antes."); return; }
-                    adicionarAnaliseVinculada(pai.id);
-                  }}
-                  className="text-xs text-primary hover:text-primary"
+                  onClick={irParaFinder}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar análise
+                  <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
+                  {itens.some(d => d.status !== "pendente") ? "Continuar no Finder" : "Iniciar no Finder"}
+                </Button>
+              )}
+              {ativa && g.key === "analise_vinculada" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDialogVincular(true)}
+                  className="text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Vincular análise
                 </Button>
               )}
             </div>
 
-            {itens.length === 0 ? (
+            {/* Conteúdo */}
+            {!ativa ? null : itens.length === 0 ? (
               <p className="text-xs text-muted-foreground/60 italic px-1">
-                {g.key === "analise_vinculada"
-                  ? "Após concluir a análise documental, as análises vinculadas (uma por desconto) aparecem aqui."
+                {g.key === "analise_documental"
+                  ? "Clique em 'Iniciar no Finder' pra começar a análise dos extratos."
+                  : g.key === "analise_vinculada"
+                  ? "Quando o Finder gerar planilhas, vincule cada uma aqui."
                   : g.key === "confeccao_peca"
-                  ? "As peças são geradas a partir das análises vinculadas concluídas."
-                  : "Sem itens nesta etapa."}
+                  ? "As peças serão geradas a partir das análises vinculadas concluídas."
+                  : "Peças prontas pra protocolo aparecerão aqui."}
               </p>
             ) : (
               <div className="space-y-2">
                 {itens.map(d => <DemandaCard key={d.id} demanda={d} />)}
               </div>
             )}
-
-            {g.key === "analise_vinculada" && itens.length === 0 && demandas.some(d => d.etapa === "analise_documental") && (
-              <div className="mt-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const pai = demandas.find(d => d.etapa === "analise_documental");
-                    if (pai) adicionarAnaliseVinculada(pai.id);
-                  }}
-                  className="text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Adicionar análise vinculada
-                </Button>
-              </div>
-            )}
           </div>
         );
       })}
+
+      {/* Diálogo: Vincular análise do Finder ao cliente */}
+      <Dialog open={dialogVincular} onOpenChange={(v) => { if (!v) { setDialogVincular(false); setVincForm({ desconto: "", planilha_url: "" }); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vincular análise ao cliente</DialogTitle>
+            <DialogDescription>
+              Cole o nome do desconto/banco identificado e o link da planilha gerada pelo Finder.
+              No futuro o Finder vinculará automaticamente — por agora é manual.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div>
+              <Label className="text-xs">Desconto / Produto</Label>
+              <Input
+                value={vincForm.desconto}
+                onChange={(e) => setVincForm({ ...vincForm, desconto: e.target.value })}
+                placeholder="ex: Mix Bradesco, Tarifas, Juros..."
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label className="text-xs">URL da planilha (XLSX no Drive)</Label>
+              <Input
+                value={vincForm.planilha_url}
+                onChange={(e) => setVincForm({ ...vincForm, planilha_url: e.target.value })}
+                placeholder="https://drive.google.com/file/d/..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDialogVincular(false)} disabled={savingVinc}>Cancelar</Button>
+            <Button onClick={salvarAnaliseVinculada} disabled={savingVinc}>
+              {savingVinc ? "Vinculando…" : "Vincular"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
