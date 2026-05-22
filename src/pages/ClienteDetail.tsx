@@ -227,10 +227,10 @@ export default function ClienteDetail() {
             <button
               key={a.key}
               onClick={() => setAba(a.key)}
-              className={`rounded-2xl border p-4 text-left transition-all ${
+              className={`group rounded-2xl border-2 p-4 text-left cursor-pointer transition-all shadow-sm ${
                 ativa
-                  ? "border-primary/40 bg-primary/10 ring-1 ring-primary/30"
-                  : "border-border bg-card/40 hover:border-primary/20 hover:bg-card/60"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20 shadow-[0_0_24px_hsla(var(--primary)/0.18)] -translate-y-0.5"
+                  : "border-border/80 bg-card/70 hover:border-primary/40 hover:bg-card hover:-translate-y-0.5 hover:shadow-md"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -403,10 +403,10 @@ function SubTab({ active, onClick, label, count }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className={`rounded-xl border px-4 py-2.5 text-sm transition-all flex items-center justify-between gap-2 ${
+      className={`rounded-xl border-2 px-4 py-2.5 text-sm cursor-pointer transition-all flex items-center justify-between gap-2 ${
         active
-          ? "border-primary/40 bg-primary/10 text-primary ring-1 ring-primary/30"
-          : "border-border bg-card/40 text-muted-foreground hover:text-foreground hover:bg-card/60"
+          ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/20"
+          : "border-border/80 bg-card/70 text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-card"
       }`}
     >
       <span>{label}</span>
@@ -426,15 +426,15 @@ function Slot({
 }: { icon: any; label: string; value: string | null; isLink?: boolean; className?: string }) {
   const empty = !value;
   return (
-    <div className={`rounded-xl border border-border bg-card/40 p-3.5 ${className || ""}`}>
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+    <div className={`rounded-lg bg-muted/15 px-4 py-3 cursor-default ${className || ""}`}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1">
         <Icon className="h-3 w-3" /> {label}
       </div>
       {empty ? (
-        <p className="text-sm text-muted-foreground/50 italic">não informado</p>
+        <p className="text-sm text-muted-foreground/40 italic">não informado</p>
       ) : isLink ? (
         <a href={value!} target="_blank" rel="noreferrer"
-           className="text-sm text-primary hover:underline break-all inline-flex items-center gap-1">
+           className="text-sm text-primary hover:underline break-all inline-flex items-center gap-1 cursor-pointer">
           {value} <ExternalLink className="h-3 w-3 opacity-60 shrink-0" />
         </a>
       ) : (
