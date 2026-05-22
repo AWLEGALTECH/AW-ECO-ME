@@ -509,6 +509,45 @@ function DemandaCard({ demanda, action }: { demanda: Demanda; action?: React.Rea
   );
 }
 
+function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: Demanda[] }) {
+  return (
+    <div className="rounded-xl border border-border bg-card/40 p-4 hover:border-primary/30 transition-colors">
+      <div className="flex items-start gap-3">
+        <div className="h-9 w-9 shrink-0 rounded-lg bg-muted/30 flex items-center justify-center">
+          <ClipboardList className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h4 className="text-sm font-medium">Análise Documental</h4>
+            <span className="text-[11px] text-muted-foreground">
+              {fmtDate(demanda.created_at)}
+            </span>
+          </div>
+          {filhas.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground/60 italic mt-2">
+              Nenhuma análise vinculada gerada nessa sessão ainda.
+            </p>
+          ) : (
+            <div className="mt-2.5 space-y-1">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                {filhas.length} análise{filhas.length === 1 ? "" : "s"} vinculada{filhas.length === 1 ? "" : "s"}
+              </p>
+              <ul className="space-y-0.5">
+                {filhas.map(f => (
+                  <li key={f.id} className="text-[12px] text-foreground/90 flex items-center gap-1.5">
+                    <GitBranch className="h-3 w-3 text-primary/70 shrink-0" />
+                    <span className="truncate">{f.desconto || f.titulo}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EspelhoCard({ demanda }: { demanda: Demanda }) {
   const hasUrl = !!demanda.peca_drive_url;
   const card = (
@@ -675,25 +714,22 @@ function PrePipeline({
   };
 
   const irParaFinder = async () => {
-    // Garante que existe uma analise_documental pra esse cliente.
-    // Se nao tem (cliente antigo ou criado manualmente), cria agora.
-    let ad = demandas.find(d => d.etapa === "analise_documental");
-    if (!ad) {
-      const { data: nova, error } = await supabase.from("demandas" as any).insert({
-        cliente_id: clienteId,
-        tipo: "pre_protocolo",
-        etapa: "analise_documental",
-        titulo: "Análise documental inicial",
-        descricao: "Identificar quais descontos do cliente são ajuizáveis.",
-        status: "em_andamento",
-        created_by: userId,
-        ordem: 0,
-      }).select().single();
-      if (error) { toast.error("Erro ao iniciar pipeline: " + error.message); return; }
-      ad = nova as any;
-    } else if (ad.status === "pendente") {
-      await supabase.from("demandas" as any).update({ status: "em_andamento" }).eq("id", ad.id);
-    }
+    // Cada clique em "Nova analise vinculada" cria uma nova analise_documental.
+    // Cada sessao de finder gera o seu proprio card com data + filhos (as
+    // analises_vinculadas geradas naquela sessao).
+    // O bundle do finder consulta a mais recente (order=created_at.desc.nullslast)
+    // pra setar analise_pai_id correto nas vinculadas criadas a seguir.
+    const { error } = await supabase.from("demandas" as any).insert({
+      cliente_id: clienteId,
+      tipo: "pre_protocolo",
+      etapa: "analise_documental",
+      titulo: "Análise documental",
+      descricao: null,
+      status: "em_andamento",
+      created_by: userId,
+      ordem: 0,
+    });
+    if (error) { toast.error("Erro ao abrir nova análise: " + error.message); return; }
     const params = new URLSearchParams({ cliente: clienteId, nome: cliente.nome });
     navigate(`/finder?${params.toString()}`);
   };
@@ -792,8 +828,8 @@ function PrePipeline({
                   onClick={irParaFinder}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 >
-                  <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
-                  Vincular análise
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Nova análise vinculada
                 </Button>
               )}
               {ativa && g.key === "analise_vinculada" && analisesPendentes.length >= 2 && (
@@ -813,7 +849,7 @@ function PrePipeline({
             {!ativa ? null : itens.length === 0 ? (
               <p className="text-xs text-muted-foreground/60 italic px-1">
                 {g.key === "analise_documental"
-                  ? "Clique em 'Vincular análise' pra começar a análise dos extratos no Finder."
+                  ? "Clique em 'Nova análise vinculada' pra começar a análise dos extratos no Finder."
                   : g.key === "analise_vinculada"
                   ? "Quando o Finder gerar planilhas, vincule cada uma aqui."
                   : "Quando você finalizar uma peça no Writer, ela aparece aqui."}
@@ -821,6 +857,18 @@ function PrePipeline({
             ) : g.key === "pronta_para_protocolo" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {itens.map(d => <EspelhoCard key={d.id} demanda={d} />)}
+              </div>
+            ) : g.key === "analise_documental" ? (
+              <div className="space-y-2">
+                {itens
+                  .slice()
+                  .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+                  .map(d => {
+                    const filhas = demandas.filter(
+                      x => x.etapa === "analise_vinculada" && x.analise_pai_id === d.id
+                    );
+                    return <AnaliseDocumentalCard key={d.id} demanda={d} filhas={filhas} />;
+                  })}
               </div>
             ) : (
               <div className="space-y-2">
