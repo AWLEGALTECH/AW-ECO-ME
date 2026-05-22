@@ -166,12 +166,19 @@ export default function PreClientes() {
     if (errCli) { toast.error("Erro ao criar cliente: " + errCli.message); return; }
 
     // 2. cria contrato vinculado (modalidade puxa do produto do writer)
+    const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
     const { data: contrato, error: errContrato } = await supabase
       .from("contratos" as any)
       .insert({
         cliente_id: novoCliente.id,
         modalidade: pre.produto || "Êxito",
         valor_total: pre.valor_causa,
+        percentual_exito: dk?.honorarios_percentual_exito
+          ? Number(dk.honorarios_percentual_exito) || null
+          : null,
+        motivo: dk?.causa_motivo_outro || dk?.causa_motivo || null,
+        reus: pre.rubricas && pre.rubricas.length ? pre.rubricas : null,
+        data_assinatura: dk?.contrato_data_assinatura || null,
         drive_url: driveFolderUrl,
         pre_cliente_id: pre.id,
         status: "ativo",

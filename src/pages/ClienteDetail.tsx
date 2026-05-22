@@ -48,6 +48,8 @@ interface Contrato {
   data_assinatura: string | null;
   valor_total: number | null;
   percentual_exito: number | null;
+  reus: string[] | null;
+  motivo: string | null;
   drive_url: string | null;
   status: string;
   observacoes: string | null;
@@ -279,24 +281,38 @@ export default function ClienteDetail() {
             ) : (
               <ul className="space-y-2">
                 {contratos.map(ct => (
-                  <li key={ct.id} className="rounded-xl border border-border bg-card/40 px-4 py-3 flex items-center gap-3 hover:border-primary/30 transition-colors">
-                    <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center">
+                  <li key={ct.id} className="rounded-xl border border-border bg-card/40 px-4 py-3 flex items-start gap-3 hover:border-primary/30 transition-colors">
+                    <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/25 flex items-center justify-center mt-0.5">
                       <FileSignature className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">Contrato de {ct.modalidade}</span>
                         <Badge variant="outline" className="text-[9px] uppercase tracking-wider">{ct.status}</Badge>
+                        {ct.percentual_exito != null && (
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary">
+                            {ct.percentual_exito}% êxito
+                          </span>
+                        )}
                       </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                        <span>Assinatura: {fmtDate(ct.data_assinatura)}</span>
-                        {ct.valor_total != null && <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>}
-                        {ct.percentual_exito != null && <span>Êxito: {ct.percentual_exito}%</span>}
+                      <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                        {ct.reus && ct.reus.length > 0 && (
+                          <span>Réu(s): <span className="text-foreground/90">{ct.reus.join(", ")}</span></span>
+                        )}
+                        {ct.motivo && (
+                          <span>Motivo: <span className="text-foreground/90">{ct.motivo}</span></span>
+                        )}
+                        {ct.valor_total != null && (
+                          <span>Valor: <span className="text-primary tabular-nums">{fmtBRL(ct.valor_total)}</span></span>
+                        )}
+                        {ct.data_assinatura && (
+                          <span>Assinado em: {fmtDate(ct.data_assinatura)}</span>
+                        )}
                       </div>
                     </div>
                     {ct.drive_url && (
                       <a href={ct.drive_url} target="_blank" rel="noreferrer"
-                         className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                         className="shrink-0 inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
                          title="Abrir pasta do contrato no Drive">
                         <FolderOpen className="h-3.5 w-3.5" />
                       </a>
