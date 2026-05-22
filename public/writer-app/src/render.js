@@ -68,8 +68,15 @@ function renderLobby(view) {
   const locked = PRODUTOS.filter(p => !p.ativo).length;
   const busca = (state.buscaLobby || '').trim();
 
+  // Quando viemos de uma análise vinculada (Confeccionar peça do aw-eco-me),
+  // não faz sentido mostrar a prateleira de Kits (procurações/contratos).
+  const ehModoPeca = !!state.contextoAnaliseVinculada;
+  const universoProdutos = ehModoPeca
+    ? PRODUTOS.filter(p => !(p.categoria && /representa/i.test(p.categoria)))
+    : PRODUTOS;
+
   // Filtrar por busca (nome, réu, rubricas, categoria, sublabel)
-  const filtrados = filtrarProdutos(PRODUTOS, busca);
+  const filtrados = filtrarProdutos(universoProdutos, busca);
 
   // Agrupar por categoria
   const porCategoria = {};
@@ -78,6 +85,12 @@ function renderLobby(view) {
     if (!porCategoria[cat]) porCategoria[cat] = [];
     porCategoria[cat].push(p);
   });
+
+  // Prateleira "Produto Sugerido" — só aparece quando há contexto de análise
+  // vinculada com sugestão calculada. Mostra o produto sugerido em destaque.
+  const sugerido = (ehModoPeca && state.produtoSugeridoId)
+    ? universoProdutos.find(p => p.id === state.produtoSugeridoId)
+    : null;
 
   view.innerHTML = `
     <div class="lobby">
@@ -153,7 +166,25 @@ function renderLobby(view) {
             <strong>Nenhum produto encontrado</strong>
             para <em>"${escapeHtml(busca)}"</em>. Tente outro termo ou <button class="btn-link" style="padding:0;display:inline" onclick="limparBusca()">limpe a busca</button>.
           </div>`
-        : Object.entries(porCategoria).map(([categoria, produtos]) => `
+        : `
+          ${sugerido && !busca ? `
+            <div class="shelf" style="position:relative;">
+              <div class="shelf-header">
+                <div class="shelf-title" style="color:hsl(270 60% 78%); display:inline-flex; align-items:center; gap:8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  Produto Sugerido
+                </div>
+                <div class="shelf-divider" style="background:linear-gradient(90deg, hsla(270,60%,60%,0.35), transparent);"></div>
+                <div class="shelf-count" style="color:hsl(270 60% 72%);">com base na análise vinculada</div>
+              </div>
+              <div class="shelf-scroll-wrap">
+                <div class="shelf-grid">
+                  ${renderProductCard(sugerido, 0)}
+                </div>
+              </div>
+            </div>
+          ` : ''}
+          ${Object.entries(porCategoria).map(([categoria, produtos]) => `
             <div class="shelf">
               <div class="shelf-header">
                 <div class="shelf-title">${categoria}</div>
@@ -166,7 +197,8 @@ function renderLobby(view) {
                 </div>
               </div>
             </div>
-          `).join('')
+          `).join('')}
+        `
       }
     </div>
   `;

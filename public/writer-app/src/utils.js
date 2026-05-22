@@ -337,27 +337,42 @@ function gerarLastroEconomicoTrecho() {
    e tenta achar o produto correspondente em PRODUTOS.
    Quando não bate em nenhum (ou bate em múltiplos), sugere Mix Bradesco.
    ========================================================================= */
+function _normTxt(s) {
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
 function sugerirProdutoPorDesconto(desconto) {
   if (!desconto || !Array.isArray(PRODUTOS)) return null;
-  const txt = String(desconto).toLowerCase();
-  const MAPA = [
-    { id: 3,  keywords: ['tarifa', 'saque terminal', 'emissao', 'extrato'] },
-    { id: 5,  keywords: ['juros', 'encargo', 'mora', 'mcp', 'mcc', 'elc'] },
-    { id: 1,  keywords: ['debito automatico', 'débito automático', 'débito autom'] },
-    { id: 6,  keywords: ['prestamista'] },
-    { id: 7,  keywords: ['vida e prev', 'vidaprev', 'vida & prev'] },
-    { id: 8,  keywords: ['capitaliza', 'título de cap', 'titulo de cap'] },
-    { id: 11, keywords: ['cesta'] },
-    { id: 12, keywords: ['anuidade'] },
-    { id: 13, keywords: ['cartao protegido', 'cartão protegido', 'cartão seg'] },
-  ];
-  for (const m of MAPA) {
-    if (m.keywords.some(k => txt.includes(k))) {
-      const p = PRODUTOS.find(p => p.id === m.id);
-      if (p) return { id: p.id, motivo: `Sugerido por bater com "${desconto}"` };
+  const txt = _normTxt(desconto);
+  const candidatos = new Map(); // id -> nome
+  // Procura match em RUBRICAS de cada produto (exceto Kits e Mix)
+  for (const p of PRODUTOS) {
+    if (p.id === 14) continue;                       // skip Mix (default)
+    if (p.categoria && /representa/i.test(p.categoria)) continue; // skip Kits
+    if (!Array.isArray(p.rubricas)) continue;
+    for (const r of p.rubricas) {
+      const rNorm = _normTxt(r);
+      if (!rNorm) continue;
+      // match bidirecional: desconto contem rubrica OU rubrica contem desconto
+      if (txt.includes(rNorm) || rNorm.includes(txt)) {
+        candidatos.set(p.id, p.nome);
+        break;
+      }
     }
   }
-  // Default: Mix Bradesco (id 14) — sempre disponivel pra cobrir misturas
+  // Match unico -> sugere o produto
+  if (candidatos.size === 1) {
+    const [[id, nome]] = [...candidatos.entries()];
+    return { id, motivo: `Rubrica "${desconto}" bate com ${nome}` };
+  }
+  // Multiplos ou nenhum -> Mix
   const mix = PRODUTOS.find(p => p.id === 14);
-  return mix ? { id: mix.id, motivo: 'Nenhum produto específico identificado · use Mix Bradesco' } : null;
+  if (!mix) return null;
+  if (candidatos.size > 1) {
+    const nomes = [...candidatos.values()].slice(0, 3).join(', ');
+    return { id: mix.id, motivo: `Mistura ${candidatos.size} produtos (${nomes}…) · use Mix` };
+  }
+  return { id: mix.id, motivo: 'Sem match em rubricas conhecidas · use Mix Bradesco' };
 }
