@@ -99,6 +99,15 @@ function _montarPayloadPreCliente() {
 async function salvarPreCliente() {
   console.log('[pre-cliente] salvarPreCliente() invocado');
   try {
+    // GUARD: pre-cliente SO eh criado pelo fluxo do kit (contrato+procuracao).
+    // Peticoes (fluxo lobby -> pacote1..3 -> done) nao geram pre-cliente.
+    // Detecta o fluxo verificando se ha dadosKit com nome preenchido.
+    const ehKit = state.dadosKit && state.dadosKit.cliente_nome_completo;
+    if (!ehKit) {
+      console.log('[pre-cliente] fluxo nao-kit detectado (peticao), nao envia');
+      return { ok: true, skipped: 'fluxo_peticao' };
+    }
+
     const payload = _montarPayloadPreCliente();
     console.log('[pre-cliente] payload montado:', payload);
 

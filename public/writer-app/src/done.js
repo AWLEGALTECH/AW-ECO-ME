@@ -11,15 +11,10 @@ function renderDone(view) {
   const nome = state.dadosPacote1.nome_completo || 'Cliente';
   const p = state.produtoSelecionado;
 
-  // Envia pre-cliente pro aw-eco-me (silencioso — nao bloqueia UI mesmo se falhar)
-  console.log('[pre-cliente] renderDone chamado, salvarPreCliente=', typeof salvarPreCliente);
-  if (typeof salvarPreCliente === 'function') {
-    salvarPreCliente()
-      .then(r => console.log('[pre-cliente] resultado:', r))
-      .catch(e => console.error('[pre-cliente] excecao:', e));
-  } else {
-    console.error('[pre-cliente] funcao salvarPreCliente nao carregada! Verifique se src/pre-cliente.js esta no index.html.');
-  }
+  // IMPORTANTE: este eh o renderDone do fluxo PETICAO (lobby -> pacote1..3 -> done),
+  // NAO do kit de representacao. Pre-cliente eh criado APENAS no fluxo do kit
+  // (kit.js gerarKitPecas), que produz contrato + procuracao. Nao chamamos
+  // salvarPreCliente aqui — peticoes nao geram pre-cliente.
 
   const hasImage = p.capa && p.capa.length > 0;
   const coverStyle = hasImage ? `background-image: url('${p.capa}')` : '';
