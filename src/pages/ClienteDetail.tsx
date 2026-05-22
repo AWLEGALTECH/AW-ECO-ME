@@ -17,7 +17,7 @@ import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
-  Lock, ScanSearch, PenSquare,
+  Lock, ScanSearch, PenSquare, Layers,
 } from "lucide-react";
 
 interface Cliente {
@@ -509,6 +509,42 @@ function DemandaCard({ demanda, action }: { demanda: Demanda; action?: React.Rea
   );
 }
 
+function EspelhoCard({ demanda }: { demanda: Demanda }) {
+  const hasUrl = !!demanda.peca_drive_url;
+  const card = (
+    <div className={`rounded-xl border p-4 transition-all ${
+      hasUrl
+        ? "border-emerald-400/30 bg-emerald-400/5 hover:border-emerald-400/60 hover:bg-emerald-400/10 cursor-pointer"
+        : "border-border bg-card/40"
+    }`}>
+      <div className="flex items-start gap-3">
+        <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${
+          hasUrl ? "bg-emerald-400/15 ring-1 ring-emerald-400/30" : "bg-muted/30"
+        }`}>
+          <Send className={`h-4 w-4 ${hasUrl ? "text-emerald-400" : "text-muted-foreground"}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-medium truncate">{demanda.titulo}</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {demanda.desconto || "—"} · gerada em {fmtDate(demanda.completed_at || demanda.created_at)}
+          </p>
+          {hasUrl ? (
+            <p className="text-[11px] text-emerald-400 mt-2 inline-flex items-center gap-1">
+              <FolderOpen className="h-3 w-3" /> Abrir no Drive
+              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+            </p>
+          ) : (
+            <p className="text-[11px] text-amber-400/80 mt-2 italic">Sem link do Drive</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+  return hasUrl ? (
+    <a href={demanda.peca_drive_url!} target="_blank" rel="noreferrer" className="block">{card}</a>
+  ) : card;
+}
+
 function PrePipeline({
   demandas, cliente, userId, onChange,
 }: { demandas: Demanda[]; cliente: Cliente; userId: string | null; onChange: () => void }) {
@@ -529,30 +565,30 @@ function PrePipeline({
   // anterior já entregou ALGUM resultado relevante:
   // - 1 sempre liberada (ponto inicial)
   // - 2 liberada quando existe alguma analise_vinculada (criada pelo Finder)
-  // - 3 liberada quando existe alguma analise_vinculada concluida
-  // - 4 liberada quando existe alguma confeccao_peca concluida
-  const temAnaliseVinculada     = demandas.some(d => d.etapa === "analise_vinculada");
-  const temAnaliseVincConcluida = demandas.some(d => d.etapa === "analise_vinculada" && d.status === "concluida");
-  const temPecaConcluida        = demandas.some(d => d.etapa === "confeccao_peca" && d.status === "concluida");
+  // - 3 liberada quando existe alguma analise_vinculada (mesmo pendente: já dá pra confeccionar)
+  // - 4 liberada quando alguma peça já saiu do writer pronta pro protocolo
+  const temAnaliseVinculada = demandas.some(d => d.etapa === "analise_vinculada");
+  const temPecaPronta       = demandas.some(d => d.etapa === "pronta_para_protocolo");
 
   const liberada = (key: string) => {
     switch (key) {
       case "analise_documental":    return true;
       case "analise_vinculada":     return temAnaliseVinculada;
-      case "confeccao_peca":        return temAnaliseVincConcluida;
-      case "pronta_para_protocolo": return temPecaConcluida;
+      case "confeccao_peca":        return temAnaliseVinculada;
+      case "pronta_para_protocolo": return temPecaPronta;
       default: return false;
     }
   };
 
   const hintBloqueio: Record<string, string> = {
     analise_vinculada:     "Bloqueado — vincule pelo menos uma análise no Finder pra liberar.",
-    confeccao_peca:        "Bloqueado — conclua ao menos uma análise vinculada pra liberar.",
-    pronta_para_protocolo: "Bloqueado — conclua ao menos uma peça pra liberar.",
+    confeccao_peca:        "Bloqueado — vincule alguma análise pra liberar a confecção.",
+    pronta_para_protocolo: "Bloqueado — gere ao menos uma peça pra liberar.",
   };
 
-  const confeccionarPeca = async (av: Demanda) => {
-    // Cria uma demanda de confeccao_peca vinculada a esta análise (idempotente)
+  // Garante a existencia da demanda confeccao_peca pra essa analise vinculada.
+  // Idempotente: retorna o id existente se ja houver.
+  const garantirConfeccaoDemanda = async (av: Demanda): Promise<string | null> => {
     const { data: existe } = await supabase
       .from("demandas" as any)
       .select("id")
@@ -560,21 +596,27 @@ function PrePipeline({
       .eq("etapa", "confeccao_peca")
       .eq("analise_pai_id", av.id)
       .maybeSingle();
-    if (!existe) {
-      await supabase.from("demandas" as any).insert({
-        cliente_id: clienteId,
-        tipo: "pre_protocolo",
-        etapa: "confeccao_peca",
-        titulo: `Peça — ${av.desconto || "desconto"}`,
-        descricao: "Confecção da peça a partir da análise vinculada.",
-        desconto: av.desconto,
-        status: "em_andamento",
-        analise_pai_id: av.id,
-        created_by: userId,
-        ordem: 2,
-      });
-      onChange();
-    }
+    if (existe) return (existe as any).id;
+    const { data: nova, error } = await supabase.from("demandas" as any).insert({
+      cliente_id: clienteId,
+      tipo: "pre_protocolo",
+      etapa: "confeccao_peca",
+      titulo: `Peça — ${av.desconto || "desconto"}`,
+      descricao: "Confecção da peça a partir da análise vinculada.",
+      desconto: av.desconto,
+      status: "em_andamento",
+      analise_pai_id: av.id,
+      created_by: userId,
+      ordem: 2,
+    }).select("id").single();
+    if (error) { toast.error("Erro ao criar demanda: " + error.message); return null; }
+    return (nova as any).id;
+  };
+
+  const confeccionarPeca = async (av: Demanda) => {
+    const demandaId = await garantirConfeccaoDemanda(av);
+    if (!demandaId) return;
+    onChange();
     // Abre o Writer com contexto mínimo — o Writer puxa o cliente completo
     // do Supabase (pacote 1 e pacote 2) usando o ID.
     const params = new URLSearchParams({
@@ -584,6 +626,55 @@ function PrePipeline({
       desconto: av.desconto || "",
       analise_id: av.id,
       analise_url: av.peca_drive_url || "",
+      demanda_id: demandaId,
+    });
+    navigate(`/writer?${params.toString()}`);
+  };
+
+  // Analises vinculadas que ainda nao viraram peca pronta (descarta as que ja
+  // tem uma confeccao_peca em pronta_para_protocolo).
+  const analisesPendentes = demandas
+    .filter(d => d.etapa === "analise_vinculada")
+    .filter(av => !demandas.some(p =>
+      p.etapa === "pronta_para_protocolo" && p.analise_pai_id === av.id
+    ));
+
+  const produzirCadeia = async () => {
+    if (analisesPendentes.length < 2) {
+      toast.error("Cadeia precisa de pelo menos 2 análises pendentes.");
+      return;
+    }
+    // Pre-cria/recupera demandas de confeccao pra cada item da fila
+    const fila: Array<{
+      demanda_id: string;
+      analise_id: string;
+      analise_url: string;
+      desconto: string;
+    }> = [];
+    for (const av of analisesPendentes) {
+      const did = await garantirConfeccaoDemanda(av);
+      if (!did) return;
+      fila.push({
+        demanda_id: did,
+        analise_id: av.id,
+        analise_url: av.peca_drive_url || "",
+        desconto: av.desconto || "",
+      });
+    }
+    onChange();
+    const fila_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(fila))));
+    const primeiro = fila[0];
+    const params = new URLSearchParams({
+      cliente: clienteId,
+      nome: cliente.nome,
+      modo: "peticao",
+      desconto: primeiro.desconto,
+      analise_id: primeiro.analise_id,
+      analise_url: primeiro.analise_url,
+      demanda_id: primeiro.demanda_id,
+      cadeia: "1",
+      cadeia_pos: "1",
+      cadeia_fila: fila_b64,
     });
     navigate(`/writer?${params.toString()}`);
   };
@@ -719,6 +810,17 @@ function PrePipeline({
                   <Plus className="h-3.5 w-3.5 mr-1" /> Vincular análise
                 </Button>
               )}
+              {ativa && g.key === "confeccao_peca" && analisesPendentes.length >= 2 && (
+                <Button
+                  size="sm"
+                  onClick={produzirCadeia}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                  title="Gera todas as peças pendentes em sequência, sem voltar pro cliente entre uma e outra"
+                >
+                  <Layers className="h-3.5 w-3.5 mr-1.5" />
+                  Produzir em cadeia ({analisesPendentes.length})
+                </Button>
+              )}
             </div>
 
             {/* Conteúdo */}
@@ -732,16 +834,24 @@ function PrePipeline({
                   ? "Clique em 'Confeccionar peça' em cada análise vinculada da etapa 2 pra gerar uma peça."
                   : "Peças prontas pra protocolo aparecerão aqui."}
               </p>
+            ) : g.key === "pronta_para_protocolo" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {itens.map(d => <EspelhoCard key={d.id} demanda={d} />)}
+              </div>
             ) : (
               <div className="space-y-2">
                 {itens.map(d => {
                   const isAnaliseVinc = d.etapa === "analise_vinculada";
+                  // analise_vinculada ja virou pronta (tem espelho gerado)?
+                  const jaVirouPeca = isAnaliseVinc && demandas.some(p =>
+                    p.etapa === "pronta_para_protocolo" && p.analise_pai_id === d.id
+                  );
                   return (
                     <DemandaCard
                       key={d.id}
                       demanda={d}
                       action={
-                        isAnaliseVinc ? (
+                        isAnaliseVinc && !jaVirouPeca ? (
                           <Button
                             size="sm"
                             onClick={() => confeccionarPeca(d)}
@@ -749,6 +859,10 @@ function PrePipeline({
                           >
                             <PenSquare className="h-3 w-3 mr-1" /> Confeccionar peça
                           </Button>
+                        ) : isAnaliseVinc && jaVirouPeca ? (
+                          <span className="text-[10px] uppercase tracking-wider text-emerald-400 inline-flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" /> Peça gerada
+                          </span>
                         ) : null
                       }
                     />

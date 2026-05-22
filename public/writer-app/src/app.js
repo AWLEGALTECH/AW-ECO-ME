@@ -13,6 +13,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nome = sp.get('nome');
     const clienteId = sp.get('cliente');
 
+    // Demanda confeccao_peca atrelada a esta abertura do writer — usada na
+    // finalizacao pra avisar o parent qual demanda mover pro espelho de protocolo.
+    const demandaId = sp.get('demanda_id');
+    if (demandaId) state.demandaConfeccaoId = demandaId;
+
+    // Modo cadeia: writer abre com uma fila de peças pra gerar em sequência.
+    // cadeia=1, cadeia_pos=N (1-based), cadeia_fila=base64 JSON de
+    // [{ demanda_id, analise_id, analise_url, desconto }, ...]
+    if (sp.get('cadeia') === '1') {
+      try {
+        const filaB64 = sp.get('cadeia_fila') || '';
+        const fila = JSON.parse(decodeURIComponent(escape(atob(filaB64))));
+        const pos = parseInt(sp.get('cadeia_pos') || '1', 10);
+        state.cadeia = {
+          ativa: true,
+          fila,
+          pos,
+          total: fila.length,
+          clienteId,
+          clienteNome: nome,
+        };
+      } catch (err) {
+        console.warn('[writer] cadeia: falha ao decodificar fila', err);
+      }
+    }
+
     if (clienteId && typeof fetchClienteAW === 'function') {
       // BLOQUEANTE: aguardamos antes do primeiro render pra garantir que
       // pacote 1 e pacote 2 ja venham preenchidos quando o user vir a tela.
@@ -64,6 +90,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   render();
   atualizarBtnConfig();
+  if (state.cadeia && state.cadeia.ativa && typeof renderBarraCadeia === 'function') {
+    renderBarraCadeia();
+  }
 
   // Se ha planilha da analise vinculada, baixa e injeta como anexo do
   // pacote 3 (Tabela de descontos). Fire-and-forget — quando completar,
