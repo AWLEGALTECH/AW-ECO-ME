@@ -387,15 +387,17 @@ function selecionarProduto(id) {
   }
   // [TEMP-MESMO-CLIENTE] END
 
-  state.dadosPacote1 = {};
-  state.dadosPacote2 = {};
+  // Preserva pacote 1 + pacote 2 quando viemos de uma analise vinculada
+  // do aw-eco-me (ja foram pre-preenchidos com os dados do cliente do banco).
+  // Caso contrario, limpa pra comecar zerado.
+  if (!state.contextoAnaliseVinculada) {
+    state.dadosPacote1 = {};
+    state.dadosPacote2 = {};
+  }
   state.dadosPacote3 = { gerar_lastro_dano_material: true };
   state.trechosIA = {};
   state.trechosIAOriginais = {};
   state.anexos = { selfie: null, tabelaXlsx: null };
-  // state.rubricas agora é dinâmico baseado no produto selecionado.
-  // Para o produto 1 (Descontos Indevidos): { cartao, parcela, bx }
-  // Para o produto 5 (Juros e Encargos): { mora_cred_pessoal, mora_cartao, encargos_limite, encargos_descobertos }
   state.rubricas = inicializarRubricasDoProduto(produto);
   state.trechosEditados = new Set();
   state.seguranca = { ...SEGURANCA_DEFAULT };
