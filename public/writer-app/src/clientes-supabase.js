@@ -83,6 +83,67 @@ async function fetchClienteAW(id) {
   }
 }
 
+// Salva de volta no Supabase os campos do pacote 1 + pacote 2 do cliente
+// que esta atualmente em state. Usado pra preencher dados que faltavam
+// (cliente vindo de importacao da planilha original, sem qualificacao).
+async function salvarDadosClienteAW(clienteId) {
+  if (!clienteId) return { ok: false, reason: 'sem id' };
+  const p1 = state.dadosPacote1 || {};
+  const p2 = state.dadosPacote2 || {};
+
+  // Monta payload — somente campos com algum valor (evita sobrescrever
+  // dado existente com vazio se o user nao mexeu)
+  const setIf = (obj, key, val) => {
+    if (val !== undefined && val !== null && String(val).trim() !== '') obj[key] = val;
+  };
+  const update = {};
+  setIf(update, 'nome',            p1.nome_completo);
+  setIf(update, 'cpf_cnpj',        p1.cpf);
+  setIf(update, 'rg',              p1.rg);
+  setIf(update, 'orgao_expedidor', p1.orgao_expedidor);
+  setIf(update, 'profissao',       p1.profissao);
+  setIf(update, 'genero',          p1.genero);
+  setIf(update, 'nacionalidade',   p1.nacionalidade);
+  setIf(update, 'estado_civil',    p1.estado_civil);
+  setIf(update, 'endereco',        p1.endereco_completo);
+
+  // dados_socioeconomicos: pega o que tiver no pacote 2
+  const camposP2 = [
+    'idade','escolaridade','numero_filhos','idades_filhos','conjuge_trabalha',
+    'renda_mensal','unico_provedor','tipo_moradia','outros_dependentes',
+    'condicao_saude','observacoes_livres'
+  ];
+  const dadosSocio = {};
+  for (const k of camposP2) {
+    const v = p2[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') dadosSocio[k] = v;
+  }
+  if (Object.keys(dadosSocio).length > 0) update.dados_socioeconomicos = dadosSocio;
+
+  if (Object.keys(update).length === 0) return { ok: true, skipped: true };
+
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/clientes?id=eq.${encodeURIComponent(clienteId)}`,
+      {
+        method: 'PATCH',
+        headers: { ..._awHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(update),
+      }
+    );
+    if (!resp.ok) {
+      const t = await resp.text();
+      console.warn('[clientes-aw] salvar falhou', resp.status, t);
+      return { ok: false, error: t };
+    }
+    console.log('[clientes-aw] dados sincronizados pro cliente', clienteId);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[clientes-aw] excecao salvar', e);
+    return { ok: false, error: String(e) };
+  }
+}
+
 // Aplica um shape de cliente no state, preenchendo pacote 1 e pacote 2
 function aplicarClienteNoState(c) {
   if (!c) return;

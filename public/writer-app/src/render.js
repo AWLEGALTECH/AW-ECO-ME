@@ -4,14 +4,22 @@
    detecção automática de rubricas e bind de formulários.
    ========================================================================= */
 function navegarPara(tela) {
+  // Persistencia automatica: ao sair de pacote1 ou pacote2 com cliente AW
+  // selecionado, salva o que foi preenchido de volta no Supabase do aw-eco-me.
+  // Isso faz com que clientes antigos (importados sem qualificacao) fiquem
+  // completos depois da 1a peca, e nunca mais precisem ser preenchidos.
+  const sainPa = (state.tela === 'pacote1' || state.tela === 'pacote2') && tela !== state.tela;
+  if (sainPa && state.clienteSelecionado && state.clienteSelecionado.aw_id && typeof salvarDadosClienteAW === 'function') {
+    salvarDadosClienteAW(state.clienteSelecionado.aw_id)
+      .then(r => { if (r && r.ok && !r.skipped) console.log('[writer] cliente salvo'); })
+      .catch(e => console.warn('[writer] falha salvando cliente:', e));
+  }
   state.tela = tela;
   const semStepper = ['lobby', 'done', 'modalidade', 'pacoteKit', 'kitDone'];
   document.getElementById('stepper').classList.toggle('hidden', semStepper.includes(tela));
   atualizarStepper(tela);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   render();
-  // Empilha estado fake no history pra que o "Voltar" do navegador NÃO saia do app.
-  // O listener popstate (instalado em app.js) re-empilha + roteia voltarTela().
   if (typeof history !== 'undefined') {
     try { history.pushState({ tela }, '', '#' + tela); } catch (e) {}
   }
@@ -109,13 +117,18 @@ function renderLobby(view) {
         const sug = state.produtoSugeridoId
           ? PRODUTOS.find(p => p.id === state.produtoSugeridoId)
           : null;
+        const p1 = state.dadosPacote1 || {};
+        const camposCriticos = ['cpf', 'rg', 'profissao', 'endereco_completo'];
+        const faltando = camposCriticos.filter(k => !p1[k] || String(p1[k]).trim() === '');
+        const labels = { cpf: 'CPF', rg: 'RG', profissao: 'Profissão', endereco_completo: 'Endereço' };
         return `
         <!-- Banner: confeccao de peca a partir de analise vinculada do aw-eco-me -->
         <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid hsla(270,60%,60%,0.35); border-radius:12px; background:hsla(270,60%,60%,0.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; line-height:1.45; animation:fadeSlide 0.4s ease both;">
           <div style="flex:1; min-width:240px;">
             <div style="font-weight:600; color:hsl(270 60% 78%); margin-bottom:4px; font-size:12px; letter-spacing:1.5px; text-transform:uppercase;">Confeccionando peça vinculada</div>
-            <div style="opacity:.92;">Cliente: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.dadosPacote1.nome_completo || 'sem nome')}</strong> · Desconto: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.contextoAnaliseVinculada.desconto || '—')}</strong></div>
+            <div style="opacity:.92;">Cliente: <strong style="color:hsl(0 0% 95%);">${escapeHtml(p1.nome_completo || 'sem nome')}</strong> · Desconto: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.contextoAnaliseVinculada.desconto || '—')}</strong></div>
             ${sug ? `<div style="opacity:.75; margin-top:6px; font-size:12px;">💡 Sugestão: <strong style="color:hsl(270 60% 80%);">${escapeHtml(sug.nome)}</strong> ${state.produtoSugeridoMotivo ? `<span style="opacity:.7;">· ${escapeHtml(state.produtoSugeridoMotivo)}</span>` : ''}</div>` : ''}
+            ${faltando.length > 0 ? `<div style="margin-top:8px; padding:8px 10px; background:hsla(38,92%,55%,0.08); border:1px solid hsla(38,92%,55%,0.30); border-radius:8px; color:hsl(38 92% 75%); font-size:11px;">⚠ Cliente sem ${faltando.map(k=>labels[k]).join(', ')} — preencha na Etapa 01 e os dados ficam salvos no perfil pra próximas peças.</div>` : ''}
           </div>
         </div>
         `;
