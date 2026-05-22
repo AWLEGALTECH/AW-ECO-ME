@@ -1690,7 +1690,7 @@ function renderBlocoRubricas() {
         <label class="rubrica-check ${r.bx ? 'marcada' : ''}">
           <input type="checkbox" ${r.bx ? 'checked' : ''} onchange="toggleRubrica('bx')">
           <span class="rubrica-check-box"></span>
-          <span class="rubrica-check-label">BX.ANT.FINANC <span class="rubrica-check-sub">(Baixa Antecipada de Financiamento)</span></span>
+          <span class="rubrica-check-label">BAIXA ANTECIPADA DE FINANCIAMENTO</span>
         </label>`;
   }
 
