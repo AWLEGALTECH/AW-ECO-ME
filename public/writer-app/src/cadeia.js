@@ -124,8 +124,11 @@ function finalizarPecaPipeline(driveUrl) {
   });
 }
 
-// Reset in-place do state pra próxima peça da fila — sem reload do iframe.
-// Reaproveita o padrão de novaPecaMesmoCliente (mantém pacote1+pacote2+selfie).
+// Avança pra próxima peça da cadeia FORÇANDO reload do writer com novos
+// params na URL. A URL é a fonte da verdade — assim qualquer reload do
+// iframe (intencional ou não) recupera o estado correto da cadeia.
+// Mantemos pacote1+pacote2 do cliente via supabase (app.js puxa por cliente_id),
+// só os dados da peça (pacote3, IA, produto, rubricas, anexos) sao zerados.
 function avancarCadeia() {
   const cad = state.cadeia;
   if (!cad || !cad.ativa) return false;
@@ -135,56 +138,22 @@ function avancarCadeia() {
     return false;
   }
   const prox = cad.fila[proxPos - 1];
-  cad.pos = proxPos;
 
-  // Atualiza contexto da análise vinculada
-  state.contextoAnaliseVinculada = {
-    analise_id:  prox.analise_id || null,
-    analise_url: prox.analise_url || null,
-    desconto:    prox.desconto || null,
-  };
-  state.demandaConfeccaoId = prox.demanda_id || null;
+  // Reconstroi URL com pos+1 e params da proxima peca.
+  // Tambem flagga modoMesmoCliente=1 no URL pra o boot do writer pular
+  // direto pra pacote3 quando o user selecionar o produto sugerido.
+  const sp = new URLSearchParams(window.location.search);
+  sp.set('cadeia_pos', String(proxPos));
+  sp.set('modo_mesmo_cliente', '1');
+  if (prox.desconto)   sp.set('desconto',   prox.desconto);
+  if (prox.analise_id) sp.set('analise_id', prox.analise_id);
+  sp.set('analise_url', prox.analise_url || '');
+  if (prox.demanda_id) sp.set('demanda_id', prox.demanda_id);
 
-  // Sugere produto a partir do novo desconto
-  if (typeof sugerirProdutoPorDesconto === 'function') {
-    const sug = sugerirProdutoPorDesconto(prox.desconto || '');
-    if (sug) {
-      state.produtoSugeridoId = sug.id;
-      state.produtoSugeridoMotivo = sug.motivo;
-    }
-  }
-
-  // Reset igual ao novaPecaMesmoCliente (preserva pacote1+pacote2+selfie)
-  state.dadosPacote3 = { gerar_lastro_dano_material: true };
-  state.trechosIA = {};
-  state.trechosIAOriginais = {};
-  state.trechosEditados = new Set();
-  state.regeneracoesPorZona = {};
-  state.anexos = { selfie: state.anexos.selfie, tabelaXlsx: null };
-  state.arquivoFinalBlob = null;
-  state.produtoSelecionado = null;
-  state.rubricas = {};
-  state.modoMesmoCliente = true; // pula direto pra pacote3 quando seleciona produto
-
-  // Dispara download da planilha vinculada nova (fire-and-forget)
-  if (prox.analise_url && typeof carregarPlanilhaDaAnaliseVinculada === 'function') {
-    carregarPlanilhaDaAnaliseVinculada(prox.analise_url)
-      .catch(e => console.warn('[cadeia] falha planilha:', e));
-  }
-
-  // Puxa agencia/conta da nova analise vinculada e injeta no pacote3
-  if (prox.analise_id && typeof fetchAnaliseVinculadaMeta === 'function') {
-    fetchAnaliseVinculadaMeta(prox.analise_id).then(meta => {
-      if (!meta) return;
-      if (meta.agencia) state.dadosPacote3.numero_agencia = String(meta.agencia);
-      if (meta.conta)   state.dadosPacote3.numero_conta   = String(meta.conta);
-      if (state.tela === 'pacote3' && typeof render === 'function') render();
-    }).catch(() => {});
-  }
-
-  // Re-render barra com nova posição + leva user pro lobby pra escolher produto
-  renderBarraCadeia();
-  if (typeof navegarPara === 'function') navegarPara('lobby');
+  // Reload do iframe com os novos params — app.js reinicializa state.cadeia
+  // a partir da URL, renderBarraCadeia mostra "pos/total" novo, fetchClienteAW
+  // re-preenche pacote 1 e 2, etc.
+  window.location.search = sp.toString();
   return true;
 }
 

@@ -18,6 +18,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const demandaId = sp.get('demanda_id');
     if (demandaId) state.demandaConfeccaoId = demandaId;
 
+    // Flag setada por avancarCadeia ao recarregar com proxima peca: faz
+    // selecionarProduto pular pacote1+2 e ir direto pra pacote3.
+    if (sp.get('modo_mesmo_cliente') === '1') {
+      state.modoMesmoCliente = true;
+    }
+
     // Modo cadeia: writer abre com uma fila de peças pra gerar em sequência.
     // cadeia=1, cadeia_pos=N (1-based), cadeia_fila=base64 JSON de
     // [{ demanda_id, analise_id, analise_url, desconto }, ...]
