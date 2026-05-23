@@ -233,6 +233,23 @@ export default function PreClientes() {
 
     toast.success(`Cliente ${pre.nome} cadastrado com sucesso`);
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
+
+    // 5. Dispara organize-client-folder em background. Renomeia os arquivos
+    // da pasta no Drive via Gemini Vision e move pra "Clientes Efetivos".
+    // Fire-and-forget — se falhar, o cliente ja esta criado.
+    if (pre.drive_folder_id) {
+      supabase.functions.invoke("organize-client-folder", {
+        body: { pre_cliente_id: pre.id },
+      }).then(({ data, error }) => {
+        if (error) {
+          console.warn("[organize-client-folder] falhou:", error);
+          toast.warning("Cliente criado, mas falhou organizar pasta do Drive. Veja console.");
+        } else {
+          console.log("[organize-client-folder] ok:", data);
+          toast.success(`Pasta organizada: ${data?.total_arquivos ?? 0} arquivos`);
+        }
+      }).catch(e => console.warn("[organize-client-folder] erro:", e));
+    }
   };
 
   const preClientesFiltrados = (preClientes ?? []).filter(p => {
