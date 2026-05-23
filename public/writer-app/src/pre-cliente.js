@@ -124,6 +124,17 @@ async function salvarPreCliente() {
       return { ok: false, error: 'nome_ausente' };
     }
 
+    // Gera UUID localmente pro pre_cliente — assim sabemos o id sem precisar
+    // de SELECT depois do INSERT (anon nao tem SELECT em pre_clientes).
+    // O id eh usado pra chamar a edge function create-drive-folder a seguir.
+    const preClienteId = (crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        }));
+    payload.id = preClienteId;
+
     const resp = await fetch(`${PRE_CLIENTE_SUPABASE_URL}/rest/v1/pre_clientes`, {
       method: 'POST',
       headers: {
@@ -144,8 +155,30 @@ async function salvarPreCliente() {
     }
 
     _ultimoPreClienteEnviado = hash;
-    console.log('[pre-cliente] criado com sucesso (status ' + resp.status + ')');
-    return { ok: true };
+    console.log('[pre-cliente] criado com sucesso (status ' + resp.status + ') id=' + preClienteId);
+
+    // Dispara criacao da pasta no Drive em background (fire-and-forget).
+    // Se a edge function falhar (sem secrets, sem permissao), o pre_cliente
+    // continua criado — o user pode criar a pasta manualmente ao confirmar.
+    fetch(`${PRE_CLIENTE_SUPABASE_URL}/functions/v1/create-drive-folder`, {
+      method: 'POST',
+      headers: {
+        'apikey': PRE_CLIENTE_SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${PRE_CLIENTE_SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pre_cliente_id: preClienteId }),
+    }).then(async (r) => {
+      if (!r.ok) {
+        const t = await r.text();
+        console.warn('[pre-cliente] create-drive-folder falhou', r.status, t);
+      } else {
+        const d = await r.json();
+        console.log('[pre-cliente] pasta no Drive criada:', d.folder_url);
+      }
+    }).catch(e => console.warn('[pre-cliente] erro chamando create-drive-folder', e));
+
+    return { ok: true, id: preClienteId };
   } catch (e) {
     console.error('[pre-cliente] excecao:', e);
     return { ok: false, error: String(e) };

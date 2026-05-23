@@ -33,6 +33,8 @@ interface PreCliente {
   valor_causa: number | null;
   status: "aguardando_assinatura" | "confirmado" | "cancelado";
   origem: string;
+  drive_folder_id: string | null;
+  drive_folder_url: string | null;
   cliente_id: string | null;
   created_at: string;
   confirmed_at: string | null;
@@ -46,8 +48,11 @@ const fmtDate = (iso: string) =>
 
 function ConfirmarDialog({ pre, onConfirm }: { pre: PreCliente; onConfirm: (driveUrl: string) => Promise<void> | void }) {
   const [open, setOpen] = useState(false);
-  const [drive, setDrive] = useState("");
+  // Pre-popula com a pasta ja criada automaticamente (edge function
+  // create-drive-folder) quando o pre_cliente foi gerado.
+  const [drive, setDrive] = useState(pre.drive_folder_url ?? "");
   const [busy, setBusy] = useState(false);
+  const autoCreated = !!pre.drive_folder_url;
 
   const driveValido =
     /^https?:\/\/(drive|docs)\.google\.com\//i.test(drive.trim());
@@ -97,9 +102,15 @@ function ConfirmarDialog({ pre, onConfirm }: { pre: PreCliente; onConfirm: (driv
             autoFocus
             onKeyDown={(e) => { if (e.key === "Enter" && driveValido && !busy) handleConfirmar(); }}
           />
-          <p className="text-[11px] text-muted-foreground">
-            Cole o link da pasta (a URL que aparece quando você abre a pasta no Drive). Tem que começar com <code className="text-foreground/80">drive.google.com</code> ou <code className="text-foreground/80">docs.google.com</code>.
-          </p>
+          {autoCreated ? (
+            <p className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Pasta criada automaticamente no Drive — você pode alterar se quiser.
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Cole o link da pasta (a URL que aparece quando você abre a pasta no Drive). Tem que começar com <code className="text-foreground/80">drive.google.com</code> ou <code className="text-foreground/80">docs.google.com</code>.
+            </p>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
