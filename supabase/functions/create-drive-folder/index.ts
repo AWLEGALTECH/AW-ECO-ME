@@ -5,8 +5,8 @@
 // atualiza a linha de pre_clientes com drive_folder_id + drive_folder_url.
 //
 // Secrets necessarios (configure via Supabase dashboard > Edge Functions > Secrets):
-//   - GOOGLE_SA_JSON               (JSON completo do service account)
-//   - DRIVE_PRE_CLIENTES_FOLDER_ID (ID da pasta-pai onde criar subpastas)
+//   - GOOGLE_SA_JSON           (JSON completo do service account)
+//   - DRIVE_CLIENTES_FOLDER_ID (ID da pasta-pai onde criar subpastas dos pre-clientes)
 //
 // Pre-requisitos no Google:
 //   1. Criar service account no Google Cloud
@@ -158,9 +158,11 @@ Deno.serve(async (req: Request) => {
       }), { headers: { ...corsHeaders(), "Content-Type": "application/json" } });
     }
 
-    const parentId = overrideParent || Deno.env.get("DRIVE_PRE_CLIENTES_FOLDER_ID");
+    const parentId = overrideParent
+      || Deno.env.get("DRIVE_CLIENTES_FOLDER_ID")
+      || Deno.env.get("DRIVE_PRE_CLIENTES_FOLDER_ID");
     if (!parentId) {
-      return new Response(JSON.stringify({ error: "DRIVE_PRE_CLIENTES_FOLDER_ID nao configurado" }), {
+      return new Response(JSON.stringify({ error: "DRIVE_CLIENTES_FOLDER_ID nao configurado" }), {
         status: 500,
         headers: { ...corsHeaders(), "Content-Type": "application/json" },
       });
