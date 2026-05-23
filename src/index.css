@@ -105,4 +105,13 @@ html, body, #root {
   .neon-glow-cyan {
     box-shadow: 0 0 20px hsla(190,100%,45%,0.3), 0 0 60px hsla(190,100%,45%,0.1);
   }
+
+  /* Saltinho sutil pra badges de atencao (demandas pendentes etc) */
+  @keyframes salt-bounce {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-3px); }
+  }
+  .animate-salt-bounce {
+    animation: salt-bounce 1.8s ease-in-out infinite;
+  }
 }

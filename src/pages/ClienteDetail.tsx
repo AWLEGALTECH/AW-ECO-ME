@@ -245,11 +245,20 @@ export default function ClienteDetail() {
               <div className="flex items-center justify-between">
                 <a.Icon className={`h-5 w-5 ${ativa ? "text-primary" : "text-muted-foreground"}`} />
                 {a.count > 0 && (
-                  <span className={`text-xs tabular-nums px-1.5 h-5 rounded-full inline-flex items-center ${
-                    ativa ? "bg-primary/20 text-primary" : "bg-muted/30 text-muted-foreground"
-                  }`}>
-                    {a.count}
-                  </span>
+                  a.key === "demandas" ? (
+                    <span
+                      className="text-xs font-bold tabular-nums px-2 h-5 rounded-full inline-flex items-center bg-red-500/90 text-white shadow-[0_0_12px_hsla(0,72%,51%,0.55)] ring-1 ring-red-400/60 animate-salt-bounce"
+                      title="Demandas em aberto"
+                    >
+                      {a.count}
+                    </span>
+                  ) : (
+                    <span className={`text-xs tabular-nums px-1.5 h-5 rounded-full inline-flex items-center ${
+                      ativa ? "bg-primary/20 text-primary" : "bg-muted/30 text-muted-foreground"
+                    }`}>
+                      {a.count}
+                    </span>
+                  )
                 )}
               </div>
               <p className={`mt-3 text-sm font-medium ${ativa ? "text-foreground" : "text-foreground/90"}`}>
