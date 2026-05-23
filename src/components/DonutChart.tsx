@@ -1,16 +1,28 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PieChart, Pie, Cell, Sector, ResponsiveContainer } from "recharts";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTheme } from "@/hooks/useTheme";
 
-// Paleta fixa em tons de roxo + cinzas neutros pras fatias menos relevantes.
-const COLORS = [
-  "hsl(270, 100%, 62%)",
-  "hsl(270, 80%, 72%)",
-  "hsl(270, 65%, 46%)",
-  "hsl(270, 40%, 78%)",
-  "hsl(0, 0%, 55%)",
-  "hsl(0, 0%, 38%)",
-];
+// 4 tons do accent + 2 cinzas neutros. Recharts seta fill direto no SVG,
+// que nao expande var(), entao computo os hsl() literais por paleta.
+const PALETTES: Record<string, string[]> = {
+  default: [
+    "hsl(270, 100%, 62%)",
+    "hsl(270, 80%, 72%)",
+    "hsl(270, 65%, 46%)",
+    "hsl(270, 40%, 78%)",
+    "hsl(0, 0%, 55%)",
+    "hsl(0, 0%, 38%)",
+  ],
+  "midnight-blue": [
+    "hsl(222, 90%, 58%)",
+    "hsl(222, 75%, 72%)",
+    "hsl(222, 80%, 40%)",
+    "hsl(222, 45%, 78%)",
+    "hsl(0, 0%, 55%)",
+    "hsl(0, 0%, 38%)",
+  ],
+};
 
 interface DonutChartProps {
   data: { name: string; value: number }[];
@@ -36,6 +48,8 @@ const renderActiveShape = (props: any) => {
 
 export function DonutChart({ data, height = 280, emptyMessage = "Sem dados", onSliceClick }: DonutChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+  const { palette } = useTheme();
+  const COLORS = useMemo(() => PALETTES[palette] || PALETTES.default, [palette]);
   const total = data.reduce((s, d) => s + d.value, 0);
 
   if (!data.length) {
