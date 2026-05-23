@@ -177,10 +177,18 @@ export default function ClienteDetail() {
   const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
   const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
   const demandasProc = demandas.filter(d => d.tipo === "processual");
+  // Conta como "demanda em aberto" apenas analise_vinculada que ainda nao
+  // virou peca pronta (sem filho pronta_para_protocolo). Reflete a fila real
+  // de trabalho do user.
+  const demandasAbertas = demandas
+    .filter(d => d.etapa === "analise_vinculada")
+    .filter(av => !demandas.some(p =>
+      p.etapa === "pronta_para_protocolo" && p.analise_pai_id === av.id
+    )).length;
 
   const ABAS: Array<{ key: AbaKey; label: string; Icon: any; count: number; hint: string }> = [
     { key: "resumo",    label: "Resumo",    Icon: LayoutGrid, count: 0,                hint: "Dados pessoais e contratos" },
-    { key: "demandas",  label: "Demandas",  Icon: ListTodo,   count: demandas.length,  hint: "Pré-protocolo e processual" },
+    { key: "demandas",  label: "Demandas",  Icon: ListTodo,   count: demandasAbertas,  hint: "Análises vinculadas aguardando peça" },
     { key: "processos", label: "Processos", Icon: Briefcase,  count: processos.length, hint: "Ações ajuizadas" },
   ];
 
