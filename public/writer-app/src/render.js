@@ -160,11 +160,18 @@ function renderLobby(view) {
         </svg>
         <input
           id="buscaLobby"
-          type="text"
+          type="search"
+          name="aw-writer-search"
           class="search-bar-input"
           placeholder="Buscar ação..."
           value="${escapeHtml(busca)}"
           autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
         >
         ${busca
           ? `<button class="search-bar-clear" onclick="limparBusca()" title="Limpar">
