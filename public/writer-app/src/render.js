@@ -123,7 +123,7 @@ function renderLobby(view) {
         const labels = { cpf: 'CPF', rg: 'RG', profissao: 'Profissão', endereco_completo: 'Endereço' };
         return `
         <!-- Banner: confeccao de peca a partir de analise vinculada do aw-eco-me -->
-        <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid hsla(270,60%,60%,0.35); border-radius:12px; background:hsla(270,60%,60%,0.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; line-height:1.45; animation:fadeSlide 0.4s ease both;">
+        <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid hsla(var(--accent-h),60%,60%,0.35); border-radius:12px; background:hsla(var(--accent-h),60%,60%,0.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; line-height:1.45; animation:fadeSlide 0.4s ease both;">
           <div style="flex:1; min-width:240px;">
             <div style="font-weight:600; color:hsl(270 60% 78%); margin-bottom:4px; font-size:12px; letter-spacing:1.5px; text-transform:uppercase;">Confeccionando peça vinculada</div>
             <div style="opacity:.92;">Cliente: <strong style="color:hsl(0 0% 95%);">${escapeHtml(p1.nome_completo || 'sem nome')}</strong> · Desconto: <strong style="color:hsl(0 0% 95%);">${escapeHtml(state.contextoAnaliseVinculada.desconto || '—')}</strong></div>
@@ -187,7 +187,7 @@ function renderLobby(view) {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                   Produto Sugerido
                 </div>
-                <div class="shelf-divider" style="background:linear-gradient(90deg, hsla(270,60%,60%,0.35), transparent);"></div>
+                <div class="shelf-divider" style="background:linear-gradient(90deg, hsla(var(--accent-h),60%,60%,0.35), transparent);"></div>
                 <div class="shelf-count" style="color:hsl(270 60% 72%);">com base na análise vinculada</div>
               </div>
               <div class="shelf-scroll-wrap">
@@ -733,7 +733,7 @@ function renderBlocoAnexoTabela() {
       </div>
 
       ${anexado ? infoAnexado : state.planilhaCarregando ? `
-        <div class="anexo-dropzone" style="border-color:hsla(270,60%,60%,0.4); background:hsla(270,60%,60%,0.05);">
+        <div class="anexo-dropzone" style="border-color:hsla(var(--accent-h),60%,60%,0.4); background:hsla(var(--accent-h),60%,60%,0.05);">
           <div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-direction:column;padding:16px 0;">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="hsl(270 60% 70%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;">
               <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
@@ -768,9 +768,9 @@ function renderBlocoAnexoTabela() {
           <div class="anexo-dropzone-actions" style="flex-direction:column;align-items:stretch;gap:12px;">
             ${state.contextoAnaliseVinculada && state.contextoAnaliseVinculada.analise_url ? `
               <button onclick="tentarBaixarPlanilhaVinculada()"
-                style="display:inline-flex;align-items:center;justify-content:center;gap:10px;background:hsla(270,60%,60%,0.18);border:1.5px solid hsla(270,60%,60%,0.55);border-radius:12px;color:hsl(270 60% 82%);font-family:Inter,sans-serif;font-size:0.82rem;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:16px 26px;cursor:pointer;transition:all 0.2s;box-shadow:0 0 28px hsla(270,60%,60%,0.18);"
-                onmouseenter="this.style.background='hsla(270,60%,60%,0.28)';this.style.boxShadow='0 0 36px hsla(270,60%,60%,0.35)';this.style.borderColor='hsla(270,60%,60%,0.80)';this.style.transform='translateY(-1px)';"
-                onmouseleave="this.style.background='hsla(270,60%,60%,0.18)';this.style.boxShadow='0 0 28px hsla(270,60%,60%,0.18)';this.style.borderColor='hsla(270,60%,60%,0.55)';this.style.transform='translateY(0)';">
+                style="display:inline-flex;align-items:center;justify-content:center;gap:10px;background:hsla(var(--accent-h),60%,60%,0.18);border:1.5px solid hsla(var(--accent-h),60%,60%,0.55);border-radius:12px;color:hsl(270 60% 82%);font-family:Inter,sans-serif;font-size:0.82rem;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;padding:16px 26px;cursor:pointer;transition:all 0.2s;box-shadow:0 0 28px hsla(var(--accent-h),60%,60%,0.18);"
+                onmouseenter="this.style.background='hsla(var(--accent-h),60%,60%,0.28)';this.style.boxShadow='0 0 36px hsla(var(--accent-h),60%,60%,0.35)';this.style.borderColor='hsla(var(--accent-h),60%,60%,0.80)';this.style.transform='translateY(-1px)';"
+                onmouseleave="this.style.background='hsla(var(--accent-h),60%,60%,0.18)';this.style.boxShadow='0 0 28px hsla(var(--accent-h),60%,60%,0.18)';this.style.borderColor='hsla(var(--accent-h),60%,60%,0.55)';this.style.transform='translateY(0)';">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 Usar da Análise Vinculada
               </button>

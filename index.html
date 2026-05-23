@@ -22,6 +22,16 @@
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="AW ECO ME" />
     <meta name="twitter:description" content="Plataforma de gestão processual — Dr. Matheus Enes" />
+    <script>
+      // Aplica paleta de cor antes do primeiro paint (evita flash de cor errada).
+      // Iframes do writer/finder leem o mesmo localStorage no init deles.
+      (function(){
+        try {
+          var p = localStorage.getItem('aw-theme-palette');
+          if (p === 'midnight-blue') document.documentElement.setAttribute('data-theme', p);
+        } catch(e) {}
+      })();
+    </script>
   </head>
 
   <body>

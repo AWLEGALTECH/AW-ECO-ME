@@ -1,76 +1,67 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "./useAuth";
+
+export type Palette = "default" | "midnight-blue";
 
 interface ThemeContextType {
-  mode: "light" | "dark";
-  setMode: (m: "light" | "dark") => void;
+  palette: Palette;
+  setPalette: (p: Palette) => void;
+  // Mantido por compat — modo claro/escuro nao e mais usado, sempre dark.
+  mode: "dark";
+  setMode: (m: "dark") => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
+  palette: "default",
+  setPalette: () => {},
   mode: "dark",
   setMode: () => {},
 });
 
 export const useTheme = () => useContext(ThemeContext);
 
-// Roxo fixo — paleta única do sistema.
-const PURPLE_LIGHT = { primary: "270 60% 50%", primaryFg: "0 0% 98%" };
-const PURPLE_DARK  = { primary: "270 60% 60%", primaryFg: "0 0% 98%" };
+const STORAGE_KEY = "aw-theme-palette";
 
-function applyTheme(mode: "light" | "dark") {
+function readStoredPalette(): Palette {
+  if (typeof window === "undefined") return "default";
+  const v = window.localStorage.getItem(STORAGE_KEY);
+  return v === "midnight-blue" ? "midnight-blue" : "default";
+}
+
+function applyPalette(p: Palette) {
   const root = document.documentElement;
-  if (mode === "dark") {
-    root.classList.add("dark");
+  if (p === "default") {
+    root.removeAttribute("data-theme");
   } else {
-    root.classList.remove("dark");
+    root.setAttribute("data-theme", p);
   }
-
-  const c = mode === "dark" ? PURPLE_DARK : PURPLE_LIGHT;
-  root.style.setProperty("--primary", c.primary);
-  root.style.setProperty("--ring", c.primary);
-  root.style.setProperty("--accent", c.primary);
-  root.style.setProperty("--primary-foreground", c.primaryFg);
-  root.style.setProperty("--accent-foreground", c.primaryFg);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-  const [mode, setModeState] = useState<"light" | "dark">("dark");
+  const [palette, setPaletteState] = useState<Palette>(() => readStoredPalette());
 
   useEffect(() => {
-    applyTheme("dark");
+    document.documentElement.classList.add("dark");
+    applyPalette(palette);
+  }, [palette]);
+
+  const setPalette = useCallback((p: Palette) => {
+    setPaletteState(p);
+    window.localStorage.setItem(STORAGE_KEY, p);
+    applyPalette(p);
+    // Notifica iframes (writer/finder) que ja podem estar abertos
+    try {
+      const iframes = document.querySelectorAll<HTMLIFrameElement>("iframe");
+      iframes.forEach((f) => {
+        f.contentWindow?.postMessage({ type: "aw-theme:palette", palette: p }, window.location.origin);
+      });
+    } catch {}
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("profiles")
-      .select("theme_mode")
-      .eq("user_id", user.id)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          const m = (data.theme_mode as "light" | "dark") || "dark";
-          setModeState(m);
-          applyTheme(m);
-        }
-      });
-  }, [user]);
-
-  const setMode = useCallback(
-    (m: "light" | "dark") => {
-      setModeState(m);
-      applyTheme(m);
-      if (user) {
-        supabase.from("profiles").update({ theme_mode: m }).eq("user_id", user.id);
-      }
-    },
-    [user]
-  );
+  // No-op pra compat com chamadas antigas a setMode
+  const setMode = useCallback((_m: "dark") => {}, []);
 
   return (
-    <ThemeContext.Provider value={{ mode, setMode }}>
+    <ThemeContext.Provider value={{ palette, setPalette, mode: "dark", setMode }}>
       {children}
     </ThemeContext.Provider>
   );

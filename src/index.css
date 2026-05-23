@@ -42,6 +42,25 @@ html, body, #root {
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 0 0% 14%;
     --sidebar-ring: 270 100% 62%;
+
+    /* === Paleta exposta (writer/finder leem das mesmas vars) ===
+       Trocar --accent-h/s/l propaga pra TUDO derivado: bg, border,
+       glow, shadow. Mantem a personalidade visual, so muda o matiz. */
+    --accent-h: 270;
+    --accent-s: 60%;
+    --accent-l: 60%;
+  }
+
+  /* MIDNIGHT BLUE — roxo vira azul meianoite. */
+  [data-theme="midnight-blue"] {
+    --primary: 222 85% 55%;
+    --accent: 222 85% 55%;
+    --ring: 222 85% 55%;
+    --sidebar-primary: 222 85% 55%;
+    --sidebar-ring: 222 85% 55%;
+    --accent-h: 222;
+    --accent-s: 75%;
+    --accent-l: 55%;
   }
 }
 
@@ -81,7 +100,7 @@ html, body, #root {
     @apply relative overflow-hidden bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300;
   }
   .neon-glow-purple {
-    box-shadow: 0 0 20px hsla(270,100%,62%,0.3), 0 0 60px hsla(270,100%,62%,0.1);
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 60px hsl(var(--primary) / 0.1);
   }
   .neon-glow-cyan {
     box-shadow: 0 0 20px hsla(190,100%,45%,0.3), 0 0 60px hsla(190,100%,45%,0.1);

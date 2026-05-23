@@ -8,6 +8,27 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">
 <link rel="stylesheet" href="public/styles.css?v=20260522-aw19">
+<script>
+  // Aplica paleta antes do primeiro paint (sincroniza com o tema escolhido
+  // no aw-eco-me — localStorage e' compartilhado same-origin).
+  (function(){
+    try {
+      var p = localStorage.getItem('aw-theme-palette');
+      if (p === 'midnight-blue') document.documentElement.setAttribute('data-theme', p);
+    } catch(e) {}
+    // Listener pra trocar tema ao vivo enquanto o iframe ja esta aberto
+    window.addEventListener('message', function(e) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data && e.data.type === 'aw-theme:palette') {
+        if (e.data.palette === 'default') {
+          document.documentElement.removeAttribute('data-theme');
+        } else {
+          document.documentElement.setAttribute('data-theme', e.data.palette);
+        }
+      }
+    });
+  })();
+</script>
 
 <!-- Libs externas (CDN) — geração de DOCX no browser -->
 <script defer src="https://unpkg.com/pizzip@3.2.0/dist/pizzip.js"></script>

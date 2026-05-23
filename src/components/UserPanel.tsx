@@ -8,13 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { LogOut, Upload, User, Save } from "lucide-react";
+import { LogOut, Upload, User, Save, Palette, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 export function UserPanel() {
   const { user, profile, signOut } = useAuth();
-  const { mode, setMode } = useTheme();
+  const { palette, setPalette } = useTheme();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || null);
@@ -146,13 +146,45 @@ export function UserPanel() {
 
         <Separator />
 
-        {/* Theme section */}
-        <div className="py-4 space-y-4">
-          <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Aparência</h4>
+        {/* Theme palette */}
+        <div className="py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tema do AW ECO</h4>
+          </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Modo Escuro</span>
-            <Switch checked={mode === "dark"} onCheckedChange={(v) => setMode(v ? "dark" : "light")} />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setPalette("default")}
+              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                palette === "default"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                  : "border-border/60 hover:border-primary/40 bg-card/40"
+              }`}
+              title="Paleta padrão (roxo)"
+            >
+              {palette === "default" && (
+                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
+              )}
+              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(270 100% 62%), hsl(280 80% 55%))" }} />
+              <span className="text-[11px] font-medium">Padrão</span>
+            </button>
+
+            <button
+              onClick={() => setPalette("midnight-blue")}
+              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                palette === "midnight-blue"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                  : "border-border/60 hover:border-primary/40 bg-card/40"
+              }`}
+              title="Midnight Blue — azul meianoite"
+            >
+              {palette === "midnight-blue" && (
+                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
+              )}
+              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(222 85% 55%), hsl(232 75% 38%))" }} />
+              <span className="text-[11px] font-medium">Midnight Blue</span>
+            </button>
           </div>
         </div>
 

@@ -13,15 +13,20 @@
   --line:        hsl(0 0% 14%);
   --line-bright: hsl(0 0% 20%);
 
-  /* Roxo — mesmo --primary do aw-eco-me (hsl 270 60% 60%) */
-  --violet:             hsl(270 60% 60%);
-  --violet-soft:        hsl(270 60% 72%);
-  --violet-deep:        hsl(270 60% 48%);
-  --violet-border:      hsla(270, 60%, 60%, 0.35);
-  --violet-border-soft: hsla(270, 60%, 60%, 0.18);
-  --violet-bg:          hsla(270, 60%, 60%, 0.08);
-  --violet-glow:        hsla(270, 60%, 60%, 0.35);
-  --violet-gradient:    linear-gradient(135deg, hsla(270, 60%, 60%, 0.12) 0%, hsla(270, 60%, 48%, 0.04) 100%);
+  /* Paleta — sincronizada com aw-eco-me. data-theme="midnight-blue" troca
+     o roxo por azul meianoite via override embaixo. Todas as cores derivam
+     de --accent-h/s/l, entao basta mexer nesses 3 valores. */
+  --accent-h: 270;
+  --accent-s: 60%;
+  --accent-l: 60%;
+  --violet:             hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+  --violet-soft:        hsl(var(--accent-h), var(--accent-s), 72%);
+  --violet-deep:        hsl(var(--accent-h), var(--accent-s), 48%);
+  --violet-border:      hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.35);
+  --violet-border-soft: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.18);
+  --violet-bg:          hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.08);
+  --violet-glow:        hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.35);
+  --violet-gradient:    linear-gradient(135deg, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12) 0%, hsla(var(--accent-h), var(--accent-s), 48%, 0.04) 100%);
 
   /* Texto — mesmas escalas do aw-eco-me */
   --text:       hsl(0 0% 98%);
@@ -1332,7 +1337,7 @@ input, select, textarea {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(139,92,246,0.35) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--violet-glow) 0%, transparent 70%);
   opacity: 0;
   animation: shieldFlash 0.45s ease-out;
   pointer-events: none;
@@ -2908,3 +2913,14 @@ input, select, textarea {
 
 /* Selecao com cor primary */
 ::selection { background: var(--violet-bg); color: var(--text); }
+
+/* =========================================================================
+   PALETAS — MIDNIGHT BLUE
+   Override puro de hue/sat/light. Todas as derivadas (--violet, --violet-soft,
+   --violet-glow, etc) sao recalculadas automaticamente.
+   ========================================================================= */
+[data-theme="midnight-blue"] {
+  --accent-h: 222;
+  --accent-s: 75%;
+  --accent-l: 55%;
+}

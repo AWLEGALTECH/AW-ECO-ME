@@ -25,7 +25,7 @@ function renderBarraCadeia() {
   bar.style.cssText = `
     position: sticky; top: 0; z-index: 50;
     background: linear-gradient(180deg, hsl(var(--bg)) 0%, hsla(var(--bg), 0.92) 100%);
-    border-bottom: 1px solid hsla(var(--primary, 270 75% 65%), 0.25);
+    border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
     padding: 10px 20px;
     font-family: Inter, system-ui, sans-serif;
   `;
@@ -33,10 +33,10 @@ function renderBarraCadeia() {
     <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 14px;">
       <div style="
         height: 28px; width: 28px; border-radius: 8px;
-        background: hsla(270, 75%, 65%, 0.15);
-        border: 1px solid hsla(270, 75%, 65%, 0.3);
+        background: hsla(var(--accent-h), 75%, 65%, 0.15);
+        border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
         display: flex; align-items: center; justify-content: center;
-        color: hsl(270, 75%, 70%);
+        color: hsl(var(--accent-h), 75%, 70%);
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
       </div>
@@ -46,7 +46,7 @@ function renderBarraCadeia() {
             Produção em cadeia
           </span>
           <span style="font-size: 11px; color: var(--text-ghost, #999);">
-            Peça <strong style="color: hsl(270, 75%, 75%); font-variant-numeric: tabular-nums;">${pos}</strong>
+            Peça <strong style="color: hsl(var(--accent-h), 75%, 75%); font-variant-numeric: tabular-nums;">${pos}</strong>
             de <strong style="color: var(--text-strong, #ddd); font-variant-numeric: tabular-nums;">${total}</strong>
             · ${concluidas} concluída${concluidas === 1 ? '' : 's'}
           </span>
@@ -57,7 +57,7 @@ function renderBarraCadeia() {
         ">
           <div style="
             height: 100%; width: ${pct}%;
-            background: linear-gradient(90deg, hsl(270, 75%, 65%), hsl(280, 75%, 70%));
+            background: linear-gradient(90deg, hsl(var(--accent-h), 75%, 65%), hsl(calc(var(--accent-h) + 10), 75%, 70%));
             transition: width 0.4s ease;
           "></div>
         </div>
