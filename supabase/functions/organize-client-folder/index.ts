@@ -122,7 +122,7 @@ async function classificarComGemini(
   if (bytes.length > 15 * 1024 * 1024) return { categoria: "outro", debug: `arquivo ${bytes.length}b > 15MB` };
 
   const b64 = bytesToBase64(bytes);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   // REST API expects camelCase: inlineData, mimeType
   const body = {
     contents: [{
