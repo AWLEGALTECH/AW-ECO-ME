@@ -12,12 +12,17 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
-  Lock, ScanSearch, PenSquare, Layers,
+  Lock, ScanSearch, PenSquare, Layers, X, Ban,
 } from "lucide-react";
 
 interface Cliente {
@@ -178,10 +183,10 @@ export default function ClienteDetail() {
   const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
   const demandasProc = demandas.filter(d => d.tipo === "processual");
   // Conta como "demanda em aberto" apenas analise_vinculada que ainda nao
-  // virou peca pronta (sem filho pronta_para_protocolo). Reflete a fila real
-  // de trabalho do user.
+  // virou peca pronta (sem filho pronta_para_protocolo) e nao foi cancelada.
+  // Reflete a fila real de trabalho do user.
   const demandasAbertas = demandas
-    .filter(d => d.etapa === "analise_vinculada")
+    .filter(d => d.etapa === "analise_vinculada" && d.status !== "cancelada")
     .filter(av => !demandas.some(p =>
       p.etapa === "pronta_para_protocolo" && p.analise_pai_id === av.id
     )).length;
@@ -489,11 +494,20 @@ function EmptyState({ icon: Icon, title, hint }: { icon: any; title: string; hin
   );
 }
 
-function DemandaCard({ demanda, action }: { demanda: Demanda; action?: React.ReactNode }) {
+function DemandaCard({ demanda, action, onCancelarVinculo }: { demanda: Demanda; action?: React.ReactNode; onCancelarVinculo?: () => void }) {
   const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
   const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
+  const cancelada = demanda.status === "cancelada";
+  // Pra analise_vinculada cancelada, badge customizado pra deixar claro
+  // que foi vinculo cancelado (nao demanda cancelada generica)
+  const isVincCancelado = cancelada && demanda.etapa === "analise_vinculada";
+
   return (
-    <div className="rounded-xl border border-border bg-card/40 p-4 hover:border-primary/30 transition-colors">
+    <div className={`rounded-xl border p-4 transition-colors ${
+      cancelada
+        ? "border-border/40 bg-muted/5 opacity-60 grayscale"
+        : "border-border bg-card/40 hover:border-primary/30"
+    }`}>
       <div className="flex items-start gap-3">
         <div className="h-9 w-9 shrink-0 rounded-lg bg-muted/30 flex items-center justify-center">
           <etapa.Icon className="h-4 w-4 text-muted-foreground" />
@@ -501,30 +515,61 @@ function DemandaCard({ demanda, action }: { demanda: Demanda; action?: React.Rea
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h4 className="text-sm font-medium truncate">{demanda.titulo}</h4>
+              <h4 className={`text-sm font-medium truncate ${cancelada ? "line-through text-muted-foreground" : ""}`}>{demanda.titulo}</h4>
               <p className="text-[11px] text-muted-foreground mt-0.5">{etapa.label}{demanda.desconto && ` · ${demanda.desconto}`}</p>
             </div>
-            <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${status.color}`}>
-              <status.Icon className="h-2.5 w-2.5" /> {status.label}
+            <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+              isVincCancelado
+                ? "text-red-400 bg-red-400/10 border-red-400/30"
+                : status.color
+            }`}>
+              {isVincCancelado ? <Ban className="h-2.5 w-2.5" /> : <status.Icon className="h-2.5 w-2.5" />}
+              {isVincCancelado ? "Vínculo cancelado" : status.label}
             </span>
           </div>
           {demanda.descricao && (
             <p className="text-xs text-muted-foreground mt-2">{demanda.descricao}</p>
           )}
           <div className="flex items-center gap-3 mt-2 text-[11px]">
-            {demanda.peca_drive_url && (
+            {!cancelada && demanda.peca_drive_url && (
               <a href={demanda.peca_drive_url} target="_blank" rel="noreferrer"
                  className="text-primary hover:underline inline-flex items-center gap-1">
                 <FileText className="h-3 w-3" /> Planilha
               </a>
             )}
-            {demanda.protocolo_drive_url && (
+            {!cancelada && demanda.protocolo_drive_url && (
               <a href={demanda.protocolo_drive_url} target="_blank" rel="noreferrer"
                  className="text-primary hover:underline inline-flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" /> Protocolo
               </a>
             )}
-            {action && <div className="ml-auto">{action}</div>}
+            {!cancelada && action && <div className="ml-auto">{action}</div>}
+            {!cancelada && onCancelarVinculo && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-red-400/5"
+                    title="Cancelar este vínculo"
+                  >
+                    <X className="h-3 w-3" /> Cancelar vínculo
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancelar este vínculo?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      O vínculo <strong>{demanda.desconto || demanda.titulo}</strong> ficará marcado como cancelado e dimmed na lista, mas o registro permanece pra histórico. Você pode reverter manualmente depois se mudar de ideia.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Voltar</AlertDialogCancel>
+                    <AlertDialogAction onClick={onCancelarVinculo} className="bg-red-600 hover:bg-red-500">
+                      Cancelar vínculo
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
       </div>
@@ -553,15 +598,22 @@ function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: 
           ) : (
             <div className="mt-2.5 space-y-1">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                {filhas.length} análise{filhas.length === 1 ? "" : "s"} vinculada{filhas.length === 1 ? "" : "s"}
+                {filhas.filter(f => f.status !== "cancelada").length} de {filhas.length} análise{filhas.length === 1 ? "" : "s"} vinculada{filhas.length === 1 ? "" : "s"} ativa{filhas.filter(f => f.status !== "cancelada").length === 1 ? "" : "s"}
               </p>
               <ul className="space-y-0.5">
-                {filhas.map(f => (
-                  <li key={f.id} className="text-[12px] text-foreground/90 flex items-center gap-1.5">
-                    <GitBranch className="h-3 w-3 text-primary/70 shrink-0" />
-                    <span className="truncate">{f.desconto || f.titulo}</span>
-                  </li>
-                ))}
+                {filhas.map(f => {
+                  const cancelada = f.status === "cancelada";
+                  return (
+                    <li key={f.id} className={`text-[12px] flex items-center gap-1.5 ${cancelada ? "text-muted-foreground/50 line-through" : "text-foreground/90"}`}>
+                      {cancelada ? (
+                        <Ban className="h-3 w-3 text-red-400/60 shrink-0" />
+                      ) : (
+                        <GitBranch className="h-3 w-3 text-primary/70 shrink-0" />
+                      )}
+                      <span className="truncate">{f.desconto || f.titulo}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -626,7 +678,7 @@ function PrePipeline({
   // - 1 sempre liberada
   // - 2 liberada quando existe alguma analise_vinculada
   // - 3 liberada quando alguma peça já saiu do writer pronta pro protocolo
-  const temAnaliseVinculada = demandas.some(d => d.etapa === "analise_vinculada");
+  const temAnaliseVinculada = demandas.some(d => d.etapa === "analise_vinculada" && d.status !== "cancelada");
   const temPecaPronta       = demandas.some(d => d.etapa === "pronta_para_protocolo");
 
   const liberada = (key: string) => {
@@ -689,12 +741,26 @@ function PrePipeline({
   };
 
   // Analises vinculadas que ainda nao viraram peca pronta (descarta as que ja
-  // tem uma confeccao_peca em pronta_para_protocolo).
+  // tem uma confeccao_peca em pronta_para_protocolo). Tambem ignora as
+  // canceladas (vinculo cancelado nao deve liberar etapa seguinte).
   const analisesPendentes = demandas
-    .filter(d => d.etapa === "analise_vinculada")
+    .filter(d => d.etapa === "analise_vinculada" && d.status !== "cancelada")
     .filter(av => !demandas.some(p =>
       p.etapa === "pronta_para_protocolo" && p.analise_pai_id === av.id
     ));
+
+  const cancelarVinculo = async (av: Demanda) => {
+    const { error } = await supabase
+      .from("demandas" as any)
+      .update({ status: "cancelada" })
+      .eq("id", av.id);
+    if (error) {
+      toast.error("Erro ao cancelar vínculo: " + error.message);
+      return;
+    }
+    toast.success("Vínculo cancelado");
+    onChange();
+  };
 
   const produzirCadeia = async () => {
     if (analisesPendentes.length < 2) {
@@ -905,6 +971,7 @@ function PrePipeline({
                     <DemandaCard
                       key={d.id}
                       demanda={d}
+                      onCancelarVinculo={isAnaliseVinc ? () => cancelarVinculo(d) : undefined}
                       action={
                         isAnaliseVinc && !jaVirouPeca ? (
                           <Button
