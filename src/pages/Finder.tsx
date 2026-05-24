@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Loader2, ArrowLeft, CheckCircle2, FolderOpen } from "lucide-react";
 import { appConfig } from "@/config/app-config";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Finder() {
   const [searchParams] = useSearchParams();
@@ -9,6 +10,7 @@ export default function Finder() {
   const cliente = searchParams.get("cliente");
   const nome = searchParams.get("nome");
   const [carregando, setCarregando] = useState(true);
+  const [driveUrl, setDriveUrl] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = nome
@@ -16,9 +18,25 @@ export default function Finder() {
       : `Finder — ${appConfig.name}`;
   }, [nome]);
 
+  // Puxa a URL da pasta do Drive desse cliente — pra dar atalho de acesso
+  // direto durante a analise (extratos costumam estar la, nao na maquina).
+  useEffect(() => {
+    if (!cliente) return;
+    (async () => {
+      const { data } = await supabase
+        .from("clientes")
+        .select("drive_folder_url")
+        .eq("id", cliente)
+        .single();
+      const url = (data as any)?.drive_folder_url;
+      if (url) setDriveUrl(url);
+    })();
+  }, [cliente]);
+
   const iframeQs = new URLSearchParams();
   if (cliente) iframeQs.set("cliente", cliente);
   if (nome)    iframeQs.set("nome", nome);
+  if (driveUrl) iframeQs.set("drive", driveUrl);
   const iframeSrc = `/finder-app/index.html${iframeQs.toString() ? `?${iframeQs.toString()}` : ""}`;
 
   const finalizarAnalise = () => {
@@ -45,14 +63,28 @@ export default function Finder() {
               Analisando extratos de <strong className="text-foreground">{nome || "cliente"}</strong>
             </span>
           </div>
-          <button
-            onClick={finalizarAnalise}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3.5 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
-            title="Encerra a sessão no Finder e volta pro perfil do cliente com a pipeline atualizada"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Finalizar análise
-          </button>
+          <div className="shrink-0 flex items-center gap-2">
+            {driveUrl && (
+              <a
+                href={driveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-card/80 hover:bg-card border border-border/70 hover:border-primary/60 text-xs font-medium transition-colors"
+                title="Abre a pasta do cliente no Google Drive — extratos costumam estar aqui"
+              >
+                <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                Pasta no Drive
+              </a>
+            )}
+            <button
+              onClick={finalizarAnalise}
+              className="inline-flex items-center gap-1.5 px-3.5 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
+              title="Encerra a sessão no Finder e volta pro perfil do cliente com a pipeline atualizada"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Finalizar análise
+            </button>
+          </div>
         </div>
       )}
 

@@ -177,19 +177,21 @@ interface OrganizeResult {
 }
 
 function ProgressoModal({
-  open, pre, stages, organizeResult, onClose,
+  open, pre, stages, organizeResult, onClose, onMinimize,
 }: {
   open: boolean;
   pre: PreCliente | null;
   stages: StagesMap;
   organizeResult: OrganizeResult | null;
   onClose: () => void;
+  onMinimize: () => void;
 }) {
   const completed = Object.values(stages).filter((s) => s.status === "done").length;
   const total = Object.keys(stages).length;
   const progresso = Math.round((completed / total) * 100);
   const tudoCompleto = completed === total;
   const algumErro = Object.values(stages).some((s) => s.status === "error");
+  const emAndamento = !tudoCompleto && !algumErro;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && (tudoCompleto || algumErro)) onClose(); }}>
@@ -277,9 +279,14 @@ function ProgressoModal({
               </Button>
             </a>
           )}
+          {emAndamento && (
+            <Button variant="outline" size="sm" onClick={onMinimize}>
+              Deixar em segundo plano
+            </Button>
+          )}
           <Button
             onClick={onClose}
-            disabled={!tudoCompleto && !algumErro}
+            disabled={emAndamento}
             className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
           >
             {tudoCompleto ? "Concluir" : algumErro ? "Fechar" : "Aguarde…"}
@@ -325,8 +332,34 @@ export default function PreClientes() {
     organize:    { status: "pending" },
   };
   const [confirmandoPre, setConfirmandoPre] = useState<PreCliente | null>(null);
+  const [modalMinimizado, setModalMinimizado] = useState(false);
   const [stages, setStages] = useState<StagesMap>(STAGES_INICIAIS);
   const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null);
+
+  // Quando o modal esta minimizado e a etapa final termina, dispara toast
+  // com botao pra reabrir o modal e ver detalhes.
+  useEffect(() => {
+    if (!modalMinimizado || !confirmandoPre) return;
+    const orgStatus = stages.organize.status;
+    if (orgStatus !== "done" && orgStatus !== "error") return;
+    const nome = confirmandoPre.nome;
+    if (orgStatus === "done") {
+      const total = organizeResult?.total_arquivos ?? 0;
+      const renomeados = (organizeResult?.renames || []).filter(r => r.de !== r.para).length;
+      toast.success(`Pasta de ${nome} organizada (${renomeados}/${total} renomeados)`, {
+        action: { label: "Ver detalhes", onClick: () => setModalMinimizado(false) },
+      });
+    } else {
+      toast.error(`Falha ao organizar pasta de ${nome}`, {
+        action: { label: "Ver detalhes", onClick: () => setModalMinimizado(false) },
+      });
+    }
+    // Limpa estado pra que o modal nao reabra automaticamente
+    setConfirmandoPre(null);
+    setStages(STAGES_INICIAIS);
+    setOrganizeResult(null);
+    setModalMinimizado(false);
+  }, [stages.organize.status, modalMinimizado, confirmandoPre, organizeResult]);
 
   const setStage = (key: StageKey, patch: StageState) =>
     setStages((prev) => ({ ...prev, [key]: patch }));
@@ -629,11 +662,12 @@ export default function PreClientes() {
       )}
 
       <ProgressoModal
-        open={confirmandoPre !== null}
+        open={confirmandoPre !== null && !modalMinimizado}
         pre={confirmandoPre}
         stages={stages}
         organizeResult={organizeResult}
         onClose={fecharProgresso}
+        onMinimize={() => setModalMinimizado(true)}
       />
     </div>
   );
