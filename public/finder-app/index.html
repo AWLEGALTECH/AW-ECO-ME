@@ -13,16 +13,33 @@
     <meta property="og:description" content="Auditor inteligente de cobranças indevidas em extratos bancários" />
     <meta property="og:type" content="website" />
     <title>AW FINDER · AW LEGALTECH</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" />
     <style>
       :root {
         --accent-h: 270;
         --accent-s: 60%;
         --accent-l: 60%;
+        /* Paleta alinhada com aw-eco-me (preto puro). Estes tokens substituem
+           os antigos rgba(2,1,5,...) / rgba(14,11,22,...) roxos do Finder. */
+        --aw-bg: hsl(0 0% 3%);
+        --aw-card: hsl(0 0% 6%);
+        --aw-card-2: hsl(0 0% 9%);
+        --aw-border: hsl(0 0% 14%);
+        --aw-border-soft: hsla(0, 0%, 100%, 0.06);
+        --aw-text: hsl(0 0% 98%);
+        --aw-text-muted: hsl(0 0% 60%);
+        --aw-text-dim: hsl(0 0% 40%);
       }
       [data-theme="midnight-blue"] {
         --accent-h: 222;
         --accent-s: 75%;
         --accent-l: 55%;
+      }
+      html, body {
+        background: var(--aw-bg);
+        color: var(--aw-text);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        margin: 0;
       }
     </style>
     <script>
@@ -40,7 +57,7 @@
         });
       })();
     </script>
-    <script type="module" crossorigin src="/finder-app/assets/index-CDmjWHz2.js"></script>
+    <script type="module" crossorigin src="/finder-app/assets/index-DW7rgdvx.js"></script>
   </head>
   <body>
     <div id="root"></div>
