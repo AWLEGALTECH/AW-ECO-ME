@@ -37,6 +37,11 @@ export default function Finder() {
   if (cliente) iframeQs.set("cliente", cliente);
   if (nome)    iframeQs.set("nome", nome);
   if (driveUrl) iframeQs.set("drive", driveUrl);
+  // Extrai o folder_id da URL pra que o iframe possa listar arquivos via SA
+  if (driveUrl) {
+    const m = driveUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (m) iframeQs.set("drive_folder_id", m[1]);
+  }
   const iframeSrc = `/finder-app/index.html${iframeQs.toString() ? `?${iframeQs.toString()}` : ""}`;
 
   const finalizarAnalise = () => {
