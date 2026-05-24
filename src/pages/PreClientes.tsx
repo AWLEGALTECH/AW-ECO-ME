@@ -10,12 +10,14 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { appConfig } from "@/config/app-config";
 
 interface PreCliente {
@@ -46,34 +48,28 @@ const fmtBRL = (v: number | null) =>
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
 
-function ConfirmarDialog({ pre, onConfirm }: { pre: PreCliente; onConfirm: (driveUrl: string) => Promise<void> | void }) {
+function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (driveUrl: string) => void }) {
   const [open, setOpen] = useState(false);
-  // Pre-popula com a pasta ja criada automaticamente (edge function
-  // create-drive-folder) quando o pre_cliente foi gerado.
   const [drive, setDrive] = useState(pre.drive_folder_url ?? "");
-  const [busy, setBusy] = useState(false);
+  const [docsConfirmados, setDocsConfirmados] = useState(false);
   const autoCreated = !!pre.drive_folder_url;
 
-  const driveValido =
-    /^https?:\/\/(drive|docs)\.google\.com\//i.test(drive.trim());
+  const driveValido = /^https?:\/\/(drive|docs)\.google\.com\//i.test(drive.trim());
+  const podeConfirmar = driveValido && docsConfirmados;
 
-  const handleConfirmar = async () => {
-    if (!driveValido) {
-      toast.error("Cole um link válido do Google Drive (drive.google.com / docs.google.com).");
+  const handleConfirmar = () => {
+    if (!podeConfirmar) {
+      if (!driveValido) toast.error("Cole um link válido do Google Drive.");
+      else if (!docsConfirmados) toast.error("Confirme que já subiu os documentos no Drive.");
       return;
     }
-    setBusy(true);
-    try {
-      await onConfirm(drive.trim());
-      setOpen(false);
-      setDrive("");
-    } finally {
-      setBusy(false);
-    }
+    setOpen(false);
+    setDocsConfirmados(false);
+    onConfirmed(drive.trim());
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDrive(""); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setDrive(pre.drive_folder_url ?? ""); setDocsConfirmados(false); } }}>
       <DialogTrigger asChild>
         <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500">
           <CheckCircle2 className="h-4 w-4 mr-1.5" />
@@ -84,43 +80,209 @@ function ConfirmarDialog({ pre, onConfirm }: { pre: PreCliente; onConfirm: (driv
         <DialogHeader>
           <DialogTitle>Confirmar cadastro de {pre.nome}?</DialogTitle>
           <DialogDescription>
-            Vai criar um cliente em Clientes com os dados do pré-cadastro. Pra continuar, informe a pasta do Google Drive desse cliente — ela vai ficar vinculada ao perfil dele e guardar os documentos.
+            Vai criar um cliente em Clientes com os dados do pré-cadastro e organizar a pasta do Drive automaticamente.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2 pt-2">
-          <Label htmlFor="drive-url" className="flex items-center gap-2 text-sm">
-            <FolderOpen className="h-4 w-4 text-primary" />
-            Pasta do Google Drive <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="drive-url"
-            type="url"
-            placeholder="https://drive.google.com/drive/folders/..."
-            value={drive}
-            onChange={(e) => setDrive(e.target.value)}
-            autoFocus
-            onKeyDown={(e) => { if (e.key === "Enter" && driveValido && !busy) handleConfirmar(); }}
-          />
-          {autoCreated ? (
-            <p className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" /> Pasta criada automaticamente no Drive — você pode alterar se quiser.
-            </p>
-          ) : (
-            <p className="text-[11px] text-muted-foreground">
-              Cole o link da pasta (a URL que aparece quando você abre a pasta no Drive). Tem que começar com <code className="text-foreground/80">drive.google.com</code> ou <code className="text-foreground/80">docs.google.com</code>.
-            </p>
+        <div className="space-y-3 pt-2">
+          <div className="space-y-2">
+            <Label htmlFor="drive-url" className="flex items-center gap-2 text-sm">
+              <FolderOpen className="h-4 w-4 text-primary" />
+              Pasta do Google Drive <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="drive-url"
+              type="url"
+              placeholder="https://drive.google.com/drive/folders/..."
+              value={drive}
+              onChange={(e) => setDrive(e.target.value)}
+              autoFocus
+            />
+            {autoCreated && (
+              <p className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Pasta criada automaticamente quando o pré-cliente nasceu.
+              </p>
+            )}
+          </div>
+
+          {/* Confirmação dos documentos */}
+          <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="space-y-1 text-xs">
+                <p className="font-medium text-amber-200">Subiu os documentos no Drive?</p>
+                <p className="text-muted-foreground">
+                  Após confirmar, a IA vai detectar e renomear automaticamente os arquivos da pasta (RG, contrato, comprovante, extrato, etc).
+                </p>
+              </div>
+            </div>
+            {driveValido && (
+              <a
+                href={drive.trim()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Abrir pasta no Drive
+              </a>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={docsConfirmados}
+                onCheckedChange={(v) => setDocsConfirmados(!!v)}
+              />
+              <span className="text-xs">Já subi todos os documentos do cliente na pasta</span>
+            </label>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button
+            onClick={handleConfirmar}
+            disabled={!podeConfirmar}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+          >
+            Confirmar cadastro
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Modal de progresso da confirmação ──────────────────────────────────────
+type StageKey = "cliente" | "contrato" | "demanda" | "pre_cliente" | "organize";
+type StageStatus = "pending" | "running" | "done" | "error";
+interface StageState { status: StageStatus; detail?: string; }
+type StagesMap = Record<StageKey, StageState>;
+
+const STAGE_META: Record<StageKey, { label: string; Icon: any }> = {
+  cliente:     { label: "Cadastrando cliente",            Icon: User },
+  contrato:    { label: "Vinculando contrato",            Icon: FileText },
+  demanda:     { label: "Iniciando análise documental",   Icon: ClipboardList },
+  pre_cliente: { label: "Finalizando pré-cadastro",       Icon: CheckCircle2 },
+  organize:    { label: "Organizando pasta no Drive",     Icon: FolderCheck },
+};
+
+interface RenameItem { id: string; de: string; para: string; categoria: string; debug?: string; }
+interface OrganizeResult {
+  ok?: boolean;
+  total_arquivos?: number;
+  renames?: RenameItem[];
+  folder_movido?: boolean;
+  folder_url?: string;
+  error?: string;
+}
+
+function ProgressoModal({
+  open, pre, stages, organizeResult, onClose,
+}: {
+  open: boolean;
+  pre: PreCliente | null;
+  stages: StagesMap;
+  organizeResult: OrganizeResult | null;
+  onClose: () => void;
+}) {
+  const completed = Object.values(stages).filter((s) => s.status === "done").length;
+  const total = Object.keys(stages).length;
+  const progresso = Math.round((completed / total) * 100);
+  const tudoCompleto = completed === total;
+  const algumErro = Object.values(stages).some((s) => s.status === "error");
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v && (tudoCompleto || algumErro)) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto" onPointerDownOutside={(e) => { if (!tudoCompleto && !algumErro) e.preventDefault(); }} onEscapeKeyDown={(e) => { if (!tudoCompleto && !algumErro) e.preventDefault(); }}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {tudoCompleto ? (
+              <><Sparkles className="h-5 w-5 text-emerald-400" /> Cadastro concluído</>
+            ) : algumErro ? (
+              <><AlertCircle className="h-5 w-5 text-destructive" /> Algo deu errado</>
+            ) : (
+              <><Loader2 className="h-5 w-5 animate-spin text-primary" /> Confirmando cadastro</>
+            )}
+          </DialogTitle>
+          <DialogDescription className="truncate">{pre?.nome}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 pt-2">
+          <Progress value={progresso} className="h-1.5" />
+          <div className="space-y-2">
+            {(Object.keys(STAGE_META) as StageKey[]).map((key) => {
+              const stage = stages[key];
+              const meta = STAGE_META[key];
+              const Icon = meta.Icon;
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="flex-shrink-0">
+                    {stage.status === "done" && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
+                    {stage.status === "running" && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+                    {stage.status === "pending" && <Icon className="h-5 w-5 text-muted-foreground/40" />}
+                    {stage.status === "error" && <XCircle className="h-5 w-5 text-destructive" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm ${stage.status === "done" ? "text-foreground" : stage.status === "pending" ? "text-muted-foreground" : "text-foreground font-medium"}`}>
+                      {meta.label}
+                    </p>
+                    {stage.detail && (
+                      <p className={`text-[11px] ${stage.status === "error" ? "text-destructive" : "text-muted-foreground"} truncate`}>
+                        {stage.detail}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Resultado da organização */}
+          {organizeResult && organizeResult.renames && organizeResult.renames.length > 0 && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Arquivos detectados e renomeados</span>
+              </div>
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {organizeResult.renames.map((r) => {
+                  const renomeado = r.de !== r.para;
+                  return (
+                    <div key={r.id} className="flex items-center gap-2 text-[11px] py-0.5">
+                      {renomeado ? (
+                        <CheckCircle2 className="h-3 w-3 text-emerald-400 flex-shrink-0" />
+                      ) : (
+                        <XCircle className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />
+                      )}
+                      <span className={`truncate ${renomeado ? "text-foreground" : "text-muted-foreground"}`}>
+                        {renomeado ? r.para : r.de}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60 ml-auto flex-shrink-0">
+                        {renomeado ? r.categoria : "não classificado"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>Cancelar</Button>
+          {organizeResult?.folder_url && (
+            <a href={organizeResult.folder_url} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                Abrir pasta no Drive
+              </Button>
+            </a>
+          )}
           <Button
-            onClick={handleConfirmar}
-            disabled={!driveValido || busy}
+            onClick={onClose}
+            disabled={!tudoCompleto && !algumErro}
             className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
           >
-            {busy ? "Confirmando…" : "Confirmar cadastro"}
+            {tudoCompleto ? "Concluir" : algumErro ? "Fechar" : "Aguarde…"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -154,11 +316,32 @@ export default function PreClientes() {
     refetchOnWindowFocus: true,
   });
 
-  const confirmar = async (pre: PreCliente, driveFolderUrl: string) => {
-    if (!user) return;
+  // ── Estado do modal de progresso ────────────────────────────────────────
+  const STAGES_INICIAIS: StagesMap = {
+    cliente:     { status: "pending" },
+    contrato:    { status: "pending" },
+    demanda:     { status: "pending" },
+    pre_cliente: { status: "pending" },
+    organize:    { status: "pending" },
+  };
+  const [confirmandoPre, setConfirmandoPre] = useState<PreCliente | null>(null);
+  const [stages, setStages] = useState<StagesMap>(STAGES_INICIAIS);
+  const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null);
 
-    // 1. cria cliente (origem=writer) com RG e profissao em colunas proprias
+  const setStage = (key: StageKey, patch: StageState) =>
+    setStages((prev) => ({ ...prev, [key]: patch }));
+
+  const iniciarConfirmacao = async (pre: PreCliente, driveFolderUrl: string) => {
+    if (!user) return;
+    setConfirmandoPre(pre);
+    setStages(STAGES_INICIAIS);
+    setOrganizeResult(null);
+
     const dkInicial: any = (pre as any).dados_completos?.dadosKit ?? null;
+    const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
+
+    // 1. cria cliente
+    setStage("cliente", { status: "running" });
     const { data: novoCliente, error: errCli } = await supabase
       .from("clientes")
       .insert({
@@ -179,19 +362,21 @@ export default function PreClientes() {
       } as any)
       .select()
       .single();
-    if (errCli) { toast.error("Erro ao criar cliente: " + errCli.message); return; }
+    if (errCli) {
+      setStage("cliente", { status: "error", detail: errCli.message });
+      return;
+    }
+    setStage("cliente", { status: "done" });
 
-    // 2. cria contrato vinculado (modalidade puxa do produto do writer)
-    const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
+    // 2. cria contrato
+    setStage("contrato", { status: "running" });
     const { data: contrato, error: errContrato } = await supabase
       .from("contratos" as any)
       .insert({
         cliente_id: novoCliente.id,
         modalidade: pre.produto || "Êxito",
         valor_total: pre.valor_causa,
-        percentual_exito: dk?.honorarios_percentual_exito
-          ? Number(dk.honorarios_percentual_exito) || null
-          : null,
+        percentual_exito: dk?.honorarios_percentual_exito ? Number(dk.honorarios_percentual_exito) || null : null,
         motivo: dk?.causa_motivo_outro || dk?.causa_motivo || null,
         reus: pre.rubricas && pre.rubricas.length ? pre.rubricas : null,
         data_assinatura: dk?.contrato_data_assinatura || null,
@@ -201,10 +386,15 @@ export default function PreClientes() {
       })
       .select()
       .single();
-    if (errContrato) console.error("[confirmar] falha criando contrato:", errContrato);
+    if (errContrato) {
+      setStage("contrato", { status: "error", detail: errContrato.message });
+    } else {
+      setStage("contrato", { status: "done" });
+    }
 
-    // 3. cria a análise documental inicial (1ª etapa do pré-protocolo)
-    await supabase
+    // 3. cria análise documental inicial
+    setStage("demanda", { status: "running" });
+    const { error: errDem } = await supabase
       .from("demandas" as any)
       .insert({
         cliente_id: novoCliente.id,
@@ -217,8 +407,10 @@ export default function PreClientes() {
         created_by: user.id,
         ordem: 0,
       });
+    setStage("demanda", errDem ? { status: "error", detail: errDem.message } : { status: "done" });
 
     // 4. fecha o pré-cliente
+    setStage("pre_cliente", { status: "running" });
     const { error: errPre } = await supabase
       .from("pre_clientes")
       .update({
@@ -229,27 +421,37 @@ export default function PreClientes() {
         drive_folder_url: driveFolderUrl,
       })
       .eq("id", pre.id);
-    if (errPre) { toast.error("Cliente criado, mas falhou atualizar pré-cliente: " + errPre.message); }
-
-    toast.success(`Cliente ${pre.nome} cadastrado com sucesso`);
+    setStage("pre_cliente", errPre ? { status: "error", detail: errPre.message } : { status: "done" });
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
 
-    // 5. Dispara organize-client-folder em background. Renomeia os arquivos
-    // da pasta no Drive via Gemini Vision e move pra "Clientes Efetivos".
-    // Fire-and-forget — se falhar, o cliente ja esta criado.
-    if (pre.drive_folder_id) {
-      supabase.functions.invoke("organize-client-folder", {
-        body: { pre_cliente_id: pre.id },
-      }).then(({ data, error }) => {
-        if (error) {
-          console.warn("[organize-client-folder] falhou:", error);
-          toast.warning("Cliente criado, mas falhou organizar pasta do Drive. Veja console.");
-        } else {
-          console.log("[organize-client-folder] ok:", data);
-          toast.success(`Pasta organizada: ${data?.total_arquivos ?? 0} arquivos`);
-        }
-      }).catch(e => console.warn("[organize-client-folder] erro:", e));
+    // 5. organize-client-folder (await pra mostrar progresso)
+    if (!pre.drive_folder_id) {
+      setStage("organize", { status: "error", detail: "Pre-cliente sem drive_folder_id" });
+      return;
     }
+    setStage("organize", { status: "running", detail: "Classificando arquivos com IA…" });
+    const { data: orgData, error: orgErr } = await supabase.functions.invoke("organize-client-folder", {
+      body: { pre_cliente_id: pre.id },
+    });
+    if (orgErr || (orgData as any)?.error) {
+      const msg = (orgData as any)?.error || orgErr?.message || "Falha desconhecida";
+      setStage("organize", { status: "error", detail: msg });
+      setOrganizeResult({ error: msg });
+    } else {
+      const res = orgData as OrganizeResult;
+      setOrganizeResult(res);
+      const renomeados = (res.renames || []).filter((r) => r.de !== r.para).length;
+      setStage("organize", {
+        status: "done",
+        detail: `${renomeados} de ${res.total_arquivos ?? 0} arquivos renomeados`,
+      });
+    }
+  };
+
+  const fecharProgresso = () => {
+    setConfirmandoPre(null);
+    setStages(STAGES_INICIAIS);
+    setOrganizeResult(null);
   };
 
   const preClientesFiltrados = (preClientes ?? []).filter(p => {
@@ -384,7 +586,7 @@ export default function PreClientes() {
 
                 {podeAgir && (
                   <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-                    <ConfirmarDialog pre={pre} onConfirm={(driveUrl) => confirmar(pre, driveUrl)} />
+                    <ConfirmarDialog pre={pre} onConfirmed={(driveUrl) => iniciarConfirmacao(pre, driveUrl)} />
 
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -425,6 +627,14 @@ export default function PreClientes() {
           })}
         </div>
       )}
+
+      <ProgressoModal
+        open={confirmandoPre !== null}
+        pre={confirmandoPre}
+        stages={stages}
+        organizeResult={organizeResult}
+        onClose={fecharProgresso}
+      />
     </div>
   );
 }
