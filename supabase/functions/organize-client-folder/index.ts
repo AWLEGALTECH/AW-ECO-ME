@@ -131,24 +131,33 @@ async function classificarComGemini(
         { inlineData: { mimeType, data: b64 } },
       ],
     }],
-    generationConfig: { temperature: 0, maxOutputTokens: 20 },
+    generationConfig: { temperature: 0, maxOutputTokens: 200 },
   };
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
+  // Retry com backoff exponencial em 429 (rate limit do free tier eh 10 RPM)
+  // e em 5xx. 4 tentativas: imediata, 8s, 16s, 32s.
+  const delays = [0, 8000, 16000, 32000];
+  let lastErr = "";
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) await new Promise((r) => setTimeout(r, delays[attempt]));
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const rawText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "");
+      const text = normalizarTexto(rawText);
+      const validas: Categoria[] = ["rg", "cnh", "cpf", "comprovante", "contrato", "procuracao", "extrato"];
+      const found = validas.find((c) => text.includes(c)) as Categoria | undefined;
+      return { categoria: found || "outro", debug: `gemini="${rawText.trim().slice(0, 60)}"` };
+    }
     const t = await resp.text();
-    console.warn(`[gemini] ${resp.status}: ${t}`);
-    return { categoria: "outro", debug: `gemini ${resp.status}: ${t.slice(0, 200)}` };
+    lastErr = `gemini ${resp.status}: ${t.slice(0, 200)}`;
+    console.warn(`[gemini] tentativa ${attempt + 1} falhou: ${lastErr}`);
+    if (resp.status !== 429 && resp.status < 500) break; // 4xx (exceto 429) nao tenta de novo
   }
-  const data = await resp.json();
-  const rawText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || "");
-  const text = normalizarTexto(rawText);
-  const validas: Categoria[] = ["rg", "cnh", "cpf", "comprovante", "contrato", "procuracao", "extrato"];
-  const found = validas.find((c) => text.includes(c)) as Categoria | undefined;
-  return { categoria: found || "outro", debug: `gemini="${rawText.trim().slice(0, 60)}"` };
+  return { categoria: "outro", debug: lastErr };
 }
 
 function extensaoDe(name: string, mimeType: string): string {
