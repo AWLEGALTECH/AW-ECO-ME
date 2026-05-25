@@ -63,43 +63,106 @@ html, body, #root {
     --accent-l: 55%;
   }
 
-  /* SEI — recria a estetica do Sistema Eletronico de Informacoes do governo:
-     fundo branco majoritario, sidebar branca com texto preto, cyan-teal
-     (#1A8FB8) como cor de marca e botoes, amarelo de destaque, vibe
-     anos-2000 (bordas finas em vez de cantos arredondados). */
+  /* SEI — recriacao fiel do Sistema Eletronico de Informacoes:
+     - sidebar dark navy (#1a2f4a) com texto branco
+     - topbar cyan-teal vivo (#009ACE) com texto branco
+     - faixa amarela no topo (#FFC107) com texto preto
+     - main content branco com texto preto
+     - sem sombras, sem cantos arredondados
+     - fonte Verdana/Arial (vibe anos-2000) */
   [data-theme="sei"] {
     --background: 0 0% 100%;
-    --foreground: 0 0% 13%;
+    --foreground: 0 0% 0%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
+    --card-foreground: 0 0% 0%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
-    --primary: 199 75% 41%;
+    --popover-foreground: 0 0% 0%;
+    --primary: 193 100% 40%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 200 15% 95%;
-    --secondary-foreground: 0 0% 13%;
-    --muted: 200 15% 96%;
-    --muted-foreground: 0 0% 42%;
-    --accent: 199 75% 41%;
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 0 0% 0%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 35%;
+    --accent: 193 100% 40%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 200 15% 86%;
-    --input: 200 15% 92%;
-    --ring: 199 75% 41%;
-    --radius: 0.25rem;
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 0 0% 22%;
-    --sidebar-primary: 199 75% 41%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 199 50% 92%;
-    --sidebar-accent-foreground: 199 80% 25%;
-    --sidebar-border: 200 15% 88%;
-    --sidebar-ring: 199 75% 41%;
-    --accent-h: 199;
-    --accent-s: 75%;
-    --accent-l: 41%;
+    --border: 0 0% 80%;
+    --input: 0 0% 96%;
+    --ring: 193 100% 40%;
+    --radius: 0px;
+    /* Sidebar — dark navy estilo SEI */
+    --sidebar-background: 215 45% 16%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 215 45% 16%;
+    --sidebar-accent: 215 45% 24%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 215 45% 12%;
+    --sidebar-ring: 193 100% 50%;
+    --accent-h: 193;
+    --accent-s: 100%;
+    --accent-l: 45%;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SEI THEME OVERRIDES — aplica vibe anos-2000 do governo BR:
+   sem sombras, sem cantos arredondados, fonte Verdana, topbar cyan.
+   Tudo escopado em [data-theme="sei"] pra nao afetar outros temas.
+   ───────────────────────────────────────────────────────────────────── */
+[data-theme="sei"] body,
+[data-theme="sei"] body input,
+[data-theme="sei"] body button,
+[data-theme="sei"] body textarea,
+[data-theme="sei"] body select {
+  font-family: Verdana, Geneva, Arial, sans-serif !important;
+}
+
+[data-theme="sei"] *,
+[data-theme="sei"] *::before,
+[data-theme="sei"] *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+[data-theme="sei"] h1, [data-theme="sei"] h2, [data-theme="sei"] h3,
+[data-theme="sei"] h4, [data-theme="sei"] h5, [data-theme="sei"] h6 {
+  font-family: Verdana, Geneva, Arial, sans-serif !important;
+  letter-spacing: normal !important;
+}
+
+/* Topbar — fundo cyan SEI com texto branco. Cobre o glass-card. */
+[data-theme="sei"] header {
+  background: hsl(193 100% 40%) !important;
+  backdrop-filter: none !important;
+  border-bottom: 1px solid hsl(193 100% 30%) !important;
+  border-radius: 0 !important;
+}
+[data-theme="sei"] header,
+[data-theme="sei"] header * {
+  color: white !important;
+}
+[data-theme="sei"] header svg {
+  color: white !important;
+  stroke: white !important;
+}
+
+/* Sidebar wrapper — sem arredondamento, sem padding flutuante, encostado
+   na borda da tela (como o SEI faz). */
+[data-theme="sei"] [class*="rounded-2xl"][class*="overflow-hidden"]:has(> [data-sidebar]) {
+  border-radius: 0 !important;
+}
+
+/* Garante que texto/icones DENTRO da sidebar sao brancos */
+[data-theme="sei"] [data-sidebar="sidebar"] *,
+[data-theme="sei"] [data-sidebar="sidebar"] svg {
+  color: white;
+}
+
+/* Mesh blobs / efeitos de fundo escuro — invisibilizar em light */
+[data-theme="sei"] .mesh-blob {
+  display: none !important;
 }
 
 @layer base {

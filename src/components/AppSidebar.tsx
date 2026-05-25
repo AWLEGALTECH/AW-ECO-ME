@@ -58,8 +58,8 @@ export function AppSidebar() {
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
-            <span className="font-medium text-sm tracking-tight text-foreground leading-none">{appConfig.name}</span>
-            <span className="text-[9px] text-muted-foreground uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
+            <span className="font-medium text-sm tracking-tight text-sidebar-foreground leading-none">{appConfig.name}</span>
+            <span className="text-[9px] text-sidebar-foreground/60 uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
           </div>
         )}
       </button>
@@ -84,7 +84,7 @@ export function AppSidebar() {
                       className={
                         isActive
                           ? "bg-primary/15 text-primary rounded-xl mx-1"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground rounded-xl mx-1 transition-colors"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
                       }
                     >
                       <NavLink to={item.url} end className="" activeClassName="">

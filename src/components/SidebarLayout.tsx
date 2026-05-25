@@ -3,11 +3,14 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { UserPanel } from "@/components/UserPanel";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
 import { Outlet, useLocation, Navigate } from "react-router-dom";
 import { toast } from "sonner";
 
 export function SidebarLayout() {
   const { user, loading } = useAuth();
+  const { palette } = useTheme();
+  const isSei = palette === "sei";
   const location = useLocation();
 
   // Guard de sessão: se a sessão expirou enquanto o user estava em uma rota
@@ -35,43 +38,53 @@ export function SidebarLayout() {
   return (
     <SidebarProvider>
       {/* Full-screen deep space canvas */}
-      <div className="flex h-dvh w-full overflow-hidden bg-background">
-        {/* Ambient light orbs in background */}
-        <div className="mesh-blob mesh-blob-1 pointer-events-none" />
-        <div className="mesh-blob mesh-blob-2 pointer-events-none" />
-        <div className="mesh-blob mesh-blob-3 pointer-events-none" />
-
-        {/* Floating sidebar – margin + rounded corners to "detach" it from screen edge */}
-        <div className="relative z-20 flex flex-col p-3 shrink-0">
-          <div className="h-full rounded-2xl overflow-hidden glass-sidebar border border-sidebar-border">
-            <AppSidebar />
+      <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
+        {/* Yellow ribbon — vibe orgao publico SEI. So aparece no tema SEI. */}
+        {isSei && (
+          <div
+            className="shrink-0 h-5 flex items-center px-3 text-[10px] font-bold uppercase tracking-[0.18em]"
+            style={{ background: "hsl(0 0% 96%)", color: "hsl(0 0% 0%)", borderBottom: "1px solid hsl(0 0% 80%)" }}
+          >
+            AW LEGALTECH
           </div>
-        </div>
+        )}
 
-        {/* Main content column */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 z-10 overflow-hidden">
-          {/* Glassy topbar header */}
-          <header className="h-14 flex items-center justify-between px-4 shrink-0 z-30
-            glass-card border-b border-sidebar-border backdrop-blur-xl">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
-            </div>
-            <div />
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground hidden md:inline font-mono">
-                {user?.email}
-              </span>
-              <UserPanel />
-            </div>
-          </header>
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Ambient light orbs in background — escondidos no SEI via CSS */}
+          <div className="mesh-blob mesh-blob-1 pointer-events-none" />
+          <div className="mesh-blob mesh-blob-2 pointer-events-none" />
+          <div className="mesh-blob mesh-blob-3 pointer-events-none" />
 
-          {/* Page content – overflow-y-auto for normal pages (Dashboard, Financeiro, etc.)
-              relative allows Atendimento to position absolute and escape the scroll. */}
-          <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-3 sm:px-6 sm:py-6">
-              <Outlet />
+          {/* Sidebar wrapper — sem padding/borderradius no SEI pra encostar
+              na borda como o sistema do governo faz. */}
+          <div className={`relative z-20 flex flex-col shrink-0 ${isSei ? "" : "p-3"}`}>
+            <div className={`h-full overflow-hidden ${isSei ? "border-r border-sidebar-border" : "rounded-2xl glass-sidebar border border-sidebar-border"}`}>
+              <AppSidebar />
             </div>
-          </main>
+          </div>
+
+          {/* Main content column */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 z-10 overflow-hidden">
+            {/* Topbar — fica cyan no SEI via override CSS scoped */}
+            <header className={`h-14 flex items-center justify-between px-4 shrink-0 z-30 ${isSei ? "" : "glass-card border-b border-sidebar-border backdrop-blur-xl"}`}>
+              <div className="flex items-center gap-2">
+                <SidebarTrigger className={isSei ? "text-white" : "text-muted-foreground hover:text-foreground transition-colors"} />
+              </div>
+              <div />
+              <div className="flex items-center gap-2">
+                <span className={`text-xs hidden md:inline font-mono ${isSei ? "text-white" : "text-muted-foreground"}`}>
+                  {user?.email}
+                </span>
+                <UserPanel />
+              </div>
+            </header>
+
+            <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
+              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-3 sm:px-6 sm:py-6">
+                <Outlet />
+              </div>
+            </main>
+          </div>
         </div>
       </div>
     </SidebarProvider>
