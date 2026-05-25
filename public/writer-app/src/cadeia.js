@@ -167,6 +167,13 @@ function avancarCadeia() {
   sp.set('analise_url', prox.analise_url || '');
   if (prox.demanda_id) sp.set('demanda_id', prox.demanda_id);
 
+  // Propaga comarca/UF da peca atual pra proxima — primeira peca da cadeia
+  // define o padrao, demais herdam. Evita digitar a mesma comarca N vezes.
+  if (state.dadosPacote3) {
+    if (state.dadosPacote3.comarca) sp.set('comarca', state.dadosPacote3.comarca);
+    if (state.dadosPacote3.uf)      sp.set('uf',      state.dadosPacote3.uf);
+  }
+
   // Reload do iframe com os novos params — app.js reinicializa state.cadeia
   // a partir da URL, renderBarraCadeia mostra "pos/total" novo, fetchClienteAW
   // re-preenche pacote 1 e 2, etc.

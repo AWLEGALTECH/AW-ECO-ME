@@ -405,10 +405,13 @@ function selecionarProduto(id) {
   // (fetchAnaliseVinculadaMeta seta em state.dadosPacote3 antes do user
   // clicar no produto): numero_agencia, numero_conta, data_inicio_descontos,
   // data_fim_descontos. Sem isso, o reset abaixo apagava o autofill.
+  // Comarca/UF tambem preservadas — herdadas em cadeia ou modo mesmo cliente.
   const ag = state.dadosPacote3 && state.dadosPacote3.numero_agencia;
   const cc = state.dadosPacote3 && state.dadosPacote3.numero_conta;
   const di = state.dadosPacote3 && state.dadosPacote3.data_inicio_descontos;
   const df = state.dadosPacote3 && state.dadosPacote3.data_fim_descontos;
+  const cm = state.dadosPacote3 && state.dadosPacote3.comarca;
+  const uf = state.dadosPacote3 && state.dadosPacote3.uf;
   state.dadosPacote3 = { gerar_lastro_dano_material: true };
   if (state.contextoAnaliseVinculada) {
     if (ag) state.dadosPacote3.numero_agencia = ag;
@@ -416,6 +419,8 @@ function selecionarProduto(id) {
     if (di) state.dadosPacote3.data_inicio_descontos = di;
     if (df) state.dadosPacote3.data_fim_descontos = df;
   }
+  if (cm) state.dadosPacote3.comarca = cm;
+  if (uf) state.dadosPacote3.uf = uf;
   state.trechosIA = {};
   state.trechosIAOriginais = {};
   state.anexos = { selfie: null, tabelaXlsx: null };

@@ -440,7 +440,13 @@ function abrirModalFinalizarPeca() {
 // blocos marcados [TEMP-MESMO-CLIENTE] em done.js, render.js e ia.js.
 function novaPecaMesmoCliente() {
   state.modoMesmoCliente = true;
+  // Preserva comarca/UF da peca atual — fluxo "outra do mesmo cliente"
+  // deve herdar o foro, igual o modo cadeia.
+  const cm = state.dadosPacote3 && state.dadosPacote3.comarca;
+  const uf = state.dadosPacote3 && state.dadosPacote3.uf;
   state.dadosPacote3 = { gerar_lastro_dano_material: true };
+  if (cm) state.dadosPacote3.comarca = cm;
+  if (uf) state.dadosPacote3.uf = uf;
   state.trechosIA = {};
   state.trechosIAOriginais = {};
   state.trechosEditados = new Set();

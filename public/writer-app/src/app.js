@@ -74,6 +74,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (e) { console.warn('[writer] erro lendo contexto da URL:', e); }
 
+  // Comarca/UF herdadas da peca anterior em modo cadeia (avancarCadeia
+  // passa via URL). Primeira peca define, demais herdam.
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const comarcaUrl = sp.get('comarca');
+    const ufUrl = sp.get('uf');
+    if (comarcaUrl || ufUrl) {
+      state.dadosPacote3 = state.dadosPacote3 || {};
+      if (comarcaUrl && !state.dadosPacote3.comarca) state.dadosPacote3.comarca = comarcaUrl;
+      if (ufUrl && !state.dadosPacote3.uf) state.dadosPacote3.uf = ufUrl;
+    }
+  } catch (e) { console.warn('[writer] erro lendo comarca/uf da URL:', e); }
+
   // Puxa banco/agencia/conta da analise_vinculada (vindo do Finder) e
   // pre-preenche pacote 3 (numero_agencia, numero_conta). Fire-and-forget
   // — se chegar depois do render, o user ja vera na hora que abrir o pacote 3.
