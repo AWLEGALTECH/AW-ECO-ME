@@ -73,7 +73,7 @@ async function fetchAnaliseVinculadaMeta(demandaId) {
   if (!demandaId) return null;
   try {
     const resp = await fetch(
-      `${AW_SB_URL}/rest/v1/demandas?select=banco,agencia,conta&id=eq.${encodeURIComponent(demandaId)}&limit=1`,
+      `${AW_SB_URL}/rest/v1/demandas?select=banco,agencia,conta,data_inicio_desconto,data_fim_desconto&id=eq.${encodeURIComponent(demandaId)}&limit=1`,
       { headers: _awHeaders() }
     );
     if (!resp.ok) { console.warn('[analise-meta] fetch', resp.status); return null; }

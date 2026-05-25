@@ -90,6 +90,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (meta.conta && !state.dadosPacote3.numero_conta) {
           state.dadosPacote3.numero_conta = String(meta.conta);
         }
+        if (meta.data_inicio_desconto && !state.dadosPacote3.data_inicio_descontos) {
+          state.dadosPacote3.data_inicio_descontos = String(meta.data_inicio_desconto);
+        }
+        if (meta.data_fim_desconto && !state.dadosPacote3.data_fim_descontos) {
+          state.dadosPacote3.data_fim_descontos = String(meta.data_fim_desconto);
+        }
         // Se o user ja estiver no pacote 3 quando isso chega, re-renderiza
         if (state.tela === 'pacote3' && typeof render === 'function') render();
       }).catch(e => console.warn('[analise-meta]', e));
