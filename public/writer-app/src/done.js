@@ -65,17 +65,29 @@ function renderDone(view) {
         </div>
 
         <div class="done-actions-row">
-          <button class="btn btn-primary done-btn-primary" onclick="baixarPeca()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-            <span>Baixar arquivo</span>
-          </button>
           ${podeFinalizar ? `
-            <button class="done-ghost-btn done-finalize-btn" onclick="abrirModalFinalizarPeca()" title="Cole o link da pasta/arquivo do Drive pra mover essa peça pros Espelhos de Protocolo"
-              style="background: hsla(160, 75%, 38%, 0.12); border-color: hsla(160, 75%, 45%, 0.5); color: hsl(160, 65%, 70%);"
-              onmouseover="this.style.background='hsla(160, 75%, 38%, 0.22)'"
-              onmouseout="this.style.background='hsla(160, 75%, 38%, 0.12)'">
+            <button class="btn btn-primary done-btn-primary" onclick="salvarPecaNoDriveDoCliente()" id="btnSalvarDrive"
+              title="Cria uma subpasta no Drive do cliente e sobe a peça automaticamente">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              <span>Salvar na pasta do cliente</span>
+            </button>
+          ` : `
+            <button class="btn btn-primary done-btn-primary" onclick="baixarPeca()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              <span>Baixar arquivo</span>
+            </button>
+          `}
+          ${podeFinalizar ? `
+            <button class="done-ghost-btn" onclick="baixarPeca()" title="Baixar uma cópia local também">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              <span>Baixar cópia</span>
+            </button>
+            <button class="done-ghost-btn done-finalize-btn" onclick="abrirModalFinalizarPeca()" title="Já subi manualmente — cole o link"
+              style="opacity: 0.7;"
+              onmouseover="this.style.opacity='1'"
+              onmouseout="this.style.opacity='0.7'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>${emCadeia ? 'Finalizar e ir pra próxima' : 'Já subi pro Drive — finalizar'}</span>
+              <span>Já subi pro Drive — colar link</span>
             </button>
           ` : ''}
           ${!emCadeia ? `
@@ -106,16 +118,89 @@ function renderDone(view) {
             line-height: 1.5;
           ">
             <strong style="color: hsl(var(--accent-h), 75%, 75%); display: block; margin-bottom: 4px;">
-              Próximo passo
+              ${emCadeia ? 'Próximo passo' : 'Salvar no Drive'}
             </strong>
-            Baixe o arquivo acima, faça upload na pasta do cliente no Google Drive
-            e clique em <em>"${emCadeia ? 'Finalizar e ir pra próxima' : 'Já subi pro Drive — finalizar'}"</em>
-            pra mover a peça pros Espelhos de Protocolo${emCadeia ? ' e seguir pra próxima da fila' : ''}.
+            Clique em <em>Salvar na pasta do cliente</em> — vamos criar uma subpasta
+            <code style="background:hsla(0,0%,100%,0.05);padding:1px 5px;border-radius:4px;font-size:11px;">${p.nome} - ${nome}</code>
+            dentro da pasta dele no Drive e subir o .docx automaticamente${emCadeia ? '. Depois seguimos pra próxima peça da fila.' : '.'}
           </div>
         ` : ''}
       </div>
     </div>
   `;
+}
+
+// Sobe a peca automaticamente pro Drive do cliente via edge function.
+// Cria subpasta "[peca] - [cliente]" e finaliza o pipeline com a URL.
+async function salvarPecaNoDriveDoCliente() {
+  if (!state.arquivoFinalBlob) { alert('Arquivo não disponível.'); return; }
+
+  const clienteId = new URLSearchParams(window.location.search).get('cliente');
+  if (!clienteId) {
+    alert('Sem cliente vinculado — abra o writer a partir do cliente pra usar essa função.');
+    return;
+  }
+
+  const btn = document.getElementById('btnSalvarDrive');
+  const labelOriginal = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Salvando no Drive…</span>';
+  }
+
+  try {
+    const pecaNome = (state.produtoSelecionado && state.produtoSelecionado.nome) || 'Peça';
+    const fileName = `${pecaNome.replace(/[\\/:*?"<>|]/g, '')} - ${(state.dadosPacote1.nome_completo || 'Cliente').replace(/\s+/g, '_')}.docx`;
+
+    const form = new FormData();
+    form.append('client_id', clienteId);
+    form.append('peca_name', pecaNome);
+    form.append('file', state.arquivoFinalBlob, fileName);
+
+    const sbUrl = (typeof AW_SB_URL !== 'undefined') ? AW_SB_URL : 'https://wvltdjspytysuoybcfgb.supabase.co';
+    const sbKey = (typeof AW_SB_KEY !== 'undefined') ? AW_SB_KEY :
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind2bHRkanNweXR5c3VveWJjZmdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNjAxNjEsImV4cCI6MjA5NDgzNjE2MX0.aTFKemNruwj70C3inSxfmz8DQm38ux9JGlq5GXuGL34';
+
+    const resp = await fetch(`${sbUrl}/functions/v1/upload-to-client-folder`, {
+      method: 'POST',
+      headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
+      body: form,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || `Falha (${resp.status})`);
+    }
+
+    // Finaliza pipeline com a URL da peca recem-subida
+    const res = await finalizarPecaPipeline(data.file_url || data.folder_url || '');
+    if (!res.ok) {
+      console.warn('[salvar-drive] finalize falhou:', res);
+      // Mesmo assim seguimos pra proxima — peca foi subida
+    }
+
+    // Em cadeia: avanca pra proxima peca. Single: volta pro cliente.
+    const emCad = state.cadeia && state.cadeia.ativa;
+    if (emCad) {
+      avancarCadeia();
+    } else {
+      const cliId = new URLSearchParams(window.location.search).get('cliente');
+      if (cliId) {
+        window.parent.postMessage({
+          type: 'aw-eco-me:cadeiaCompleta',
+          payload: { cliente: cliId },
+        }, window.location.origin);
+      }
+    }
+  } catch (e) {
+    console.error('[salvar-drive]', e);
+    alert('Erro ao salvar no Drive: ' + (e?.message || e) + '\n\nVocê pode baixar o arquivo localmente e usar "Já subi pro Drive — colar link" como fallback.');
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = labelOriginal;
+    }
+  }
 }
 
 function baixarPeca() {
