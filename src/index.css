@@ -171,18 +171,21 @@ html, body, #root {
   color: #91bb24 !important;
 }
 
-/* Listrinhas decorativas no rodape da sidebar (replicam o SEI). */
+/* Listrinhas decorativas que separam menu do footer (replicam o SEI).
+   Posicionadas mais acima (margin-bottom empurra elas pra cima do
+   footer), grossas, com as cores principais cyan + verde. */
 [data-theme="sei"] .sei-stripes {
   display: flex;
   flex-direction: column;
+  margin-bottom: 80px;
 }
 [data-theme="sei"] .sei-stripes > div:first-child {
-  height: 3px;
+  height: 7px;
   background: #2894c7;
 }
 [data-theme="sei"] .sei-stripes > div:last-child {
-  height: 3px;
-  background: #f4a700;
+  height: 7px;
+  background: #91bb24;
 }
 [data-theme="sei"] header,
 [data-theme="sei"] header * {
