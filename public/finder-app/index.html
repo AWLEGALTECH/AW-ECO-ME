@@ -36,17 +36,23 @@
         --accent-s: 75%;
         --accent-l: 55%;
       }
-      /* SEI — cyan-teal do Sistema Eletronico de Informacoes */
+      /* SEI no Finder = light mode (fundo branco) matching a shell */
       [data-theme="sei"] {
-        --accent-h: 199;
-        --accent-s: 75%;
-        --accent-l: 50%;
-        --aw-bg: hsl(210 25% 5%);
-        --aw-card: hsl(210 22% 8%);
-        --aw-card-2: hsl(210 20% 12%);
-        --aw-border: hsl(210 20% 16%);
-        --aw-text-muted: hsl(210 10% 65%);
-        --aw-text-dim: hsl(210 10% 45%);
+        --accent-h: 197;
+        --accent-s: 67%;
+        --accent-l: 47%;
+        --aw-bg: hsl(0 0% 100%);
+        --aw-card: hsl(0 0% 98%);
+        --aw-card-2: hsl(0 0% 95%);
+        --aw-border: hsl(0 0% 85%);
+        --aw-border-soft: hsla(0, 0%, 0%, 0.06);
+        --aw-text: hsl(0 0% 8%);
+        --aw-text-muted: hsl(0 0% 42%);
+        --aw-text-dim: hsl(0 0% 58%);
+      }
+      [data-theme="sei"] body, [data-theme="sei"] #root {
+        background: white !important;
+        color: black !important;
       }
       html, body, #root, input, button, textarea, select, label, p, h1, h2, h3, h4, h5, h6, div, span, a {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -62,19 +68,14 @@
     <script>
       (function(){
         try {
-          // SEI nao se aplica ao Finder — fica sempre no dark padrao
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue') document.documentElement.setAttribute('data-theme', p);
+          if (p === 'midnight-blue' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
         } catch(e) {}
         window.addEventListener('message', function(e){
           if (e.origin !== window.location.origin) return;
           if (e.data && e.data.type === 'aw-theme:palette') {
-            // SEI tratado como default — Finder fica no dark padrao
-            if (e.data.palette === 'default' || e.data.palette === 'sei') {
-              document.documentElement.removeAttribute('data-theme');
-            } else {
-              document.documentElement.setAttribute('data-theme', e.data.palette);
-            }
+            if (e.data.palette === 'default') document.documentElement.removeAttribute('data-theme');
+            else document.documentElement.setAttribute('data-theme', e.data.palette);
           }
         });
       })();

@@ -2926,14 +2926,41 @@ input, select, textarea {
 }
 
 /* SEI — cyan-teal vivo do Sistema Eletronico de Informacoes */
+/* SEI no writer = light mode (fundo branco, texto preto), matching
+   a shell aw-eco-me. Inverte todos os tokens dark pra light. */
 [data-theme="sei"] {
-  --accent-h: 199;
-  --accent-s: 75%;
-  --accent-l: 50%;
-  /* Background com leve vies azulado pra dar a sensacao SEI sem
-     quebrar o dark mode dos componentes. */
-  --bg: hsl(210 25% 5%);
-  --bg-modal: hsl(210 25% 4% / 0.95);
-  --bg-card: hsl(210 22% 8%);
-  --bg-glass: hsl(210 22% 8% / 0.6);
+  --accent-h: 197;
+  --accent-s: 67%;
+  --accent-l: 47%;
+
+  --bg: hsl(0 0% 100%);
+  --bg-modal: hsl(0 0% 100% / 0.97);
+  --bg-card: hsl(0 0% 98%);
+  --bg-glass: hsl(0 0% 100% / 0.85);
+  --bg-row-hover: rgba(0, 0, 0, 0.04);
+
+  --line-dim:    rgba(0, 0, 0, 0.06);
+  --line:        hsl(0 0% 85%);
+  --line-bright: hsl(0 0% 75%);
+
+  --text:       hsl(0 0% 8%);
+  --text-dim:   hsl(0 0% 28%);
+  --text-mute:  hsl(0 0% 42%);
+  --text-faint: hsl(0 0% 58%);
+  --text-ghost: hsl(0 0% 70%);
+}
+
+/* Forca cores light em elementos que ainda usam hardcoded dark:
+   o body do writer e elementos comuns. */
+[data-theme="sei"] body,
+[data-theme="sei"] #app {
+  background: white !important;
+  color: black !important;
+}
+[data-theme="sei"] input,
+[data-theme="sei"] textarea,
+[data-theme="sei"] select {
+  background: hsl(0 0% 98%) !important;
+  color: black !important;
+  border-color: hsl(0 0% 80%) !important;
 }
