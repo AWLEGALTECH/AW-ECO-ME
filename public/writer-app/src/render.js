@@ -401,7 +401,17 @@ function selecionarProduto(id) {
     state.dadosPacote1 = {};
     state.dadosPacote2 = {};
   }
+  // Preserva numero_agencia/numero_conta que vieram da analise vinculada
+  // (fetchAnaliseVinculadaMeta preenche em state.dadosPacote3 antes do user
+  // clicar no produto). Sem essa preservacao, o reset abaixo apagava o
+  // autofill e o user tinha que digitar de novo.
+  const ag = state.dadosPacote3 && state.dadosPacote3.numero_agencia;
+  const cc = state.dadosPacote3 && state.dadosPacote3.numero_conta;
   state.dadosPacote3 = { gerar_lastro_dano_material: true };
+  if (state.contextoAnaliseVinculada) {
+    if (ag) state.dadosPacote3.numero_agencia = ag;
+    if (cc) state.dadosPacote3.numero_conta = cc;
+  }
   state.trechosIA = {};
   state.trechosIAOriginais = {};
   state.anexos = { selfie: null, tabelaXlsx: null };
