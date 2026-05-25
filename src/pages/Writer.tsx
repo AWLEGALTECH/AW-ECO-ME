@@ -11,7 +11,7 @@ import { toast } from "sonner";
 type WriterMessage =
   | {
       type: "aw-eco-me:pecaFinalizada";
-      payload: { demandaId: string; driveUrl: string };
+      payload: { demandaId: string; driveUrl: string; comarca?: string | null; uf?: string | null; valor_causa?: number | null };
     }
   | {
       type: "aw-eco-me:cadeiaCompleta";
@@ -37,7 +37,7 @@ export default function Writer() {
       if (!msg || typeof msg !== "object" || !("type" in msg)) return;
 
       if (msg.type === "aw-eco-me:pecaFinalizada") {
-        const { demandaId, driveUrl } = msg.payload;
+        const { demandaId, driveUrl, comarca, uf, valor_causa } = msg.payload as any;
         const { data: pecaData, error } = await supabase
           .from("demandas" as any)
           .update({
@@ -45,6 +45,9 @@ export default function Writer() {
             status: "pendente",
             peca_drive_url: driveUrl || null,
             completed_at: new Date().toISOString(),
+            comarca: comarca || null,
+            uf: uf || null,
+            valor_causa: valor_causa ?? null,
           })
           .eq("id", demandaId)
           .select("analise_pai_id")

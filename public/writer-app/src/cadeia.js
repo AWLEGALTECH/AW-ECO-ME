@@ -134,9 +134,22 @@ function finalizarPecaPipeline(driveUrl) {
       resolve({ ok: false, reason: 'timeout' });
     }, 8000);
 
+    // Captura dados do pacote 3 que viram metadado da peca pronta —
+    // espelho de protocolo do aw-eco-me usa pra copia-cola facilitada.
+    const p3 = state.dadosPacote3 || {};
+    const valDescontos = (typeof parseValor === 'function') ? parseValor(p3.valor_total_descontos) || 0 : 0;
+    const valDanoMoral = (typeof parseValor === 'function') ? parseValor(p3.valor_dano_moral) || 0 : 0;
+    const valorCausa = valDescontos + valDanoMoral;
+
     window.parent.postMessage({
       type: 'aw-eco-me:pecaFinalizada',
-      payload: { demandaId, driveUrl: driveUrl || '' },
+      payload: {
+        demandaId,
+        driveUrl: driveUrl || '',
+        comarca: p3.comarca || null,
+        uf: p3.uf || null,
+        valor_causa: valorCausa > 0 ? valorCausa : null,
+      },
     }, window.location.origin);
   });
 }

@@ -263,4 +263,12 @@ html, body, #root {
   .animate-salt-bounce {
     animation: salt-bounce 1.8s ease-in-out infinite;
   }
+
+  /* Wiggle/celebracao usado no popup de protocolo concluido */
+  @keyframes wiggle {
+    0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+    40%  { transform: scale(1.15) rotate(8deg); opacity: 1; }
+    70%  { transform: scale(0.95) rotate(-4deg); }
+    100% { transform: scale(1) rotate(0); }
+  }
 }

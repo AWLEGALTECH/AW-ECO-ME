@@ -22,7 +22,8 @@ import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
-  Lock, ScanSearch, PenSquare, Layers, X, Ban,
+  Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
+  Scale, Gavel, Building2,
 } from "lucide-react";
 
 interface Cliente {
@@ -78,6 +79,12 @@ interface Demanda {
   ordem: number;
   created_at: string;
   completed_at: string | null;
+  numero_processo: string | null;
+  protocolado_at: string | null;
+  protocolado_tribunal: string | null;
+  comarca: string | null;
+  uf: string | null;
+  valor_causa: number | null;
 }
 
 const fmtBRL = (v: number | null) =>
@@ -623,40 +630,338 @@ function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: 
   );
 }
 
-function EspelhoCard({ demanda }: { demanda: Demanda }) {
-  const hasUrl = !!demanda.peca_drive_url;
-  const card = (
-    <div className={`rounded-xl border p-4 transition-all ${
-      hasUrl
-        ? "border-emerald-400/30 bg-emerald-400/5 hover:border-emerald-400/60 hover:bg-emerald-400/10 cursor-pointer"
-        : "border-border bg-card/40"
-    }`}>
+function EspelhoCard({ demanda, onClick }: { demanda: Demanda; onClick: () => void }) {
+  const protocolado = !!demanda.protocolado_at;
+  return (
+    <button
+      onClick={onClick}
+      className={`text-left w-full rounded-xl border p-4 transition-all ${
+        protocolado
+          ? "border-emerald-400/30 bg-emerald-400/5 hover:border-emerald-400/60"
+          : "border-border bg-card/40 hover:border-primary/40 hover:bg-card/60"
+      }`}
+    >
       <div className="flex items-start gap-3">
         <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${
-          hasUrl ? "bg-emerald-400/15 ring-1 ring-emerald-400/30" : "bg-muted/30"
+          protocolado ? "bg-emerald-400/15 ring-1 ring-emerald-400/30" : "bg-muted/30"
         }`}>
-          <Send className={`h-4 w-4 ${hasUrl ? "text-emerald-400" : "text-muted-foreground"}`} />
+          <Send className={`h-4 w-4 ${protocolado ? "text-emerald-400" : "text-muted-foreground"}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium truncate">{demanda.titulo}</h4>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {demanda.desconto || "—"} · gerada em {fmtDate(demanda.completed_at || demanda.created_at)}
-          </p>
-          {hasUrl ? (
-            <p className="text-[11px] text-emerald-400 mt-2 inline-flex items-center gap-1">
-              <FolderOpen className="h-3 w-3" /> Abrir no Drive
-              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h4 className="text-sm font-medium truncate">{demanda.titulo}</h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {demanda.desconto || "—"} · gerada em {fmtDate(demanda.completed_at || demanda.created_at)}
+              </p>
+            </div>
+            {protocolado ? (
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border text-emerald-400 bg-emerald-400/10 border-emerald-400/30 shrink-0">
+                <CheckCircle2 className="h-2.5 w-2.5" /> Protocolado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border text-amber-400 bg-amber-400/10 border-amber-400/30 shrink-0">
+                <Clock className="h-2.5 w-2.5" /> Protocolo pendente
+              </span>
+            )}
+          </div>
+          {protocolado ? (
+            <p className="text-[11px] text-emerald-400 mt-2 inline-flex items-center gap-1.5">
+              <CheckCircle2 className="h-3 w-3" />
+              <span>nº {demanda.numero_processo || "—"} · {fmtDateTime(demanda.protocolado_at)}</span>
             </p>
           ) : (
-            <p className="text-[11px] text-amber-400/80 mt-2 italic">Sem link do Drive</p>
+            <p className="text-[11px] text-primary mt-2 inline-flex items-center gap-1">
+              Abrir espelho <ArrowRight className="h-3 w-3" />
+            </p>
           )}
         </div>
       </div>
+    </button>
+  );
+}
+
+// ─── ESPELHO DE PROTOCOLO — modal multi-etapa ────────────────────────────
+type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success";
+
+function EspelhoProtocoloDialog({
+  demanda, cliente, onClose, onProtocolado,
+}: {
+  demanda: Demanda | null;
+  cliente: Cliente | null;
+  onClose: () => void;
+  onProtocolado: (numero: string, valor: number) => void;
+}) {
+  const [stage, setStage] = useState<EspelhoStage>("actions");
+  const [copiados, setCopiados] = useState<Set<string>>(new Set());
+  const [numeroProcesso, setNumeroProcesso] = useState("");
+  const [finalizando, setFinalizando] = useState(false);
+
+  useEffect(() => {
+    if (demanda) {
+      setStage("actions");
+      setCopiados(new Set());
+      setNumeroProcesso("");
+      setFinalizando(false);
+    }
+  }, [demanda?.id]);
+
+  if (!demanda || !cliente) return null;
+
+  // Determina competencia (JEC se valor <= 40 SM ~ 60k; comum caso contrario)
+  const valor = Number(demanda.valor_causa || 0);
+  const competencia = valor > 0 && valor <= 60000 ? "Juizado Especial Cível" : "Vara Cível Comum";
+
+  const copy = async (id: string, txt: string) => {
+    try {
+      await navigator.clipboard.writeText(String(txt || ""));
+      setCopiados((prev) => new Set(prev).add(id));
+      toast.success("Copiado", { duration: 1200 });
+    } catch {
+      toast.error("Falha ao copiar");
+    }
+  };
+
+  // Campos do espelho na ordem exata do Projudi
+  const campos: Array<{ id: string; label: string; valor: string }> = [
+    { id: "comarca", label: "Comarca", valor: demanda.comarca || cliente.endereco || "" },
+    { id: "competencia", label: "Competência", valor: competencia },
+    { id: "cpf1", label: "CPF / CNPJ", valor: cliente.cpf_cnpj || "" },
+    { id: "endereco", label: "Endereço", valor: cliente.endereco || "" },
+    { id: "bairro", label: "Bairro", valor: "" },
+    { id: "uf", label: "UF", valor: demanda.uf || "" },
+    { id: "cidade", label: "Cidade", valor: demanda.comarca || "" },
+    { id: "cep", label: "CEP", valor: "" },
+    { id: "cpf2", label: "CPF", valor: cliente.cpf_cnpj || "" },
+    { id: "valor", label: "Valor da causa", valor: valor > 0 ? fmtBRL(valor) : "—" },
+  ];
+
+  const finalizar = async () => {
+    if (!numeroProcesso.trim()) {
+      toast.error("Informe o número do processo gerado pelo tribunal");
+      return;
+    }
+    setFinalizando(true);
+    const { error } = await supabase.from("demandas" as any).update({
+      numero_processo: numeroProcesso.trim(),
+      protocolado_at: new Date().toISOString(),
+      protocolado_tribunal: "projudi",
+      status: "concluida",
+    }).eq("id", demanda.id);
+    setFinalizando(false);
+    if (error) { toast.error("Erro ao registrar protocolo: " + error.message); return; }
+    setStage("success");
+    onProtocolado(numeroProcesso.trim(), valor);
+  };
+
+  const fecharSeFinalizado = () => {
+    onClose();
+  };
+
+  return (
+    <Dialog open={!!demanda} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto">
+        {stage === "actions" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" /> {demanda.titulo}
+              </DialogTitle>
+              <DialogDescription>
+                Peça gerada · {demanda.desconto || "—"} · finalizada em {fmtDateTime(demanda.completed_at)}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+              <a
+                href={demanda.peca_drive_url || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-all ${demanda.peca_drive_url ? "border-border hover:border-primary/60 bg-card/40 hover:bg-card/60" : "border-border/30 bg-muted/10 cursor-not-allowed opacity-50"}`}
+                onClick={(e) => { if (!demanda.peca_drive_url) e.preventDefault(); }}
+              >
+                <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Download className="h-5 w-5 text-primary" />
+                </div>
+                <span className="text-sm font-medium">Baixar peça</span>
+                <span className="text-[11px] text-muted-foreground text-center">.docx no Drive</span>
+              </a>
+              <button
+                onClick={() => setStage("tribunal")}
+                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-border hover:border-primary/60 bg-card/40 hover:bg-card/60 transition-all"
+              >
+                <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Scale className="h-5 w-5 text-primary" />
+                </div>
+                <span className="text-sm font-medium">Espelho de Protocolo</span>
+                <span className="text-[11px] text-muted-foreground text-center">copia-cola assistido</span>
+              </button>
+            </div>
+          </>
+        )}
+
+        {stage === "tribunal" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Gavel className="h-5 w-5 text-primary" /> Selecione o sistema do tribunal
+              </DialogTitle>
+              <DialogDescription>O espelho adapta a ordem dos campos pra cada sistema.</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 pt-3">
+              <button
+                onClick={() => setStage("projudi")}
+                className="flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all"
+              >
+                <Building2 className="h-6 w-6 text-primary" />
+                <span className="text-sm font-bold">Projudi</span>
+                <span className="text-[10px] text-emerald-400">Disponível</span>
+              </button>
+              {["PJe", "eSAJ", "e-Proc"].map((t) => (
+                <button
+                  key={t}
+                  disabled
+                  className="flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-border/30 bg-muted/10 opacity-50 cursor-not-allowed"
+                >
+                  <Building2 className="h-6 w-6 text-muted-foreground" />
+                  <span className="text-sm font-medium">{t}</span>
+                  <span className="text-[10px] text-muted-foreground">em breve</span>
+                </button>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setStage("actions")}>Voltar</Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {stage === "projudi" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-primary" /> Espelho Projudi
+              </DialogTitle>
+              <DialogDescription>
+                Clique no ícone pra copiar cada campo. A ordem segue o formulário do Projudi.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5 pt-2">
+              {campos.map((c) => {
+                const copiado = copiados.has(c.id);
+                const vazio = !c.valor;
+                return (
+                  <div
+                    key={c.id}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all ${
+                      copiado ? "border-emerald-400/30 bg-emerald-400/5 opacity-60" : "border-border bg-card/40"
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.label}</div>
+                      <div className={`text-sm font-medium truncate ${vazio ? "text-muted-foreground italic" : ""}`}>
+                        {c.valor || "(não informado)"}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => copy(c.id, c.valor)}
+                      disabled={vazio}
+                      className={`h-8 w-8 shrink-0 rounded-md flex items-center justify-center transition-all ${
+                        vazio ? "opacity-30 cursor-not-allowed" :
+                        copiado ? "bg-emerald-400/20 text-emerald-400 hover:bg-emerald-400/30" :
+                        "bg-primary/15 text-primary hover:bg-primary/25"
+                      }`}
+                      title={vazio ? "Sem valor pra copiar" : copiado ? "Copiar novamente" : "Copiar"}
+                    >
+                      {copiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="ghost" onClick={() => setStage("tribunal")}>Voltar</Button>
+              <Button onClick={() => setStage("finalizar")} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Finalizar protocolo
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {stage === "finalizar" && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Trophy className="h-5 w-5 text-emerald-400" /> Quase lá!
+              </DialogTitle>
+              <DialogDescription>
+                Cole o número do processo gerado pelo Projudi pra fechar essa peça.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 pt-2">
+              <Label className="text-xs">Número do processo</Label>
+              <Input
+                value={numeroProcesso}
+                onChange={(e) => setNumeroProcesso(e.target.value)}
+                placeholder="0000000-00.0000.0.00.0000"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") finalizar(); }}
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="ghost" onClick={() => setStage("projudi")} disabled={finalizando}>Voltar</Button>
+              <Button onClick={finalizar} disabled={finalizando || !numeroProcesso.trim()} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+                {finalizando ? "Registrando…" : "Concluir protocolo"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {stage === "success" && (
+          <EspelhoSucesso valor={valor} numero={numeroProcesso} onClose={fecharSeFinalizado} />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Tela de sucesso com animação dopaminérgica + valor subindo
+function EspelhoSucesso({ valor, numero, onClose }: { valor: number; numero: string; onClose: () => void }) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (valor <= 0) return;
+    const duration = 1400;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setCount(Math.round(valor * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [valor]);
+
+  return (
+    <div className="py-6 flex flex-col items-center text-center">
+      <div className="relative">
+        <div className="absolute inset-0 rounded-full bg-emerald-400/30 blur-2xl animate-pulse" />
+        <div className="relative h-20 w-20 rounded-full bg-emerald-400/20 border-2 border-emerald-400 flex items-center justify-center animate-[wiggle_0.6s_ease-out]">
+          <Trophy className="h-10 w-10 text-emerald-400" />
+        </div>
+        <Sparkles className="absolute -top-2 -right-2 h-5 w-5 text-amber-300 animate-pulse" />
+        <Sparkles className="absolute -bottom-1 -left-3 h-4 w-4 text-amber-300 animate-pulse" style={{ animationDelay: "0.3s" }} />
+      </div>
+      <h2 className="text-xl font-bold mt-5">Protocolo concluído!</h2>
+      <p className="text-xs text-muted-foreground mt-1">Processo nº {numero}</p>
+      {valor > 0 && (
+        <div className="mt-6 px-6 py-4 rounded-2xl border border-emerald-400/40 bg-emerald-400/5 inline-flex flex-col items-center gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-medium">+ valor adicionado ao total</span>
+          <span className="text-3xl font-bold text-emerald-400 tabular-nums">{fmtBRL(count)}</span>
+        </div>
+      )}
+      <Button onClick={onClose} className="mt-6 bg-emerald-600 hover:bg-emerald-500 text-white">Fechar</Button>
     </div>
   );
-  return hasUrl ? (
-    <a href={demanda.peca_drive_url!} target="_blank" rel="noreferrer" className="block">{card}</a>
-  ) : card;
 }
 
 function PrePipeline({
@@ -667,6 +972,7 @@ function PrePipeline({
   const [dialogVincular, setDialogVincular] = useState(false);
   const [vincForm, setVincForm] = useState({ desconto: "", planilha_url: "" });
   const [savingVinc, setSavingVinc] = useState(false);
+  const [espelhoDemanda, setEspelhoDemanda] = useState<Demanda | null>(null);
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
     { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
@@ -945,7 +1251,7 @@ function PrePipeline({
               </p>
             ) : g.key === "pronta_para_protocolo" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {itens.map(d => <EspelhoCard key={d.id} demanda={d} />)}
+                {itens.map(d => <EspelhoCard key={d.id} demanda={d} onClick={() => setEspelhoDemanda(d)} />)}
               </div>
             ) : g.key === "analise_documental" ? (
               <div className="space-y-2">
@@ -995,6 +1301,13 @@ function PrePipeline({
           </div>
         );
       })}
+
+      <EspelhoProtocoloDialog
+        demanda={espelhoDemanda}
+        cliente={cliente}
+        onClose={() => setEspelhoDemanda(null)}
+        onProtocolado={() => onChange()}
+      />
 
       {/* Diálogo: Vincular análise do Finder ao cliente */}
       <Dialog open={dialogVincular} onOpenChange={(v) => { if (!v) { setDialogVincular(false); setVincForm({ desconto: "", planilha_url: "" }); } }}>
