@@ -350,36 +350,52 @@ function _tokens(s) {
 // Casa uma rubrica contra o texto do desconto.
 // Estrategia em camadas:
 //   1. Substring direto (cobre 'tarifa' em 'tarifa saque terminal')
-//   2. Match por tokens — cada token da rubrica precisa achar uma palavra
-//      do desconto que comece com ele (cobre 'bx.ant.financ' vs
-//      'bx antecipacao financeira': bx==bx, ant->antecipacao, financ->financeira)
+//   2. Match por tokens — duas direcoes:
+//      a) Cada token da rubrica acha um do desconto (cobre 'bx.ant.financ'
+//         vs 'bx antecipacao financeira': bx==bx, ant->antecipacao,
+//         financ->financeira)
+//      b) Cada token do desconto acha um da rubrica (cobre desconto
+//         generico curto tipo 'Encargos' vs rubrica especifica
+//         'ENCARGOS LIMITE CREDITO')
 function _rubricaCasa(rubricaNorm, descontoNorm) {
   if (!rubricaNorm || !descontoNorm) return false;
   if (descontoNorm.includes(rubricaNorm) || rubricaNorm.includes(descontoNorm)) return true;
   const tokensR = _tokens(rubricaNorm);
   const tokensD = _tokens(descontoNorm);
   if (tokensR.length === 0 || tokensD.length === 0) return false;
-  // Cada token da rubrica precisa achar uma palavra correspondente no desconto
-  return tokensR.every(tok => tokensD.some(w =>
-    w === tok || w.startsWith(tok) || tok.startsWith(w) || w.includes(tok) || tok.includes(w)
-  ));
+  const match = (a, b) => a === b || a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a);
+  if (tokensR.every(t => tokensD.some(d => match(t, d)))) return true;
+  if (tokensD.every(t => tokensR.some(r => match(t, r)))) return true;
+  return false;
 }
 
 function sugerirProdutoPorDesconto(desconto) {
   if (!desconto || !Array.isArray(PRODUTOS)) return null;
   const txt = _normTxt(desconto);
+  // Desconto pode ser combinacao tipo "Cat A + Cat B + Cat C" (Finder
+  // combinando varias categorias numa unica analise vinculada). Quebra
+  // por '+' e testa cada parte separadamente — cada parte tem que achar
+  // seu produto. Se 2+ produtos diferentes saem matched, sugere Mix.
+  const partes = txt.includes('+')
+    ? txt.split('+').map(s => s.trim()).filter(Boolean)
+    : [txt];
+
   const candidatos = new Map(); // id -> nome
-  // Procura match em RUBRICAS de cada produto (exceto Kits e Mix)
   for (const p of PRODUTOS) {
     if (p.id === 14) continue;                       // skip Mix (default)
     if (p.categoria && /representa/i.test(p.categoria)) continue; // skip Kits
     if (!Array.isArray(p.rubricas)) continue;
-    for (const r of p.rubricas) {
-      const rNorm = _normTxt(r);
-      if (_rubricaCasa(rNorm, txt)) {
-        candidatos.set(p.id, p.nome);
-        break;
+    // Esse produto bate com QUALQUER parte do desconto?
+    for (const parte of partes) {
+      let casou = false;
+      for (const r of p.rubricas) {
+        if (_rubricaCasa(_normTxt(r), parte)) {
+          candidatos.set(p.id, p.nome);
+          casou = true;
+          break;
+        }
       }
+      if (casou) break;
     }
   }
   // Match unico -> sugere o produto
