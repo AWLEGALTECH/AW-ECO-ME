@@ -4,7 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch, Workflow } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import type { ModuleKey } from "@/lib/modules";
 import {
   Sidebar,
   SidebarContent,
@@ -18,25 +20,28 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-interface NavItem { title: string; url: string; icon: any; badgeKey?: string }
+interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module: ModuleKey }
 
 const navItems: NavItem[] = [
-  { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard },
-  { title: "Clientes",      url: "/clientes",      icon: Users },
-  { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature, badgeKey: "pendentes" },
-  { title: "Esteira",       url: "/esteira",       icon: Workflow,      badgeKey: "esteira" },
-  { title: "Processos",     url: "/processos",     icon: Briefcase },
-  { title: "Writer",        url: "/writer",        icon: PenSquare },
-  { title: "Finder",        url: "/finder",        icon: ScanSearch },
+  { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
+  { title: "Clientes",      url: "/clientes",      icon: Users,           module: "clientes" },
+  { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature,   module: "pre_clientes", badgeKey: "pendentes" },
+  { title: "Esteira",       url: "/esteira",       icon: Workflow,        module: "esteira",      badgeKey: "esteira" },
+  { title: "Processos",     url: "/processos",     icon: Briefcase,       module: "processos" },
+  { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
+  { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const { palette } = useTheme();
+  const { modules, isAdmin } = useAuth();
   const isSei = palette === "sei";
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+
+  const visibleItems = navItems.filter(it => isAdmin || modules.includes(it.module));
 
   // Pra "AW ECO ME" no SEI, destaca a ultima palavra em verde (#91bb24)
   // espelhando o "!" verde-lima do logo "sei!".
@@ -113,7 +118,7 @@ export function AppSidebar() {
           )}
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
+              {visibleItems.map((item) => {
                 const isActive = location.pathname === item.url || location.pathname.startsWith(item.url + "/");
                 return (
                   <SidebarMenuItem key={item.url}>
@@ -151,6 +156,37 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {isAdmin && (
+          <SidebarGroup>
+            {!collapsed && (
+              <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 opacity-80" />
+                Administração
+              </SidebarGroupLabel>
+            )}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip="Usuários"
+                    className={
+                      location.pathname.startsWith("/admin/usuarios")
+                        ? "bg-primary/15 text-primary rounded-xl mx-1"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
+                    }
+                  >
+                    <NavLink to="/admin/usuarios" end className="" activeClassName="">
+                      <UserCog className="h-4 w-4 shrink-0" />
+                      {!collapsed && <span className="text-sm">Usuários</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       {isSei && (

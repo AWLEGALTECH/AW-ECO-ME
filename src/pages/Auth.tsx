@@ -95,7 +95,10 @@ export default function Auth() {
       options: { data: { full_name: name } },
     });
     if (error) toast.error(error.message);
-    else toast.success("Cadastro realizado! Aguarde aprovacao do administrador.");
+    else {
+      toast.success("Cadastro enviado! Aguarde aprovação do administrador para acessar.", { duration: 8000 });
+      setIsSignup(false);
+    }
     setLoading(false);
   };
 

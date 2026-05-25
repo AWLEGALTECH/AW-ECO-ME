@@ -1,25 +1,36 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User } from "@supabase/supabase-js";
+import { toast } from "sonner";
+import { ALL_MODULE_KEYS, type ModuleKey } from "@/lib/modules";
 
 interface Profile {
+  id: string;
   nome: string | null;
   email: string | null;
   avatar_url: string | null;
+  role: "admin" | "user";
+  approved: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
   profile: Profile | null;
+  modules: ModuleKey[];   // admin sempre recebe todos
+  isAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
+  refreshAccess: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
+  modules: [],
+  isAdmin: false,
   loading: true,
   signOut: async () => {},
+  refreshAccess: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -27,15 +38,45 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [modules, setModules] = useState<ModuleKey[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
+  const loadAccess = async (userId: string) => {
+    const { data: prof } = await supabase
       .from("profiles")
-      .select("nome, email, avatar_url")
+      .select("id, nome, email, avatar_url, role, approved")
       .eq("id", userId)
       .single();
-    setProfile(data);
+
+    if (!prof) {
+      setProfile(null);
+      setModules([]);
+      return null;
+    }
+
+    setProfile(prof as Profile);
+
+    // Bloqueio: não aprovado → desloga
+    if (!prof.approved) {
+      toast.error("Cadastro aguardando aprovação do administrador.", { duration: 6000 });
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      setModules([]);
+      return null;
+    }
+
+    if (prof.role === "admin") {
+      setModules(ALL_MODULE_KEYS);
+    } else {
+      const { data: rows } = await supabase
+        .from("user_module_access")
+        .select("module_key")
+        .eq("user_id", userId);
+      setModules(((rows || []).map(r => r.module_key) as ModuleKey[]));
+    }
+
+    return prof as Profile;
   };
 
   useEffect(() => {
@@ -44,9 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          setTimeout(() => fetchProfile(currentUser.id), 0);
+          setTimeout(() => loadAccess(currentUser.id), 0);
         } else {
           setProfile(null);
+          setModules([]);
         }
         setLoading(false);
       }
@@ -56,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
-        fetchProfile(currentUser.id);
+        loadAccess(currentUser.id);
       }
       setLoading(false);
     });
@@ -78,10 +120,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setModules([]);
   };
 
+  const refreshAccess = async () => {
+    if (user) await loadAccess(user.id);
+  };
+
+  const isAdmin = profile?.role === "admin" && profile?.approved === true;
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ user, profile, modules, isAdmin, loading, signOut, refreshAccess }}>
       {!loading ? (
         children
       ) : (

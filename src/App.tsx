@@ -19,7 +19,9 @@ import Writer from "./pages/Writer";
 import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
+import AdminUsuarios from "./pages/AdminUsuarios";
 import NotFound from "./pages/NotFound";
+import { RequireModule } from "@/components/RequireModule";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,15 +54,32 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               <Route element={<SidebarLayout />}>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/clientes" element={<Clientes />} />
-                <Route path="/clientes/:id" element={<ClienteDetail />} />
-                <Route path="/processos" element={<Processos />} />
-                <Route path="/processos/:id" element={<ProcessoDetail />} />
-                <Route path="/writer" element={<Writer />} />
-                <Route path="/finder" element={<Finder />} />
-                <Route path="/pre-clientes" element={<PreClientes />} />
-                <Route path="/esteira" element={<Esteira />} />
+                <Route element={<RequireModule module="dashboard" />}>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                </Route>
+                <Route element={<RequireModule module="clientes" />}>
+                  <Route path="/clientes" element={<Clientes />} />
+                  <Route path="/clientes/:id" element={<ClienteDetail />} />
+                </Route>
+                <Route element={<RequireModule module="processos" />}>
+                  <Route path="/processos" element={<Processos />} />
+                  <Route path="/processos/:id" element={<ProcessoDetail />} />
+                </Route>
+                <Route element={<RequireModule module="writer" />}>
+                  <Route path="/writer" element={<Writer />} />
+                </Route>
+                <Route element={<RequireModule module="finder" />}>
+                  <Route path="/finder" element={<Finder />} />
+                </Route>
+                <Route element={<RequireModule module="pre_clientes" />}>
+                  <Route path="/pre-clientes" element={<PreClientes />} />
+                </Route>
+                <Route element={<RequireModule module="esteira" />}>
+                  <Route path="/esteira" element={<Esteira />} />
+                </Route>
+                <Route element={<RequireModule adminOnly />}>
+                  <Route path="/admin/usuarios" element={<AdminUsuarios />} />
+                </Route>
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />
