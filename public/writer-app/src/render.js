@@ -734,22 +734,18 @@ function renderBlocoAnexoTabela() {
       ? `R$ ${tab.valorDobro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '—';
 
-    // Agrupa descontos por descricao pra mostrar lista resumida (quantas
-    // vezes + valor total por descricao). Ajuda o user a conferir quais
-    // rubricas marcar na etapa de definicao do direito.
-    const agrupados = new Map();
-    for (const l of linhasDado) {
-      const key = (l.descricao || '(sem descrição)').trim();
-      const atual = agrupados.get(key) || { count: 0, total: 0 };
-      atual.count += 1;
-      atual.total += Number(l.valor) || 0;
-      agrupados.set(key, atual);
-    }
-    const listaAgrupada = Array.from(agrupados.entries())
-      .sort((a, b) => b[1].total - a[1].total);
+    // Mapa rubricaKey -> label legivel do produto atual (cada produto tem
+    // rubricas_keys[] e rubricas[] paralelos)
+    const prod = state.produtoSelecionado;
+    const labelRubrica = (key) => {
+      if (!prod || !Array.isArray(prod.rubricas_keys)) return key;
+      const idx = prod.rubricas_keys.indexOf(key);
+      return idx >= 0 ? prod.rubricas[idx] : key;
+    };
+    // Conta de itens nao classificados — sinal de alerta pro user revisar
+    const semRubrica = linhasDado.filter(l => !l.rubricaKey).length;
 
     const expandido = state._anexoDescontosExpandido === true;
-    const itensVisiveis = expandido ? listaAgrupada : listaAgrupada.slice(0, 0); // colapsado por padrao
 
     infoAnexado = `
       <div class="anexo-preview">
@@ -760,26 +756,45 @@ function renderBlocoAnexoTabela() {
         </div>
         <div class="anexo-preview-info">
           <div class="anexo-preview-nome">${tab.nomeArquivo}</div>
-          <div class="anexo-preview-tamanho">${totalLinhas} descontos em ${listaAgrupada.length} categoria${listaAgrupada.length === 1 ? '' : 's'} · Total ${totalFormatado} · Dobro ${dobroFormatado}</div>
+          <div class="anexo-preview-tamanho">${totalLinhas} descontos · Total ${totalFormatado} · Dobro ${dobroFormatado}${semRubrica > 0 ? ` · <span style="color:hsl(38 92% 65%);font-weight:600;">${semRubrica} sem classificacao</span>` : ''}</div>
           <div style="display:flex; gap:10px; align-items:center; margin-top:6px;">
             <button class="anexo-remover" onclick="removerTabelaXlsx()">Remover</button>
             <button onclick="toggleAnexoDescontos()" style="background:none;border:none;color:hsl(var(--accent-h),60%,72%);font-size:12px;cursor:pointer;padding:0;font-family:Inter,sans-serif;text-decoration:underline;text-underline-offset:3px;">
-              ${expandido ? 'Esconder lista' : 'Ver descontos detalhados'}
+              ${expandido ? 'Esconder revisao' : 'Revisar planilha com rubricas'}
             </button>
           </div>
           ${expandido ? `
-            <div style="margin-top:12px; padding:12px; background:hsla(0,0%,100%,0.02); border:1px solid hsla(0,0%,100%,0.06); border-radius:10px; max-height:280px; overflow-y:auto;">
-              <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-ghost,#888); font-weight:700; margin-bottom:8px;">
-                Descontos identificados na planilha
-              </div>
-              <div style="display:flex; flex-direction:column; gap:6px;">
-                ${listaAgrupada.map(([nome, info]) => `
-                  <div style="display:flex; align-items:baseline; gap:10px; padding:6px 0; border-bottom:1px dashed hsla(0,0%,100%,0.06); font-size:12px;">
-                    <span style="color:var(--text-strong,#e5e5e5); font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(nome)}">${escapeHtml(nome)}</span>
-                    <span style="color:var(--text-ghost,#999); font-size:11px; flex-shrink:0; tabular-nums">×${info.count}</span>
-                    <span style="color:hsl(var(--accent-h),60%,75%); font-variant-numeric:tabular-nums; flex-shrink:0; font-weight:600;">R$ ${info.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                `).join('')}
+            <div style="margin-top:12px; padding:0; background:hsla(0,0%,100%,0.02); border:1px solid hsla(0,0%,100%,0.06); border-radius:10px; max-height:420px; overflow-y:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:11.5px; font-family:Inter,sans-serif;">
+                <thead style="position:sticky; top:0; background:hsla(0,0%,0%,0.4); backdrop-filter:blur(8px); z-index:1;">
+                  <tr style="border-bottom:1px solid hsla(0,0%,100%,0.08);">
+                    <th style="padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-ghost,#888); font-weight:700;">Data</th>
+                    <th style="padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-ghost,#888); font-weight:700;">Descrição</th>
+                    <th style="padding:9px 10px; text-align:right; font-size:10px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-ghost,#888); font-weight:700;">Valor</th>
+                    <th style="padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:1.2px; color:var(--text-ghost,#888); font-weight:700;">Rubrica detectada</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${linhasDado.map(l => {
+                    const rkey = l.rubricaKey;
+                    const rLabel = rkey ? labelRubrica(rkey) : null;
+                    return `
+                      <tr style="border-bottom:1px solid hsla(0,0%,100%,0.04);">
+                        <td style="padding:7px 10px; color:var(--text-dim,#bbb); font-variant-numeric:tabular-nums; white-space:nowrap;">${escapeHtml(l.data || '')}</td>
+                        <td style="padding:7px 10px; color:var(--text-strong,#e5e5e5); overflow:hidden; text-overflow:ellipsis; max-width:280px; white-space:nowrap;" title="${escapeHtml(l.descricao || '')}">${escapeHtml(l.descricao || '')}</td>
+                        <td style="padding:7px 10px; color:var(--text-strong,#e5e5e5); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;">R$ ${Number(l.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style="padding:7px 10px;">
+                          ${rkey
+                            ? `<span style="display:inline-block; font-size:10px; font-weight:600; letter-spacing:0.3px; padding:3px 8px; border-radius:999px; background:hsla(var(--accent-h),60%,60%,0.12); color:hsl(var(--accent-h),60%,80%); border:1px solid hsla(var(--accent-h),60%,60%,0.3); white-space:nowrap;">${escapeHtml(rLabel)}</span>`
+                            : `<span style="display:inline-block; font-size:10px; font-weight:600; padding:3px 8px; border-radius:999px; background:hsla(38,92%,60%,0.1); color:hsl(38,92%,72%); border:1px solid hsla(38,92%,60%,0.3); white-space:nowrap;" title="Nao classificado automaticamente — marque a rubrica manualmente abaixo">⚠ revisar</span>`}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+              <div style="padding:9px 12px; background:hsla(0,0%,100%,0.02); border-top:1px solid hsla(0,0%,100%,0.06); font-size:10.5px; color:var(--text-ghost,#888); line-height:1.5;">
+                Confira se cada desconto bate com a rubrica detectada. Se algo estiver fora, use os checkboxes de rubrica abaixo pra ajustar manualmente.
               </div>
             </div>
           ` : ''}
@@ -1297,6 +1312,7 @@ function autodetectarRubricas() {
       if (matches.length === 0) continue;
       // Aplica o PRIMEIRO match (mais específico) por default
       detectadas[matches[0]] = true;
+      l.rubricaKey = matches[0]; // preview da planilha le esse campo
       // Se houve 2+ matches, registra conflito pro modal interativo
       if (matches.length > 1) {
         conflitos.push({
@@ -1313,7 +1329,10 @@ function autodetectarRubricas() {
     for (const l of tab.linhasClassificadas) {
       if (l.tipo === 'dado') {
         const r = classificar(l.descricao);
-        if (r && r in detectadas) detectadas[r] = true;
+        if (r) {
+          l.rubricaKey = r; // preview da planilha le esse campo
+          if (r in detectadas) detectadas[r] = true;
+        }
       } else if (l.tipo === 'subtitulo') {
         const r = classificar(l.texto);
         if (r && r in detectadas) detectadas[r] = true;
