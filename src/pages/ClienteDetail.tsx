@@ -696,6 +696,9 @@ function EspelhoProtocoloDialog({
   const [copiados, setCopiados] = useState<Set<string>>(new Set());
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [finalizando, setFinalizando] = useState(false);
+  // Total global ajuizado capturado ANTES do protocolo, pra animar
+  // [totalAnterior] -> [totalAnterior + valor] na tela de sucesso.
+  const [totalAnterior, setTotalAnterior] = useState<number>(0);
 
   useEffect(() => {
     if (demanda) {
@@ -742,14 +745,47 @@ function EspelhoProtocoloDialog({
       return;
     }
     setFinalizando(true);
-    const { error } = await supabase.from("demandas" as any).update({
+    // 1. Captura total global atual ANTES do INSERT (pra animacao)
+    const { data: totaisAntes } = await supabase
+      .from("processos")
+      .select("valor_causa")
+      .not("valor_causa", "is", null);
+    const oldTotal = (totaisAntes || []).reduce(
+      (s, r: any) => s + (Number(r.valor_causa) || 0), 0,
+    );
+    setTotalAnterior(oldTotal);
+
+    // 2. Atualiza demanda
+    const { error: errDem } = await supabase.from("demandas" as any).update({
       numero_processo: numeroProcesso.trim(),
       protocolado_at: new Date().toISOString(),
       protocolado_tribunal: "projudi",
       status: "concluida",
     }).eq("id", demanda.id);
+    if (errDem) {
+      setFinalizando(false);
+      toast.error("Erro ao registrar protocolo: " + errDem.message);
+      return;
+    }
+
+    // 3. Cria entrada na tabela processos pra aparecer na aba Processos
+    //    do cliente. Usa numero_processo unico — se ja existe, ignora.
+    const comarcaUf = [demanda.comarca, demanda.uf].filter(Boolean).join(" / ");
+    const { error: errProc } = await supabase.from("processos").insert({
+      cliente_id: cliente.id,
+      numero_processo: numeroProcesso.trim(),
+      materia: demanda.desconto || demanda.titulo || null,
+      fase_processual: "Inicial",
+      status_tarefa: "ativo",
+      comarca_uf: comarcaUf || null,
+      valor_causa: valor > 0 ? valor : null,
+    } as any);
+    if (errProc && !/duplicate|unique/i.test(errProc.message)) {
+      console.warn("[protocolo] aviso ao criar processo:", errProc);
+      // Nao bloqueia — peca ja foi marcada protocolada
+    }
+
     setFinalizando(false);
-    if (error) { toast.error("Erro ao registrar protocolo: " + error.message); return; }
     setStage("success");
     onProtocolado(numeroProcesso.trim(), valor);
   };
@@ -760,7 +796,8 @@ function EspelhoProtocoloDialog({
 
   return (
     <Dialog open={!!demanda} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto overflow-x-hidden">
+        <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300">
         {stage === "actions" && (
           <>
             <DialogHeader>
@@ -929,30 +966,39 @@ function EspelhoProtocoloDialog({
         )}
 
         {stage === "success" && (
-          <EspelhoSucesso valor={valor} numero={numeroProcesso} onClose={fecharSeFinalizado} />
+          <EspelhoSucesso valor={valor} numero={numeroProcesso} totalAnterior={totalAnterior} onClose={fecharSeFinalizado} />
         )}
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-// Tela de sucesso com animação dopaminérgica + valor subindo
-function EspelhoSucesso({ valor, numero, onClose }: { valor: number; numero: string; onClose: () => void }) {
-  const [count, setCount] = useState(0);
+// Tela de sucesso com animação dopaminérgica: troféu + sparkles + contador
+// do TOTAL ajuizado global subindo (antigo -> antigo + valor desta peca).
+function EspelhoSucesso({
+  valor, numero, totalAnterior, onClose,
+}: { valor: number; numero: string; totalAnterior: number; onClose: () => void }) {
+  const novoTotal = totalAnterior + (valor || 0);
+  // Contador animado: pula 800ms (espera troféu aparecer), depois conta de
+  // totalAnterior ate novoTotal em ~1.6s com easing.
+  const [count, setCount] = useState(totalAnterior);
   useEffect(() => {
-    if (valor <= 0) return;
-    const duration = 1400;
-    const start = performance.now();
+    if (!valor || valor <= 0) { setCount(novoTotal); return; }
+    const delay = 600;
+    const duration = 1600;
+    const start = performance.now() + delay;
     let raf = 0;
     const tick = (now: number) => {
+      if (now < start) { raf = requestAnimationFrame(tick); return; }
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setCount(Math.round(valor * eased));
+      setCount(totalAnterior + Math.round(valor * eased));
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [valor]);
+  }, [valor, totalAnterior, novoTotal]);
 
   return (
     <div className="py-6 flex flex-col items-center text-center">
@@ -967,9 +1013,12 @@ function EspelhoSucesso({ valor, numero, onClose }: { valor: number; numero: str
       <h2 className="text-xl font-bold mt-5">Protocolo concluído!</h2>
       <p className="text-xs text-muted-foreground mt-1">Processo nº {numero}</p>
       {valor > 0 && (
-        <div className="mt-6 px-6 py-4 rounded-2xl border border-emerald-400/40 bg-emerald-400/5 inline-flex flex-col items-center gap-1">
-          <span className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-medium">+ valor adicionado ao total</span>
-          <span className="text-3xl font-bold text-emerald-400 tabular-nums">{fmtBRL(count)}</span>
+        <div className="mt-6 px-6 py-5 rounded-2xl border border-emerald-400/40 bg-gradient-to-br from-emerald-400/10 to-emerald-400/5 inline-flex flex-col items-center gap-2 min-w-[260px]">
+          <span className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-bold">Valor total ajuizado</span>
+          <span className="text-3xl font-bold text-emerald-400 tabular-nums animate-in fade-in zoom-in-95 duration-500">{fmtBRL(count)}</span>
+          <span className="text-[11px] text-emerald-400/70 font-medium animate-in fade-in slide-in-from-bottom-1 duration-700">
+            +{fmtBRL(valor)} desta peça
+          </span>
         </div>
       )}
       <Button onClick={onClose} className="mt-6 bg-emerald-600 hover:bg-emerald-500 text-white">Fechar</Button>
