@@ -130,8 +130,11 @@ function renderDone(view) {
   `;
 }
 
-// Sobe a peca automaticamente pro Drive do cliente via edge function.
-// Cria subpasta "[peca] - [cliente]" e finaliza o pipeline com a URL.
+// Cria a subpasta no Drive do cliente, abre ela em nova aba e baixa o
+// .docx localmente. Service Accounts nao tem quota pra subir arquivos
+// (limite hard do Google em Drives pessoais), entao o user arrasta
+// manualmente o arquivo baixado pra pasta aberta. Depois aperta
+// "Ja subi — finalizar" pra fechar o pipeline.
 async function salvarPecaNoDriveDoCliente() {
   if (!state.arquivoFinalBlob) { alert('Arquivo não disponível.'); return; }
 
@@ -146,40 +149,110 @@ async function salvarPecaNoDriveDoCliente() {
   if (btn) {
     btn.disabled = true;
     btn.style.opacity = '0.7';
-    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Salvando no Drive…</span>';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><span>Preparando…</span>';
   }
 
   try {
     const pecaNome = (state.produtoSelecionado && state.produtoSelecionado.nome) || 'Peça';
     const fileName = `${pecaNome.replace(/[\\/:*?"<>|]/g, '')} - ${(state.dadosPacote1.nome_completo || 'Cliente').replace(/\s+/g, '_')}.docx`;
 
-    const form = new FormData();
-    form.append('client_id', clienteId);
-    form.append('peca_name', pecaNome);
-    form.append('file', state.arquivoFinalBlob, fileName);
-
     const sbUrl = (typeof AW_SB_URL !== 'undefined') ? AW_SB_URL : 'https://wvltdjspytysuoybcfgb.supabase.co';
     const sbKey = (typeof AW_SB_KEY !== 'undefined') ? AW_SB_KEY :
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind2bHRkanNweXR5c3VveWJjZmdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNjAxNjEsImV4cCI6MjA5NDgzNjE2MX0.aTFKemNruwj70C3inSxfmz8DQm38ux9JGlq5GXuGL34';
 
-    const resp = await fetch(`${sbUrl}/functions/v1/upload-to-client-folder`, {
+    // 1. Cria a subpasta via SA (so metadado, nao consome quota)
+    const resp = await fetch(`${sbUrl}/functions/v1/create-peca-subfolder`, {
       method: 'POST',
-      headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
-      body: form,
+      headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clienteId, peca_name: pecaNome }),
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) {
       throw new Error(data.error || `Falha (${resp.status})`);
     }
 
-    // Finaliza pipeline com a URL da peca recem-subida
-    const res = await finalizarPecaPipeline(data.file_url || data.folder_url || '');
-    if (!res.ok) {
-      console.warn('[salvar-drive] finalize falhou:', res);
-      // Mesmo assim seguimos pra proxima — peca foi subida
-    }
+    // 2. Abre a subpasta no Drive em nova aba
+    window.open(data.folder_url, '_blank', 'noopener,noreferrer');
 
-    // Em cadeia: avanca pra proxima peca. Single: volta pro cliente.
+    // 3. Baixa o .docx local pro user arrastar pra pasta aberta
+    const url = URL.createObjectURL(state.arquivoFinalBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    // 4. Mostra modal explicando o proximo passo + botao de finalizar
+    abrirModalArrasteParaDrive(data.folder_url, data.folder_name, fileName);
+  } catch (e) {
+    console.error('[salvar-drive]', e);
+    alert('Erro ao criar pasta no Drive: ' + (e?.message || e));
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = labelOriginal;
+    }
+  }
+}
+
+// Modal com instrucao visual: pasta aberta + arquivo baixado, agora
+// arrasta. Botao "Ja arrastei — finalizar peca" fecha o pipeline.
+function abrirModalArrasteParaDrive(folderUrl, folderName, fileName) {
+  const old = document.getElementById('modalArrastar');
+  if (old) old.remove();
+  const emCadeia = state.cadeia && state.cadeia.ativa;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'modalArrastar';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 1000;
+    background: hsla(0, 0%, 0%, 0.65); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; font-family: Inter, system-ui, sans-serif;
+  `;
+  overlay.innerHTML = `
+    <div style="max-width:520px;width:100%;background:hsl(240,6%,10%);border:1px solid hsla(0,0%,100%,0.08);border-radius:16px;padding:24px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <div style="width:40px;height:40px;border-radius:10px;background:hsla(var(--accent-h),75%,65%,0.15);border:1px solid hsla(var(--accent-h),75%,65%,0.3);display:flex;align-items:center;justify-content:center;color:hsl(var(--accent-h),75%,70%);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div>
+          <h2 style="font-size:17px;font-weight:600;color:#f5f5f5;margin:0;">Pasta criada no Drive</h2>
+          <div style="font-size:12px;color:#999;margin-top:2px;font-family:monospace;">${folderName}</div>
+        </div>
+      </div>
+      <ol style="font-size:13px;color:#cfcfcf;line-height:1.7;padding-left:18px;margin:14px 0 18px;">
+        <li>Já abrimos a pasta em outra aba do navegador</li>
+        <li>Já baixamos o arquivo <code style="background:hsla(0,0%,100%,0.06);padding:1px 5px;border-radius:4px;font-size:11px;">${fileName}</code></li>
+        <li><strong style="color:hsl(var(--accent-h),75%,75%);">Arrasta o arquivo baixado pra dentro da pasta aberta</strong></li>
+        <li>Volte aqui e clique em finalizar</li>
+      </ol>
+      <p style="font-size:11.5px;color:#777;margin:0 0 18px;line-height:1.5;">
+        Tivemos que adotar esse fluxo manual porque o Google não permite que nossa Service Account suba arquivos em pastas do Drive pessoal (limitação técnica de quota).
+      </p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap;">
+        <a href="${folderUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;color:hsl(var(--accent-h),75%,75%);text-decoration:underline;text-underline-offset:3px;">Abrir pasta de novo</a>
+        <button id="btnFinalizarArraste" style="
+          padding:9px 18px;font-size:12.5px;font-weight:500;border-radius:9px;
+          background:hsl(160,75%,38%);color:#fff;border:1px solid hsl(160,75%,45%);
+          cursor:pointer;font-family:inherit;
+        ">
+          ${emCadeia ? `Já arrastei — seguir (${state.cadeia.pos}/${state.cadeia.total})` : 'Já arrastei — finalizar'}
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const btn = document.getElementById('btnFinalizarArraste');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.textContent = 'Registrando…';
+    try {
+      const res = await finalizarPecaPipeline(folderUrl);
+      if (!res.ok) console.warn('[salvar-drive] finalize falhou:', res);
+    } catch (e) { console.warn('[salvar-drive] excecao finalize', e); }
+    overlay.remove();
     const emCad = state.cadeia && state.cadeia.ativa;
     if (emCad) {
       avancarCadeia();
@@ -192,15 +265,7 @@ async function salvarPecaNoDriveDoCliente() {
         }, window.location.origin);
       }
     }
-  } catch (e) {
-    console.error('[salvar-drive]', e);
-    alert('Erro ao salvar no Drive: ' + (e?.message || e) + '\n\nVocê pode baixar o arquivo localmente e usar "Já subi pro Drive — colar link" como fallback.');
-    if (btn) {
-      btn.disabled = false;
-      btn.style.opacity = '1';
-      btn.innerHTML = labelOriginal;
-    }
-  }
+  };
 }
 
 function baixarPeca() {
