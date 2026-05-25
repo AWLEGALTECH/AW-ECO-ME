@@ -51,7 +51,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
       <button
         onClick={() => navigate("/dashboard")}
-        className={`flex items-center h-14 shrink-0 border-b border-white/[0.06] transition-colors hover:bg-white/[0.02] ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
+        className={`flex items-center h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/30 shrink-0">
           <Scale className="h-4 w-4 text-primary" />
@@ -84,7 +84,7 @@ export function AppSidebar() {
                       className={
                         isActive
                           ? "bg-primary/15 text-primary rounded-xl mx-1"
-                          : "text-sidebar-foreground hover:bg-white/[0.06] hover:text-foreground rounded-xl mx-1 transition-colors"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground rounded-xl mx-1 transition-colors"
                       }
                     >
                       <NavLink to={item.url} end className="" activeClassName="">
@@ -109,7 +109,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-white/[0.05] p-3">
+      <SidebarFooter className="border-t border-sidebar-border p-3">
         {!collapsed ? (
           <div className="flex items-center gap-2">
             <Zap className="h-3 w-3 text-primary/60 shrink-0" />

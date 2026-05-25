@@ -41,7 +41,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [palette, setPaletteState] = useState<Palette>(() => readStoredPalette());
 
   useEffect(() => {
-    document.documentElement.classList.add("dark");
+    // SEI eh light mode (fundo branco, sidebar branca) — todas as outras
+    // paletas continuam dark.
+    if (palette === "sei") {
+      document.documentElement.classList.remove("dark");
+    } else {
+      document.documentElement.classList.add("dark");
+    }
     applyPalette(palette);
   }, [palette]);
 

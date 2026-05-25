@@ -63,39 +63,42 @@ html, body, #root {
     --accent-l: 55%;
   }
 
-  /* SEI — paleta inspirada no Sistema Eletronico de Informacoes do governo:
-     cyan-teal vivo (#1A8FB8) como primary + sidebar dark navy (#003366).
-     Background continua dark pra nao quebrar componentes, mas com leve
-     viesamento azulado pra dar a sensacao SEI. */
+  /* SEI — recria a estetica do Sistema Eletronico de Informacoes do governo:
+     fundo branco majoritario, sidebar branca com texto preto, cyan-teal
+     (#1A8FB8) como cor de marca e botoes, amarelo de destaque, vibe
+     anos-2000 (bordas finas em vez de cantos arredondados). */
   [data-theme="sei"] {
-    --background: 210 25% 5%;
-    --foreground: 0 0% 96%;
-    --card: 210 22% 8%;
-    --card-foreground: 0 0% 96%;
-    --popover: 210 25% 9%;
-    --popover-foreground: 0 0% 96%;
-    --primary: 199 75% 45%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 13%;
+    --primary: 199 75% 41%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 20% 12%;
-    --secondary-foreground: 0 0% 85%;
-    --muted: 210 20% 11%;
-    --muted-foreground: 210 10% 65%;
-    --accent: 199 75% 45%;
+    --secondary: 200 15% 95%;
+    --secondary-foreground: 0 0% 13%;
+    --muted: 200 15% 96%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 199 75% 41%;
     --accent-foreground: 0 0% 100%;
-    --border: 210 20% 16%;
-    --input: 210 20% 12%;
-    --ring: 199 75% 45%;
-    --sidebar-background: 210 80% 14%;
-    --sidebar-foreground: 199 30% 88%;
-    --sidebar-primary: 199 75% 50%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 200 15% 86%;
+    --input: 200 15% 92%;
+    --ring: 199 75% 41%;
+    --radius: 0.25rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 0 0% 22%;
+    --sidebar-primary: 199 75% 41%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 60% 20%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 210 60% 22%;
-    --sidebar-ring: 199 75% 50%;
+    --sidebar-accent: 199 50% 92%;
+    --sidebar-accent-foreground: 199 80% 25%;
+    --sidebar-border: 200 15% 88%;
+    --sidebar-ring: 199 75% 41%;
     --accent-h: 199;
     --accent-s: 75%;
-    --accent-l: 50%;
+    --accent-l: 41%;
   }
 }
 

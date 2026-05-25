@@ -198,7 +198,10 @@ export function UserPanel() {
               {palette === "sei" && (
                 <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
               )}
-              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(199 75% 45%) 0%, hsl(199 75% 45%) 60%, hsl(210 80% 18%) 60%, hsl(210 80% 18%) 100%)" }} />
+              <div className="h-6 w-full rounded-md mb-1.5 overflow-hidden flex">
+                <div style={{ width: "30%", background: "white", borderRight: "1px solid hsl(200 15% 88%)" }} />
+                <div style={{ flex: 1, background: "hsl(199 75% 41%)" }} />
+              </div>
               <span className="text-[11px] font-medium">SEI</span>
             </button>
           </div>

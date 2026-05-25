@@ -43,7 +43,7 @@ export function SidebarLayout() {
 
         {/* Floating sidebar – margin + rounded corners to "detach" it from screen edge */}
         <div className="relative z-20 flex flex-col p-3 shrink-0">
-          <div className="h-full rounded-2xl overflow-hidden glass-sidebar border border-white/[0.06]">
+          <div className="h-full rounded-2xl overflow-hidden glass-sidebar border border-sidebar-border">
             <AppSidebar />
           </div>
         </div>
@@ -52,7 +52,7 @@ export function SidebarLayout() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0 z-10 overflow-hidden">
           {/* Glassy topbar header */}
           <header className="h-14 flex items-center justify-between px-4 shrink-0 z-30
-            glass-card border-b border-white/[0.06] backdrop-blur-xl">
+            glass-card border-b border-sidebar-border backdrop-blur-xl">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
             </div>
