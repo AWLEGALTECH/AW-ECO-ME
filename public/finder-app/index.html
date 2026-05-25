@@ -62,14 +62,19 @@
     <script>
       (function(){
         try {
+          // SEI nao se aplica ao Finder — fica sempre no dark padrao
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+          if (p === 'midnight-blue') document.documentElement.setAttribute('data-theme', p);
         } catch(e) {}
         window.addEventListener('message', function(e){
           if (e.origin !== window.location.origin) return;
           if (e.data && e.data.type === 'aw-theme:palette') {
-            if (e.data.palette === 'default') document.documentElement.removeAttribute('data-theme');
-            else document.documentElement.setAttribute('data-theme', e.data.palette);
+            // SEI tratado como default — Finder fica no dark padrao
+            if (e.data.palette === 'default' || e.data.palette === 'sei') {
+              document.documentElement.removeAttribute('data-theme');
+            } else {
+              document.documentElement.setAttribute('data-theme', e.data.palette);
+            }
           }
         });
       })();
