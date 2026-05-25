@@ -392,6 +392,7 @@ export default function PreClientes() {
         observacoes: null,
         drive_folder_url: driveFolderUrl,
         origem: "writer",
+        precisa_analise_extratos: true,
       } as any)
       .select()
       .single();

@@ -57,19 +57,27 @@ export function AppSidebar() {
     refetchInterval: 30_000,
   });
 
-  // Badge: contagem de itens pendentes na esteira (analise vinculada
-  // aguardando peca + peca pronta sem protocolo). Aproximacao — soma
-  // direta sem o filtro pai-filho (Esteira faz a particao mais precisa).
+  // Badge: contagem agregada da esteira pre-protocolo:
+  // - clientes com tag de analise aguardando (sem nenhuma vinculada ainda)
+  // - analises vinculadas (sem peca pronta)
+  // - pecas prontas sem protocolo
   const { data: esteiraCount } = useQuery({
     queryKey: ["esteira_count"],
     queryFn: async () => {
-      const [vinc, proto] = await Promise.all([
-        supabase.from("demandas" as any).select("*", { count: "exact", head: true })
+      const [tagged, vinc, proto] = await Promise.all([
+        supabase.from("clientes").select("id" as any, { count: "exact", head: false })
+          .eq("precisa_analise_extratos" as any, true),
+        supabase.from("demandas" as any).select("cliente_id", { count: "exact", head: false })
           .eq("etapa", "analise_vinculada").neq("status", "cancelada"),
         supabase.from("demandas" as any).select("*", { count: "exact", head: true })
           .eq("etapa", "pronta_para_protocolo").is("protocolado_at", null),
       ]);
-      return (vinc.count || 0) + (proto.count || 0);
+      // Aguardando = tagged - quem ja tem vinculada
+      const taggedIds = new Set((tagged.data || []).map((c: any) => c.id));
+      const vincCliIds = new Set((vinc.data || []).map((v: any) => v.cliente_id));
+      let aguardando = 0;
+      for (const id of taggedIds) if (!vincCliIds.has(id)) aguardando++;
+      return aguardando + (vinc.count || 0) + (proto.count || 0);
     },
     refetchInterval: 30_000,
   });

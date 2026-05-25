@@ -2,7 +2,6 @@ import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Workflow, RefreshCw,
@@ -24,8 +23,12 @@ interface DemandaEsteira {
   cliente: { id: string; nome: string } | null;
 }
 
-const fmtDate = (iso: string | null) =>
-  !iso ? "—" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
+interface ClienteEsteira {
+  id: string;
+  nome: string;
+  created_at: string;
+  origem: string | null;
+}
 
 const tempoDecorrido = (iso: string | null): string => {
   if (!iso) return "—";
@@ -41,13 +44,14 @@ const tempoDecorrido = (iso: string | null): string => {
 export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
 
-  const { data: rows, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["esteira-pre-protocolo"],
+  // Query 1: demandas em vinculadas/protocolo
+  const demRes = useQuery({
+    queryKey: ["esteira-demandas"],
     queryFn: async (): Promise<DemandaEsteira[]> => {
       const { data, error } = await supabase
         .from("demandas" as any)
         .select("id, etapa, status, titulo, desconto, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome)")
-        .in("etapa", ["analise_documental", "analise_vinculada", "pronta_para_protocolo"])
+        .in("etapa", ["analise_vinculada", "pronta_para_protocolo"])
         .neq("status", "cancelada")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -56,25 +60,52 @@ export default function Esteira() {
     refetchInterval: 30_000,
   });
 
-  // Particiona em 3 colunas com regras de "pendente":
-  // - analise_documental: sem filhas (sem analises vinculadas ainda)
-  // - analise_vinculada: sem peca pronta vinculada (sem filho pronta_para_protocolo)
-  // - pronta_para_protocolo: sem protocolado_at
-  const { docs, vincs, protos } = useMemo(() => {
-    const all = rows || [];
-    const docsAll = all.filter(d => d.etapa === "analise_documental");
-    const vincsAll = all.filter(d => d.etapa === "analise_vinculada");
-    const protosAll = all.filter(d => d.etapa === "pronta_para_protocolo");
-    const vincIds = new Set(vincsAll.map(v => v.analise_pai_id).filter(Boolean));
+  // Query 2: clientes com tag 'precisa_analise_extratos' E ainda sem
+  // nenhuma analise_vinculada (pipeline nao iniciado de verdade).
+  const cliRes = useQuery({
+    queryKey: ["esteira-clientes-aguardando"],
+    queryFn: async (): Promise<ClienteEsteira[]> => {
+      const { data: tagged, error: e1 } = await supabase
+        .from("clientes")
+        .select("id, nome, created_at, origem")
+        .eq("precisa_analise_extratos" as any, true)
+        .order("created_at", { ascending: false });
+      if (e1) throw e1;
+      const ids = (tagged || []).map(c => c.id);
+      if (ids.length === 0) return [];
+      // Quais desses ja tem alguma analise_vinculada? (RPC seria ideal, mas
+      // pra simplicidade fazemos um in + filtragem client-side.)
+      const { data: vincs, error: e2 } = await supabase
+        .from("demandas" as any)
+        .select("cliente_id")
+        .eq("etapa", "analise_vinculada")
+        .neq("status", "cancelada")
+        .in("cliente_id", ids);
+      if (e2) throw e2;
+      const comVinc = new Set((vincs || []).map((v: any) => v.cliente_id));
+      return (tagged || []).filter(c => !comVinc.has(c.id)) as ClienteEsteira[];
+    },
+    refetchInterval: 30_000,
+  });
+
+  const refetchAll = () => { demRes.refetch(); cliRes.refetch(); };
+  const isLoading = demRes.isLoading || cliRes.isLoading;
+  const isFetching = demRes.isFetching || cliRes.isFetching;
+
+  // Particiona
+  const { aguardando, vincs, protos } = useMemo(() => {
+    const dem = demRes.data || [];
+    const vincsAll = dem.filter(d => d.etapa === "analise_vinculada");
+    const protosAll = dem.filter(d => d.etapa === "pronta_para_protocolo");
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
     return {
-      docs: docsAll.filter(d => !vincIds.has(d.id)),
+      aguardando: cliRes.data || [],
       vincs: vincsAll.filter(v => !protoIds.has(v.id)),
       protos: protosAll.filter(p => !p.protocolado_at),
     };
-  }, [rows]);
+  }, [demRes.data, cliRes.data]);
 
-  const total = docs.length + vincs.length + protos.length;
+  const total = aguardando.length + vincs.length + protos.length;
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -88,7 +119,7 @@ export default function Esteira() {
             Visão unificada de tudo pendente em produção. Total: <strong className="text-foreground">{total}</strong> item{total === 1 ? "" : "s"}.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+        <Button variant="outline" size="sm" onClick={refetchAll} disabled={isFetching}>
           <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
@@ -99,61 +130,77 @@ export default function Esteira() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Coluna
-            titulo="1. Análise documental"
-            descricao="Sessões abertas sem análises vinculadas ainda"
+            titulo="1. Aguardando análise"
+            descricao="Clientes com perfil de análise Bradesco que ainda não tiveram nenhuma análise vinculada"
             icon={ScanSearch}
             cor="primary"
-            itens={docs}
-            renderCard={(d) => (
-              <CardLinha
-                key={d.id}
-                to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                titulo={d.cliente?.nome || "cliente"}
-                sub={d.titulo}
-                data={d.created_at}
-                acao="Abrir cliente"
-              />
+            count={aguardando.length}
+          >
+            {aguardando.length === 0 ? (
+              <Vazio />
+            ) : (
+              aguardando.map(c => (
+                <CardLinha
+                  key={c.id}
+                  to={`/clientes/${c.id}`}
+                  titulo={c.nome}
+                  sub={c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
+                  data={c.created_at}
+                  acao="Iniciar análise"
+                  acaoIcon={ScanSearch}
+                />
+              ))
             )}
-          />
+          </Coluna>
 
           <Coluna
             titulo="2. Análises vinculadas"
             descricao="Aguardando confecção da peça no Writer"
             icon={GitBranch}
             cor="primary"
-            itens={vincs}
-            renderCard={(d) => (
-              <CardLinha
-                key={d.id}
-                to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                titulo={d.cliente?.nome || "cliente"}
-                sub={d.desconto || d.titulo}
-                data={d.created_at}
-                acao="Confeccionar peça"
-                acaoIcon={PenSquare}
-              />
+            count={vincs.length}
+          >
+            {vincs.length === 0 ? (
+              <Vazio />
+            ) : (
+              vincs.map(d => (
+                <CardLinha
+                  key={d.id}
+                  to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                  titulo={d.cliente?.nome || "cliente"}
+                  sub={d.desconto || d.titulo}
+                  data={d.created_at}
+                  acao="Confeccionar peça"
+                  acaoIcon={PenSquare}
+                />
+              ))
             )}
-          />
+          </Coluna>
 
           <Coluna
             titulo="3. Peças prontas"
             descricao="Geradas no Writer, aguardando protocolo no tribunal"
             icon={Send}
             cor="amber"
-            itens={protos}
-            renderCard={(d) => (
-              <CardLinha
-                key={d.id}
-                to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                titulo={d.cliente?.nome || "cliente"}
-                sub={d.desconto || d.titulo}
-                data={d.completed_at || d.created_at}
-                acao="Abrir espelho"
-                acaoIcon={Send}
-                accent="amber"
-              />
+            count={protos.length}
+          >
+            {protos.length === 0 ? (
+              <Vazio />
+            ) : (
+              protos.map(d => (
+                <CardLinha
+                  key={d.id}
+                  to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                  titulo={d.cliente?.nome || "cliente"}
+                  sub={d.desconto || d.titulo}
+                  data={d.completed_at || d.created_at}
+                  acao="Abrir espelho"
+                  acaoIcon={Send}
+                  accent="amber"
+                />
+              ))
             )}
-          />
+          </Coluna>
         </div>
       )}
     </div>
@@ -161,14 +208,14 @@ export default function Esteira() {
 }
 
 function Coluna({
-  titulo, descricao, icon: Icon, cor, itens, renderCard,
+  titulo, descricao, icon: Icon, cor, count, children,
 }: {
   titulo: string;
   descricao: string;
   icon: any;
   cor: "primary" | "amber";
-  itens: DemandaEsteira[];
-  renderCard: (d: DemandaEsteira) => React.ReactNode;
+  count: number;
+  children: React.ReactNode;
 }) {
   const corClass = cor === "amber"
     ? "text-amber-400 bg-amber-400/10 border-amber-400/30"
@@ -181,19 +228,19 @@ function Coluna({
           <h3 className="text-sm font-medium truncate">{titulo}</h3>
         </div>
         <span className={`inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums shrink-0 ${corClass}`}>
-          {itens.length}
+          {count}
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground mb-2">{descricao}</p>
-      <div className="space-y-2">
-        {itens.length === 0 ? (
-          <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
-            Nada pendente nessa etapa.
-          </div>
-        ) : (
-          itens.map(renderCard)
-        )}
-      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function Vazio() {
+  return (
+    <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
+      Nada pendente nessa etapa.
     </div>
   );
 }
