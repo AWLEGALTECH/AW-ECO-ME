@@ -38,7 +38,7 @@ export default function Writer() {
 
       if (msg.type === "aw-eco-me:pecaFinalizada") {
         const { demandaId, driveUrl } = msg.payload;
-        const { error } = await supabase
+        const { data: pecaData, error } = await supabase
           .from("demandas" as any)
           .update({
             etapa: "pronta_para_protocolo",
@@ -46,13 +46,25 @@ export default function Writer() {
             peca_drive_url: driveUrl || null,
             completed_at: new Date().toISOString(),
           })
-          .eq("id", demandaId);
+          .eq("id", demandaId)
+          .select("analise_pai_id")
+          .single();
         const ok = !error;
         if (error) {
           console.error("[writer-parent] erro ao finalizar peça:", error);
           toast.error("Erro ao registrar peça pronta: " + error.message);
         } else {
           toast.success("Peça registrada nos Espelhos de Protocolo");
+          // Marca a analise_vinculada pai como concluida — a partir desse
+          // momento o card dela mostra status verde 'Concluída' (e nao mais
+          // 'Pendente') ao lado do badge 'PEÇA GERADA'.
+          const paiId = (pecaData as any)?.analise_pai_id;
+          if (paiId) {
+            await supabase
+              .from("demandas" as any)
+              .update({ status: "concluida", completed_at: new Date().toISOString() })
+              .eq("id", paiId);
+          }
         }
         // ack pro iframe pra ele saber se segue pra próxima
         const src = e.source as Window | null;
