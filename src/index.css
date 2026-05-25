@@ -91,14 +91,14 @@ html, body, #root {
     --input: 0 0% 96%;
     --ring: 197 67% 47%;
     --radius: 0px;
-    /* Sidebar — dark navy SEI */
-    --sidebar-background: 215 45% 16%;
+    /* Sidebar — dark navy-cyan #031a23 (quase preto com vies azulado) */
+    --sidebar-background: 196 84% 7%;
     --sidebar-foreground: 0 0% 100%;
     --sidebar-primary: 0 0% 100%;
-    --sidebar-primary-foreground: 215 45% 16%;
-    --sidebar-accent: 215 45% 24%;
+    --sidebar-primary-foreground: 196 84% 7%;
+    --sidebar-accent: 196 60% 14%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 215 45% 12%;
+    --sidebar-border: 196 84% 4%;
     --sidebar-ring: 197 67% 47%;
     --accent-h: 197;
     --accent-s: 67%;
@@ -147,13 +147,19 @@ html, body, #root {
   border-bottom: 1px solid #1a7ba9 !important;
   color: white !important;
 }
+/* Logo: sem quadrado de fundo, so a balanca branca solta */
 [data-theme="sei"] .sei-brand > div:first-child {
-  background: white !important;
-  border-color: rgba(255, 255, 255, 0.5) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  --tw-ring-color: transparent !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  border: 0 !important;
 }
 [data-theme="sei"] .sei-brand svg {
-  color: #2894c7 !important;
-  stroke: #2894c7 !important;
+  color: white !important;
+  stroke: white !important;
+  width: 28px !important;
+  height: 28px !important;
 }
 [data-theme="sei"] .sei-brand .sei-brand-title {
   color: white !important;

@@ -39,11 +39,12 @@ export function SidebarLayout() {
     <SidebarProvider>
       {/* Full-screen deep space canvas */}
       <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
-        {/* Yellow ribbon — vibe orgao publico SEI. So aparece no tema SEI. */}
+        {/* Faixa do topo no SEI — azul escuro #155f9b com texto branco
+            (replica o "CONSELHO FEDERAL DE MEDICINA" do SEI real). */}
         {isSei && (
           <div
             className="shrink-0 h-5 flex items-center px-3 text-[10px] font-bold uppercase tracking-[0.18em]"
-            style={{ background: "hsl(0 0% 96%)", color: "hsl(0 0% 0%)", borderBottom: "1px solid hsl(0 0% 80%)" }}
+            style={{ background: "#155f9b", color: "white" }}
           >
             AW LEGALTECH
           </div>
