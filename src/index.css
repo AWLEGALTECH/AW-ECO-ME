@@ -62,6 +62,41 @@ html, body, #root {
     --accent-s: 75%;
     --accent-l: 55%;
   }
+
+  /* SEI — paleta inspirada no Sistema Eletronico de Informacoes do governo:
+     cyan-teal vivo (#1A8FB8) como primary + sidebar dark navy (#003366).
+     Background continua dark pra nao quebrar componentes, mas com leve
+     viesamento azulado pra dar a sensacao SEI. */
+  [data-theme="sei"] {
+    --background: 210 25% 5%;
+    --foreground: 0 0% 96%;
+    --card: 210 22% 8%;
+    --card-foreground: 0 0% 96%;
+    --popover: 210 25% 9%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 199 75% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 20% 12%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 210 20% 11%;
+    --muted-foreground: 210 10% 65%;
+    --accent: 199 75% 45%;
+    --accent-foreground: 0 0% 100%;
+    --border: 210 20% 16%;
+    --input: 210 20% 12%;
+    --ring: 199 75% 45%;
+    --sidebar-background: 210 80% 14%;
+    --sidebar-foreground: 199 30% 88%;
+    --sidebar-primary: 199 75% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 60% 20%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 210 60% 22%;
+    --sidebar-ring: 199 75% 50%;
+    --accent-h: 199;
+    --accent-s: 75%;
+    --accent-l: 50%;
+  }
 }
 
 @layer base {

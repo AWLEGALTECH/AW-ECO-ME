@@ -2924,3 +2924,16 @@ input, select, textarea {
   --accent-s: 75%;
   --accent-l: 55%;
 }
+
+/* SEI — cyan-teal vivo do Sistema Eletronico de Informacoes */
+[data-theme="sei"] {
+  --accent-h: 199;
+  --accent-s: 75%;
+  --accent-l: 50%;
+  /* Background com leve vies azulado pra dar a sensacao SEI sem
+     quebrar o dark mode dos componentes. */
+  --bg: hsl(210 25% 5%);
+  --bg-modal: hsl(210 25% 4% / 0.95);
+  --bg-card: hsl(210 22% 8%);
+  --bg-glass: hsl(210 22% 8% / 0.6);
+}

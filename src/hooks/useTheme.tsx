@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 
-export type Palette = "default" | "midnight-blue";
+export type Palette = "default" | "midnight-blue" | "sei";
 
 interface ThemeContextType {
   palette: Palette;
@@ -24,7 +24,8 @@ const STORAGE_KEY = "aw-theme-palette";
 function readStoredPalette(): Palette {
   if (typeof window === "undefined") return "default";
   const v = window.localStorage.getItem(STORAGE_KEY);
-  return v === "midnight-blue" ? "midnight-blue" : "default";
+  if (v === "midnight-blue" || v === "sei") return v;
+  return "default";
 }
 
 function applyPalette(p: Palette) {

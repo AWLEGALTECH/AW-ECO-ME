@@ -185,6 +185,22 @@ export function UserPanel() {
               <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(222 85% 55%), hsl(232 75% 38%))" }} />
               <span className="text-[11px] font-medium">Midnight Blue</span>
             </button>
+
+            <button
+              onClick={() => setPalette("sei")}
+              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                palette === "sei"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                  : "border-border/60 hover:border-primary/40 bg-card/40"
+              }`}
+              title="SEI — paleta do Sistema Eletrônico de Informações"
+            >
+              {palette === "sei" && (
+                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
+              )}
+              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(199 75% 45%) 0%, hsl(199 75% 45%) 60%, hsl(210 80% 18%) 60%, hsl(210 80% 18%) 100%)" }} />
+              <span className="text-[11px] font-medium">SEI</span>
+            </button>
           </div>
         </div>
 
