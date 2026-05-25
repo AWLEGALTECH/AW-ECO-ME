@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
+import { useTheme } from "@/hooks/useTheme";
 import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch } from "lucide-react";
 import {
   Sidebar,
@@ -30,9 +31,17 @@ const navItems: NavItem[] = [
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const { palette } = useTheme();
+  const isSei = palette === "sei";
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Pra "AW ECO ME" no SEI, destaca a ultima palavra em verde (#91bb24)
+  // espelhando o "!" verde-lima do logo "sei!".
+  const nomePartes = appConfig.name.trim().split(/\s+/);
+  const nomeBase = nomePartes.slice(0, -1).join(" ");
+  const nomeUltima = nomePartes[nomePartes.length - 1] || "";
 
   // Badge: contagem de pre-clientes aguardando assinatura (atualiza a cada 30s)
   const { data: pendentesCount } = useQuery({
@@ -51,15 +60,19 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
       <button
         onClick={() => navigate("/dashboard")}
-        className={`flex items-center h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
+        className={`sei-brand flex items-center h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
       >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/30 shrink-0">
           <Scale className="h-4 w-4 text-primary" />
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
-            <span className="font-medium text-sm tracking-tight text-sidebar-foreground leading-none">{appConfig.name}</span>
-            <span className="text-[9px] text-sidebar-foreground/60 uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
+            <span className="sei-brand-title font-medium text-sm tracking-tight text-sidebar-foreground leading-none">
+              {isSei && nomeBase ? (
+                <>{nomeBase} <span className="sei-brand-accent">{nomeUltima}</span></>
+              ) : appConfig.name}
+            </span>
+            <span className="sei-brand-tag text-[9px] text-sidebar-foreground/60 uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
           </div>
         )}
       </button>
@@ -108,6 +121,13 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      {isSei && (
+        <div className="sei-stripes shrink-0">
+          <div />
+          <div />
+        </div>
+      )}
 
       <SidebarFooter className="border-t border-sidebar-border p-3">
         {!collapsed ? (

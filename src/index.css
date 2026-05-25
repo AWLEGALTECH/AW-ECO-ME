@@ -77,21 +77,21 @@ html, body, #root {
     --card-foreground: 0 0% 0%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 0%;
-    --primary: 193 100% 40%;
+    --primary: 197 67% 47%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 95%;
     --secondary-foreground: 0 0% 0%;
     --muted: 0 0% 96%;
     --muted-foreground: 0 0% 35%;
-    --accent: 193 100% 40%;
+    --accent: 197 67% 47%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 70% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 80%;
     --input: 0 0% 96%;
-    --ring: 193 100% 40%;
+    --ring: 197 67% 47%;
     --radius: 0px;
-    /* Sidebar — dark navy estilo SEI */
+    /* Sidebar — dark navy SEI */
     --sidebar-background: 215 45% 16%;
     --sidebar-foreground: 0 0% 100%;
     --sidebar-primary: 0 0% 100%;
@@ -99,10 +99,10 @@ html, body, #root {
     --sidebar-accent: 215 45% 24%;
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 215 45% 12%;
-    --sidebar-ring: 193 100% 50%;
-    --accent-h: 193;
-    --accent-s: 100%;
-    --accent-l: 45%;
+    --sidebar-ring: 197 67% 47%;
+    --accent-h: 197;
+    --accent-s: 67%;
+    --accent-l: 47%;
   }
 }
 
@@ -132,12 +132,51 @@ html, body, #root {
   letter-spacing: normal !important;
 }
 
-/* Topbar — fundo cyan SEI com texto branco. Cobre o glass-card. */
+/* Topbar — fundo cyan SEI (#2894c7) com texto branco. Cobre o glass-card. */
 [data-theme="sei"] header {
-  background: hsl(193 100% 40%) !important;
+  background: #2894c7 !important;
   backdrop-filter: none !important;
-  border-bottom: 1px solid hsl(193 100% 30%) !important;
+  border-bottom: 1px solid #1a7ba9 !important;
   border-radius: 0 !important;
+}
+
+/* Brand area (logo AW ECO ME no topo da sidebar) — fica cyan tambem,
+   espelhando o SEI onde o 'sei!' fica no mesmo cyan da topbar. */
+[data-theme="sei"] .sei-brand {
+  background: #2894c7 !important;
+  border-bottom: 1px solid #1a7ba9 !important;
+  color: white !important;
+}
+[data-theme="sei"] .sei-brand > div:first-child {
+  background: white !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+[data-theme="sei"] .sei-brand svg {
+  color: #2894c7 !important;
+  stroke: #2894c7 !important;
+}
+[data-theme="sei"] .sei-brand .sei-brand-title {
+  color: white !important;
+}
+[data-theme="sei"] .sei-brand .sei-brand-tag {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+[data-theme="sei"] .sei-brand-accent {
+  color: #91bb24 !important;
+}
+
+/* Listrinhas decorativas no rodape da sidebar (replicam o SEI). */
+[data-theme="sei"] .sei-stripes {
+  display: flex;
+  flex-direction: column;
+}
+[data-theme="sei"] .sei-stripes > div:first-child {
+  height: 3px;
+  background: #2894c7;
+}
+[data-theme="sei"] .sei-stripes > div:last-child {
+  height: 3px;
+  background: #f4a700;
 }
 [data-theme="sei"] header,
 [data-theme="sei"] header * {
