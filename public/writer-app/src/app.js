@@ -120,6 +120,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   atualizarBtnConfig();
   if (state.cadeia && state.cadeia.ativa && typeof renderBarraCadeia === 'function') {
     renderBarraCadeia();
+  } else if (state.contextoAnaliseVinculada && typeof renderBarraConfeccao === 'function') {
+    renderBarraConfeccao();
   }
 
   // Se ha planilha da analise vinculada, baixa e injeta como anexo do

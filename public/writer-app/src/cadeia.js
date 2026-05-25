@@ -19,6 +19,9 @@ function renderBarraCadeia() {
   const pos = cad.pos;
   const concluidas = pos - 1;
   const pct = total > 0 ? Math.round((concluidas / total) * 100) : 0;
+  // Nome da analise vinculada atual (item da fila na posicao corrente)
+  const itemAtual = cad.fila && cad.fila[pos - 1];
+  const nomeAnalise = (itemAtual && itemAtual.desconto) || '';
 
   const bar = document.createElement('div');
   bar.id = 'cadeia-bar';
@@ -37,11 +40,12 @@ function renderBarraCadeia() {
         border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
         display: flex; align-items: center; justify-content: center;
         color: hsl(var(--accent-h), 75%, 70%);
+        flex-shrink: 0;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
       </div>
       <div style="flex: 1; min-width: 0;">
-        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;">
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
           <span style="font-size: 13px; font-weight: 500; color: var(--text-strong, #f5f5f5);">
             Produção em cadeia
           </span>
@@ -51,6 +55,18 @@ function renderBarraCadeia() {
             · ${concluidas} concluída${concluidas === 1 ? '' : 's'}
           </span>
         </div>
+        ${nomeAnalise ? `
+          <div style="
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; color: hsl(var(--accent-h), 75%, 80%);
+            font-weight: 600;
+            margin-bottom: 6px;
+            max-width: 100%;
+          ">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(nomeAnalise)}">${escapeHtml(nomeAnalise)}</span>
+          </div>
+        ` : ''}
         <div style="
           height: 4px; background: hsla(0, 0%, 100%, 0.06); border-radius: 999px;
           overflow: hidden;
@@ -68,6 +84,7 @@ function renderBarraCadeia() {
           background: transparent; color: var(--text-ghost, #999);
           border: 1px solid hsla(0, 0%, 100%, 0.1);
           cursor: pointer; font-family: inherit;
+          flex-shrink: 0;
         "
         onmouseover="this.style.color='#fff';this.style.borderColor='hsla(0,0%,100%,0.25)'"
         onmouseout="this.style.color='var(--text-ghost,#999)';this.style.borderColor='hsla(0,0%,100%,0.1)'"
@@ -165,4 +182,59 @@ function encerrarCadeia() {
     type: 'aw-eco-me:cadeiaCompleta',
     payload: { cliente: cad.clienteId },
   }, window.location.origin);
+}
+
+/* ─────────────────────────────────────────────
+   BARRA DE CONFECÇÃO (modo single — sem cadeia)
+   Quando o user abre o writer pra UMA peça vinda de uma análise vinculada
+   (clicou em "Confeccionar peça" no card da análise), mostra uma barra
+   persistente identificando qual análise está sendo trabalhada.
+───────────────────────────────────────────── */
+function renderBarraConfeccao() {
+  // Nao mostra se a cadeia ja esta ativa (a barra de cadeia ja tem o nome)
+  if (state.cadeia && state.cadeia.ativa) return;
+  const ctx = state.contextoAnaliseVinculada;
+  if (!ctx || !ctx.desconto) return;
+
+  const existente = document.getElementById('confeccao-bar');
+  if (existente) existente.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'confeccao-bar';
+  bar.style.cssText = `
+    position: sticky; top: 0; z-index: 50;
+    background: linear-gradient(180deg, hsl(var(--bg)) 0%, hsla(var(--bg), 0.92) 100%);
+    border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
+    padding: 10px 20px;
+    font-family: Inter, system-ui, sans-serif;
+  `;
+  bar.innerHTML = `
+    <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 14px;">
+      <div style="
+        height: 28px; width: 28px; border-radius: 8px;
+        background: hsla(var(--accent-h), 75%, 65%, 0.15);
+        border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
+        display: flex; align-items: center; justify-content: center;
+        color: hsl(var(--accent-h), 75%, 70%);
+        flex-shrink: 0;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+      </div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-size: 11px; color: var(--text-ghost, #999); margin-bottom: 2px; letter-spacing: 0.4px;">
+          Confeccionando peça da análise vinculada
+        </div>
+        <div style="
+          font-size: 13px; color: hsl(var(--accent-h), 75%, 80%);
+          font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        " title="${escapeHtml(ctx.desconto)}">${escapeHtml(ctx.desconto)}</div>
+      </div>
+    </div>
+  `;
+  const view = document.getElementById('view');
+  if (view && view.parentNode) {
+    view.parentNode.insertBefore(bar, view);
+  } else {
+    document.body.insertBefore(bar, document.body.firstChild);
+  }
 }

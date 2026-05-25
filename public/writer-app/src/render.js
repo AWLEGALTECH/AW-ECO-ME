@@ -706,13 +706,32 @@ function renderBlocoAnexoTabela() {
 
   let infoAnexado = '';
   if (anexado) {
-    const totalLinhas = (tab.linhasDataApenas || tab.linhas || []).length;
+    const linhasDado = tab.linhasDataApenas || tab.linhas || [];
+    const totalLinhas = linhasDado.length;
     const totalFormatado = tab.valorTotal != null
       ? `R$ ${tab.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '—';
     const dobroFormatado = tab.valorDobro != null
       ? `R$ ${tab.valorDobro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '—';
+
+    // Agrupa descontos por descricao pra mostrar lista resumida (quantas
+    // vezes + valor total por descricao). Ajuda o user a conferir quais
+    // rubricas marcar na etapa de definicao do direito.
+    const agrupados = new Map();
+    for (const l of linhasDado) {
+      const key = (l.descricao || '(sem descrição)').trim();
+      const atual = agrupados.get(key) || { count: 0, total: 0 };
+      atual.count += 1;
+      atual.total += Number(l.valor) || 0;
+      agrupados.set(key, atual);
+    }
+    const listaAgrupada = Array.from(agrupados.entries())
+      .sort((a, b) => b[1].total - a[1].total);
+
+    const expandido = state._anexoDescontosExpandido === true;
+    const itensVisiveis = expandido ? listaAgrupada : listaAgrupada.slice(0, 0); // colapsado por padrao
+
     infoAnexado = `
       <div class="anexo-preview">
         <div class="anexo-preview-icon-wrap">
@@ -722,8 +741,29 @@ function renderBlocoAnexoTabela() {
         </div>
         <div class="anexo-preview-info">
           <div class="anexo-preview-nome">${tab.nomeArquivo}</div>
-          <div class="anexo-preview-tamanho">${totalLinhas} descontos · Total ${totalFormatado} · Dobro ${dobroFormatado}</div>
-          <button class="anexo-remover" onclick="removerTabelaXlsx()">Remover</button>
+          <div class="anexo-preview-tamanho">${totalLinhas} descontos em ${listaAgrupada.length} categoria${listaAgrupada.length === 1 ? '' : 's'} · Total ${totalFormatado} · Dobro ${dobroFormatado}</div>
+          <div style="display:flex; gap:10px; align-items:center; margin-top:6px;">
+            <button class="anexo-remover" onclick="removerTabelaXlsx()">Remover</button>
+            <button onclick="toggleAnexoDescontos()" style="background:none;border:none;color:hsl(var(--accent-h),60%,72%);font-size:12px;cursor:pointer;padding:0;font-family:Inter,sans-serif;text-decoration:underline;text-underline-offset:3px;">
+              ${expandido ? 'Esconder lista' : 'Ver descontos detalhados'}
+            </button>
+          </div>
+          ${expandido ? `
+            <div style="margin-top:12px; padding:12px; background:hsla(0,0%,100%,0.02); border:1px solid hsla(0,0%,100%,0.06); border-radius:10px; max-height:280px; overflow-y:auto;">
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-ghost,#888); font-weight:700; margin-bottom:8px;">
+                Descontos identificados na planilha
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                ${listaAgrupada.map(([nome, info]) => `
+                  <div style="display:flex; align-items:baseline; gap:10px; padding:6px 0; border-bottom:1px dashed hsla(0,0%,100%,0.06); font-size:12px;">
+                    <span style="color:var(--text-strong,#e5e5e5); font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(nome)}">${escapeHtml(nome)}</span>
+                    <span style="color:var(--text-ghost,#999); font-size:11px; flex-shrink:0; tabular-nums">×${info.count}</span>
+                    <span style="color:hsl(var(--accent-h),60%,75%); font-variant-numeric:tabular-nums; flex-shrink:0; font-weight:600;">R$ ${info.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
         </div>
       </div>
     `;
@@ -1478,6 +1518,11 @@ function pularTabelaXlsx() {
 function desfazerPularTabelaXlsx() {
   state.anexos.tabelaXlsx = null;
   render();
+}
+
+function toggleAnexoDescontos() {
+  state._anexoDescontosExpandido = !state._anexoDescontosExpandido;
+  if (typeof render === 'function') render();
 }
 
 function removerTabelaXlsx() {
