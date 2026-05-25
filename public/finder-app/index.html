@@ -54,6 +54,16 @@
         background: white !important;
         color: black !important;
       }
+      /* Wrapper principal do App.jsx tem bg:hsl(0 0% 3%) hardcoded.
+         Forca branco no SEI pra cobrir todo o canvas. */
+      [data-theme="sei"] #root > div[style*="minHeight"] {
+        background: white !important;
+        color: black !important;
+      }
+      /* Header bar do Finder (Motor Ativo etc) — fica branco no SEI */
+      [data-theme="sei"] #root > div > header {
+        border-bottom-color: hsl(0 0% 88%) !important;
+      }
       html, body, #root, input, button, textarea, select, label, p, h1, h2, h3, h4, h5, h6, div, span, a {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
