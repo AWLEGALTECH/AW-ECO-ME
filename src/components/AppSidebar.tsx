@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch, Workflow } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -24,6 +24,7 @@ const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard },
   { title: "Clientes",      url: "/clientes",      icon: Users },
   { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature, badgeKey: "pendentes" },
+  { title: "Esteira",       url: "/esteira",       icon: Workflow,      badgeKey: "esteira" },
   { title: "Processos",     url: "/processos",     icon: Briefcase },
   { title: "Writer",        url: "/writer",        icon: PenSquare },
   { title: "Finder",        url: "/finder",        icon: ScanSearch },
@@ -52,6 +53,23 @@ export function AppSidebar() {
         .select("*", { count: "exact", head: true })
         .eq("status", "aguardando_assinatura");
       return count || 0;
+    },
+    refetchInterval: 30_000,
+  });
+
+  // Badge: contagem de itens pendentes na esteira (analise vinculada
+  // aguardando peca + peca pronta sem protocolo). Aproximacao — soma
+  // direta sem o filtro pai-filho (Esteira faz a particao mais precisa).
+  const { data: esteiraCount } = useQuery({
+    queryKey: ["esteira_count"],
+    queryFn: async () => {
+      const [vinc, proto] = await Promise.all([
+        supabase.from("demandas" as any).select("*", { count: "exact", head: true })
+          .eq("etapa", "analise_vinculada").neq("status", "cancelada"),
+        supabase.from("demandas" as any).select("*", { count: "exact", head: true })
+          .eq("etapa", "pronta_para_protocolo").is("protocolado_at", null),
+      ]);
+      return (vinc.count || 0) + (proto.count || 0);
     },
     refetchInterval: 30_000,
   });
@@ -108,6 +126,11 @@ export function AppSidebar() {
                             {item.badgeKey === "pendentes" && (pendentesCount ?? 0) > 0 && (
                               <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {pendentesCount}
+                              </span>
+                            )}
+                            {item.badgeKey === "esteira" && (esteiraCount ?? 0) > 0 && (
+                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                                {esteiraCount}
                               </span>
                             )}
                           </span>

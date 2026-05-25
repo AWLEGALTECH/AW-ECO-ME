@@ -18,6 +18,7 @@ import ProcessoDetail from "./pages/ProcessoDetail";
 import Writer from "./pages/Writer";
 import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
+import Esteira from "./pages/Esteira";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -59,6 +60,7 @@ const App = () => (
                 <Route path="/writer" element={<Writer />} />
                 <Route path="/finder" element={<Finder />} />
                 <Route path="/pre-clientes" element={<PreClientes />} />
+                <Route path="/esteira" element={<Esteira />} />
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />
