@@ -757,11 +757,11 @@ function renderBlocoAnexoTabela() {
         <div class="anexo-preview-info">
           <div class="anexo-preview-nome">${tab.nomeArquivo}</div>
           <div class="anexo-preview-tamanho">${totalLinhas} descontos · Total ${totalFormatado} · Dobro ${dobroFormatado}${semRubrica > 0 ? ` · <span style="color:hsl(38 92% 65%);font-weight:600;">${semRubrica} sem classificacao</span>` : ''}</div>
-          <div style="display:flex; gap:10px; align-items:center; margin-top:6px;">
-            <button class="anexo-remover" onclick="removerTabelaXlsx()">Remover</button>
-            <button onclick="toggleAnexoDescontos()" style="background:none;border:none;color:hsl(var(--accent-h),60%,72%);font-size:12px;cursor:pointer;padding:0;font-family:Inter,sans-serif;text-decoration:underline;text-underline-offset:3px;">
-              ${expandido ? 'Esconder revisao' : 'Revisar planilha com rubricas'}
+          <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+            <button onclick="toggleAnexoDescontos()" class="anexo-remover" style="background:hsla(var(--accent-h),60%,60%,0.12); border:1px solid hsla(var(--accent-h),60%,60%,0.4); color:hsl(var(--accent-h),60%,80%);">
+              ${expandido ? 'Esconder revisão' : 'Revisar planilha com rubricas'}
             </button>
+            <button class="anexo-remover" onclick="removerTabelaXlsx()">Remover</button>
           </div>
           ${expandido ? `
             <div style="margin-top:12px; padding:0; background:hsla(0,0%,100%,0.02); border:1px solid hsla(0,0%,100%,0.06); border-radius:10px; max-height:420px; overflow-y:auto;">
