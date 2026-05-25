@@ -771,29 +771,42 @@ function EspelhoProtocoloDialog({
                 Peça gerada · {demanda.desconto || "—"} · finalizada em {fmtDateTime(demanda.completed_at)}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+            {/* Sequencia: 1) baixa a peca (passo menor, primeiro), 2) abre o
+                espelho (acao principal, abaixo) — visual ja sugere o fluxo. */}
+            <div className="space-y-3 pt-2">
               <a
                 href={demanda.peca_drive_url || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-all ${demanda.peca_drive_url ? "border-border hover:border-primary/60 bg-card/40 hover:bg-card/60" : "border-border/30 bg-muted/10 cursor-not-allowed opacity-50"}`}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg border transition-all ${demanda.peca_drive_url ? "border-border hover:border-primary/60 bg-card/40 hover:bg-card/60" : "border-border/30 bg-muted/10 cursor-not-allowed opacity-50"}`}
                 onClick={(e) => { if (!demanda.peca_drive_url) e.preventDefault(); }}
               >
-                <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
-                  <Download className="h-5 w-5 text-primary" />
+                <div className="h-8 w-8 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Download className="h-3.5 w-3.5 text-primary" />
                 </div>
-                <span className="text-sm font-medium">Baixar peça</span>
-                <span className="text-[11px] text-muted-foreground text-center">.docx no Drive</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium leading-tight">1. Baixar peça</div>
+                  <div className="text-[11px] text-muted-foreground">.docx no Drive</div>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               </a>
+
+              {/* Linha-divisora com seta sugere passagem pro proximo passo */}
+              <div className="flex items-center gap-2 px-2 py-0.5">
+                <div className="h-px flex-1 bg-border" />
+                <ArrowRight className="h-3 w-3 text-muted-foreground rotate-90" />
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
               <button
                 onClick={() => setStage("tribunal")}
-                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-border hover:border-primary/60 bg-card/40 hover:bg-card/60 transition-all"
+                className="w-full flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all"
               >
-                <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
-                  <Scale className="h-5 w-5 text-primary" />
+                <div className="h-12 w-12 rounded-full bg-primary/20 ring-1 ring-primary/30 flex items-center justify-center">
+                  <Scale className="h-6 w-6 text-primary" />
                 </div>
-                <span className="text-sm font-medium">Espelho de Protocolo</span>
-                <span className="text-[11px] text-muted-foreground text-center">copia-cola assistido</span>
+                <span className="text-base font-semibold">2. Espelho de Protocolo</span>
+                <span className="text-[11px] text-muted-foreground text-center">copia-cola assistido pelo tribunal</span>
               </button>
             </div>
           </>
