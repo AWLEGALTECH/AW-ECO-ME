@@ -200,9 +200,6 @@ export default function Auth() {
             Inteligência Jurídica<br />
             <span className="text-primary">Unificada.</span>
           </h1>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-white/70">
-            A operação do Dr. Matheus Enes, potencializada pela tecnologia AW ECO.
-          </p>
         </div>
       </div>
     </div>
