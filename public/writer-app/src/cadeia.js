@@ -136,10 +136,12 @@ function finalizarPecaPipeline(driveUrl) {
 
     // Captura dados do pacote 3 que viram metadado da peca pronta —
     // espelho de protocolo do aw-eco-me usa pra copia-cola facilitada.
+    // valor_causa = (descontos × 2 = dano material em dobro CDC art.42) + dano moral
+    // — mesma formula usada em renderCalc() no writer.
     const p3 = state.dadosPacote3 || {};
     const valDescontos = (typeof parseValor === 'function') ? parseValor(p3.valor_total_descontos) || 0 : 0;
     const valDanoMoral = (typeof parseValor === 'function') ? parseValor(p3.valor_dano_moral) || 0 : 0;
-    const valorCausa = valDescontos + valDanoMoral;
+    const valorCausa = (valDescontos * 2) + valDanoMoral;
 
     window.parent.postMessage({
       type: 'aw-eco-me:pecaFinalizada',
