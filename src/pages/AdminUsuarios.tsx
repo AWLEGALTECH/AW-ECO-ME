@@ -185,23 +185,27 @@ export default function AdminUsuarios() {
                   </div>
                 </div>
 
-                {/* Grade de módulos — só faz sentido pra users (admin tem tudo) */}
-                {!isAdminRow && p.approved && (
+                {/* Grade de módulos — sempre renderizada pra alinhar cards.
+                    Pra admin: todos checados, fixos, desabilitados.
+                    Pra user pendente de aprovação: visível mas só edita depois. */}
+                {p.approved && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">Acesso aos módulos</p>
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">
+                      {isAdminRow ? "Acesso aos módulos (admin)" : "Acesso aos módulos"}
+                    </p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
                       {MODULES.map(m => {
-                        const on = accessSet.has(m.key);
+                        const on = isAdminRow ? true : accessSet.has(m.key);
                         return (
                           <button
                             key={m.key}
-                            disabled={savingId === p.id}
-                            onClick={() => toggleModule(p, m.key, !on)}
+                            disabled={savingId === p.id || isAdminRow}
+                            onClick={() => !isAdminRow && toggleModule(p, m.key, !on)}
                             className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs transition-colors ${
                               on
                                 ? "border-primary/40 bg-primary/10 text-primary"
                                 : "border-border bg-card/40 text-muted-foreground hover:border-muted-foreground/40"
-                            }`}
+                            } ${isAdminRow ? "cursor-default opacity-90" : ""}`}
                           >
                             <span>{m.label}</span>
                             {on ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5 opacity-40" />}
@@ -209,12 +213,12 @@ export default function AdminUsuarios() {
                         );
                       })}
                     </div>
+                    {isAdminRow && (
+                      <p className="text-[11px] text-muted-foreground italic mt-2">
+                        Admins têm acesso a todos os módulos automaticamente.
+                      </p>
+                    )}
                   </div>
-                )}
-                {isAdminRow && (
-                  <p className="text-[11px] text-muted-foreground italic">
-                    Admins têm acesso a todos os módulos automaticamente.
-                  </p>
                 )}
               </div>
             );
