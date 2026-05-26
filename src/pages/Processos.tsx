@@ -13,7 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Search, Eye, Trash2, X } from "lucide-react";
+import { Plus, Search, Eye, Trash2, X, FileText } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 interface Processo {
@@ -198,7 +198,14 @@ export default function Processos() {
             <TableBody>
               {filtered.map((p) => (
                 <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(`/processos/${p.id}`)}>
-                  <TableCell className="font-mono text-xs">{p.numero_processo}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    <span className="inline-flex items-center gap-3">
+                      <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </span>
+                      {p.numero_processo}
+                    </span>
+                  </TableCell>
                   <TableCell className="font-medium">{p.clientes?.nome ?? "—"}</TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{p.materia || "—"}</TableCell>
                   <TableCell>{p.fase_processual ? <Badge variant="secondary" className="text-[10px]">{p.fase_processual}</Badge> : "—"}</TableCell>
