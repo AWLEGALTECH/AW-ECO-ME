@@ -44,7 +44,9 @@ const tempoDecorrido = (iso: string | null): string => {
 export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
 
-  // Query 1: demandas em vinculadas/protocolo
+  // Query 1: demandas PENDENTES em vinculadas/protocolo.
+  // status='concluida' significa que a etapa ja foi finalizada (peca gerada
+  // ou ja protocolada) — nao deve aparecer mais na esteira.
   const demRes = useQuery({
     queryKey: ["esteira-demandas"],
     queryFn: async (): Promise<DemandaEsteira[]> => {
@@ -52,7 +54,7 @@ export default function Esteira() {
         .from("demandas" as any)
         .select("id, etapa, status, titulo, desconto, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome)")
         .in("etapa", ["analise_vinculada", "pronta_para_protocolo"])
-        .neq("status", "cancelada")
+        .eq("status", "pendente")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as DemandaEsteira[];
@@ -60,8 +62,10 @@ export default function Esteira() {
     refetchInterval: 30_000,
   });
 
-  // Query 2: clientes com tag 'precisa_analise_extratos' E ainda sem
-  // nenhuma analise_vinculada (pipeline nao iniciado de verdade).
+  // Query 2: clientes com tag 'precisa_analise_extratos' E que NUNCA
+  // tiveram nenhuma analise_vinculada (pendente ou concluida) — i.e.,
+  // pipeline ainda nao iniciado. Cliente que ja teve vinculada concluida
+  // ja "passou" pela esteira e nao volta pra coluna 1.
   const cliRes = useQuery({
     queryKey: ["esteira-clientes-aguardando"],
     queryFn: async (): Promise<ClienteEsteira[]> => {
@@ -73,8 +77,7 @@ export default function Esteira() {
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
-      // Quais desses ja tem alguma analise_vinculada? (RPC seria ideal, mas
-      // pra simplicidade fazemos um in + filtragem client-side.)
+      // Quais desses ja tem QUALQUER analise_vinculada nao-cancelada?
       const { data: vincs, error: e2 } = await supabase
         .from("demandas" as any)
         .select("cliente_id")
