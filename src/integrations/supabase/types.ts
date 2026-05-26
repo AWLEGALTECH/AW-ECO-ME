@@ -16,40 +16,261 @@ export type Database = {
         Row: {
           cpf_cnpj: string | null
           created_at: string
+          dados_socioeconomicos: Json
           drive_folder_url: string | null
           email: string | null
           endereco: string | null
+          estado_civil: string | null
+          genero: string | null
           id: string
+          nacionalidade: string | null
           nome: string
           observacoes: string | null
+          orgao_expedidor: string | null
+          origem: string | null
+          precisa_analise_extratos: boolean | null
+          profissao: string | null
+          rg: string | null
           telefone: string | null
           updated_at: string
         }
         Insert: {
           cpf_cnpj?: string | null
           created_at?: string
+          dados_socioeconomicos?: Json
           drive_folder_url?: string | null
           email?: string | null
           endereco?: string | null
+          estado_civil?: string | null
+          genero?: string | null
           id?: string
+          nacionalidade?: string | null
           nome: string
           observacoes?: string | null
+          orgao_expedidor?: string | null
+          origem?: string | null
+          precisa_analise_extratos?: boolean | null
+          profissao?: string | null
+          rg?: string | null
           telefone?: string | null
           updated_at?: string
         }
         Update: {
           cpf_cnpj?: string | null
           created_at?: string
+          dados_socioeconomicos?: Json
           drive_folder_url?: string | null
           email?: string | null
           endereco?: string | null
+          estado_civil?: string | null
+          genero?: string | null
           id?: string
+          nacionalidade?: string | null
           nome?: string
           observacoes?: string | null
+          orgao_expedidor?: string | null
+          origem?: string | null
+          precisa_analise_extratos?: boolean | null
+          profissao?: string | null
+          rg?: string | null
           telefone?: string | null
           updated_at?: string
         }
         Relationships: []
+      }
+      contratos: {
+        Row: {
+          cliente_id: string
+          created_at: string
+          data_assinatura: string | null
+          drive_url: string | null
+          id: string
+          modalidade: string
+          motivo: string | null
+          observacoes: string | null
+          percentual_exito: number | null
+          pre_cliente_id: string | null
+          reus: string[] | null
+          status: string
+          updated_at: string
+          valor_total: number | null
+        }
+        Insert: {
+          cliente_id: string
+          created_at?: string
+          data_assinatura?: string | null
+          drive_url?: string | null
+          id?: string
+          modalidade: string
+          motivo?: string | null
+          observacoes?: string | null
+          percentual_exito?: number | null
+          pre_cliente_id?: string | null
+          reus?: string[] | null
+          status?: string
+          updated_at?: string
+          valor_total?: number | null
+        }
+        Update: {
+          cliente_id?: string
+          created_at?: string
+          data_assinatura?: string | null
+          drive_url?: string | null
+          id?: string
+          modalidade?: string
+          motivo?: string | null
+          observacoes?: string | null
+          percentual_exito?: number | null
+          pre_cliente_id?: string | null
+          reus?: string[] | null
+          status?: string
+          updated_at?: string
+          valor_total?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contratos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contratos_pre_cliente_id_fkey"
+            columns: ["pre_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "pre_clientes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      demandas: {
+        Row: {
+          agencia: string | null
+          analise_pai_id: string | null
+          banco: string | null
+          cliente_id: string
+          comarca: string | null
+          completed_at: string | null
+          completed_by: string | null
+          conta: string | null
+          contrato_id: string | null
+          created_at: string
+          created_by: string | null
+          data_fim_desconto: string | null
+          data_inicio_desconto: string | null
+          desconto: string | null
+          descricao: string | null
+          etapa: string
+          id: string
+          numero_processo: string | null
+          ordem: number
+          peca_drive_url: string | null
+          processo_id: string | null
+          protocolado_at: string | null
+          protocolado_tribunal: string | null
+          protocolo_drive_url: string | null
+          status: string
+          tipo: string
+          titulo: string
+          uf: string | null
+          updated_at: string
+          valor_causa: number | null
+        }
+        Insert: {
+          agencia?: string | null
+          analise_pai_id?: string | null
+          banco?: string | null
+          cliente_id: string
+          comarca?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          conta?: string | null
+          contrato_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_fim_desconto?: string | null
+          data_inicio_desconto?: string | null
+          desconto?: string | null
+          descricao?: string | null
+          etapa: string
+          id?: string
+          numero_processo?: string | null
+          ordem?: number
+          peca_drive_url?: string | null
+          processo_id?: string | null
+          protocolado_at?: string | null
+          protocolado_tribunal?: string | null
+          protocolo_drive_url?: string | null
+          status?: string
+          tipo: string
+          titulo: string
+          uf?: string | null
+          updated_at?: string
+          valor_causa?: number | null
+        }
+        Update: {
+          agencia?: string | null
+          analise_pai_id?: string | null
+          banco?: string | null
+          cliente_id?: string
+          comarca?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          conta?: string | null
+          contrato_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_fim_desconto?: string | null
+          data_inicio_desconto?: string | null
+          desconto?: string | null
+          descricao?: string | null
+          etapa?: string
+          id?: string
+          numero_processo?: string | null
+          ordem?: number
+          peca_drive_url?: string | null
+          processo_id?: string | null
+          protocolado_at?: string | null
+          protocolado_tribunal?: string | null
+          protocolo_drive_url?: string | null
+          status?: string
+          tipo?: string
+          titulo?: string
+          uf?: string | null
+          updated_at?: string
+          valor_causa?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demandas_analise_pai_id_fkey"
+            columns: ["analise_pai_id"]
+            isOneToOne: false
+            referencedRelation: "demandas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demandas_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demandas_contrato_id_fkey"
+            columns: ["contrato_id"]
+            isOneToOne: false
+            referencedRelation: "contratos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demandas_processo_id_fkey"
+            columns: ["processo_id"]
+            isOneToOne: false
+            referencedRelation: "processos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pre_clientes: {
         Row: {
@@ -61,6 +282,7 @@ export type Database = {
           cpf_cnpj: string | null
           created_at: string
           dados_completos: Json
+          drive_folder_id: string | null
           drive_folder_url: string | null
           email: string | null
           endereco_completo: string | null
@@ -90,6 +312,7 @@ export type Database = {
           cpf_cnpj?: string | null
           created_at?: string
           dados_completos?: Json
+          drive_folder_id?: string | null
           drive_folder_url?: string | null
           email?: string | null
           endereco_completo?: string | null
@@ -119,6 +342,7 @@ export type Database = {
           cpf_cnpj?: string | null
           created_at?: string
           dados_completos?: Json
+          drive_folder_id?: string | null
           drive_folder_url?: string | null
           email?: string | null
           endereco_completo?: string | null
@@ -216,36 +440,86 @@ export type Database = {
       }
       profiles: {
         Row: {
+          approved: boolean
           avatar_url: string | null
           created_at: string
           email: string | null
           id: string
           nome: string | null
+          role: string
           updated_at: string
         }
         Insert: {
+          approved?: boolean
           avatar_url?: string | null
           created_at?: string
           email?: string | null
           id: string
           nome?: string | null
+          role?: string
           updated_at?: string
         }
         Update: {
+          approved?: boolean
           avatar_url?: string | null
           created_at?: string
           email?: string | null
           id?: string
           nome?: string | null
+          role?: string
           updated_at?: string
         }
         Relationships: []
       }
+      user_module_access: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          module_key: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          module_key: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          module_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_module_access_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_module_access_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
-    Views: { [_ in never]: never }
-    Functions: { [_ in never]: never }
-    Enums: { [_ in never]: never }
-    CompositeTypes: { [_ in never]: never }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      is_admin: { Args: { uid: string }; Returns: boolean }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
 }
 
