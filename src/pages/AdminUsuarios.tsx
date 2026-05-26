@@ -5,10 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { MODULES, ALL_MODULE_KEYS, type ModuleKey } from "@/lib/modules";
+import { MODULES, type ModuleKey } from "@/lib/modules";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
-import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail } from "lucide-react";
+import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ProfileRow {
   id: string;
@@ -26,6 +30,7 @@ export default function AdminUsuarios() {
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingTarget, setDeletingTarget] = useState<ProfileRow | null>(null);
 
   const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
@@ -67,15 +72,22 @@ export default function AdminUsuarios() {
     const { error } = await supabase.from("profiles").update({ approved: next }).eq("id", p.id);
     if (error) toast.error(error.message);
     else {
-      toast.success(next ? `${p.email} aprovado` : `${p.email} bloqueado`);
-      // Aprovou pela primeira vez? libera todos os módulos por padrão.
-      if (next && (accessByUser.get(p.id)?.size || 0) === 0) {
-        const rows = ALL_MODULE_KEYS.map(k => ({ user_id: p.id, module_key: k, granted_by: me?.id || null }));
-        await supabase.from("user_module_access").upsert(rows);
-      }
+      toast.success(next
+        ? `${p.email} aprovado — libere os módulos abaixo`
+        : `${p.email} bloqueado`);
       refetchAll();
     }
     setSavingId(null);
+  };
+
+  const removerSolicitacao = async (p: ProfileRow) => {
+    setSavingId(p.id);
+    const { error } = await supabase.rpc("admin_delete_pending_user" as any, { target_user_id: p.id });
+    setSavingId(null);
+    setDeletingTarget(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Solicitação de ${p.email} removida`);
+    refetchAll();
   };
 
   const toggleRole = async (p: ProfileRow) => {
@@ -182,6 +194,19 @@ export default function AdminUsuarios() {
                     >
                       {isAdminRow ? "Rebaixar a user" : "Promover a admin"}
                     </Button>
+                    {!p.approved && !isMe && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={savingId === p.id}
+                        onClick={() => setDeletingTarget(p)}
+                        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        title="Remove a solicitação e libera o e-mail pra novo cadastro"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Remover
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -225,6 +250,27 @@ export default function AdminUsuarios() {
           })}
         </div>
       )}
+
+      <AlertDialog open={!!deletingTarget} onOpenChange={(o) => { if (!o) setDeletingTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover solicitação de acesso?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isto vai apagar o cadastro de <strong>{deletingTarget?.email}</strong> e liberar
+              o e-mail pra um novo signup. Esta ação é irreversível.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingId === deletingTarget?.id}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (deletingTarget) removerSolicitacao(deletingTarget); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {savingId === deletingTarget?.id ? "Removendo…" : "Sim, remover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
