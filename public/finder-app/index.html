@@ -36,10 +36,20 @@
         --accent-s: 75%;
         --accent-l: 55%;
       }
-      [data-theme="space-gray"] {
+      /* Space gray precisa override explicito das --violet-* porque o bundle JS
+         hardcoda saturacao=60%/lum=60%, anulando o --accent-s/l prateado.
+         Selector com html prefix pra ganhar specificity do CSS injetado pelo JS. */
+      html[data-theme="space-gray"] {
         --accent-h: 215;
         --accent-s: 18%;
         --accent-l: 62%;
+        --violet:             hsl(215 18% 62%);
+        --violet-soft:        hsl(215 12% 75%);
+        --violet-deep:        hsl(215 22% 48%);
+        --violet-border:      hsla(215, 18%, 62%, 0.35);
+        --violet-border-soft: hsla(215, 18%, 62%, 0.18);
+        --violet-bg:          hsla(215, 18%, 62%, 0.08);
+        --violet-glow:        hsla(215, 18%, 62%, 0.35);
       }
       /* SEI no Finder = light mode (fundo branco) matching a shell */
       [data-theme="sei"] {
