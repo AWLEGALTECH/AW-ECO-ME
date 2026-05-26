@@ -37,19 +37,19 @@
         --accent-l: 55%;
       }
       /* Space gray precisa override explicito das --violet-* porque o bundle JS
-         hardcoda saturacao=60%/lum=60%, anulando o --accent-s/l prateado.
-         Selector com html prefix pra ganhar specificity do CSS injetado pelo JS. */
+         hardcoda saturacao/luminancia em 60%/60%, anulando o --accent-s/l prateado.
+         !important pra vencer o <style> que o React injeta em runtime no head. */
       html[data-theme="space-gray"] {
-        --accent-h: 215;
-        --accent-s: 18%;
-        --accent-l: 62%;
-        --violet:             hsl(215 18% 62%);
-        --violet-soft:        hsl(215 12% 75%);
-        --violet-deep:        hsl(215 22% 48%);
-        --violet-border:      hsla(215, 18%, 62%, 0.35);
-        --violet-border-soft: hsla(215, 18%, 62%, 0.18);
-        --violet-bg:          hsla(215, 18%, 62%, 0.08);
-        --violet-glow:        hsla(215, 18%, 62%, 0.35);
+        --accent-h: 215 !important;
+        --accent-s: 18% !important;
+        --accent-l: 62% !important;
+        --violet:             hsl(215 18% 62%) !important;
+        --violet-soft:        hsl(215 12% 75%) !important;
+        --violet-deep:        hsl(215 22% 48%) !important;
+        --violet-border:      hsla(215, 18%, 62%, 0.35) !important;
+        --violet-border-soft: hsla(215, 18%, 62%, 0.18) !important;
+        --violet-bg:          hsla(215, 18%, 62%, 0.08) !important;
+        --violet-glow:        hsla(215, 18%, 62%, 0.35) !important;
       }
       /* SEI no Finder = light mode (fundo branco) matching a shell */
       [data-theme="sei"] {
