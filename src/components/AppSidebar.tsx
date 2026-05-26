@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Scale, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -103,8 +103,8 @@ export function AppSidebar() {
         onClick={() => navigate("/dashboard")}
         className={`sei-brand flex items-center h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 ring-1 ring-primary/30 shrink-0">
-          <Scale className="h-4 w-4 text-primary" />
+        <div className="flex h-8 w-8 items-center justify-center shrink-0">
+          <img src="/aw-logo.png" alt="AW" className="h-7 w-7 object-contain" />
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
