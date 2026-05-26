@@ -18,10 +18,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { EsteiraInicioDialog } from "@/components/EsteiraInicioDialog";
+import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
-  ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
+  ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
   Scale, Gavel, Building2,
@@ -71,7 +71,8 @@ interface Demanda {
   titulo: string;
   descricao: string | null;
   desconto: string | null;
-  status: "pendente" | "em_andamento" | "concluida" | "bloqueada" | "cancelada";
+  status: "pendente" | "em_andamento" | "concluida" | "bloqueada" | "cancelada" | "resolvida";
+  pendencia_tipo: string | null;
   analise_pai_id: string | null;
   peca_drive_url: string | null;
   protocolo_drive_url: string | null;
@@ -1211,6 +1212,62 @@ function PrePipeline({
     />
   );
 
+  const pendenciasAbertas = demandas.filter(d => d.etapa === "pendencia_documental" && d.status === "pendente");
+
+  const resolverPendencia = async (id: string) => {
+    const { error } = await supabase.from("demandas" as any)
+      .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: userId })
+      .eq("id", id);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Pendência marcada como resolvida");
+    onChange();
+  };
+
+  const pendenciasBanner = pendenciasAbertas.length === 0 ? null : (
+    <div className="rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+        <h3 className="text-sm font-semibold text-amber-200">
+          {pendenciasAbertas.length === 1
+            ? "1 pendência documental aberta"
+            : `${pendenciasAbertas.length} pendências documentais abertas`}
+        </h3>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Resolva as pendências antes de prosseguir — ou siga em frente assumindo o risco.
+      </p>
+      <ul className="divide-y divide-amber-400/15 border-t border-amber-400/15 pt-1">
+        {pendenciasAbertas.map(p => {
+          const tipoLabel = p.pendencia_tipo === "personalizada"
+            ? p.descricao || "Personalizada"
+            : TIPOS_PENDENCIA.find(t => t.key === p.pendencia_tipo)?.label || p.titulo;
+          return (
+            <li key={p.id} className="flex items-center justify-between gap-3 py-1.5">
+              <div className="flex items-start gap-2 min-w-0">
+                <span className="text-amber-400 mt-0.5">•</span>
+                <div className="min-w-0">
+                  <p className="text-[13px] text-foreground truncate">{tipoLabel}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Aberta {fmtDate(p.created_at)}
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => resolverPendencia(p.id)}
+                className="h-7 text-[11px] border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+              >
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Resolvida
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+
   const salvarAnaliseVinculada = async () => {
     if (!vincForm.desconto.trim()) { toast.error("Informe o nome do desconto/banco"); return; }
     if (!vincForm.planilha_url.trim()) { toast.error("Cole a URL da planilha gerada"); return; }
@@ -1236,9 +1293,10 @@ function PrePipeline({
     onChange();
   };
 
-  if (demandas.length === 0) {
+  if (demandas.filter(d => d.etapa !== "pendencia_documental").length === 0) {
     return (
       <div className="space-y-3">
+        {pendenciasBanner}
         <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-5 py-4 flex items-center gap-4">
           <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
             <ClipboardList className="h-5 w-5 text-primary" />
@@ -1265,6 +1323,7 @@ function PrePipeline({
 
   return (
     <div className="space-y-3">
+      {pendenciasBanner}
       {grupos.map((g, idx) => {
         const itens = demandas.filter(d => d.etapa === g.key);
         const ativa = liberada(g.key);
