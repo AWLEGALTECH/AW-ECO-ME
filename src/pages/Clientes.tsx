@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Plus, Search, Eye, Trash2, User } from "lucide-react";
+import { Plus, Search, Eye, Trash2, User, FolderOpen, ExternalLink, Loader2, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface Cliente {
@@ -25,6 +25,8 @@ interface Cliente {
   processos_count?: number;
 }
 
+type Stage = "form" | "drive";
+
 export default function Clientes() {
   useEffect(() => { document.title = "Clientes — AW ECO ME"; }, []);
   const navigate = useNavigate();
@@ -34,6 +36,22 @@ export default function Clientes() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
   const [saving, setSaving] = useState(false);
+  const [stage, setStage] = useState<Stage>("form");
+  const [createdName, setCreatedName] = useState("");
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [driveUrl, setDriveUrl] = useState<string | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  const resetDialog = () => {
+    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
+    setStage("form");
+    setCreatedName("");
+    setCreatedId(null);
+    setDriveUrl(null);
+    setDriveError(null);
+    setCreatingFolder(false);
+  };
 
   const fetchAll = useCallback(async () => {
     const { data: clientesData } = await supabase
@@ -63,21 +81,37 @@ export default function Clientes() {
   const handleSave = async () => {
     if (!form.nome.trim()) { toast.error("Nome é obrigatório"); return; }
     setSaving(true);
-    const { error } = await supabase.from("clientes").insert({
-      nome: form.nome.trim(),
+    const nome = form.nome.trim();
+    const { data: inserted, error } = await supabase.from("clientes").insert({
+      nome,
       cpf_cnpj: form.cpf_cnpj.trim() || null,
       telefone: form.telefone.trim() || null,
       email: form.email.trim() || null,
-    });
+    }).select("id").single();
     setSaving(false);
-    if (error) {
-      toast.error(error.code === "23505" ? "Cliente já existe" : "Erro ao salvar");
+    if (error || !inserted) {
+      toast.error(error?.code === "23505" ? "Cliente já existe" : "Erro ao salvar");
       return;
     }
     toast.success("Cliente adicionado");
-    setOpen(false);
-    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
+    setCreatedName(nome);
+    setCreatedId(inserted.id);
+    setStage("drive");
     fetchAll();
+
+    // Cria pasta no Drive em background — o stage 2 mostra spinner ate concluir
+    setCreatingFolder(true);
+    const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+      "create-cliente-drive-folder",
+      { body: { cliente_id: inserted.id } },
+    );
+    setCreatingFolder(false);
+    if (fnErr || !fnData?.ok) {
+      const msg = (fnData as any)?.error || fnErr?.message || "Falha desconhecida";
+      setDriveError(msg);
+      return;
+    }
+    setDriveUrl((fnData as any).folder_url);
   };
 
   const handleDelete = async () => {
@@ -91,22 +125,91 @@ export default function Clientes() {
     <>
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-display text-3xl font-medium tracking-tight">Clientes</h2>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetDialog(); }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />Novo Cliente</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Novo Cliente</DialogTitle></DialogHeader>
-            <div className="space-y-3 py-2">
-              <div><Label>Nome *</Label><Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
-              <div><Label>CPF/CNPJ</Label><Input value={form.cpf_cnpj} onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })} /></div>
-              <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
-              <div><Label>E-mail</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSave} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
-            </DialogFooter>
+            <DialogHeader className="items-center text-center space-y-3">
+              <div className="h-16 w-16 rounded-full bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+                {stage === "form" ? (
+                  <User className="h-7 w-7 text-primary" />
+                ) : (
+                  <Check className="h-7 w-7 text-primary" />
+                )}
+              </div>
+              <DialogTitle>
+                {stage === "form" ? "Novo Cliente" : createdName}
+              </DialogTitle>
+              {stage === "drive" && (
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Cliente criado. Agora abra a pasta no Drive pra subir os documentos.
+                </p>
+              )}
+            </DialogHeader>
+
+            {stage === "form" ? (
+              <>
+                <div className="space-y-3 py-2">
+                  <div><Label>Nome *</Label><Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+                  <div><Label>CPF/CNPJ</Label><Input value={form.cpf_cnpj} onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })} /></div>
+                  <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
+                  <div><Label>E-mail</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                  <Button onClick={handleSave} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <div className="py-3 space-y-3">
+                  {creatingFolder ? (
+                    <div className="rounded-xl border border-border bg-card/40 p-4 flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium">Criando pasta no Drive…</p>
+                        <p className="text-[11px] text-muted-foreground">Isso leva alguns segundos.</p>
+                      </div>
+                    </div>
+                  ) : driveError ? (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-1">
+                      <p className="text-sm font-medium text-destructive">Não foi possível criar a pasta</p>
+                      <p className="text-[11px] text-muted-foreground break-all">{driveError}</p>
+                      <p className="text-[11px] text-muted-foreground italic">
+                        Você pode tentar de novo abrindo o cliente depois.
+                      </p>
+                    </div>
+                  ) : driveUrl ? (
+                    <a
+                      href={driveUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-xl border border-primary/40 bg-primary/10 p-4 hover:bg-primary/15 transition-colors group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                          <FolderOpen className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-foreground">Abrir pasta no Drive</p>
+                          <p className="text-[11px] text-muted-foreground">Faça o upload dos documentos do cliente</p>
+                        </div>
+                        <ExternalLink className="h-4 w-4 text-primary opacity-70 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </a>
+                  ) : null}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setOpen(false); }}>Fechar</Button>
+                  {createdId && (
+                    <Button onClick={() => { setOpen(false); navigate(`/clientes/${createdId}`); }}>
+                      Ir pro perfil
+                    </Button>
+                  )}
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>
