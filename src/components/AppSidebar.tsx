@@ -113,7 +113,6 @@ export function AppSidebar() {
                 <>{nomeBase} <span className="sei-brand-accent">{nomeUltima}</span></>
               ) : appConfig.name}
             </span>
-            <span className="sei-brand-tag text-[9px] text-sidebar-foreground/60 uppercase tracking-[0.15em] leading-none mt-1">{appConfig.tagline}</span>
           </div>
         )}
       </button>
