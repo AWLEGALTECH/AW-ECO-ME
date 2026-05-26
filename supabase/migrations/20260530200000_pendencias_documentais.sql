@@ -19,3 +19,27 @@ ALTER TABLE public.demandas
 CREATE INDEX IF NOT EXISTS demandas_pendencia_idx
   ON public.demandas (etapa, status)
   WHERE etapa = 'pendencia_documental';
+
+-- Expande check de etapa pra aceitar 'pendencia_documental' e status pra 'resolvida'
+ALTER TABLE public.demandas DROP CONSTRAINT IF EXISTS demandas_etapa_check;
+ALTER TABLE public.demandas ADD CONSTRAINT demandas_etapa_check
+  CHECK (etapa = ANY (ARRAY[
+    'analise_documental'::text,
+    'analise_vinculada'::text,
+    'confeccao_peca'::text,
+    'pronta_para_protocolo'::text,
+    'protocolada'::text,
+    'processual'::text,
+    'pendencia_documental'::text
+  ]));
+
+ALTER TABLE public.demandas DROP CONSTRAINT IF EXISTS demandas_status_check;
+ALTER TABLE public.demandas ADD CONSTRAINT demandas_status_check
+  CHECK (status = ANY (ARRAY[
+    'pendente'::text,
+    'em_andamento'::text,
+    'concluida'::text,
+    'bloqueada'::text,
+    'cancelada'::text,
+    'resolvida'::text
+  ]));
