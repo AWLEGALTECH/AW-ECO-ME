@@ -36,6 +36,11 @@
         --accent-s: 75%;
         --accent-l: 55%;
       }
+      [data-theme="space-gray"] {
+        --accent-h: 215;
+        --accent-s: 18%;
+        --accent-l: 62%;
+      }
       /* SEI no Finder = light mode (fundo branco) matching a shell */
       [data-theme="sei"] {
         --accent-h: 197;
@@ -85,7 +90,7 @@
       (function(){
         try {
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+          if (p === 'midnight-blue' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
         } catch(e) {}
         window.addEventListener('message', function(e){
           if (e.origin !== window.location.origin) return;

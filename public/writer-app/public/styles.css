@@ -2925,6 +2925,13 @@ input, select, textarea {
   --accent-l: 55%;
 }
 
+/* SPACE GRAY — prateado surfista, baixa saturacao com vies azul-grafite */
+[data-theme="space-gray"] {
+  --accent-h: 215;
+  --accent-s: 18%;
+  --accent-l: 62%;
+}
+
 /* SEI — cyan-teal vivo do Sistema Eletronico de Informacoes */
 /* SEI no writer = light mode (fundo branco, texto preto), matching
    a shell aw-eco-me. Inverte todos os tokens dark pra light. */

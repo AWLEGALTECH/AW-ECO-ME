@@ -14,7 +14,7 @@
   (function(){
     try {
       var p = localStorage.getItem('aw-theme-palette');
-      if (p === 'midnight-blue' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+      if (p === 'midnight-blue' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
     } catch(e) {}
     // Listener pra trocar tema ao vivo enquanto o iframe ja esta aberto
     window.addEventListener('message', function(e) {

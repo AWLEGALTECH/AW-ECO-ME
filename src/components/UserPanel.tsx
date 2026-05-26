@@ -187,6 +187,22 @@ export function UserPanel() {
             </button>
 
             <button
+              onClick={() => setPalette("space-gray")}
+              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                palette === "space-gray"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                  : "border-border/60 hover:border-primary/40 bg-card/40"
+              }`}
+              title="Space Gray — prateado surfista"
+            >
+              {palette === "space-gray" && (
+                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
+              )}
+              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(215 18% 72%), hsl(215 12% 45%))" }} />
+              <span className="text-[11px] font-medium">Space Gray</span>
+            </button>
+
+            <button
               onClick={() => setPalette("sei")}
               className={`relative rounded-xl border-2 p-3 text-left transition-all ${
                 palette === "sei"

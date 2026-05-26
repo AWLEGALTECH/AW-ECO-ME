@@ -22,6 +22,14 @@ const PALETTES: Record<string, string[]> = {
     "hsl(0, 0%, 55%)",
     "hsl(0, 0%, 38%)",
   ],
+  "space-gray": [
+    "hsl(215, 18%, 62%)",
+    "hsl(215, 12%, 75%)",
+    "hsl(215, 20%, 45%)",
+    "hsl(215, 8%, 82%)",
+    "hsl(0, 0%, 55%)",
+    "hsl(0, 0%, 38%)",
+  ],
 };
 
 interface DonutChartProps {

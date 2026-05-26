@@ -63,6 +63,19 @@ html, body, #root {
     --accent-l: 55%;
   }
 
+  /* SPACE GRAY — prateado surfista, baixa saturacao com vies azul-grafite.
+     Mantem mesmo padrao do midnight-blue: so override de tonalidade. */
+  [data-theme="space-gray"] {
+    --primary: 215 18% 62%;
+    --accent: 215 18% 62%;
+    --ring: 215 18% 62%;
+    --sidebar-primary: 215 18% 62%;
+    --sidebar-ring: 215 18% 62%;
+    --accent-h: 215;
+    --accent-s: 18%;
+    --accent-l: 62%;
+  }
+
   /* SEI — recriacao fiel do Sistema Eletronico de Informacoes:
      - sidebar dark navy (#1a2f4a) com texto branco
      - topbar cyan-teal vivo (#009ACE) com texto branco
