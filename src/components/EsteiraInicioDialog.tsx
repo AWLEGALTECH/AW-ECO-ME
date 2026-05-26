@@ -30,12 +30,18 @@ interface Props {
   cliente: { id: string; nome: string; drive_folder_url?: string | null } | null;
   userId: string | null;
   onCreated: () => void;
+  // Sobrescreve o que acontece em "Confirmar viabilidade" / "Salvar e seguir".
+  // Default: navega pra /finder?cliente=...&nome=...
+  // Quando custom, deve cuidar da propria navegacao/setup.
+  onConfirmar?: () => Promise<void> | void;
+  // Customiza labels do modal pra contextos diferentes (ex: "Nova analise vinculada")
+  titulo?: string;
 }
 
 type Stage = "actions" | "pendencia";
 type PendenciaMode = "cancelar" | "seguir";
 
-export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated }: Props) {
+export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo }: Props) {
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>("actions");
   const [mode, setMode] = useState<PendenciaMode>("seguir");
@@ -47,10 +53,15 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated 
 
   const handleClose = () => { onClose(); setTimeout(reset, 200); };
 
-  const irParaAnalise = () => {
+  const seguirParaAnalise = async () => {
     if (!cliente) return;
-    handleClose();
-    navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
+    if (onConfirmar) {
+      await onConfirmar();
+      handleClose();
+    } else {
+      handleClose();
+      navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
+    }
   };
 
   const abrirDrive = () => {
@@ -93,7 +104,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated 
     toast.success("Pendência registrada");
     onCreated();
     if (mode === "seguir") {
-      irParaAnalise();
+      await seguirParaAnalise();
     } else {
       handleClose();
     }
@@ -109,7 +120,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated 
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
-            Iniciar análise — {cliente?.nome || "cliente"}
+            {titulo || "Iniciar análise"} — {cliente?.nome || "cliente"}
           </DialogTitle>
           <DialogDescription>
             {stage === "actions"
@@ -144,7 +155,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated 
 
               <div className="grid grid-cols-1 gap-2">
                 <Button
-                  onClick={irParaAnalise}
+                  onClick={seguirParaAnalise}
                   className="justify-start gap-2 h-auto py-3"
                 >
                   <Check className="h-4 w-4" />
