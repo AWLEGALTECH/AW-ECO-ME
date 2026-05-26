@@ -1,12 +1,16 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
-  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Workflow, RefreshCw,
+  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare,
+  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
+import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 
 interface DemandaEsteira {
   id: string;
@@ -14,13 +18,15 @@ interface DemandaEsteira {
   status: string;
   titulo: string;
   desconto: string | null;
+  descricao: string | null;
+  pendencia_tipo: string | null;
   analise_pai_id: string | null;
   peca_drive_url: string | null;
   protocolado_at: string | null;
   created_at: string;
   completed_at: string | null;
   cliente_id: string;
-  cliente: { id: string; nome: string } | null;
+  cliente: { id: string; nome: string; drive_folder_url?: string | null } | null;
 }
 
 interface ClienteEsteira {
@@ -28,6 +34,7 @@ interface ClienteEsteira {
   nome: string;
   created_at: string;
   origem: string | null;
+  drive_folder_url: string | null;
 }
 
 const tempoDecorrido = (iso: string | null): string => {
@@ -43,17 +50,17 @@ const tempoDecorrido = (iso: string | null): string => {
 
 export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
+  const { user } = useAuth();
+  const [inicioCliente, setInicioCliente] = useState<ClienteEsteira | null>(null);
 
-  // Query 1: demandas PENDENTES em vinculadas/protocolo.
-  // status='concluida' significa que a etapa ja foi finalizada (peca gerada
-  // ou ja protocolada) — nao deve aparecer mais na esteira.
+  // Query 1: demandas PENDENTES em vinculadas/protocolo/pendencia.
   const demRes = useQuery({
     queryKey: ["esteira-demandas"],
     queryFn: async (): Promise<DemandaEsteira[]> => {
       const { data, error } = await supabase
         .from("demandas" as any)
-        .select("id, etapa, status, titulo, desconto, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome)")
-        .in("etapa", ["analise_vinculada", "pronta_para_protocolo"])
+        .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url)")
+        .in("etapa", ["pendencia_documental", "analise_vinculada", "pronta_para_protocolo"])
         .eq("status", "pendente")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -63,21 +70,18 @@ export default function Esteira() {
   });
 
   // Query 2: clientes com tag 'precisa_analise_extratos' E que NUNCA
-  // tiveram nenhuma analise_vinculada (pendente ou concluida) — i.e.,
-  // pipeline ainda nao iniciado. Cliente que ja teve vinculada concluida
-  // ja "passou" pela esteira e nao volta pra coluna 1.
+  // tiveram nenhuma analise_vinculada nao-cancelada (pipeline nao iniciado).
   const cliRes = useQuery({
     queryKey: ["esteira-clientes-aguardando"],
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
-        .select("id, nome, created_at, origem")
+        .select("id, nome, created_at, origem, drive_folder_url")
         .eq("precisa_analise_extratos" as any, true)
         .order("created_at", { ascending: false });
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
-      // Quais desses ja tem QUALQUER analise_vinculada nao-cancelada?
       const { data: vincs, error: e2 } = await supabase
         .from("demandas" as any)
         .select("cliente_id")
@@ -96,19 +100,30 @@ export default function Esteira() {
   const isFetching = demRes.isFetching || cliRes.isFetching;
 
   // Particiona
-  const { aguardando, vincs, protos } = useMemo(() => {
+  const { pendencias, aguardando, vincs, protos } = useMemo(() => {
     const dem = demRes.data || [];
+    const pendenciasAll = dem.filter(d => d.etapa === "pendencia_documental");
     const vincsAll = dem.filter(d => d.etapa === "analise_vinculada");
     const protosAll = dem.filter(d => d.etapa === "pronta_para_protocolo");
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
     return {
+      pendencias: pendenciasAll,
       aguardando: cliRes.data || [],
       vincs: vincsAll.filter(v => !protoIds.has(v.id)),
       protos: protosAll.filter(p => !p.protocolado_at),
     };
   }, [demRes.data, cliRes.data]);
 
-  const total = aguardando.length + vincs.length + protos.length;
+  const total = pendencias.length + aguardando.length + vincs.length + protos.length;
+
+  const marcarResolvida = async (id: string) => {
+    const { error } = await supabase.from("demandas" as any)
+      .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: user?.id || null })
+      .eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Pendência marcada como resolvida");
+    refetchAll();
+  };
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -131,10 +146,26 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <Coluna
+            titulo="0. Pendências"
+            descricao="Documentos faltando — bloqueia o avanço até resolver"
+            icon={AlertTriangle}
+            cor="amber"
+            count={pendencias.length}
+          >
+            {pendencias.length === 0 ? (
+              <Vazio />
+            ) : (
+              pendencias.map(p => (
+                <PendenciaCard key={p.id} demanda={p} onResolver={() => marcarResolvida(p.id)} />
+              ))
+            )}
+          </Coluna>
+
           <Coluna
             titulo="1. Aguardando análise"
-            descricao="Clientes com perfil de análise Bradesco que ainda não tiveram nenhuma análise vinculada"
+            descricao="Clientes com perfil de análise que ainda não tiveram análise iniciada"
             icon={ScanSearch}
             cor="primary"
             count={aguardando.length}
@@ -143,9 +174,9 @@ export default function Esteira() {
               <Vazio />
             ) : (
               aguardando.map(c => (
-                <CardLinha
+                <CardBotao
                   key={c.id}
-                  to={`/clientes/${c.id}`}
+                  onClick={() => setInicioCliente(c)}
                   titulo={c.nome}
                   sub={c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
                   data={c.created_at}
@@ -206,6 +237,14 @@ export default function Esteira() {
           </Coluna>
         </div>
       )}
+
+      <EsteiraInicioDialog
+        open={!!inicioCliente}
+        onClose={() => setInicioCliente(null)}
+        cliente={inicioCliente ? { id: inicioCliente.id, nome: inicioCliente.nome, drive_folder_url: inicioCliente.drive_folder_url } : null}
+        userId={user?.id || null}
+        onCreated={refetchAll}
+      />
     </div>
   );
 }
@@ -279,5 +318,79 @@ function CardLinha({
         </span>
       </div>
     </Link>
+  );
+}
+
+function CardBotao({
+  onClick, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight,
+}: {
+  onClick: () => void;
+  titulo: string;
+  sub: string;
+  data: string | null;
+  acao: string;
+  acaoIcon?: any;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <User className="h-3 w-3 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold truncate">{titulo}</span>
+      </div>
+      <p className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</p>
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}
+        </span>
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:gap-1.5 transition-all">
+          {acao} <AcaoIcon className="h-3 w-3" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function PendenciaCard({ demanda, onResolver }: { demanda: DemandaEsteira; onResolver: () => void }) {
+  const tipoLabel = demanda.pendencia_tipo === "personalizada"
+    ? demanda.descricao || "Personalizada"
+    : TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.titulo;
+  return (
+    <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <User className="h-3 w-3 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold truncate">{demanda.cliente?.nome || "cliente"}</span>
+      </div>
+      <div className="flex items-start gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-[12px] text-foreground/90 line-clamp-3">{tipoLabel}</p>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
+        </span>
+        <div className="flex items-center gap-1">
+          {demanda.cliente?.drive_folder_url && (
+            <a
+              href={demanda.cliente.drive_folder_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted/40"
+              title="Abrir Drive"
+            >
+              <FolderOpen className="h-3 w-3" />
+            </a>
+          )}
+          <button
+            onClick={onResolver}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:gap-1.5 transition-all px-1.5 py-0.5 rounded hover:bg-primary/10"
+          >
+            <CheckCircle2 className="h-3 w-3" /> Resolvida
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
