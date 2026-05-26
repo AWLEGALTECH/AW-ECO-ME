@@ -1,6 +1,5 @@
 import { useAuth } from "@/hooks/useAuth";
 import Auth from "./Auth";
-import { Scale } from "lucide-react";
 import { Navigate } from "react-router-dom";
 
 export default function Index() {
@@ -9,7 +8,7 @@ export default function Index() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <Scale className="h-10 w-10 animate-pulse text-primary" />
+        <img src="/aw-logo.png" alt="AW" className="h-14 w-14 object-contain animate-pulse" />
       </div>
     );
   }
