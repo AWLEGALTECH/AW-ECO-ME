@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { EsteiraInicioDialog } from "@/components/EsteiraInicioDialog";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle,
@@ -1035,6 +1036,8 @@ function PrePipeline({
   const [vincForm, setVincForm] = useState({ desconto: "", planilha_url: "" });
   const [savingVinc, setSavingVinc] = useState(false);
   const [espelhoDemanda, setEspelhoDemanda] = useState<Demanda | null>(null);
+  const [inicioOpen, setInicioOpen] = useState(false);
+  const [inicioTitulo, setInicioTitulo] = useState<string>("Iniciar pipeline");
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
     { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
@@ -1170,7 +1173,7 @@ function PrePipeline({
     navigate(`/writer?${params.toString()}`);
   };
 
-  const irParaFinder = async () => {
+  const criarAnaliseDocumentalEIrFinder = async () => {
     // Cada clique em "Nova analise vinculada" cria uma nova analise_documental.
     // Cada sessao de finder gera o seu proprio card com data + filhos (as
     // analises_vinculadas geradas naquela sessao).
@@ -1190,6 +1193,23 @@ function PrePipeline({
     const params = new URLSearchParams({ cliente: clienteId, nome: cliente.nome });
     navigate(`/finder?${params.toString()}`);
   };
+
+  const abrirInicio = (label: string) => {
+    setInicioTitulo(label);
+    setInicioOpen(true);
+  };
+
+  const inicioDialog = (
+    <EsteiraInicioDialog
+      open={inicioOpen}
+      onClose={() => setInicioOpen(false)}
+      cliente={{ id: clienteId, nome: cliente.nome, drive_folder_url: cliente.drive_folder_url }}
+      userId={userId}
+      onCreated={onChange}
+      titulo={inicioTitulo}
+      onConfirmar={criarAnaliseDocumentalEIrFinder}
+    />
+  );
 
   const salvarAnaliseVinculada = async () => {
     if (!vincForm.desconto.trim()) { toast.error("Informe o nome do desconto/banco"); return; }
@@ -1231,13 +1251,14 @@ function PrePipeline({
           </div>
           <Button
             size="sm"
-            onClick={irParaFinder}
+            onClick={() => abrirInicio("Iniciar pipeline")}
             className="bg-emerald-600 hover:bg-emerald-500 text-white shrink-0"
           >
             <ScanSearch className="h-3.5 w-3.5 mr-1.5" />
             Iniciar pipeline
           </Button>
         </div>
+        {inicioDialog}
       </div>
     );
   }
@@ -1282,7 +1303,7 @@ function PrePipeline({
               {ativa && g.key === "analise_documental" && (
                 <Button
                   size="sm"
-                  onClick={irParaFinder}
+                  onClick={() => abrirInicio("Nova análise vinculada")}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white"
                 >
                   <Plus className="h-3.5 w-3.5 mr-1.5" />
@@ -1408,6 +1429,7 @@ function PrePipeline({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {inicioDialog}
     </div>
   );
 }
