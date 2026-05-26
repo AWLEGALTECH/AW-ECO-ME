@@ -8,7 +8,7 @@ import { Outlet, useLocation, Navigate } from "react-router-dom";
 import { toast } from "sonner";
 
 export function SidebarLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, accessReady } = useAuth();
   const { palette } = useTheme();
   const isSei = palette === "sei";
   const location = useLocation();
@@ -26,9 +26,10 @@ export function SidebarLayout() {
     }
   }, [user, loading]);
 
-  if (loading) {
+  if (loading || (user && !accessReady)) {
     // AuthProvider já mostra um spinner global durante o boot — aqui é só
-    // pra evitar piscar pra Auth antes do session check terminar.
+    // pra evitar piscar pra Auth antes do session check terminar, e pra
+    // não renderizar a sidebar antes de saber quais módulos mostrar.
     return null;
   }
   if (!user) {

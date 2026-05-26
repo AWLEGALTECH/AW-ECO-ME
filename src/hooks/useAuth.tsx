@@ -19,6 +19,7 @@ interface AuthContextType {
   modules: ModuleKey[];   // admin sempre recebe todos
   isAdmin: boolean;
   loading: boolean;
+  accessReady: boolean;   // true depois que loadAccess rodou ao menos 1x
   signOut: () => Promise<void>;
   refreshAccess: () => Promise<void>;
 }
@@ -29,6 +30,7 @@ const AuthContext = createContext<AuthContextType>({
   modules: [],
   isAdmin: false,
   loading: true,
+  accessReady: false,
   signOut: async () => {},
   refreshAccess: async () => {},
 });
@@ -40,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [modules, setModules] = useState<ModuleKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessReady, setAccessReady] = useState(false);
 
   const loadAccess = async (userId: string) => {
     const { data: prof } = await supabase
@@ -51,10 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!prof) {
       setProfile(null);
       setModules([]);
+      setAccessReady(true);
       return null;
     }
-
-    setProfile(prof as Profile);
 
     // Bloqueio: não aprovado → desloga
     if (!prof.approved) {
@@ -63,32 +65,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setProfile(null);
       setModules([]);
+      setAccessReady(true);
       return null;
     }
 
+    // Carrega modules ANTES de marcar accessReady, pra guards não verem
+    // (profile=ok, modules=[]) num intervalo intermediário.
+    let nextModules: ModuleKey[];
     if (prof.role === "admin") {
-      setModules(ALL_MODULE_KEYS);
+      nextModules = ALL_MODULE_KEYS;
     } else {
       const { data: rows } = await supabase
         .from("user_module_access")
         .select("module_key")
         .eq("user_id", userId);
-      setModules(((rows || []).map(r => r.module_key) as ModuleKey[]));
+      nextModules = ((rows || []).map(r => r.module_key) as ModuleKey[]);
     }
 
+    setProfile(prof as Profile);
+    setModules(nextModules);
+    setAccessReady(true);
     return prof as Profile;
   };
 
   useEffect(() => {
+    // Evita disparar loadAccess 2x pro mesmo uid quando getSession e o
+    // INITIAL_SESSION do onAuthStateChange ambos resolvem no boot.
+    let lastLoadedUid: string | null = null;
+
+    const ensureLoaded = (uid: string) => {
+      if (lastLoadedUid === uid) return;
+      lastLoadedUid = uid;
+      loadAccess(uid);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          setTimeout(() => loadAccess(currentUser.id), 0);
+          ensureLoaded(currentUser.id);
         } else {
+          lastLoadedUid = null;
           setProfile(null);
           setModules([]);
+          setAccessReady(true);
         }
         setLoading(false);
       }
@@ -98,7 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
-        loadAccess(currentUser.id);
+        ensureLoaded(currentUser.id);
+      } else {
+        setAccessReady(true);
       }
       setLoading(false);
     });
@@ -130,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAdmin = profile?.role === "admin" && profile?.approved === true;
 
   return (
-    <AuthContext.Provider value={{ user, profile, modules, isAdmin, loading, signOut, refreshAccess }}>
+    <AuthContext.Provider value={{ user, profile, modules, isAdmin, loading, accessReady, signOut, refreshAccess }}>
       {!loading ? (
         children
       ) : (
