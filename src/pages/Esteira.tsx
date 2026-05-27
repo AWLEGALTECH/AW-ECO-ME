@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare,
-  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X,
+  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X, ChevronDown,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -59,6 +59,12 @@ export default function Esteira() {
   const [inicioCliente, setInicioCliente] = useState<ClienteEsteira | null>(null);
   const [pendenciaOpen, setPendenciaOpen] = useState<DemandaEsteira | null>(null);
   const [confirmandoResolver, setConfirmandoResolver] = useState(false);
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) => setExpandidos(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   // Query 1: demandas PENDENTES em vinculadas/protocolo/pendencia.
   const demRes = useQuery({
@@ -177,13 +183,27 @@ export default function Esteira() {
             {pendencias.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(pendencias).map(g => (
-                <GrupoCliente key={g.items[0].cliente?.id || g.nome} nome={g.nome} count={g.items.length} accent="amber">
-                  {g.items.map(p => (
-                    <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} />
-                  ))}
-                </GrupoCliente>
-              ))
+              groupByCliente(pendencias).map(g => {
+                const key = `pend-${g.items[0].cliente?.id || g.nome}`;
+                const hint = g.items[0].pendencia_tipo === "personalizada"
+                  ? (g.items[0].descricao || "Personalizada")
+                  : TIPOS_PENDENCIA.find(t => t.key === g.items[0].pendencia_tipo)?.label || g.items[0].titulo;
+                return (
+                  <ClienteAccordion
+                    key={key}
+                    nome={g.nome}
+                    count={g.items.length}
+                    accent="amber"
+                    expanded={expandidos.has(key)}
+                    onToggle={() => toggleExpand(key)}
+                    hint={g.items.length === 1 ? hint : `${g.items.length} pendências documentais`}
+                  >
+                    {g.items.map(p => (
+                      <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} />
+                    ))}
+                  </ClienteAccordion>
+                );
+              })
             )}
           </Coluna>
 
@@ -221,17 +241,33 @@ export default function Esteira() {
             {vincs.length === 0 ? (
               <Vazio />
             ) : (
-              vincs.map(d => (
-                <CardLinha
-                  key={d.id}
-                  to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                  titulo={d.cliente?.nome || "cliente"}
-                  sub={d.desconto || d.titulo}
-                  data={d.created_at}
-                  acao="Confeccionar peça"
-                  acaoIcon={PenSquare}
-                />
-              ))
+              groupByCliente(vincs).map(g => {
+                const key = `vinc-${g.items[0].cliente?.id || g.nome}`;
+                const hint = g.items[0].desconto || g.items[0].titulo;
+                return (
+                  <ClienteAccordion
+                    key={key}
+                    nome={g.nome}
+                    count={g.items.length}
+                    accent="primary"
+                    expanded={expandidos.has(key)}
+                    onToggle={() => toggleExpand(key)}
+                    hint={g.items.length === 1 ? hint : `${g.items.length} análises vinculadas`}
+                  >
+                    {g.items.map(d => (
+                      <CardLinha
+                        key={d.id}
+                        to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                        titulo={d.desconto || d.titulo}
+                        sub=""
+                        data={d.created_at}
+                        acao="Confeccionar peça"
+                        acaoIcon={PenSquare}
+                      />
+                    ))}
+                  </ClienteAccordion>
+                );
+              })
             )}
           </Coluna>
 
@@ -245,22 +281,34 @@ export default function Esteira() {
             {protos.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(protos).map(g => (
-                <GrupoCliente key={g.items[0].cliente?.id || g.nome} nome={g.nome} count={g.items.length} accent="amber">
-                  {g.items.map(d => (
-                    <CardLinha
-                      key={d.id}
-                      to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                      titulo={d.desconto || d.titulo.replace(/^Pronto pra protocolo — /, "")}
-                      sub=""
-                      data={d.completed_at || d.created_at}
-                      acao="Abrir espelho"
-                      acaoIcon={Send}
-                      accent="amber"
-                    />
-                  ))}
-                </GrupoCliente>
-              ))
+              groupByCliente(protos).map(g => {
+                const key = `proto-${g.items[0].cliente?.id || g.nome}`;
+                const firstTitle = g.items[0].desconto || g.items[0].titulo.replace(/^Pronto pra protocolo — /, "");
+                return (
+                  <ClienteAccordion
+                    key={key}
+                    nome={g.nome}
+                    count={g.items.length}
+                    accent="amber"
+                    expanded={expandidos.has(key)}
+                    onToggle={() => toggleExpand(key)}
+                    hint={g.items.length === 1 ? firstTitle : `${g.items.length} peças prontas`}
+                  >
+                    {g.items.map(d => (
+                      <CardLinha
+                        key={d.id}
+                        to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                        titulo={d.desconto || d.titulo.replace(/^Pronto pra protocolo — /, "")}
+                        sub=""
+                        data={d.completed_at || d.created_at}
+                        acao="Abrir espelho"
+                        acaoIcon={Send}
+                        accent="amber"
+                      />
+                    ))}
+                  </ClienteAccordion>
+                );
+              })
             )}
           </Coluna>
         </div>
@@ -303,23 +351,43 @@ export default function Esteira() {
   );
 }
 
-function GrupoCliente({
-  nome, count, accent, children,
+function ClienteAccordion({
+  nome, count, accent, expanded, onToggle, hint, children,
 }: {
-  nome: string; count: number; accent: "amber" | "primary"; children: React.ReactNode;
+  nome: string;
+  count: number;
+  accent: "amber" | "primary";
+  expanded: boolean;
+  onToggle: () => void;
+  hint?: string;
+  children: React.ReactNode;
 }) {
-  if (count === 1) return <>{children}</>;
-  const accentText = accent === "amber" ? "text-amber-400/80" : "text-primary/80";
+  const accentBorder = accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-border hover:border-primary/40";
+  const accentBg = accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-card/40 hover:bg-card/60";
+  const accentBadge = accent === "amber" ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 px-1">
-        <User className="h-3 w-3 text-muted-foreground/70 shrink-0" />
-        <span className="text-[11px] font-semibold text-foreground/90 truncate flex-1">{nome}</span>
-        <span className={`text-[10px] font-bold tabular-nums ${accentText}`}>{count}</span>
-      </div>
-      <div className="space-y-1.5 pl-1.5 border-l-2 border-border/40">
-        {children}
-      </div>
+    <div className={`rounded-lg border transition-colors ${accentBorder} ${expanded ? "" : accentBg}`}>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 p-3 text-left"
+      >
+        <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold truncate flex-1">{nome}</span>
+        <span className={`inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full border text-[10px] font-bold tabular-nums shrink-0 ${accentBadge}`}>
+          {count}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
+      {!expanded && hint && (
+        <div className="px-3 pb-3 -mt-1">
+          <p className="text-[11px] text-muted-foreground line-clamp-1">{hint}</p>
+        </div>
+      )}
+      {expanded && (
+        <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
