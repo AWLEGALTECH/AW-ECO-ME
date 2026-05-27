@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
+import { DriveFolderButton } from "@/components/DriveFolderButton";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
@@ -237,17 +238,15 @@ export default function ClienteDetail() {
             </span>
           </div>
         </div>
-        {cliente.drive_folder_url && (
-          <a
-            href={cliente.drive_folder_url}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 inline-flex items-center gap-2 px-4 h-10 rounded-xl border border-primary/30 bg-primary/10 text-primary text-sm hover:bg-primary/15 transition-colors"
-          >
-            <FolderOpen className="h-4 w-4" /> Abrir pasta no Drive
-            <ExternalLink className="h-3 w-3 opacity-60" />
-          </a>
-        )}
+        <div className="shrink-0">
+          <DriveFolderButton
+            clienteId={cliente.id}
+            clienteNome={cliente.nome}
+            driveFolderUrl={cliente.drive_folder_url}
+            onCreated={(url) => setCliente({ ...cliente, drive_folder_url: url })}
+            variant="inline"
+          />
+        </div>
       </header>
 
       {/* QUADRADOS DE NAVEGACAO ============================================ */}

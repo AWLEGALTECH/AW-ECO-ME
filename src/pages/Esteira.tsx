@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
+import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -569,26 +570,12 @@ function PendenciaDetalheDialog({
             <Clock className="h-3 w-3" /> Aberta {tempoDecorrido(demanda.created_at)}
           </div>
 
-          {driveUrl ? (
-            <a
-              href={driveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
-            >
-              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                <FolderOpen className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold">Abrir pasta no Drive</p>
-                <p className="text-[11px] text-muted-foreground">Confira/suba os documentos</p>
-              </div>
-              <ExternalLink className="h-4 w-4 text-primary opacity-70" />
-            </a>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-[11px] text-muted-foreground">
-              Cliente ainda não tem pasta associada no Drive.
-            </div>
+          {demanda.cliente?.id && (
+            <DriveFolderButton
+              clienteId={demanda.cliente.id}
+              clienteNome={demanda.cliente.nome}
+              driveFolderUrl={driveUrl}
+            />
           )}
         </div>
 
