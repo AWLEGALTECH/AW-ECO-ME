@@ -7,10 +7,15 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare,
-  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2,
+  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface DemandaEsteira {
   id: string;
@@ -52,6 +57,8 @@ export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const [inicioCliente, setInicioCliente] = useState<ClienteEsteira | null>(null);
+  const [pendenciaOpen, setPendenciaOpen] = useState<DemandaEsteira | null>(null);
+  const [confirmandoResolver, setConfirmandoResolver] = useState(false);
 
   // Query 1: demandas PENDENTES em vinculadas/protocolo/pendencia.
   const demRes = useQuery({
@@ -122,7 +129,20 @@ export default function Esteira() {
       .eq("id", id);
     if (error) { toast.error(error.message); return; }
     toast.success("Pendência marcada como resolvida");
+    setConfirmandoResolver(false);
+    setPendenciaOpen(null);
     refetchAll();
+  };
+
+  // Agrupa demandas por cliente — facilita varredura quando ha varias do mesmo
+  const groupByCliente = (lista: DemandaEsteira[]) => {
+    const groups = new Map<string, { nome: string; items: DemandaEsteira[] }>();
+    for (const d of lista) {
+      const key = d.cliente?.id || "_";
+      if (!groups.has(key)) groups.set(key, { nome: d.cliente?.nome || "—", items: [] });
+      groups.get(key)!.items.push(d);
+    }
+    return Array.from(groups.values());
   };
 
   return (
@@ -157,8 +177,12 @@ export default function Esteira() {
             {pendencias.length === 0 ? (
               <Vazio />
             ) : (
-              pendencias.map(p => (
-                <PendenciaCard key={p.id} demanda={p} onResolver={() => marcarResolvida(p.id)} />
+              groupByCliente(pendencias).map(g => (
+                <GrupoCliente key={g.items[0].cliente?.id || g.nome} nome={g.nome} count={g.items.length} accent="amber">
+                  {g.items.map(p => (
+                    <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} />
+                  ))}
+                </GrupoCliente>
               ))
             )}
           </Coluna>
@@ -221,17 +245,21 @@ export default function Esteira() {
             {protos.length === 0 ? (
               <Vazio />
             ) : (
-              protos.map(d => (
-                <CardLinha
-                  key={d.id}
-                  to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
-                  titulo={d.cliente?.nome || "cliente"}
-                  sub={d.desconto || d.titulo}
-                  data={d.completed_at || d.created_at}
-                  acao="Abrir espelho"
-                  acaoIcon={Send}
-                  accent="amber"
-                />
+              groupByCliente(protos).map(g => (
+                <GrupoCliente key={g.items[0].cliente?.id || g.nome} nome={g.nome} count={g.items.length} accent="amber">
+                  {g.items.map(d => (
+                    <CardLinha
+                      key={d.id}
+                      to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                      titulo={d.desconto || d.titulo.replace(/^Pronto pra protocolo — /, "")}
+                      sub=""
+                      data={d.completed_at || d.created_at}
+                      acao="Abrir espelho"
+                      acaoIcon={Send}
+                      accent="amber"
+                    />
+                  ))}
+                </GrupoCliente>
               ))
             )}
           </Coluna>
@@ -245,6 +273,53 @@ export default function Esteira() {
         userId={user?.id || null}
         onCreated={refetchAll}
       />
+
+      <PendenciaDetalheDialog
+        demanda={pendenciaOpen}
+        onClose={() => setPendenciaOpen(null)}
+        onResolver={() => setConfirmandoResolver(true)}
+      />
+
+      <AlertDialog open={confirmandoResolver} onOpenChange={(o) => !o && setConfirmandoResolver(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar pendência como resolvida?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta pendência sairá da esteira. Use só quando o documento já estiver no Drive
+              do cliente e a pendência estiver de fato sanada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (pendenciaOpen) marcarResolvida(pendenciaOpen.id); }}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" /> Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function GrupoCliente({
+  nome, count, accent, children,
+}: {
+  nome: string; count: number; accent: "amber" | "primary"; children: React.ReactNode;
+}) {
+  if (count === 1) return <>{children}</>;
+  const accentText = accent === "amber" ? "text-amber-400/80" : "text-primary/80";
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 px-1">
+        <User className="h-3 w-3 text-muted-foreground/70 shrink-0" />
+        <span className="text-[11px] font-semibold text-foreground/90 truncate flex-1">{nome}</span>
+        <span className={`text-[10px] font-bold tabular-nums ${accentText}`}>{count}</span>
+      </div>
+      <div className="space-y-1.5 pl-1.5 border-l-2 border-border/40">
+        {children}
+      </div>
     </div>
   );
 }
@@ -353,44 +428,111 @@ function CardBotao({
   );
 }
 
-function PendenciaCard({ demanda, onResolver }: { demanda: DemandaEsteira; onResolver: () => void }) {
+function PendenciaCard({ demanda, onClick }: { demanda: DemandaEsteira; onClick: () => void }) {
   const tipoLabel = demanda.pendencia_tipo === "personalizada"
     ? demanda.descricao || "Personalizada"
     : TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.titulo;
+  // Materia extraida do titulo (formato 'Pendência documental — XYZ')
+  const materia = demanda.titulo.replace(/^Pend[êe]ncia documental\s*—\s*/i, "");
   return (
-    <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <User className="h-3 w-3 text-muted-foreground shrink-0" />
-        <span className="text-xs font-semibold truncate">{demanda.cliente?.nome || "cliente"}</span>
-      </div>
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-lg border border-amber-400/30 bg-amber-400/5 hover:border-amber-400/60 hover:bg-amber-400/10 transition-colors p-3 space-y-1.5"
+    >
       <div className="flex items-start gap-1.5">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-        <p className="text-[12px] text-foreground/90 line-clamp-3">{tipoLabel}</p>
+        <p className="text-[12px] text-foreground/90 line-clamp-2 flex-1">{tipoLabel}</p>
       </div>
+      {materia && materia !== demanda.titulo && (
+        <p className="text-[10px] text-muted-foreground line-clamp-1 pl-5">{materia}</p>
+      )}
       <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
           <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
         </span>
-        <div className="flex items-center gap-1">
-          {demanda.cliente?.drive_folder_url && (
+        <span className="text-[10px] text-amber-400/70 font-medium">ver detalhes →</span>
+      </div>
+    </button>
+  );
+}
+
+function PendenciaDetalheDialog({
+  demanda, onClose, onResolver,
+}: {
+  demanda: DemandaEsteira | null;
+  onClose: () => void;
+  onResolver: () => void;
+}) {
+  if (!demanda) return null;
+  const tipoLabel = demanda.pendencia_tipo === "personalizada"
+    ? "Personalizada"
+    : TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.pendencia_tipo || "—";
+  const driveUrl = demanda.cliente?.drive_folder_url;
+  // Limpa a descricao do sufixo de importacao da planilha
+  const obsLimpa = (demanda.descricao || "")
+    .replace(/\s*\|\s*importado da planilha[^|]*$/, "")
+    .replace(/\s*\|\s*comarca:\s*[^|]+/, "")
+    .trim();
+
+  return (
+    <Dialog open={!!demanda} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-400" />
+            Pendência documental
+          </DialogTitle>
+          <DialogDescription>{demanda.cliente?.nome || "cliente"}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Tipo</p>
+            <p className="text-sm font-medium">{tipoLabel}</p>
+            {obsLimpa && (
+              <>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mt-2 mb-1">Observação</p>
+                <p className="text-[12px] text-foreground/90 whitespace-pre-line">{obsLimpa}</p>
+              </>
+            )}
+          </div>
+
+          <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3 w-3" /> Aberta {tempoDecorrido(demanda.created_at)}
+          </div>
+
+          {driveUrl ? (
             <a
-              href={demanda.cliente.drive_folder_url}
+              href={driveUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted/40"
-              title="Abrir Drive"
+              className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
             >
-              <FolderOpen className="h-3 w-3" />
+              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                <FolderOpen className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Abrir pasta no Drive</p>
+                <p className="text-[11px] text-muted-foreground">Confira/suba os documentos</p>
+              </div>
+              <ExternalLink className="h-4 w-4 text-primary opacity-70" />
             </a>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-[11px] text-muted-foreground">
+              Cliente ainda não tem pasta associada no Drive.
+            </div>
           )}
-          <button
-            onClick={onResolver}
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:gap-1.5 transition-all px-1.5 py-0.5 rounded hover:bg-primary/10"
-          >
-            <CheckCircle2 className="h-3 w-3" /> Resolvida
-          </button>
         </div>
-      </div>
-    </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={onClose}>
+            <X className="h-4 w-4 mr-1" /> Fechar
+          </Button>
+          <Button onClick={onResolver} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+            <CheckCircle2 className="h-4 w-4 mr-1" /> Marcar como resolvida
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
