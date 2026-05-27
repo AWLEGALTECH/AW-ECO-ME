@@ -186,9 +186,7 @@ export default function Esteira() {
             ) : (
               groupByCliente(pendencias).map(g => {
                 const key = `pend-${g.items[0].cliente?.id || g.nome}`;
-                const hint = g.items[0].pendencia_tipo === "personalizada"
-                  ? (g.items[0].descricao || "Personalizada")
-                  : TIPOS_PENDENCIA.find(t => t.key === g.items[0].pendencia_tipo)?.label || g.items[0].titulo;
+                const hint = pendenciaLabel(g.items[0]);
                 return (
                   <ClienteAccordion
                     key={key}
@@ -497,12 +495,30 @@ function CardBotao({
   );
 }
 
+// Pendencias importadas da planilha tem a descricao no formato:
+//   "<obs real opcional> | comarca: X | importado da planilha (status original: ...)"
+// Separa a obs real dos metadados pra renderizar limpo.
+function parsePendenciaDescricao(d: string | null): { obs: string | null; comarca: string | null } {
+  if (!d) return { obs: null, comarca: null };
+  let s = d.replace(/\s*\|\s*importado da planilha[^|]*$/i, "").trim();
+  const m = s.match(/\|\s*comarca:\s*([^|]+)/i);
+  const comarca = m ? m[1].trim() : null;
+  s = s.replace(/\s*\|\s*comarca:\s*[^|]+/i, "").trim();
+  return { obs: s || null, comarca };
+}
+
+function pendenciaLabel(demanda: DemandaEsteira): string {
+  if (demanda.pendencia_tipo === "personalizada") {
+    const { obs } = parsePendenciaDescricao(demanda.descricao);
+    return obs || "Pendência personalizada";
+  }
+  return TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.titulo;
+}
+
 function PendenciaCard({ demanda, onClick }: { demanda: DemandaEsteira; onClick: () => void }) {
-  const tipoLabel = demanda.pendencia_tipo === "personalizada"
-    ? demanda.descricao || "Personalizada"
-    : TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.titulo;
-  // Materia extraida do titulo (formato 'Pendência documental — XYZ')
+  const tipoLabel = pendenciaLabel(demanda);
   const materia = demanda.titulo.replace(/^Pend[êe]ncia documental\s*—\s*/i, "");
+  const mostrarMateria = materia && materia !== demanda.titulo && materia !== tipoLabel;
   return (
     <button
       onClick={onClick}
@@ -512,7 +528,7 @@ function PendenciaCard({ demanda, onClick }: { demanda: DemandaEsteira; onClick:
         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
         <p className="text-[12px] text-foreground/90 line-clamp-2 flex-1">{tipoLabel}</p>
       </div>
-      {materia && materia !== demanda.titulo && (
+      {mostrarMateria && (
         <p className="text-[10px] text-muted-foreground line-clamp-1 pl-5">{materia}</p>
       )}
       <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
@@ -537,11 +553,9 @@ function PendenciaDetalheDialog({
     ? "Personalizada"
     : TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.pendencia_tipo || "—";
   const driveUrl = demanda.cliente?.drive_folder_url;
-  // Limpa a descricao do sufixo de importacao da planilha
-  const obsLimpa = (demanda.descricao || "")
-    .replace(/\s*\|\s*importado da planilha[^|]*$/, "")
-    .replace(/\s*\|\s*comarca:\s*[^|]+/, "")
-    .trim();
+  const { obs: obsLimpa, comarca } = parsePendenciaDescricao(demanda.descricao);
+  const materia = demanda.titulo.replace(/^Pend[êe]ncia documental\s*—\s*/i, "");
+  const mostrarMateria = materia && materia !== demanda.titulo;
 
   return (
     <Dialog open={!!demanda} onOpenChange={(o) => !o && onClose()}>
@@ -555,14 +569,28 @@ function PendenciaDetalheDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2">
-            <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Tipo</p>
-            <p className="text-sm font-medium">{tipoLabel}</p>
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 space-y-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Tipo</p>
+              <p className="text-sm font-medium">{tipoLabel}</p>
+            </div>
+            {mostrarMateria && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Matéria</p>
+                <p className="text-[12px] text-foreground/90">{materia}</p>
+              </div>
+            )}
+            {comarca && (
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Comarca</p>
+                <p className="text-[12px] text-foreground/90">{comarca}</p>
+              </div>
+            )}
             {obsLimpa && (
-              <>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mt-2 mb-1">Observação</p>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Observação</p>
                 <p className="text-[12px] text-foreground/90 whitespace-pre-line">{obsLimpa}</p>
-              </>
+              </div>
             )}
           </div>
 
