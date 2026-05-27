@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FolderOpen, ScanSearch, AlertTriangle, X, Check, ChevronLeft,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft,
 } from "lucide-react";
+import { DriveFolderButton } from "@/components/DriveFolderButton";
 
 // Catálogo de tipos de pendência. A chave bate com demandas.pendencia_tipo.
 export const TIPOS_PENDENCIA = [
@@ -68,14 +69,6 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
       handleClose();
       navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
     }
-  };
-
-  const abrirDrive = () => {
-    if (!cliente?.drive_folder_url) {
-      toast.error("Este cliente ainda não tem pasta associada no Drive.");
-      return;
-    }
-    window.open(cliente.drive_folder_url, "_blank", "noopener,noreferrer");
   };
 
   const iniciarPendencia = (m: PendenciaMode) => {
@@ -143,22 +136,14 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
-              {/* Botão principal: Drive */}
-              <button
-                onClick={abrirDrive}
-                disabled={!cliente?.drive_folder_url}
-                className="w-full flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-4 hover:bg-primary/15 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                  <FolderOpen className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Abrir pasta no Drive</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {cliente?.drive_folder_url ? "Investigue os documentos do cliente" : "Cliente sem pasta associada"}
-                  </p>
-                </div>
-              </button>
+              {/* Botão principal: Drive — cria pasta se ainda nao existe */}
+              {cliente && (
+                <DriveFolderButton
+                  clienteId={cliente.id}
+                  clienteNome={cliente.nome}
+                  driveFolderUrl={cliente.drive_folder_url}
+                />
+              )}
 
               <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-2">Decisão</div>
 
