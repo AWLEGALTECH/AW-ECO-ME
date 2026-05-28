@@ -110,10 +110,16 @@ async function salvarPreCliente() {
 
     // GUARD: cliente puxado da base oficial (dropdown 'Puxar da base de
     // clientes') ja existe em `clientes` e ja tem pasta no Drive. Nao cria
-    // pre_cliente nem pasta nova — isso duplicaria. So fluxo de cliente
-    // novo (digitado manualmente, sem cliente_aw_id) gera pre_cliente.
+    // pre_cliente nem pasta nova — isso duplicaria. Mas SINCRONIZA de volta
+    // os dados editados no kit (nome/cpf/rg/profissao/endereco/etc).
+    // So fluxo de cliente novo (digitado manual, sem aw_id) gera pre_cliente.
     if (state.dadosKit.cliente_aw_id) {
-      console.log('[pre-cliente] cliente ja existe na base (aw_id=' + state.dadosKit.cliente_aw_id + '), nao cria pre-cliente nem pasta');
+      console.log('[pre-cliente] cliente ja existe na base (aw_id=' + state.dadosKit.cliente_aw_id + '), atualiza dados e nao cria pre-cliente/pasta');
+      if (typeof salvarDadosClienteDoKit === 'function') {
+        salvarDadosClienteDoKit(state.dadosKit.cliente_aw_id, state.dadosKit)
+          .then(r => console.log('[pre-cliente] sync cliente existente:', r))
+          .catch(e => console.warn('[pre-cliente] sync falhou:', e));
+      }
       return { ok: true, skipped: 'cliente_existente' };
     }
 
