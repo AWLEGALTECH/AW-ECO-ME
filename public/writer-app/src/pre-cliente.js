@@ -108,6 +108,15 @@ async function salvarPreCliente() {
       return { ok: true, skipped: 'fluxo_peticao' };
     }
 
+    // GUARD: cliente puxado da base oficial (dropdown 'Puxar da base de
+    // clientes') ja existe em `clientes` e ja tem pasta no Drive. Nao cria
+    // pre_cliente nem pasta nova — isso duplicaria. So fluxo de cliente
+    // novo (digitado manualmente, sem cliente_aw_id) gera pre_cliente.
+    if (state.dadosKit.cliente_aw_id) {
+      console.log('[pre-cliente] cliente ja existe na base (aw_id=' + state.dadosKit.cliente_aw_id + '), nao cria pre-cliente nem pasta');
+      return { ok: true, skipped: 'cliente_existente' };
+    }
+
     const payload = _montarPayloadPreCliente();
     console.log('[pre-cliente] payload montado:', payload);
 
