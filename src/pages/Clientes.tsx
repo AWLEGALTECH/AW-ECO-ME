@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { nomeSobrenome } from "@/lib/audit";
 import { Plus, Search, Eye, Trash2, User, FolderOpen, ExternalLink, Loader2, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -28,6 +30,7 @@ interface Cliente {
 type Stage = "form" | "drive";
 
 export default function Clientes() {
+  const { profile } = useAuth();
   useEffect(() => { document.title = "Clientes — AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -87,7 +90,9 @@ export default function Clientes() {
       cpf_cnpj: form.cpf_cnpj.trim() || null,
       telefone: form.telefone.trim() || null,
       email: form.email.trim() || null,
-    }).select("id").single();
+      origem: "manual",
+      cadastrado_por: nomeSobrenome(profile),
+    } as any).select("id").single();
     setSaving(false);
     if (error || !inserted) {
       toast.error(error?.code === "23505" ? "Cliente já existe" : "Erro ao salvar");
