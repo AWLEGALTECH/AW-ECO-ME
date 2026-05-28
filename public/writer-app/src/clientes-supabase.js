@@ -162,6 +162,50 @@ async function salvarDadosClienteAW(clienteId) {
   }
 }
 
+// Sincroniza os campos cliente_* do dadosKit de volta pra tabela `clientes`.
+// Usado quando o kit foi gerado a partir de um cliente existente (puxado da
+// base) e o usuario editou/completou dados — esses updates voltam pro banco.
+// setIf: so atualiza campos com valor (nao apaga dado existente com vazio).
+async function salvarDadosClienteDoKit(clienteId, dadosKit) {
+  if (!clienteId || !dadosKit) return { ok: false, reason: 'sem id/dados' };
+  const setIf = (obj, key, val) => {
+    if (val !== undefined && val !== null && String(val).trim() !== '') obj[key] = val;
+  };
+  const update = {};
+  setIf(update, 'nome',            dadosKit.cliente_nome_completo);
+  setIf(update, 'cpf_cnpj',        dadosKit.cliente_cpf);
+  setIf(update, 'rg',              dadosKit.cliente_rg);
+  setIf(update, 'orgao_expedidor', dadosKit.cliente_orgao_expedidor);
+  setIf(update, 'profissao',       dadosKit.cliente_profissao);
+  setIf(update, 'genero',          dadosKit.cliente_genero);
+  setIf(update, 'nacionalidade',   dadosKit.cliente_nacionalidade);
+  setIf(update, 'estado_civil',    dadosKit.cliente_estado_civil);
+  setIf(update, 'endereco',        dadosKit.cliente_endereco_completo);
+
+  if (Object.keys(update).length === 0) return { ok: true, skipped: true };
+
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/clientes?id=eq.${encodeURIComponent(clienteId)}`,
+      {
+        method: 'PATCH',
+        headers: { ..._awHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(update),
+      }
+    );
+    if (!resp.ok) {
+      const t = await resp.text();
+      console.warn('[clientes-aw] salvarDadosClienteDoKit falhou', resp.status, t);
+      return { ok: false, error: t };
+    }
+    console.log('[clientes-aw] dados do kit sincronizados pro cliente', clienteId);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[clientes-aw] excecao salvarDadosClienteDoKit', e);
+    return { ok: false, error: String(e) };
+  }
+}
+
 // Aplica um shape de cliente no state, preenchendo pacote 1 e pacote 2
 function aplicarClienteNoState(c) {
   if (!c) return;
