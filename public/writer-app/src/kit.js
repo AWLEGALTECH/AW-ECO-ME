@@ -94,9 +94,44 @@ function resolverTemplateProcuracao() {
   return TEMPLATES_PROCURACAO_POR_BRANDING[branding] || TEMPLATES_PROCURACAO_POR_BRANDING.matheus;
 }
 
+/* =========================================================================
+   AUTO-PREENCHIMENTO DO CLIENTE — puxa da base aw-eco-me, igual outras peças
+   ========================================================================= */
+// Mapeia o shape de cliente (vindo de fetchClienteAW/_dbToWriterShape) pros
+// campos cliente_* do dadosKit. So sobrescreve quando vem valor.
+function aplicarClienteNoKit(c) {
+  if (!c || !state.dadosKit) return;
+  const setIf = (k, v) => { if (v !== undefined && v !== null && String(v).trim() !== '') state.dadosKit[k] = v; };
+  setIf('cliente_nome_completo',    c.nome_completo);
+  setIf('cliente_genero',           c.genero);
+  setIf('cliente_nacionalidade',    c.nacionalidade);
+  setIf('cliente_estado_civil',     c.estado_civil);
+  setIf('cliente_profissao',        c.profissao);
+  setIf('cliente_rg',               c.rg);
+  setIf('cliente_orgao_expedidor',  c.orgao_expedidor);
+  setIf('cliente_cpf',              c.cpf);
+  setIf('cliente_endereco_completo', c.endereco_completo);
+  state.dadosKit.cliente_aw_id = c.aw_id || '';
+}
+
+// Handler do dropdown de seleção de cliente no kit form.
+async function onKitSelectCliente(awId) {
+  if (!awId) return;
+  // Tenta do cache primeiro (state.clientesAW), senao busca individual
+  let c = (state.clientesAW || []).find(x => x.aw_id === awId);
+  if (!c && typeof fetchClienteAW === 'function') {
+    c = await fetchClienteAW(awId);
+  }
+  if (c) {
+    aplicarClienteNoKit(c);
+    if (typeof render === 'function') render();
+  }
+}
+
 function inicializarDadosKit() {
   return {
     // Cliente
+    cliente_aw_id: '',
     cliente_nome_completo: '',
     cliente_genero: 'masculino',
     cliente_nacionalidade: 'brasileiro',
@@ -139,7 +174,18 @@ function renderKitForm(view) {
   if (!state.dadosKit || Object.keys(state.dadosKit).length === 0) {
     state.dadosKit = inicializarDadosKit();
   }
+  // Auto-preenche do cliente ja carregado (vindo de ?cliente=ID no contexto)
+  // na primeira vez que o form abre — so se o usuario ainda nao escolheu nada.
+  if (!state.dadosKit.cliente_aw_id && state.clienteSelecionado) {
+    aplicarClienteNoKit(state.clienteSelecionado);
+  }
   const d = state.dadosKit;
+
+  // Lista de clientes pro dropdown (carregada em background pelo app.js)
+  const clientes = (state.clientesAW || []);
+  const optionsClientes = clientes.map(c =>
+    `<option value="${escapeAttr(c.aw_id)}" ${d.cliente_aw_id===c.aw_id?'selected':''}>${escapeHtml(c.nome_completo || '—')}</option>`
+  ).join('');
 
   view.innerHTML = `
     <div class="kit-form-page">
@@ -154,6 +200,13 @@ function renderKitForm(view) {
         <section class="kit-section">
           <div class="kit-section-title">Cliente</div>
           <div class="kit-fields kit-fields-cliente">
+            <label class="kit-field span-3">
+              <span>Puxar da base de clientes <em class="kit-hint">preenche os campos abaixo automaticamente</em></span>
+              <select onchange="onKitSelectCliente(this.value)">
+                <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
+                ${optionsClientes}
+              </select>
+            </label>
             <label class="kit-field span-2">
               <span>Nome completo</span>
               <input type="text" value="${escapeAttr(d.cliente_nome_completo)}"
