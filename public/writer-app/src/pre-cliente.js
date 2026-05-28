@@ -27,6 +27,10 @@ function _montarPayloadPreCliente() {
   //   1. KIT (contrato + procuracao):    state.dadosKit (campos cliente_*)
   //   2. PETICAO (lobby -> pacote1..3):  state.dadosPacote1/2/3 + produtoSelecionado
   const ehKit = state.dadosKit && state.dadosKit.cliente_nome_completo;
+  // Autor que fez o instrumento procuratorio — vem do shell via ?autor=Nome.
+  // Vira o cadastrado_por do cliente quando o pre-cliente for convertido.
+  let _autor = null;
+  try { _autor = new URLSearchParams(window.location.search).get('autor') || null; } catch (e) {}
 
   if (ehKit) {
     const d = state.dadosKit;
@@ -52,6 +56,7 @@ function _montarPayloadPreCliente() {
         dadosKit: d,
         modalidade: { id: modalidade.id, nome: modalidade.nome },
         gerado_em: new Date().toISOString(),
+        cadastrado_por: _autor || 'Adria Mota',
       },
       status: 'aguardando_assinatura',
       origem: 'writer',
@@ -90,6 +95,7 @@ function _montarPayloadPreCliente() {
       produto: { id: produto.id, nome: produto.nome, sublabel: produto.sublabel, reu: produto.reu },
       rubricas: state.rubricas,
       gerado_em: new Date().toISOString(),
+      cadastrado_por: _autor || 'Adria Mota',
     },
     status: 'aguardando_assinatura',
     origem: 'writer',

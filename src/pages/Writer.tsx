@@ -4,6 +4,8 @@ import { Loader2 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { nomeSobrenome } from "@/lib/audit";
 
 // Eventos que o iframe do writer manda pro parent (aw-eco-me) via postMessage.
 // Centralizam as escritas de demandas que precisariam de privilegio
@@ -22,6 +24,7 @@ export default function Writer() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const nome = searchParams.get("nome");
+  const { user, profile } = useAuth();
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
@@ -45,6 +48,7 @@ export default function Writer() {
             status: "pendente",
             peca_drive_url: driveUrl || null,
             completed_at: new Date().toISOString(),
+            completed_by: user?.id || null,
             comarca: comarca || null,
             uf: uf || null,
             valor_causa: valor_causa ?? null,
@@ -65,7 +69,7 @@ export default function Writer() {
           if (paiId) {
             await supabase
               .from("demandas" as any)
-              .update({ status: "concluida", completed_at: new Date().toISOString() })
+              .update({ status: "concluida", completed_at: new Date().toISOString(), completed_by: user?.id || null })
               .eq("id", paiId);
           }
         }
@@ -86,7 +90,12 @@ export default function Writer() {
     return () => window.removeEventListener("message", handler);
   }, [navigate]);
 
-  const qs = searchParams.toString();
+  // Passa o nome do usuario logado pro iframe — usado pra preencher
+  // 'cadastrado_por' quando o kit gera um cliente novo (instrumento procuratorio).
+  const qsParams = new URLSearchParams(searchParams);
+  const autorLogado = nomeSobrenome(profile);
+  if (autorLogado && autorLogado !== "—") qsParams.set("autor", autorLogado);
+  const qs = qsParams.toString();
   const iframeSrc = `/writer-app/index.html${qs ? `?${qs}` : ""}`;
 
   return (

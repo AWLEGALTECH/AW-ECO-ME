@@ -392,6 +392,7 @@ export default function PreClientes() {
         observacoes: null,
         drive_folder_url: driveFolderUrl,
         origem: "writer",
+        cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
         precisa_analise_extratos: true,
       } as any)
       .select()

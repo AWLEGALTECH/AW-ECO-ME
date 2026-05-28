@@ -40,6 +40,7 @@ interface Cliente {
   observacoes: string | null;
   drive_folder_url: string | null;
   origem: string | null;
+  cadastrado_por: string | null;
   created_at: string;
 }
 
@@ -238,6 +239,11 @@ export default function ClienteDetail() {
             <span className="text-xs text-muted-foreground">
               Cliente desde {fmtDate(cliente.created_at)}
             </span>
+            {cliente.cadastrado_por && (
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <User className="h-3 w-3" /> cadastrado por <strong className="text-foreground/80 font-medium">{cliente.cadastrado_por}</strong>
+              </span>
+            )}
           </div>
         </div>
         <div className="shrink-0">

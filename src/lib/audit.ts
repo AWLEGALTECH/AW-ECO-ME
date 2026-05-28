@@ -23,3 +23,15 @@ export async function logEvent(
     if (typeof console !== "undefined") console.warn("[audit] log falhou:", e);
   }
 }
+
+// "Primeiro Último" a partir do nome completo. Fallback pra parte antes do @ do email.
+export function nomeSobrenome(p: { nome?: string | null; email?: string | null } | null | undefined): string {
+  if (!p) return "—";
+  const full = (p.nome || "").trim();
+  if (full) {
+    const parts = full.split(/\s+/);
+    return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1]}`;
+  }
+  if (p.email) return p.email.split("@")[0];
+  return "—";
+}
