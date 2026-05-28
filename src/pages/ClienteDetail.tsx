@@ -81,7 +81,9 @@ interface Demanda {
   processo_id: string | null;
   ordem: number;
   created_at: string;
+  created_by: string | null;
   completed_at: string | null;
+  completed_by: string | null;
   numero_processo: string | null;
   protocolado_at: string | null;
   protocolado_tribunal: string | null;
@@ -502,7 +504,7 @@ function EmptyState({ icon: Icon, title, hint }: { icon: any; title: string; hin
   );
 }
 
-function DemandaCard({ demanda, action, onCancelarVinculo }: { demanda: Demanda; action?: React.ReactNode; onCancelarVinculo?: () => void }) {
+function DemandaCard({ demanda, action, onCancelarVinculo, autor }: { demanda: Demanda; action?: React.ReactNode; onCancelarVinculo?: () => void; autor?: string | null }) {
   const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
   const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
   const cancelada = demanda.status === "cancelada";
@@ -525,6 +527,11 @@ function DemandaCard({ demanda, action, onCancelarVinculo }: { demanda: Demanda;
             <div className="min-w-0">
               <h4 className={`text-sm font-medium truncate ${cancelada ? "line-through text-muted-foreground" : ""}`}>{demanda.titulo}</h4>
               <p className="text-[11px] text-muted-foreground mt-0.5">{etapa.label}{demanda.desconto && ` · ${demanda.desconto}`}</p>
+              {autor && (
+                <p className="text-[10px] text-muted-foreground/70 mt-1 inline-flex items-center gap-1">
+                  <User className="h-2.5 w-2.5" /> {demanda.completed_by ? "concluído por" : "criado por"} <strong className="text-foreground/80 font-medium">{autor}</strong>
+                </p>
+              )}
             </div>
             <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
               isVincCancelado
@@ -585,7 +592,7 @@ function DemandaCard({ demanda, action, onCancelarVinculo }: { demanda: Demanda;
   );
 }
 
-function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: Demanda[] }) {
+function AnaliseDocumentalCard({ demanda, filhas, autor }: { demanda: Demanda; filhas: Demanda[]; autor?: string | null }) {
   return (
     <div className="rounded-xl border border-border bg-card/40 p-4 hover:border-primary/30 transition-colors">
       <div className="flex items-start gap-3">
@@ -598,6 +605,11 @@ function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: 
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {fmtDateTime(demanda.created_at)}
             </span>
+            {autor && (
+              <span className="text-[10px] text-muted-foreground/70 inline-flex items-center gap-1">
+                <User className="h-2.5 w-2.5" /> por <strong className="text-foreground/80 font-medium">{autor}</strong>
+              </span>
+            )}
           </div>
           {filhas.length === 0 ? (
             <p className="text-[11px] text-muted-foreground/60 italic mt-2">
@@ -631,7 +643,7 @@ function AnaliseDocumentalCard({ demanda, filhas }: { demanda: Demanda; filhas: 
   );
 }
 
-function EspelhoCard({ demanda, onClick }: { demanda: Demanda; onClick: () => void }) {
+function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: () => void; autor?: string | null }) {
   const protocolado = !!demanda.protocolado_at;
   return (
     <button
@@ -655,6 +667,11 @@ function EspelhoCard({ demanda, onClick }: { demanda: Demanda; onClick: () => vo
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 {demanda.desconto || "—"} · gerada em {fmtDate(demanda.completed_at || demanda.created_at)}
               </p>
+              {autor && (
+                <p className="text-[10px] text-muted-foreground/70 mt-1 inline-flex items-center gap-1">
+                  <User className="h-2.5 w-2.5" /> por <strong className="text-foreground/80 font-medium">{autor}</strong>
+                </p>
+              )}
             </div>
             {protocolado ? (
               <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border text-emerald-400 bg-emerald-400/10 border-emerald-400/30 shrink-0">
@@ -1027,6 +1044,18 @@ function EspelhoSucesso({
   );
 }
 
+// Pega "primeiro sobrenome" do nome completo. Fallback pra parte antes do @ do email.
+function nomeSobrenome(p: { nome?: string | null; email?: string | null } | null | undefined): string {
+  if (!p) return "—";
+  const full = (p.nome || "").trim();
+  if (full) {
+    const parts = full.split(/\s+/);
+    return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1]}`;
+  }
+  if (p.email) return p.email.split("@")[0];
+  return "—";
+}
+
 function PrePipeline({
   demandas, cliente, userId, onChange,
 }: { demandas: Demanda[]; cliente: Cliente; userId: string | null; onChange: () => void }) {
@@ -1038,6 +1067,32 @@ function PrePipeline({
   const [espelhoDemanda, setEspelhoDemanda] = useState<Demanda | null>(null);
   const [inicioOpen, setInicioOpen] = useState(false);
   const [inicioTitulo, setInicioTitulo] = useState<string>("Iniciar pipeline");
+  const [autorMap, setAutorMap] = useState<Map<string, string>>(new Map());
+
+  // Busca os profiles dos criadores/concluidores das demandas pra mostrar
+  // 'nome sobrenome' no card. Roda quando a lista de demandas muda.
+  useEffect(() => {
+    const ids = new Set<string>();
+    for (const d of demandas) {
+      if (d.created_by) ids.add(d.created_by);
+      if (d.completed_by) ids.add(d.completed_by);
+    }
+    if (ids.size === 0) { setAutorMap(new Map()); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, nome, email")
+        .in("id", Array.from(ids));
+      const m = new Map<string, string>();
+      for (const p of (data || [])) m.set(p.id, nomeSobrenome(p as any));
+      setAutorMap(m);
+    })();
+  }, [demandas]);
+
+  const autorDe = (d: Demanda): string | null => {
+    const id = d.completed_by || d.created_by;
+    return id ? autorMap.get(id) || null : null;
+  };
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
     { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
@@ -1392,7 +1447,7 @@ function PrePipeline({
               </p>
             ) : g.key === "pronta_para_protocolo" ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {itens.map(d => <EspelhoCard key={d.id} demanda={d} onClick={() => setEspelhoDemanda(d)} />)}
+                {itens.map(d => <EspelhoCard key={d.id} demanda={d} onClick={() => setEspelhoDemanda(d)} autor={autorDe(d)} />)}
               </div>
             ) : g.key === "analise_documental" ? (
               <div className="space-y-2">
@@ -1403,7 +1458,7 @@ function PrePipeline({
                     const filhas = demandas.filter(
                       x => x.etapa === "analise_vinculada" && x.analise_pai_id === d.id
                     );
-                    return <AnaliseDocumentalCard key={d.id} demanda={d} filhas={filhas} />;
+                    return <AnaliseDocumentalCard key={d.id} demanda={d} filhas={filhas} autor={autorDe(d)} />;
                   })}
               </div>
             ) : (
@@ -1418,6 +1473,7 @@ function PrePipeline({
                     <DemandaCard
                       key={d.id}
                       demanda={d}
+                      autor={autorDe(d)}
                       onCancelarVinculo={isAnaliseVinc ? () => cancelarVinculo(d) : undefined}
                       action={
                         isAnaliseVinc && !jaVirouPeca ? (
