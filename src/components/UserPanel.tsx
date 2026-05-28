@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { LogOut, Upload, User, Save, Palette, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { logEvent } from "@/lib/audit";
 
 export function UserPanel() {
   const { user, profile, signOut } = useAuth();
@@ -79,6 +80,7 @@ export function UserPanel() {
   };
 
   const handleSignOut = async () => {
+    await logEvent("logout", "auth");
     await signOut();
     navigate("/");
   };

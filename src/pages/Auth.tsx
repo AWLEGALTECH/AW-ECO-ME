@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { appConfig } from "@/config/app-config";
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
+import { logEvent } from "@/lib/audit";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -83,7 +84,12 @@ export default function Auth() {
     e.preventDefault();
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      logEvent("login_failed", "auth", null, { email, reason: error.message });
+    } else {
+      logEvent("login", "auth", null, { email });
+    }
     setLoading(false);
   };
 
@@ -97,6 +103,7 @@ export default function Auth() {
     if (error) toast.error(error.message);
     else {
       toast.success("Cadastro enviado! Aguarde aprovação do administrador para acessar.", { duration: 8000 });
+      logEvent("signup", "auth", null, { email, nome: name });
       setIsSignup(false);
     }
     setLoading(false);

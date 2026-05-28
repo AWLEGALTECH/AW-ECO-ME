@@ -20,6 +20,7 @@ import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import AdminUsuarios from "./pages/AdminUsuarios";
+import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
 import { RequireModule } from "@/components/RequireModule";
 
@@ -79,6 +80,7 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
+                  <Route path="/admin/logs" element={<AdminLogs />} />
                 </Route>
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>

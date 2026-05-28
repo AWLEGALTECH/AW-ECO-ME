@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { FolderOpen, FolderPlus, Loader2, ExternalLink } from "lucide-react";
+import { logEvent } from "@/lib/audit";
 
 interface Props {
   clienteId: string;
@@ -38,6 +39,7 @@ export function DriveFolderButton({ clienteId, clienteNome, driveFolderUrl, onCr
     const newUrl = (data as any).folder_url as string;
     setLocalUrl(newUrl);
     toast.success("Pasta criada no Drive");
+    logEvent("drive_folder_create", "clientes", clienteId, { nome: clienteNome, folder_url: newUrl });
     onCreated?.(newUrl);
   };
 
