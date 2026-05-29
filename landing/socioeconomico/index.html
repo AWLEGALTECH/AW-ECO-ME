@@ -29,14 +29,19 @@
   html,body{margin:0;padding:0;height:100%}
   body{
     font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    background:var(--bg); color:var(--ink);
+    color:var(--ink);
     line-height:1.5; font-size:17px;
     min-height:100dvh; display:flex; flex-direction:column;
+    background:
+      radial-gradient(1100px 520px at 50% -8%, rgba(176,184,196,.16), transparent 62%),
+      linear-gradient(178deg, #16263d 0%, #1c3149 48%, #142031 100%);
+    background-attachment:fixed;
   }
   .serif{font-family:'Inter',system-ui,sans-serif}
 
   /* PROGRESSO */
-  .progress-wrap{position:sticky; top:0; z-index:20; background:var(--bg)}
+  .progress-wrap{position:sticky; top:0; z-index:20; background:rgba(20,32,49,.85); backdrop-filter:blur(8px)}
+  .progress-track{background:rgba(255,255,255,.12) !important}
   .progress-track{height:5px; width:100%; background:var(--line)}
   .progress-fill{height:100%; width:0; background:linear-gradient(90deg,var(--silver),var(--navy)); border-radius:0 4px 4px 0; transition:width .55s cubic-bezier(.22,1,.36,1)}
 
@@ -44,13 +49,15 @@
   header{padding:20px 16px 8px; text-align:center}
   .logo-slot{display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-bottom:4px}
   .logo-slot img{max-height:54px; max-width:200px; object-fit:contain; display:none}
-  .wordmark{font-family:'Inter',sans-serif; font-weight:700; font-size:22px; letter-spacing:.01em; color:var(--navy-dark); line-height:1}
-  .submark{font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--slate); margin-top:6px; font-weight:600}
+  header{padding:26px 16px 14px !important}
+  .wordmark{font-family:'Inter',sans-serif; font-weight:700; font-size:23px; letter-spacing:.01em; color:#eef1f6; line-height:1}
+  .submark{font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:#aeb7c4; margin-top:6px; font-weight:600}
 
   /* LAYOUT */
   main{flex:1; display:flex; align-items:flex-start; justify-content:center; padding:18px 16px 40px}
   .stage{width:100%; max-width:620px}
-  .card{background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:34px 26px; box-shadow:var(--shadow)}
+  .card{position:relative; background:var(--paper); border:1px solid rgba(255,255,255,.5); border-radius:var(--radius); padding:36px 28px; box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 24px 60px -18px rgba(8,16,28,.55), 0 8px 24px -12px rgba(8,16,28,.4); overflow:hidden}
+  .card::before{content:""; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--silver),var(--navy))}
   .center{text-align:center}
 
   /* STEP / animacao */
@@ -111,7 +118,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .big-serif{font-family:'Inter',sans-serif;font-size:27px;line-height:1.2;margin:8px 0 12px;font-weight:700;letter-spacing:-.01em}
 
-  footer{text-align:center; color:var(--muted); font-size:12px; padding:6px 16px 24px; letter-spacing:.02em}
+  footer{text-align:center; color:rgba(226,231,238,.55); font-size:12px; padding:14px 16px 26px; letter-spacing:.03em}
   .hidden{display:none !important}
 </style>
 </head>
