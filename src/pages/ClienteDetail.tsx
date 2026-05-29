@@ -180,21 +180,40 @@ export default function ClienteDetail() {
     load();
   }, [load]);
 
+  // Helper pra editar um campo do jsonb dados_socioeconomicos no draft
+  const setDS = (key: string, value: string) => {
+    if (!draft) return;
+    setDraft({ ...draft, dados_socioeconomicos: { ...(draft.dados_socioeconomicos || {}), [key]: value } });
+  };
+
   const handleSave = async () => {
     if (!draft) return;
     setSaving(true);
+    // Limpa chaves vazias do jsonb pra nao gravar strings vazias
+    const dsRaw = draft.dados_socioeconomicos || {};
+    const ds: Record<string, any> = {};
+    for (const k of Object.keys(dsRaw)) {
+      const v = dsRaw[k];
+      if (v !== undefined && v !== null && String(v).trim() !== "") ds[k] = v;
+    }
     const { error } = await supabase
       .from("clientes")
       .update({
         nome: draft.nome,
         cpf_cnpj: draft.cpf_cnpj,
+        rg: draft.rg,
+        orgao_expedidor: draft.orgao_expedidor,
+        profissao: draft.profissao,
+        genero: draft.genero,
+        estado_civil: draft.estado_civil,
+        nacionalidade: draft.nacionalidade,
         telefone: draft.telefone,
         email: draft.email,
         endereco: draft.endereco,
-        rg: draft.rg,
-        profissao: draft.profissao,
         observacoes: draft.observacoes,
         drive_folder_url: draft.drive_folder_url,
+        cadastrado_por: draft.cadastrado_por,
+        dados_socioeconomicos: Object.keys(ds).length ? ds : null,
       } as any)
       .eq("id", draft.id);
     setSaving(false);
@@ -236,14 +255,14 @@ export default function ClienteDetail() {
           <User className="h-10 w-10 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-2">
+          <div className="flex items-center gap-3">
             <h1 className="text-3xl font-medium tracking-tight truncate">{cliente.nome}</h1>
             <button
               onClick={() => { setDraft(cliente); setEditing(true); }}
-              className="mt-2 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-              title="Editar dados"
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 h-9 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 hover:border-primary/50 transition-colors"
+              title="Editar todos os dados do cliente"
             >
-              <Pencil className="h-3.5 w-3.5" />
+              <Pencil className="h-4 w-4" /> Editar
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -497,24 +516,71 @@ export default function ClienteDetail() {
 
       {/* DIÁLOGO DE EDIÇÃO ================================================= */}
       <Dialog open={editing} onOpenChange={(v) => { if (!v) setEditing(false); }}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar dados do cliente</DialogTitle>
-            <DialogDescription>Atualize os campos. O nome muda no topo da página depois de salvar.</DialogDescription>
+            <DialogDescription>Todos os campos do cliente. Os dados aqui alimentam o preenchimento automático do Writer e Finder.</DialogDescription>
           </DialogHeader>
-          {draft && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
-              <div className="sm:col-span-2"><Label>Nome</Label><Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></div>
-              <div><Label>CPF/CNPJ</Label><Input value={draft.cpf_cnpj ?? ""} onChange={(e) => setDraft({ ...draft, cpf_cnpj: e.target.value })} /></div>
-              <div><Label>RG</Label><Input value={draft.rg ?? ""} onChange={(e) => setDraft({ ...draft, rg: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label>Profissão</Label><Input value={draft.profissao ?? ""} onChange={(e) => setDraft({ ...draft, profissao: e.target.value })} /></div>
-              <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
-              <div><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
-              <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
-              <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={3} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
+          {draft && (() => {
+            const ds = draft.dados_socioeconomicos || {};
+            return (
+            <div className="space-y-5 py-2">
+              {/* Dados pessoais */}
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Dados pessoais</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2"><Label>Nome</Label><Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></div>
+                  <div><Label>CPF/CNPJ</Label><Input value={draft.cpf_cnpj ?? ""} onChange={(e) => setDraft({ ...draft, cpf_cnpj: e.target.value })} /></div>
+                  <div><Label>RG</Label><Input value={draft.rg ?? ""} onChange={(e) => setDraft({ ...draft, rg: e.target.value })} /></div>
+                  <div><Label>Órgão expedidor</Label><Input value={draft.orgao_expedidor ?? ""} onChange={(e) => setDraft({ ...draft, orgao_expedidor: e.target.value })} placeholder="SSP/AM" /></div>
+                  <div><Label>Profissão</Label><Input value={draft.profissao ?? ""} onChange={(e) => setDraft({ ...draft, profissao: e.target.value })} /></div>
+                  <div>
+                    <Label>Gênero</Label>
+                    <select value={draft.genero ?? ""} onChange={(e) => setDraft({ ...draft, genero: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">Selecione…</option>
+                      <option value="masculino">Masculino</option>
+                      <option value="feminino">Feminino</option>
+                    </select>
+                  </div>
+                  <div><Label>Estado civil</Label><Input value={draft.estado_civil ?? ""} onChange={(e) => setDraft({ ...draft, estado_civil: e.target.value })} placeholder="solteiro, casado…" /></div>
+                  <div><Label>Nacionalidade</Label><Input value={draft.nacionalidade ?? ""} onChange={(e) => setDraft({ ...draft, nacionalidade: e.target.value })} placeholder="brasileiro" /></div>
+                  <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
+                  <div><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
+                  <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
+                  <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={2} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
+                </div>
+              </div>
+
+              {/* Perfil socioeconômico */}
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Perfil socioeconômico</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div><Label>Idade</Label><Input value={ds.idade ?? ""} onChange={(e) => setDS("idade", e.target.value)} /></div>
+                  <div><Label>Escolaridade</Label><Input value={ds.escolaridade ?? ""} onChange={(e) => setDS("escolaridade", e.target.value)} /></div>
+                  <div><Label>Nº de filhos</Label><Input value={ds.numero_filhos ?? ""} onChange={(e) => setDS("numero_filhos", e.target.value)} /></div>
+                  <div><Label>Idades dos filhos</Label><Input value={ds.idades_filhos ?? ""} onChange={(e) => setDS("idades_filhos", e.target.value)} /></div>
+                  <div><Label>Cônjuge trabalha</Label><Input value={ds.conjuge_trabalha ?? ""} onChange={(e) => setDS("conjuge_trabalha", e.target.value)} /></div>
+                  <div><Label>Renda mensal</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} /></div>
+                  <div><Label>Único provedor</Label><Input value={ds.unico_provedor ?? ""} onChange={(e) => setDS("unico_provedor", e.target.value)} /></div>
+                  <div><Label>Tipo de moradia</Label><Input value={ds.tipo_moradia ?? ""} onChange={(e) => setDS("tipo_moradia", e.target.value)} /></div>
+                  <div><Label>Outros dependentes</Label><Input value={ds.outros_dependentes ?? ""} onChange={(e) => setDS("outros_dependentes", e.target.value)} /></div>
+                  <div><Label>Condição de saúde</Label><Input value={ds.condicao_saude ?? ""} onChange={(e) => setDS("condicao_saude", e.target.value)} /></div>
+                  <div className="sm:col-span-2"><Label>Observações livres</Label><Textarea rows={2} value={ds.observacoes_livres ?? ""} onChange={(e) => setDS("observacoes_livres", e.target.value)} /></div>
+                </div>
+              </div>
+
+              {/* Origem & captação */}
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Origem & captação</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div><Label>Cadastrado por</Label><Input value={draft.cadastrado_por ?? ""} onChange={(e) => setDraft({ ...draft, cadastrado_por: e.target.value })} /></div>
+                  <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
+                </div>
+              </div>
             </div>
-          )}
+            );
+          })()}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving}>{saving ? "Salvando…" : "Salvar alterações"}</Button>
