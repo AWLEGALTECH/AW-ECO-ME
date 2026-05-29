@@ -143,6 +143,50 @@ const STATUS_META: Record<string, { label: string; color: string; Icon: any }> =
 
 type AbaKey = "resumo" | "demandas" | "processos";
 
+// Base da landing externa de coleta socioeconomica (dominio proprio do
+// escritorio). O link leva o id do cliente em ?c= e a pagina ja sauda pelo
+// nome e grava as respostas de volta na tabela clientes.
+const LANDING_SOCIO_BASE = "https://matheusenes.vercel.app/socioeconomico/";
+
+function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; telefone: string | null }) {
+  const [copiado, setCopiado] = useState(false);
+  const link = `${LANDING_SOCIO_BASE}?c=${clienteId}`;
+
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiado(true);
+      toast.success("Link gerado e copiado — envie para o cliente preencher.");
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      window.prompt("Copie o link do formulário:", link);
+    }
+  };
+
+  const enviarWhatsApp = () => {
+    let fone = (telefone || "").replace(/\D/g, "");
+    if (fone && !fone.startsWith("55") && fone.length <= 11) fone = "55" + fone;
+    const msg = encodeURIComponent(
+      `Olá! Para darmos andamento ao seu caso, preencha este formulário rápido (leva 1 minuto): ${link}`
+    );
+    const base = fone ? `https://wa.me/${fone}` : `https://wa.me/`;
+    window.open(`${base}?text=${msg}`, "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={copiar}>
+        {copiado ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+        {copiado ? "Copiado" : "Gerar link"}
+      </Button>
+      <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={enviarWhatsApp}>
+        <Send className="h-3.5 w-3.5" />
+        WhatsApp
+      </Button>
+    </div>
+  );
+}
+
 export default function ClienteDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -379,14 +423,17 @@ export default function ClienteDetail() {
             const algumPreenchido = campos.some(c => val(c.key) !== null);
             return (
               <section className="space-y-2">
-                <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1 flex items-center gap-2">
-                  Perfil socioeconômico
-                  {!algumPreenchido && (
-                    <span className="text-[10px] normal-case tracking-normal text-muted-foreground/50 italic">
-                      — ainda não coletado (preenchido via Writer)
-                    </span>
-                  )}
-                </h2>
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-2">
+                    Perfil socioeconômico
+                    {!algumPreenchido && (
+                      <span className="text-[10px] normal-case tracking-normal text-muted-foreground/50 italic">
+                        — ainda não coletado (envie o formulário ao cliente)
+                      </span>
+                    )}
+                  </h2>
+                  <LinkFormularioSocioBtn clienteId={cliente.id} telefone={cliente.telefone} />
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {campos.map(c => {
                     const raw = val(c.key);
