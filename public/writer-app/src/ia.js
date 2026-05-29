@@ -477,13 +477,14 @@ function montarConfigLastroDanoMaterial() {
 function gerarTrechosMock(tentativa = 0) {
   const d = { ...state.dadosPacote1, ...state.dadosPacote2 };
   const prof = d.profissao || 'trabalhador';
-  const filhos = parseInt(d.numero_filhos) || 0;
   const renda = d.renda_mensal ? `R$ ${parseFloat(d.renda_mensal).toLocaleString('pt-BR')}` : 'renda modesta';
   const nome = d.nome_completo || 'a parte autora';
   const ecCasado = d.estado_civil?.includes('cas');
   const ecMasc = ecCasado ? 'casado' : '';
   const ecFem  = ecCasado ? 'casada' : '';
-  const sufFilhos = filhos > 0 ? `, com ${filhos} filho${filhos > 1 ? 's' : ''} sob seus cuidados` : '';
+  // Campo unificado 'dependentes' (texto livre) substitui numero_filhos.
+  const depTxt = (d.dependentes || '').trim();
+  const sufFilhos = depTxt ? `, responsável por ${depTxt}` : '';
 
   // 3 variantes por zona: rotacionam por tentativa (mod 3). Cada variante muda
   // ABERTURA, ORDEM dos argumentos e ÊNFASE — bate com as exigências do
@@ -548,10 +549,8 @@ function gerarTrechosMock(tentativa = 0) {
       ? '[Lastro humanizado desativado pelo advogado.]'
       : (() => {
           const valorTexto = state.dadosPacote3.valor_total_descontos || '0';
-          const filhosNum = parseInt(d.numero_filhos) || 0;
-          const dependentes = filhosNum > 0
-            ? `, com ${filhosNum} filho${filhosNum > 1 ? 's' : ''} dependente${filhosNum > 1 ? 's' : ''}`
-            : '';
+          const depRaw = (d.dependentes || '').trim();
+          const dependentes = depRaw ? `, responsável por ${depRaw}` : '';
           return `Esse montante de R$ ${valorTexto}, embora possa parecer modesto na contabilidade do banco, representa, em termos práticos para a parte autora${dependentes}, recursos com aptidão para custear despesas cotidianas como o gás de cozinha, parte do mercado do mês, conta de luz e transporte público de várias semanas. São compras e contas que entram ou deixam de entrar no orçamento doméstico, e cada subtração desse porte tem potencial concreto de adiar uma despesa essencial e forçar o consumidor a escolher o que pagar antes do quê.`;
         })(),
   };
