@@ -55,9 +55,10 @@ const state = {
 const SEGURANCA_DEFAULT = {
   nome_completo: true, nacionalidade: true, estado_civil: true, profissao: true,
   rg: false, orgao_expedidor: false, cpf: false, endereco_completo: false,
-  idade: true, numero_filhos: true, idades_filhos: true, conjuge_trabalha: true,
-  renda_mensal: true, unico_provedor: true, outros_dependentes: true,
-  tipo_moradia: true, condicao_saude: true, escolaridade: true, observacoes_livres: true,
+  // Perfil socioeconomico (conjunto enxuto) — todos liberados pra IA
+  renda_mensal: true, dependentes: true, conjuge_trabalha: true,
+  unico_provedor: true, tipo_moradia: true, condicao_saude: true,
+  observacoes_livres: true,
   numero_agencia: false, numero_conta: false, data_inicio_descontos: false,
   data_fim_descontos: false, valor_total_descontos: false, valor_dano_moral: false,
   comarca: false, uf: false,
