@@ -48,7 +48,7 @@
   /* HEADER */
   header{padding:20px 16px 8px; text-align:center}
   .logo-slot{display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-bottom:4px}
-  .logo-slot img{max-height:54px; max-width:200px; object-fit:contain; display:none}
+  .logo-slot img{max-height:58px; max-width:260px; object-fit:contain; display:block; filter:drop-shadow(0 2px 8px rgba(0,0,0,.25))}
   header{padding:26px 16px 14px !important}
   .wordmark{font-family:'Inter',sans-serif; font-weight:700; font-size:23px; letter-spacing:.01em; color:#eef1f6; line-height:1}
   .submark{font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:#aeb7c4; margin-top:6px; font-weight:600}
@@ -130,8 +130,8 @@
 
 <header>
   <div class="logo-slot">
-    <img id="logo" src="logo.png" alt="Dr. Matheus Enes" onerror="this.style.display='none'">
-    <div id="wordmarkBox">
+    <img id="logo" src="logo.png" alt="Matheus Enes Advocacia" onerror="this.style.display='none';var w=document.getElementById('wordmarkBox');if(w)w.style.display='block'">
+    <div id="wordmarkBox" style="display:none">
       <div class="wordmark">Matheus Enes</div>
       <div class="submark">Advocacia</div>
     </div>
