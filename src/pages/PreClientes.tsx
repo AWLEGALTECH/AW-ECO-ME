@@ -16,6 +16,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { appConfig } from "@/config/app-config";
@@ -48,9 +49,10 @@ const fmtBRL = (v: number | null) =>
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
 
-function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (driveUrl: string) => void }) {
+function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (driveUrl: string, observacoes: string) => void }) {
   const [open, setOpen] = useState(false);
   const [drive, setDrive] = useState(pre.drive_folder_url ?? "");
+  const [observacoes, setObservacoes] = useState("");
   const [docsConfirmados, setDocsConfirmados] = useState(false);
   const autoCreated = !!pre.drive_folder_url;
 
@@ -65,11 +67,11 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
     }
     setOpen(false);
     setDocsConfirmados(false);
-    onConfirmed(drive.trim());
+    onConfirmed(drive.trim(), observacoes.trim());
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setDrive(pre.drive_folder_url ?? ""); setDocsConfirmados(false); } }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setDrive(pre.drive_folder_url ?? ""); setObservacoes(""); setDocsConfirmados(false); } }}>
       <DialogTrigger asChild>
         <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500">
           <CheckCircle2 className="h-4 w-4 mr-1.5" />
@@ -134,6 +136,24 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
               />
               <span className="text-xs">Já subi todos os documentos do cliente na pasta</span>
             </label>
+          </div>
+
+          {/* Observações do aprovador */}
+          <div className="space-y-2">
+            <Label htmlFor="obs-aprovacao" className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4 text-primary" />
+              Observações <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Textarea
+              id="obs-aprovacao"
+              rows={3}
+              placeholder="Anote algo relevante sobre este cliente antes de aprovar (contexto, pendências, alertas)…"
+              value={observacoes}
+              onChange={(e) => setObservacoes(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Fica registrada no cadastro do cliente, visível na ficha dele.
+            </p>
           </div>
         </div>
 
@@ -364,7 +384,7 @@ export default function PreClientes() {
   const setStage = (key: StageKey, patch: StageState) =>
     setStages((prev) => ({ ...prev, [key]: patch }));
 
-  const iniciarConfirmacao = async (pre: PreCliente, driveFolderUrl: string) => {
+  const iniciarConfirmacao = async (pre: PreCliente, driveFolderUrl: string, observacoes?: string) => {
     if (!user) return;
     setConfirmandoPre(pre);
     setStages(STAGES_INICIAIS);
@@ -389,7 +409,7 @@ export default function PreClientes() {
         estado_civil: pre.estado_civil || dkInicial?.cliente_estado_civil || null,
         orgao_expedidor: pre.orgao_expedidor || dkInicial?.cliente_orgao_expedidor || null,
         genero: dkInicial?.cliente_genero || null,
-        observacoes: null,
+        observacoes: observacoes?.trim() || null,
         drive_folder_url: driveFolderUrl,
         origem: "writer",
         cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
@@ -621,7 +641,7 @@ export default function PreClientes() {
 
                 {podeAgir && (
                   <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-                    <ConfirmarDialog pre={pre} onConfirmed={(driveUrl) => iniciarConfirmacao(pre, driveUrl)} />
+                    <ConfirmarDialog pre={pre} onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
 
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
