@@ -40,10 +40,12 @@
   .serif{font-family:'Inter',system-ui,sans-serif}
 
   /* PROGRESSO */
-  .progress-wrap{position:sticky; top:0; z-index:20; background:rgba(4,30,67,.88); backdrop-filter:blur(8px)}
-  .progress-track{background:rgba(255,255,255,.12) !important}
-  .progress-track{height:5px; width:100%; background:var(--line)}
-  .progress-fill{height:100%; width:0; background:linear-gradient(90deg,var(--silver),var(--navy)); border-radius:0 4px 4px 0; transition:width .55s cubic-bezier(.22,1,.36,1)}
+  .progress-wrap{position:sticky; top:0; z-index:20; background:rgba(4,30,67,.92); backdrop-filter:blur(8px); box-shadow:0 4px 16px rgba(2,12,28,.4)}
+  .progress-track{height:9px; width:100%; background:rgba(255,255,255,.10)}
+  .progress-fill{height:100%; width:0; background:linear-gradient(90deg,#5f93d6 0%,#9cc0ee 55%,#e9f2fd 100%); border-radius:0 6px 6px 0; box-shadow:0 0 16px rgba(140,180,235,.7), 0 0 5px rgba(200,222,248,.9); transition:width .55s cubic-bezier(.22,1,.36,1)}
+  .progress-meta{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 18px 9px; max-width:620px; margin:0 auto}
+  .progress-meta .lbl{font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:#9fb2cc; font-weight:700}
+  .progress-meta .pct{font-size:15px; font-weight:800; color:#eaf2fc; font-variant-numeric:tabular-nums; letter-spacing:.01em}
 
   /* HEADER */
   header{padding:20px 16px 8px; text-align:center}
@@ -126,6 +128,10 @@
 
 <div class="progress-wrap">
   <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+  <div class="progress-meta">
+    <span class="lbl" id="progressLabel">Seu progresso</span>
+    <span class="pct" id="progressPct">0%</span>
+  </div>
 </div>
 
 <header>
@@ -226,7 +232,11 @@ window.LP = (function(){
   var clienteId = new URLSearchParams(location.search).get("c");
 
   var $ = function(id){ return document.getElementById(id); };
-  function setProgress(p){ $("progressFill").style.width = p + "%"; }
+  function setProgress(p, label){
+    var f = $("progressFill"); if (f) f.style.width = p + "%";
+    var t = $("progressPct"); if (t) t.textContent = Math.round(p) + "%";
+    var l = $("progressLabel"); if (l && label !== undefined) l.textContent = label;
+  }
   function show(id){
     ["loading","badlink","intro","stepCard","success"].forEach(function(s){
       $(s).classList.toggle("hidden", s!==id);
@@ -243,7 +253,7 @@ window.LP = (function(){
 
   function renderStep(){
     var s = STEPS[idx];
-    setProgress(s.progress);
+    setProgress(s.progress, "Pergunta " + (idx + 1) + " de " + STEPS.length);
     var last = idx === STEPS.length - 1;
     var cur = answers[s.key] || "";
     var html = '<div class="step">';
@@ -317,7 +327,7 @@ window.LP = (function(){
     STEPS.forEach(function(s){ var v=answers[s.key]; if (v && String(v).trim()!=="") dados[s.key]=String(v).trim(); });
     if (btn){ btn.disabled = true; btn.textContent = "Enviando…"; }
     api({ action:"submit", cliente_id:clienteId, dados:dados }).then(function(res){
-      if (res.status===200 && res.body && res.body.ok){ setProgress(100); show("success"); window.scrollTo({top:0,behavior:"smooth"}); }
+      if (res.status===200 && res.body && res.body.ok){ setProgress(100, "Concluído"); show("success"); window.scrollTo({top:0,behavior:"smooth"}); }
       else { fail(); }
     }).catch(fail);
     function fail(){
