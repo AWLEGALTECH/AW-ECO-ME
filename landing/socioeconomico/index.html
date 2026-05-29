@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>AW ECO ME — Suas informações</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{
+    --bg:#f4f4f6; --card:#ffffff; --ink:#1a1a1f; --muted:#6b6b76;
+    --line:#e6e6ea; --accent:#5b4b8a; --accent-ink:#ffffff;
+    --ok:#1f8a4c; --err:#b3261e; --radius:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg); color:var(--ink);
+    line-height:1.5; font-size:17px;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  .wrap{max-width:560px; margin:0 auto; padding:20px 16px 48px}
+  .brand{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 2px 18px; font-weight:800; letter-spacing:.02em; font-size:18px;
+  }
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);display:inline-block}
+  .card{
+    background:var(--card); border:1px solid var(--line);
+    border-radius:var(--radius); padding:22px 18px;
+    box-shadow:0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(0,0,0,.04);
+  }
+  h1{font-size:24px; line-height:1.25; margin:0 0 8px; font-weight:800}
+  .lead{color:var(--muted); margin:0 0 6px}
+  .reassure{
+    background:#f6f4fb; border:1px solid #ece8f6; color:#4a416e;
+    border-radius:12px; padding:12px 14px; font-size:14.5px; margin:16px 0 4px;
+  }
+  .field{margin-top:20px}
+  label.q{display:block; font-weight:600; margin-bottom:8px; font-size:16.5px}
+  .hint{display:block; font-weight:400; color:var(--muted); font-size:14px; margin-top:2px}
+  input[type=text], textarea, select{
+    width:100%; font:inherit; color:var(--ink); background:#fff;
+    border:1.5px solid var(--line); border-radius:12px; padding:13px 14px;
+    outline:none; transition:border-color .15s, box-shadow .15s;
+  }
+  input[type=text]:focus, textarea:focus, select:focus{
+    border-color:var(--accent); box-shadow:0 0 0 3px rgba(91,75,138,.12);
+  }
+  textarea{resize:vertical; min-height:84px}
+  select{appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%236b6b76' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>"); background-repeat:no-repeat; background-position:right 14px center; padding-right:42px}
+  .money{position:relative}
+  .money .prefix{position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--muted); font-weight:600; pointer-events:none}
+  .money input{padding-left:40px}
+  .btn{
+    width:100%; font:inherit; font-weight:700; font-size:17px;
+    border:none; border-radius:12px; padding:15px 18px; cursor:pointer;
+    background:var(--accent); color:var(--accent-ink); margin-top:26px;
+    transition:filter .15s, transform .05s;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn:hover{filter:brightness(1.06)}
+  .btn[disabled]{opacity:.6; cursor:default}
+  .btn.ghost{background:transparent; color:var(--accent); border:1.5px solid var(--accent); margin-top:12px}
+  .msg{margin-top:14px; padding:12px 14px; border-radius:12px; font-size:15px; display:none}
+  .msg.show{display:block}
+  .msg.err{background:#fdeceb; color:var(--err); border:1px solid #f6cfcc}
+  .center{text-align:center}
+  .big-emoji{font-size:46px; line-height:1; margin:6px 0 10px}
+  .spinner{
+    width:34px;height:34px;border-radius:50%;
+    border:3px solid var(--line); border-top-color:var(--accent);
+    animation:spin .8s linear infinite; margin:30px auto;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .foot{text-align:center; color:var(--muted); font-size:12.5px; margin-top:22px}
+  .hidden{display:none !important}
+  .note{font-size:14px; color:var(--muted); margin-top:6px}
+  .banner{background:#fff8e6; border:1px solid #f3e3b3; color:#7a5a08; border-radius:12px; padding:12px 14px; font-size:14.5px; margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot"></span> AW ECO ME</div>
+
+  <!-- LOADING inicial -->
+  <div id="loading" class="card center">
+    <div class="spinner"></div>
+    <p class="lead">Carregando…</p>
+  </div>
+
+  <!-- ERRO de link -->
+  <div id="badlink" class="card center hidden">
+    <div class="big-emoji">🔗</div>
+    <h1>Link inválido</h1>
+    <p class="lead">Este link não é válido ou expirou. Por favor, peça um novo link ao escritório.</p>
+  </div>
+
+  <!-- FORMULÁRIO -->
+  <div id="form" class="card hidden">
+    <div id="alreadyBanner" class="banner hidden">
+      Você já enviou suas respostas — muito obrigado! Se quiser, pode revisar e enviar de novo.
+    </div>
+    <h1 id="greeting">Olá!</h1>
+    <p class="lead">Para defender melhor o seu caso, precisamos conhecer um pouco da sua realidade. São poucas perguntas — responda com calma.</p>
+    <div class="reassure">🔒 Suas respostas são confidenciais e usadas apenas para fortalecer o seu processo.</div>
+
+    <div class="field">
+      <label class="q" for="renda_mensal">Qual é a sua renda por mês, mais ou menos?
+        <span class="hint">Some tudo o que entra no mês. Se não souber exato, faça uma estimativa.</span>
+      </label>
+      <div class="money">
+        <span class="prefix">R$</span>
+        <input type="text" id="renda_mensal" inputmode="numeric" placeholder="Ex.: 1.500" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="q" for="dependentes">Quantas pessoas dependem de você financeiramente?
+        <span class="hint">Filhos, pais, outros familiares… conte um pouco.</span>
+      </label>
+      <input type="text" id="dependentes" placeholder="Ex.: 2 filhos menores e minha mãe idosa" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label class="q" for="conjuge_trabalha">Seu marido ou sua esposa trabalha?</label>
+      <select id="conjuge_trabalha">
+        <option value="">Selecione…</option>
+        <option value="sim">Sim, trabalha</option>
+        <option value="nao">Não trabalha</option>
+        <option value="nao_se_aplica">Não tenho cônjuge / não se aplica</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="unico_provedor">Você é a única pessoa que sustenta a casa?</label>
+      <select id="unico_provedor">
+        <option value="">Selecione…</option>
+        <option value="sim">Sim, sou o único sustento</option>
+        <option value="nao">Não, há outras rendas em casa</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="tipo_moradia">A casa onde você mora é…</label>
+      <select id="tipo_moradia">
+        <option value="">Selecione…</option>
+        <option value="propria">Própria</option>
+        <option value="alugada">Alugada</option>
+        <option value="financiada">Financiada</option>
+        <option value="cedida">Cedida / emprestada</option>
+        <option value="outros">Outra situação</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="condicao_saude">Você ou alguém da família tem algum problema de saúde, doença ou deficiência?
+        <span class="hint">Se sim, conte qual. Se não houver, pode deixar em branco.</span>
+      </label>
+      <textarea id="condicao_saude" placeholder="Ex.: tenho diabetes e meu filho é autista"></textarea>
+    </div>
+
+    <div class="field">
+      <label class="q" for="observacoes_livres">Quer contar mais alguma coisa sobre a sua situação?
+        <span class="hint">Opcional — fique à vontade.</span>
+      </label>
+      <textarea id="observacoes_livres" placeholder="Espaço livre"></textarea>
+    </div>
+
+    <div id="formMsg" class="msg err"></div>
+    <button id="submitBtn" class="btn" type="button">Enviar minhas respostas</button>
+    <p class="foot">AW ECO ME · seus dados estão seguros</p>
+  </div>
+
+  <!-- SUCESSO -->
+  <div id="success" class="card center hidden">
+    <div class="big-emoji">✅</div>
+    <h1>Recebemos suas respostas!</h1>
+    <p class="lead">Muito obrigado. Essas informações vão nos ajudar a defender melhor o seu caso. Você já pode fechar esta página.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var ENDPOINT = "https://wvltdjspytysuoybcfgb.supabase.co/functions/v1/landing-socioeconomico";
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  var FIELDS = ["renda_mensal","dependentes","conjuge_trabalha","unico_provedor","tipo_moradia","condicao_saude","observacoes_livres"];
+
+  var $ = function(id){ return document.getElementById(id); };
+  function show(id){ ["loading","badlink","form","success"].forEach(function(s){ $(s).classList.toggle("hidden", s!==id); }); }
+
+  var clienteId = new URLSearchParams(location.search).get("c");
+
+  if (!clienteId || !UUID_RE.test(clienteId)) { show("badlink"); return; }
+
+  function api(payload){
+    return fetch(ENDPOINT, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(b){
+        return { status:r.status, body:b };
+      });
+    });
+  }
+
+  // Saudação ao abrir
+  api({ action:"fetch", cliente_id:clienteId }).then(function(res){
+    if (res.status !== 200 || !res.body || !res.body.ok) { show("badlink"); return; }
+    var nome = (res.body.primeiro_nome || "").trim();
+    $("greeting").textContent = nome ? ("Olá, " + capitalize(nome) + "!") : "Olá!";
+    if (res.body.ja_respondido) $("alreadyBanner").classList.remove("hidden");
+    show("form");
+  }).catch(function(){ show("badlink"); });
+
+  function capitalize(s){ return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); }
+
+  $("submitBtn").addEventListener("click", function(){
+    var btn = $("submitBtn");
+    var msg = $("formMsg");
+    msg.classList.remove("show");
+
+    var dados = {};
+    FIELDS.forEach(function(k){
+      var el = $(k);
+      var v = el ? String(el.value || "").trim() : "";
+      if (v) dados[k] = v;
+    });
+
+    btn.disabled = true;
+    btn.textContent = "Enviando…";
+
+    api({ action:"submit", cliente_id:clienteId, dados:dados }).then(function(res){
+      if (res.status === 200 && res.body && res.body.ok) {
+        show("success");
+        window.scrollTo(0,0);
+      } else {
+        fail(res.body && res.body.error);
+      }
+    }).catch(function(){ fail(); });
+
+    function fail(detail){
+      btn.disabled = false;
+      btn.textContent = "Enviar minhas respostas";
+      msg.textContent = "Não conseguimos enviar agora. Verifique sua internet e tente de novo.";
+      msg.classList.add("show");
+    }
+  });
+})();
+</script>
+</body>
+</html>
