@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -222,6 +222,23 @@ export default function ClienteDetail() {
   useEffect(() => {
     document.title = "Cliente — AW ECO ME";
     load();
+  }, [load]);
+
+  // Revalida a ficha quando o advogado volta pra aba e a cada 20s, pra que
+  // respostas enviadas pelo cliente no formulario externo aparecam sem
+  // precisar recarregar. Nao recarrega enquanto estiver editando.
+  const editingRef = useRef(editing);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
+  useEffect(() => {
+    const refetch = () => { if (!editingRef.current && document.visibilityState === "visible") load(); };
+    window.addEventListener("focus", refetch);
+    document.addEventListener("visibilitychange", refetch);
+    const iv = setInterval(refetch, 20_000);
+    return () => {
+      window.removeEventListener("focus", refetch);
+      document.removeEventListener("visibilitychange", refetch);
+      clearInterval(iv);
+    };
   }, [load]);
 
   // Helper pra editar um campo do jsonb dados_socioeconomicos no draft
