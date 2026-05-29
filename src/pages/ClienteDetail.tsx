@@ -37,6 +37,11 @@ interface Cliente {
   endereco: string | null;
   rg: string | null;
   profissao: string | null;
+  genero: string | null;
+  nacionalidade: string | null;
+  estado_civil: string | null;
+  orgao_expedidor: string | null;
+  dados_socioeconomicos: Record<string, any> | null;
   observacoes: string | null;
   drive_folder_url: string | null;
   origem: string | null;
@@ -92,6 +97,14 @@ interface Demanda {
   uf: string | null;
   valor_causa: number | null;
 }
+
+const fmtGenero = (g: string | null): string | null => {
+  if (!g) return null;
+  const k = g.toLowerCase();
+  if (k === "masculino" || k === "m") return "Masculino";
+  if (k === "feminino" || k === "f") return "Feminino";
+  return g;
+};
 
 const fmtBRL = (v: number | null) =>
   v == null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -307,15 +320,57 @@ export default function ClienteDetail() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <Slot icon={CreditCard} label="CPF / CNPJ" value={cliente.cpf_cnpj} />
               <Slot icon={IdCard}     label="RG"         value={cliente.rg} />
+              <Slot icon={IdCard}     label="Órgão expedidor" value={cliente.orgao_expedidor} />
               <Slot icon={Briefcase}  label="Profissão"  value={cliente.profissao} />
+              <Slot icon={User}       label="Gênero"     value={fmtGenero(cliente.genero)} />
+              <Slot icon={User}       label="Estado civil" value={cliente.estado_civil} />
+              <Slot icon={MapPin}     label="Nacionalidade" value={cliente.nacionalidade} />
               <Slot icon={Phone}      label="Telefone"   value={cliente.telefone} />
               <Slot icon={Mail}       label="E-mail"     value={cliente.email} />
-              <Slot icon={MapPin}     label="Endereço"   value={cliente.endereco} />
+              <Slot icon={MapPin}     label="Endereço"   value={cliente.endereco} className="sm:col-span-2 lg:col-span-3" />
               {cliente.observacoes && (
                 <Slot icon={FileText} label="Observações" value={cliente.observacoes} className="sm:col-span-2 lg:col-span-3" />
               )}
             </div>
           </section>
+
+          {(() => {
+            const ds = cliente.dados_socioeconomicos || {};
+            const campos: Array<{ label: string; key: string; icon: any }> = [
+              { label: "Idade",              key: "idade",              icon: User },
+              { label: "Escolaridade",       key: "escolaridade",       icon: FileText },
+              { label: "Nº de filhos",       key: "numero_filhos",      icon: User },
+              { label: "Idades dos filhos",  key: "idades_filhos",      icon: User },
+              { label: "Cônjuge trabalha",   key: "conjuge_trabalha",   icon: User },
+              { label: "Renda mensal",       key: "renda_mensal",       icon: CreditCard },
+              { label: "Único provedor",     key: "unico_provedor",     icon: User },
+              { label: "Tipo de moradia",    key: "tipo_moradia",       icon: MapPin },
+              { label: "Outros dependentes", key: "outros_dependentes", icon: User },
+              { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText },
+              { label: "Observações livres", key: "observacoes_livres", icon: FileText },
+            ];
+            const preenchidos = campos.filter(c => {
+              const v = ds[c.key];
+              return v !== undefined && v !== null && String(v).trim() !== "";
+            });
+            if (preenchidos.length === 0) return null;
+            return (
+              <section className="space-y-2">
+                <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Perfil socioeconômico</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {preenchidos.map(c => (
+                    <Slot
+                      key={c.key}
+                      icon={c.icon}
+                      label={c.label}
+                      value={String(ds[c.key])}
+                      className={c.key === "observacoes_livres" ? "sm:col-span-2 lg:col-span-3" : ""}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })()}
 
           <section className="space-y-2">
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
