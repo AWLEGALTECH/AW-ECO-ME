@@ -362,14 +362,8 @@ export default function ClienteDetail() {
             };
             const campos: Array<{ label: string; key: string; icon: any; wide?: boolean }> = [
               { label: "Idade",              key: "idade",              icon: User },
-              { label: "Escolaridade",       key: "escolaridade",       icon: FileText },
-              { label: "Nº de filhos",       key: "numero_filhos",      icon: User },
-              { label: "Idades dos filhos",  key: "idades_filhos",      icon: User },
-              { label: "Cônjuge trabalha",   key: "conjuge_trabalha",   icon: User },
               { label: "Renda mensal",       key: "renda_mensal",       icon: CreditCard },
-              { label: "Único provedor",     key: "unico_provedor",     icon: User },
-              { label: "Tipo de moradia",    key: "tipo_moradia",       icon: MapPin },
-              { label: "Outros dependentes", key: "outros_dependentes", icon: User },
+              { label: "Dependentes",        key: "dependentes",        icon: User, wide: true },
               { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText, wide: true },
               { label: "Observações livres", key: "observacoes_livres", icon: FileText, wide: true },
             ];
@@ -557,15 +551,9 @@ export default function ClienteDetail() {
                 <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Perfil socioeconômico</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div><Label>Idade</Label><Input value={ds.idade ?? ""} onChange={(e) => setDS("idade", e.target.value)} /></div>
-                  <div><Label>Escolaridade</Label><Input value={ds.escolaridade ?? ""} onChange={(e) => setDS("escolaridade", e.target.value)} /></div>
-                  <div><Label>Nº de filhos</Label><Input value={ds.numero_filhos ?? ""} onChange={(e) => setDS("numero_filhos", e.target.value)} /></div>
-                  <div><Label>Idades dos filhos</Label><Input value={ds.idades_filhos ?? ""} onChange={(e) => setDS("idades_filhos", e.target.value)} /></div>
-                  <div><Label>Cônjuge trabalha</Label><Input value={ds.conjuge_trabalha ?? ""} onChange={(e) => setDS("conjuge_trabalha", e.target.value)} /></div>
-                  <div><Label>Renda mensal</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} /></div>
-                  <div><Label>Único provedor</Label><Input value={ds.unico_provedor ?? ""} onChange={(e) => setDS("unico_provedor", e.target.value)} /></div>
-                  <div><Label>Tipo de moradia</Label><Input value={ds.tipo_moradia ?? ""} onChange={(e) => setDS("tipo_moradia", e.target.value)} /></div>
-                  <div><Label>Outros dependentes</Label><Input value={ds.outros_dependentes ?? ""} onChange={(e) => setDS("outros_dependentes", e.target.value)} /></div>
-                  <div><Label>Condição de saúde</Label><Input value={ds.condicao_saude ?? ""} onChange={(e) => setDS("condicao_saude", e.target.value)} /></div>
+                  <div><Label>Renda mensal (R$)</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} placeholder="ex: 1800" /></div>
+                  <div className="sm:col-span-2"><Label>Dependentes</Label><Input value={ds.dependentes ?? ""} onChange={(e) => setDS("dependentes", e.target.value)} placeholder="ex: 3 filhos menores, mãe idosa, cônjuge desempregado" /></div>
+                  <div className="sm:col-span-2"><Label>Condição de saúde relevante</Label><Input value={ds.condicao_saude ?? ""} onChange={(e) => setDS("condicao_saude", e.target.value)} placeholder="ex: hipertensão, uso contínuo de medicação" /></div>
                   <div className="sm:col-span-2"><Label>Observações livres</Label><Textarea rows={2} value={ds.observacoes_livres ?? ""} onChange={(e) => setDS("observacoes_livres", e.target.value)} /></div>
                 </div>
               </div>
