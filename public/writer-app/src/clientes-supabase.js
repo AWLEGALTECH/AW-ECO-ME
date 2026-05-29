@@ -18,9 +18,8 @@ function _awHeaders() {
 // Converte registro do banco -> shape esperado pelo writer
 //   pacote1: nome_completo, genero, nacionalidade, estado_civil, profissao,
 //            rg, orgao_expedidor, cpf, endereco_completo
-//   pacote2: idade, escolaridade, numero_filhos, idades_filhos,
-//            conjuge_trabalha, renda_mensal, unico_provedor, tipo_moradia,
-//            outros_dependentes, condicao_saude, observacoes_livres
+//   pacote2 (enxuto): renda_mensal, dependentes, conjuge_trabalha,
+//            unico_provedor, tipo_moradia, condicao_saude, observacoes_livres
 function _dbToWriterShape(row) {
   if (!row) return null;
   const ds = row.dados_socioeconomicos || {};
