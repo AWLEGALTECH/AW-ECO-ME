@@ -37,10 +37,12 @@ function _dbToWriterShape(row) {
     orgao_expedidor:    row.orgao_expedidor || '',
     cpf:                row.cpf_cnpj || '',
     endereco_completo:  row.endereco || '',
-    // pacote 2 (vindo do jsonb) — conjunto enxuto
-    idade:              ds.idade ?? '',
+    // pacote 2 (vindo do jsonb) — conjunto enxuto focado em vulnerabilidade
     renda_mensal:       ds.renda_mensal ?? '',
     dependentes:        ds.dependentes ?? '',
+    conjuge_trabalha:   ds.conjuge_trabalha ?? '',
+    unico_provedor:     ds.unico_provedor ?? '',
+    tipo_moradia:       ds.tipo_moradia ?? '',
     condicao_saude:     ds.condicao_saude ?? '',
     observacoes_livres: ds.observacoes_livres ?? '',
   };
@@ -121,7 +123,7 @@ async function salvarDadosClienteAW(clienteId) {
 
   // dados_socioeconomicos: pega o que tiver no pacote 2
   const camposP2 = [
-    'idade','renda_mensal','dependentes','condicao_saude','observacoes_livres'
+    'renda_mensal','dependentes','conjuge_trabalha','unico_provedor','tipo_moradia','condicao_saude','observacoes_livres'
   ];
   const dadosSocio = {};
   for (const k of camposP2) {
@@ -209,6 +211,6 @@ function aplicarClienteNoState(c) {
     'rg','orgao_expedidor','cpf','endereco_completo'
   ].forEach(k => { state.dadosPacote1[k] = c[k] || ''; });
   [
-    'idade','renda_mensal','dependentes','condicao_saude','observacoes_livres'
+    'renda_mensal','dependentes','conjuge_trabalha','unico_provedor','tipo_moradia','condicao_saude','observacoes_livres'
   ].forEach(k => { state.dadosPacote2[k] = c[k] ?? ''; });
 }

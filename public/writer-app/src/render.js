@@ -1691,9 +1691,27 @@ function selecionarCliente(id) {
    ========================================================================= */
 function renderPacote2(view) {
   const campos = [
-    { key: 'idade', label: 'Idade', tipo: 'number' },
     { key: 'renda_mensal', label: 'Renda mensal (R$)', tipo: 'number', placeholder: 'ex: 1800' },
-    { key: 'dependentes', label: 'Dependentes', tipo: 'text', wide: true, placeholder: 'quem depende da renda? ex: 3 filhos menores, mãe idosa, cônjuge desempregado' },
+    { key: 'dependentes', label: 'Dependentes', tipo: 'text', wide: true, placeholder: 'quem depende da renda? ex: 3 filhos menores, mãe idosa' },
+    { key: 'conjuge_trabalha', label: 'Cônjuge trabalha?', tipo: 'select', opcoes: [
+      { value: '', label: '— selecione —' },
+      { value: 'sim', label: 'Sim' },
+      { value: 'nao', label: 'Não (desempregado / do lar)' },
+      { value: 'nao_se_aplica', label: 'Não se aplica (sem cônjuge)' },
+    ] },
+    { key: 'unico_provedor', label: 'Único provedor do lar?', tipo: 'select', opcoes: [
+      { value: '', label: '— selecione —' },
+      { value: 'sim', label: 'Sim' },
+      { value: 'nao', label: 'Não' },
+    ] },
+    { key: 'tipo_moradia', label: 'Tipo de moradia', tipo: 'select', opcoes: [
+      { value: '', label: '— selecione —' },
+      { value: 'propria', label: 'Própria' },
+      { value: 'alugada', label: 'Alugada' },
+      { value: 'financiada', label: 'Financiada' },
+      { value: 'cedida', label: 'Cedida' },
+      { value: 'outros', label: 'Outros' },
+    ] },
     { key: 'condicao_saude', label: 'Condição de saúde relevante', tipo: 'text', wide: true, placeholder: 'ex: hipertensão, uso contínuo de medicação, deficiência' },
     { key: 'observacoes_livres', label: 'Observações adicionais', tipo: 'textarea', placeholder: 'Qualquer contexto de vulnerabilidade que ajude a personalizar a peça', wide: true },
   ];

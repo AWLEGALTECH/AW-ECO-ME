@@ -360,10 +360,19 @@ export default function ClienteDetail() {
               const v = ds[k];
               return (v === undefined || v === null || String(v).trim() === "") ? null : String(v);
             };
-            const campos: Array<{ label: string; key: string; icon: any; wide?: boolean }> = [
-              { label: "Idade",              key: "idade",              icon: User },
+            const fmtSelect = (v: any): string => {
+              const map: Record<string, string> = {
+                sim: "Sim", nao: "Não", nao_se_aplica: "Não se aplica",
+                propria: "Própria", alugada: "Alugada", financiada: "Financiada", cedida: "Cedida", outros: "Outros",
+              };
+              return map[String(v)] || String(v);
+            };
+            const campos: Array<{ label: string; key: string; icon: any; wide?: boolean; fmt?: (v: any) => string }> = [
               { label: "Renda mensal",       key: "renda_mensal",       icon: CreditCard },
               { label: "Dependentes",        key: "dependentes",        icon: User, wide: true },
+              { label: "Cônjuge trabalha",   key: "conjuge_trabalha",   icon: User, fmt: fmtSelect },
+              { label: "Único provedor",     key: "unico_provedor",     icon: User, fmt: fmtSelect },
+              { label: "Tipo de moradia",    key: "tipo_moradia",       icon: MapPin, fmt: fmtSelect },
               { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText, wide: true },
               { label: "Observações livres", key: "observacoes_livres", icon: FileText, wide: true },
             ];
@@ -379,15 +388,18 @@ export default function ClienteDetail() {
                   )}
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {campos.map(c => (
-                    <Slot
-                      key={c.key}
-                      icon={c.icon}
-                      label={c.label}
-                      value={val(c.key)}
-                      className={c.wide ? "sm:col-span-2 lg:col-span-3" : ""}
-                    />
-                  ))}
+                  {campos.map(c => {
+                    const raw = val(c.key);
+                    return (
+                      <Slot
+                        key={c.key}
+                        icon={c.icon}
+                        label={c.label}
+                        value={raw !== null && c.fmt ? c.fmt(raw) : raw}
+                        className={c.wide ? "sm:col-span-2 lg:col-span-3" : ""}
+                      />
+                    );
+                  })}
                 </div>
               </section>
             );
@@ -550,9 +562,39 @@ export default function ClienteDetail() {
               <div className="space-y-2">
                 <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Perfil socioeconômico</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><Label>Idade</Label><Input value={ds.idade ?? ""} onChange={(e) => setDS("idade", e.target.value)} /></div>
                   <div><Label>Renda mensal (R$)</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} placeholder="ex: 1800" /></div>
-                  <div className="sm:col-span-2"><Label>Dependentes</Label><Input value={ds.dependentes ?? ""} onChange={(e) => setDS("dependentes", e.target.value)} placeholder="ex: 3 filhos menores, mãe idosa, cônjuge desempregado" /></div>
+                  <div className="sm:col-span-2"><Label>Dependentes</Label><Input value={ds.dependentes ?? ""} onChange={(e) => setDS("dependentes", e.target.value)} placeholder="ex: 3 filhos menores, mãe idosa" /></div>
+                  <div>
+                    <Label>Cônjuge trabalha?</Label>
+                    <select value={ds.conjuge_trabalha ?? ""} onChange={(e) => setDS("conjuge_trabalha", e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">— selecione —</option>
+                      <option value="sim">Sim</option>
+                      <option value="nao">Não (desempregado / do lar)</option>
+                      <option value="nao_se_aplica">Não se aplica (sem cônjuge)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Único provedor do lar?</Label>
+                    <select value={ds.unico_provedor ?? ""} onChange={(e) => setDS("unico_provedor", e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">— selecione —</option>
+                      <option value="sim">Sim</option>
+                      <option value="nao">Não</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Tipo de moradia</Label>
+                    <select value={ds.tipo_moradia ?? ""} onChange={(e) => setDS("tipo_moradia", e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">— selecione —</option>
+                      <option value="propria">Própria</option>
+                      <option value="alugada">Alugada</option>
+                      <option value="financiada">Financiada</option>
+                      <option value="cedida">Cedida</option>
+                      <option value="outros">Outros</option>
+                    </select>
+                  </div>
                   <div className="sm:col-span-2"><Label>Condição de saúde relevante</Label><Input value={ds.condicao_saude ?? ""} onChange={(e) => setDS("condicao_saude", e.target.value)} placeholder="ex: hipertensão, uso contínuo de medicação" /></div>
                   <div className="sm:col-span-2"><Label>Observações livres</Label><Textarea rows={2} value={ds.observacoes_livres ?? ""} onChange={(e) => setDS("observacoes_livres", e.target.value)} /></div>
                 </div>

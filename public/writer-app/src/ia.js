@@ -482,9 +482,14 @@ function gerarTrechosMock(tentativa = 0) {
   const ecCasado = d.estado_civil?.includes('cas');
   const ecMasc = ecCasado ? 'casado' : '';
   const ecFem  = ecCasado ? 'casada' : '';
-  // Campo unificado 'dependentes' (texto livre) substitui numero_filhos.
+  // Campo unificado 'dependentes' (texto livre) + sinais de vulnerabilidade
+  // do nucleo familiar (conjuge, provedor unico, moradia).
   const depTxt = (d.dependentes || '').trim();
-  const sufFilhos = depTxt ? `, responsável por ${depTxt}` : '';
+  const conjugeFrag = d.conjuge_trabalha === 'nao' ? ', cujo cônjuge não exerce atividade remunerada' : '';
+  const provedorFrag = d.unico_provedor === 'sim' ? ', único provedor do lar' : '';
+  const moradiaMap = { alugada: 'residindo em imóvel alugado', cedida: 'residindo em imóvel cedido', financiada: 'com imóvel ainda financiado' };
+  const moradiaFrag = moradiaMap[d.tipo_moradia] ? `, ${moradiaMap[d.tipo_moradia]}` : '';
+  const sufFilhos = `${depTxt ? `, responsável por ${depTxt}` : ''}${provedorFrag}${conjugeFrag}${moradiaFrag}`;
 
   // 3 variantes por zona: rotacionam por tentativa (mod 3). Cada variante muda
   // ABERTURA, ORDEM dos argumentos e ÊNFASE — bate com as exigências do
