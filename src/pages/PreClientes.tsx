@@ -86,12 +86,26 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="drive-url" className="flex items-center gap-2 text-sm">
-              <FolderOpen className="h-4 w-4 text-primary" />
-              Pasta do Google Drive <span className="text-destructive">*</span>
-            </Label>
+        <div className="space-y-4 pt-1">
+          {/* Pasta do Drive */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="drive-url" className="flex items-center gap-2 text-sm">
+                <FolderOpen className="h-4 w-4 text-primary" />
+                Pasta do Google Drive <span className="text-destructive">*</span>
+              </Label>
+              {driveValido && (
+                <a
+                  href={drive.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline shrink-0"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Abrir
+                </a>
+              )}
+            </div>
             <Input
               id="drive-url"
               type="url"
@@ -102,58 +116,46 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
             />
             {autoCreated && (
               <p className="text-[11px] text-emerald-400 inline-flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Pasta criada automaticamente quando o pré-cliente nasceu.
+                <CheckCircle2 className="h-3 w-3" /> Pasta criada automaticamente.
               </p>
             )}
           </div>
 
-          {/* Confirmação dos documentos */}
-          <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 space-y-3">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
-              <div className="space-y-1 text-xs">
-                <p className="font-medium text-amber-200">Subiu os documentos no Drive?</p>
-                <p className="text-muted-foreground">
-                  Após confirmar, a IA vai detectar e renomear automaticamente os arquivos da pasta (RG, contrato, comprovante, extrato, etc).
-                </p>
-              </div>
+          {/* Confirmação dos documentos — linha clicável */}
+          <label
+            className={`flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer select-none transition-colors ${
+              docsConfirmados
+                ? "border-emerald-500/30 bg-emerald-500/5"
+                : "border-amber-400/30 bg-amber-400/5"
+            }`}
+          >
+            <Checkbox
+              checked={docsConfirmados}
+              onCheckedChange={(v) => setDocsConfirmados(!!v)}
+              className="mt-0.5"
+            />
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium leading-tight">Já subi todos os documentos na pasta</p>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Após confirmar, a IA detecta e renomeia os arquivos (RG, contrato, comprovante, extrato…).
+              </p>
             </div>
-            {driveValido && (
-              <a
-                href={drive.trim()}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Abrir pasta no Drive
-              </a>
-            )}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <Checkbox
-                checked={docsConfirmados}
-                onCheckedChange={(v) => setDocsConfirmados(!!v)}
-              />
-              <span className="text-xs">Já subi todos os documentos do cliente na pasta</span>
-            </label>
-          </div>
+          </label>
 
           {/* Observações do aprovador */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="obs-aprovacao" className="flex items-center gap-2 text-sm">
               <FileText className="h-4 w-4 text-primary" />
-              Observações <span className="text-muted-foreground font-normal">(opcional)</span>
+              Observações <span className="text-muted-foreground font-normal text-xs">· opcional</span>
             </Label>
             <Textarea
               id="obs-aprovacao"
               rows={3}
-              placeholder="Anote algo relevante sobre este cliente antes de aprovar (contexto, pendências, alertas)…"
+              placeholder="Algo relevante sobre o cliente (contexto, pendências, alertas)…"
               value={observacoes}
               onChange={(e) => setObservacoes(e.target.value)}
             />
-            <p className="text-[11px] text-muted-foreground">
-              Fica registrada no cadastro do cliente, visível na ficha dele.
-            </p>
+            <p className="text-[11px] text-muted-foreground">Fica registrada na ficha do cliente.</p>
           </div>
         </div>
 
