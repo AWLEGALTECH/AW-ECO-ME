@@ -7,19 +7,20 @@
 <title>Dr. Matheus Enes — Advocacia</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <style>
   :root{
-    --bg:#f6f4ef;          /* off-white quente */
+    --bg:#f3f4f6;          /* cinza neutro claro */
     --paper:#ffffff;
     --ink:#1b2435;         /* navy/charcoal */
     --ink-soft:#3a4456;
-    --muted:#7a8190;
-    --line:#e7e3da;
+    --muted:#727a86;
+    --line:#e3e6ea;
     --navy:#1f3350;        /* primaria */
     --navy-dark:#16263d;
-    --gold:#a98b5d;        /* acento discreto */
-    --gold-soft:#d8c8aa;
+    --silver:#9aa1ab;      /* acento prata */
+    --silver-soft:#d3d7dd;
+    --slate:#5a626d;       /* texto de acento sobrio */
     --err:#a3372f;
     --radius:18px;
     --shadow:0 1px 2px rgba(27,36,53,.04), 0 12px 40px rgba(27,36,53,.07);
@@ -32,19 +33,19 @@
     line-height:1.5; font-size:17px;
     min-height:100dvh; display:flex; flex-direction:column;
   }
-  .serif{font-family:'Cormorant Garamond',Georgia,serif}
+  .serif{font-family:'Inter',system-ui,sans-serif}
 
   /* PROGRESSO */
   .progress-wrap{position:sticky; top:0; z-index:20; background:var(--bg)}
   .progress-track{height:5px; width:100%; background:var(--line)}
-  .progress-fill{height:100%; width:0; background:linear-gradient(90deg,var(--gold),var(--navy)); border-radius:0 4px 4px 0; transition:width .55s cubic-bezier(.22,1,.36,1)}
+  .progress-fill{height:100%; width:0; background:linear-gradient(90deg,var(--silver),var(--navy)); border-radius:0 4px 4px 0; transition:width .55s cubic-bezier(.22,1,.36,1)}
 
   /* HEADER */
   header{padding:20px 16px 8px; text-align:center}
   .logo-slot{display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-bottom:4px}
   .logo-slot img{max-height:54px; max-width:200px; object-fit:contain; display:none}
-  .wordmark{font-family:'Cormorant Garamond',serif; font-weight:700; font-size:25px; letter-spacing:.04em; color:var(--navy-dark); line-height:1}
-  .submark{font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:var(--gold); margin-top:5px; font-weight:600}
+  .wordmark{font-family:'Inter',sans-serif; font-weight:700; font-size:22px; letter-spacing:.01em; color:var(--navy-dark); line-height:1}
+  .submark{font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--slate); margin-top:6px; font-weight:600}
 
   /* LAYOUT */
   main{flex:1; display:flex; align-items:flex-start; justify-content:center; padding:18px 16px 40px}
@@ -56,15 +57,15 @@
   .step{animation:rise .45s cubic-bezier(.22,1,.36,1)}
   @keyframes rise{from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none}}
 
-  .eyebrow{font-size:12.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); font-weight:600; margin-bottom:14px}
-  h1.q{font-family:'Cormorant Garamond',serif; font-weight:600; font-size:30px; line-height:1.18; margin:0 0 10px; color:var(--ink)}
+  .eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--slate); font-weight:600; margin-bottom:14px}
+  h1.q{font-family:'Inter',sans-serif; font-weight:700; font-size:25px; line-height:1.25; margin:0 0 10px; color:var(--ink); letter-spacing:-.01em}
   .hint{color:var(--muted); font-size:15px; margin:0 0 22px}
 
   /* INTRO */
-  .intro h1{font-family:'Cormorant Garamond',serif; font-weight:600; font-size:34px; line-height:1.12; margin:6px 0 12px}
+  .intro h1{font-family:'Inter',sans-serif; font-weight:700; font-size:27px; line-height:1.2; margin:6px 0 12px; letter-spacing:-.01em}
   .intro p{color:var(--ink-soft); margin:0 0 14px; font-size:16.5px}
-  .seal{width:48px;height:48px;border-radius:50%;border:1.5px solid var(--gold-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:var(--gold)}
-  .reassure{display:flex; gap:10px; align-items:flex-start; background:#fbf9f4; border:1px solid var(--gold-soft); color:#6f5d3c; border-radius:12px; padding:13px 15px; font-size:14px; text-align:left; margin-top:18px}
+  .seal{width:48px;height:48px;border-radius:50%;border:1.5px solid var(--silver-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:var(--slate)}
+  .reassure{display:flex; gap:10px; align-items:flex-start; background:#f5f6f8; border:1px solid var(--silver-soft); color:#545b66; border-radius:12px; padding:13px 15px; font-size:14px; text-align:left; margin-top:18px}
   .reassure svg{flex:0 0 auto;margin-top:1px}
 
   /* INPUTS */
@@ -83,7 +84,7 @@
   /* OPCOES (radio cards) */
   .opts{display:flex; flex-direction:column; gap:10px}
   .opt{display:flex; align-items:center; gap:13px; border:1.5px solid var(--line); border-radius:13px; padding:15px 16px; cursor:pointer; transition:border-color .15s, background .15s; background:#fff; user-select:none}
-  .opt:hover{border-color:var(--gold-soft)}
+  .opt:hover{border-color:var(--silver)}
   .opt.sel{border-color:var(--navy); background:#f7f9fc}
   .opt .tick{width:21px;height:21px;border-radius:50%;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;transition:border-color .15s}
   .opt.sel .tick{border-color:var(--navy)}
@@ -108,7 +109,7 @@
 
   .spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--navy);animation:spin .8s linear infinite;margin:34px auto}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .big-serif{font-family:'Cormorant Garamond',serif;font-size:36px;line-height:1.1;margin:8px 0 12px;font-weight:600}
+  .big-serif{font-family:'Inter',sans-serif;font-size:27px;line-height:1.2;margin:8px 0 12px;font-weight:700;letter-spacing:-.01em}
 
   footer{text-align:center; color:var(--muted); font-size:12px; padding:6px 16px 24px; letter-spacing:.02em}
   .hidden{display:none !important}
