@@ -43,6 +43,7 @@ interface Cliente {
   orgao_expedidor: string | null;
   dados_socioeconomicos: Record<string, any> | null;
   observacoes: string | null;
+  precisa_analise_extratos: boolean | null;
   drive_folder_url: string | null;
   origem: string | null;
   cadastrado_por: string | null;
@@ -336,7 +337,11 @@ export default function ClienteDetail() {
 
           {(() => {
             const ds = cliente.dados_socioeconomicos || {};
-            const campos: Array<{ label: string; key: string; icon: any }> = [
+            const val = (k: string): string | null => {
+              const v = ds[k];
+              return (v === undefined || v === null || String(v).trim() === "") ? null : String(v);
+            };
+            const campos: Array<{ label: string; key: string; icon: any; wide?: boolean }> = [
               { label: "Idade",              key: "idade",              icon: User },
               { label: "Escolaridade",       key: "escolaridade",       icon: FileText },
               { label: "Nº de filhos",       key: "numero_filhos",      icon: User },
@@ -346,31 +351,45 @@ export default function ClienteDetail() {
               { label: "Único provedor",     key: "unico_provedor",     icon: User },
               { label: "Tipo de moradia",    key: "tipo_moradia",       icon: MapPin },
               { label: "Outros dependentes", key: "outros_dependentes", icon: User },
-              { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText },
-              { label: "Observações livres", key: "observacoes_livres", icon: FileText },
+              { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText, wide: true },
+              { label: "Observações livres", key: "observacoes_livres", icon: FileText, wide: true },
             ];
-            const preenchidos = campos.filter(c => {
-              const v = ds[c.key];
-              return v !== undefined && v !== null && String(v).trim() !== "";
-            });
-            if (preenchidos.length === 0) return null;
+            const algumPreenchido = campos.some(c => val(c.key) !== null);
             return (
               <section className="space-y-2">
-                <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Perfil socioeconômico</h2>
+                <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1 flex items-center gap-2">
+                  Perfil socioeconômico
+                  {!algumPreenchido && (
+                    <span className="text-[10px] normal-case tracking-normal text-muted-foreground/50 italic">
+                      — ainda não coletado (preenchido via Writer)
+                    </span>
+                  )}
+                </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {preenchidos.map(c => (
+                  {campos.map(c => (
                     <Slot
                       key={c.key}
                       icon={c.icon}
                       label={c.label}
-                      value={String(ds[c.key])}
-                      className={c.key === "observacoes_livres" ? "sm:col-span-2 lg:col-span-3" : ""}
+                      value={val(c.key)}
+                      className={c.wide ? "sm:col-span-2 lg:col-span-3" : ""}
                     />
                   ))}
                 </div>
               </section>
             );
           })()}
+
+          <section className="space-y-2">
+            <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Origem & captação</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <Slot icon={User} label="Cadastrado por" value={cliente.cadastrado_por} />
+              <Slot icon={FileSignature} label="Origem do cadastro" value={cliente.origem === "writer" ? "Procuração (Writer)" : cliente.origem === "manual" ? "Cadastro manual" : cliente.origem} />
+              <Slot icon={Clock} label="Cliente desde" value={fmtDate(cliente.created_at)} />
+              <Slot icon={ScanSearch} label="Perfil de análise" value={cliente.precisa_analise_extratos ? "Sim — aguardando/em análise de extratos" : "Não"} />
+              <Slot icon={FolderOpen} label="Pasta no Drive" value={cliente.drive_folder_url} isLink className="sm:col-span-2" />
+            </div>
+          </section>
 
           <section className="space-y-2">
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
