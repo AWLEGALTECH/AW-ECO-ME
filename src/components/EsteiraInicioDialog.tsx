@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -163,6 +163,25 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                   clienteNome={cliente.nome}
                   driveFolderUrl={cliente.drive_folder_url}
                 />
+              )}
+
+              {/* Atalho pro perfil completo do cliente */}
+              {cliente && (
+                <a
+                  href={`/clientes/${cliente.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
+                >
+                  <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                    <User className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">Abrir perfil do cliente</p>
+                    <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-primary opacity-70" />
+                </a>
               )}
 
               <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-2">Decisão</div>
