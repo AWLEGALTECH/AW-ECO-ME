@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare,
+  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer,
   Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X, ChevronDown,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
@@ -289,7 +289,7 @@ export default function Esteira() {
           <Coluna
             titulo="3. Fluxo artesanal"
             descricao="Casos não-Bradesco — peça será confeccionada manualmente"
-            icon={PenSquare}
+            icon={Hammer}
             cor="primary"
             count={artesanais.length}
           >
@@ -558,7 +558,7 @@ function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvan
   return (
     <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <PenSquare className="h-3 w-3 text-primary shrink-0" />
+        <Hammer className="h-3 w-3 text-primary shrink-0" />
         <span className="text-xs font-semibold truncate flex-1">
           {demanda.desconto || demanda.titulo}
         </span>

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, PenSquare, Building2,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -170,7 +170,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                   disabled={saving}
                   className="justify-start gap-2 h-auto py-3"
                 >
-                  <PenSquare className="h-4 w-4 text-primary" />
+                  <Hammer className="h-4 w-4 text-primary" />
                   <div className="text-left">
                     <p className="text-sm font-medium">Seguir fluxo artesanal</p>
                     <p className="text-[11px] opacity-80 font-normal">Caso não-Bradesco. A peça será feita à mão.</p>
