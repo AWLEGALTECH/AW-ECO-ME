@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer,
+  ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
   Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X, ChevronDown,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
@@ -41,6 +41,7 @@ interface ClienteEsteira {
   created_at: string;
   origem: string | null;
   drive_folder_url: string | null;
+  requerido: string | null;
 }
 
 const tempoDecorrido = (iso: string | null): string => {
@@ -90,7 +91,7 @@ export default function Esteira() {
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
-        .select("id, nome, created_at, origem, drive_folder_url")
+        .select("id, nome, created_at, origem, drive_folder_url, requerido")
         .eq("precisa_analise_extratos" as any, true)
         .order("created_at", { ascending: false });
       if (e1) throw e1;
@@ -237,7 +238,18 @@ export default function Esteira() {
                   key={c.id}
                   onClick={() => setInicioCliente(c)}
                   titulo={c.nome}
-                  sub={c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
+                  sub={
+                    c.requerido ? (
+                      <span className="inline-flex items-center gap-1.5 text-foreground/80">
+                        <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="truncate">{c.requerido}</span>
+                      </span>
+                    ) : (
+                      <span className="text-foreground/80">
+                        {c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
+                      </span>
+                    )
+                  }
                   data={c.created_at}
                   acao="Iniciar análise"
                   acaoIcon={ScanSearch}
@@ -520,7 +532,7 @@ function CardBotao({
 }: {
   onClick: () => void;
   titulo: string;
-  sub: string;
+  sub: ReactNode;
   data: string | null;
   acao: string;
   acaoIcon?: any;
@@ -534,7 +546,7 @@ function CardBotao({
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold truncate">{titulo}</span>
       </div>
-      <p className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</p>
+      <div className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</div>
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
           <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}

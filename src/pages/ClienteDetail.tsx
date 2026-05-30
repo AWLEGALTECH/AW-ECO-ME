@@ -47,6 +47,7 @@ interface Cliente {
   drive_folder_url: string | null;
   origem: string | null;
   cadastrado_por: string | null;
+  requerido: string | null;
   created_at: string;
 }
 
@@ -319,6 +320,7 @@ export default function ClienteDetail() {
         observacoes: draft.observacoes,
         drive_folder_url: draft.drive_folder_url,
         cadastrado_por: draft.cadastrado_por,
+        requerido: draft.requerido,
         dados_socioeconomicos: Object.keys(ds).length ? ds : {},
       } as any)
       .eq("id", draft.id);
@@ -518,6 +520,7 @@ export default function ClienteDetail() {
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Origem & captação</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <Slot icon={User} label="Cadastrado por" value={cliente.cadastrado_por} />
+              <Slot icon={Building2} label="Requerido (réu)" value={cliente.requerido} />
               <Slot icon={FileSignature} label="Origem do cadastro" value={cliente.origem === "writer" ? "Procuração (Writer)" : cliente.origem === "manual" ? "Cadastro manual" : cliente.origem} />
               <Slot icon={Clock} label="Cliente desde" value={fmtDate(cliente.created_at)} />
               <Slot icon={ScanSearch} label="Perfil de análise" value={cliente.precisa_analise_extratos ? "Sim — aguardando/em análise de extratos" : "Não"} />
@@ -714,6 +717,7 @@ export default function ClienteDetail() {
                 <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Origem & captação</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div><Label>Cadastrado por</Label><Input value={draft.cadastrado_por ?? ""} onChange={(e) => setDraft({ ...draft, cadastrado_por: e.target.value })} /></div>
+                  <div><Label>Requerido (réu)</Label><Input value={draft.requerido ?? ""} onChange={(e) => setDraft({ ...draft, requerido: e.target.value })} placeholder="Ex.: Banco Bradesco" /></div>
                   <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
                 </div>
               </div>
