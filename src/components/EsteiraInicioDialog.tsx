@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -26,7 +26,7 @@ export type TipoPendencia = typeof TIPOS_PENDENCIA[number]["key"];
 interface Props {
   open: boolean;
   onClose: () => void;
-  cliente: { id: string; nome: string; drive_folder_url?: string | null } | null;
+  cliente: { id: string; nome: string; drive_folder_url?: string | null; observacoes?: string | null } | null;
   userId: string | null;
   onCreated: () => void;
   // Sobrescreve o que acontece em "Seguir fluxo Bradesco".
@@ -141,6 +141,21 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
+              {/* Observacoes deixadas por quem aprovou o pre-cliente */}
+              {cliente?.observacoes && (
+                <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 flex items-start gap-2.5">
+                  <MessageSquare className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div className="space-y-1 min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 font-semibold">
+                      Observação do aprovador
+                    </p>
+                    <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
+                      {cliente.observacoes}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Passo 1: Drive */}
               {cliente && (
                 <DriveFolderButton
