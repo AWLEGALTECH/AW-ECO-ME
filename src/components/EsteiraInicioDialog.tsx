@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, PenSquare, Building2,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -29,21 +29,18 @@ interface Props {
   cliente: { id: string; nome: string; drive_folder_url?: string | null } | null;
   userId: string | null;
   onCreated: () => void;
-  // Sobrescreve o que acontece em "Confirmar viabilidade" / "Salvar e seguir".
+  // Sobrescreve o que acontece em "Seguir fluxo Bradesco".
   // Default: navega pra /finder?cliente=...&nome=...
-  // Quando custom, deve cuidar da propria navegacao/setup.
   onConfirmar?: () => Promise<void> | void;
-  // Customiza labels do modal pra contextos diferentes (ex: "Nova analise vinculada")
+  // Customiza titulo do modal pra contextos diferentes
   titulo?: string;
 }
 
-type Stage = "actions" | "pendencia";
-type PendenciaMode = "cancelar" | "seguir";
+type Stage = "actions" | "pendencia" | "pos_pendencia";
 
 export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo }: Props) {
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>("actions");
-  const [mode, setMode] = useState<PendenciaMode>("seguir");
   const [tipos, setTipos] = useState<Set<TipoPendencia>>(new Set());
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);
@@ -60,7 +57,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
   const handleClose = () => { onClose(); setTimeout(reset, 200); };
 
-  const seguirParaAnalise = async () => {
+  const seguirBradesco = async () => {
     if (!cliente) return;
     if (onConfirmar) {
       await onConfirmar();
@@ -71,9 +68,23 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     }
   };
 
-  const iniciarPendencia = (m: PendenciaMode) => {
-    setMode(m);
-    setStage("pendencia");
+  const seguirArtesanal = async () => {
+    if (!cliente) return;
+    setSaving(true);
+    const { error } = await supabase.from("demandas" as any).insert({
+      cliente_id: cliente.id,
+      tipo: "pre_protocolo",
+      etapa: "fluxo_artesanal",
+      status: "pendente",
+      titulo: `Peça artesanal — ${cliente.nome}`,
+      descricao: "Caso não-Bradesco. Peça será confeccionada manualmente.",
+      created_by: userId,
+    });
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Cliente enviado pro fluxo artesanal");
+    onCreated();
+    handleClose();
   };
 
   const salvarPendencia = async () => {
@@ -105,11 +116,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     if (error) { toast.error(error.message); return; }
     toast.success(rows.length === 1 ? "Pendência registrada" : `${rows.length} pendências registradas`);
     onCreated();
-    if (mode === "seguir") {
-      await seguirParaAnalise();
-    } else {
-      handleClose();
-    }
+    setStage("pos_pendencia");
   };
 
   return (
@@ -125,18 +132,16 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             {titulo || "Iniciar análise"} — {cliente?.nome || "cliente"}
           </DialogTitle>
           <DialogDescription>
-            {stage === "actions"
-              ? "Abra a pasta do Drive para conferir os documentos e escolha o próximo passo."
-              : mode === "cancelar"
-                ? "Selecione o que está pendente. Você vai voltar à esteira sem ir pra análise."
-                : "Selecione o que está pendente. Em seguida você é levado ao Finder pra começar a análise."}
+            {stage === "actions" && "1. Analise a pasta do Drive. Depois escolha o próximo passo."}
+            {stage === "pendencia" && "Selecione tudo que está faltando nesse cliente."}
+            {stage === "pos_pendencia" && "Apesar da pendência registrada, este cliente segue ou não?"}
           </DialogDescription>
         </DialogHeader>
 
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
-              {/* Botão principal: Drive — cria pasta se ainda nao existe */}
+              {/* Passo 1: Drive */}
               {cliente && (
                 <DriveFolderButton
                   clienteId={cliente.id}
@@ -149,37 +154,38 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
               <div className="grid grid-cols-1 gap-2">
                 <Button
-                  onClick={seguirParaAnalise}
+                  onClick={seguirBradesco}
                   className="justify-start gap-2 h-auto py-3"
                 >
-                  <Check className="h-4 w-4" />
+                  <Building2 className="h-4 w-4" />
                   <div className="text-left">
-                    <p className="text-sm font-medium">Confirmar viabilidade e ir pra análise</p>
-                    <p className="text-[11px] opacity-80 font-normal">Abre o Finder pra começar a análise dos extratos</p>
+                    <p className="text-sm font-medium">Seguir fluxo Bradesco</p>
+                    <p className="text-[11px] opacity-80 font-normal">Abre o Finder pra análise vinculada Bradesco</p>
                   </div>
                 </Button>
 
                 <Button
                   variant="outline"
-                  onClick={() => iniciarPendencia("seguir")}
+                  onClick={seguirArtesanal}
+                  disabled={saving}
+                  className="justify-start gap-2 h-auto py-3"
+                >
+                  <PenSquare className="h-4 w-4 text-primary" />
+                  <div className="text-left">
+                    <p className="text-sm font-medium">Seguir fluxo artesanal</p>
+                    <p className="text-[11px] opacity-80 font-normal">Caso não-Bradesco. A peça será feita à mão.</p>
+                  </div>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => setStage("pendencia")}
                   className="justify-start gap-2 h-auto py-3 border-amber-400/40 hover:border-amber-400/60 hover:bg-amber-400/5"
                 >
                   <AlertTriangle className="h-4 w-4 text-amber-400" />
                   <div className="text-left">
-                    <p className="text-sm font-medium">Relatar pendência e seguir pra análise</p>
-                    <p className="text-[11px] opacity-80 font-normal">Cria pendência E vai pro Finder</p>
-                  </div>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={() => iniciarPendencia("cancelar")}
-                  className="justify-start gap-2 h-auto py-3 border-destructive/30 hover:border-destructive/50 hover:bg-destructive/5"
-                >
-                  <X className="h-4 w-4 text-destructive" />
-                  <div className="text-left">
-                    <p className="text-sm font-medium">Relatar pendência e cancelar</p>
-                    <p className="text-[11px] opacity-80 font-normal">Cria pendência e fecha — análise não é iniciada agora</p>
+                    <p className="text-sm font-medium">Relatar pendência</p>
+                    <p className="text-[11px] opacity-80 font-normal">Algo está faltando no Drive deste cliente</p>
                   </div>
                 </Button>
               </div>
@@ -234,15 +240,53 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setStage("actions")} disabled={saving}>Voltar</Button>
                   <Button onClick={salvarPendencia} disabled={saving || tipos.size === 0}>
-                    {saving
-                      ? "Salvando…"
-                      : mode === "seguir"
-                        ? <><ScanSearch className="h-4 w-4 mr-1" /> Salvar e ir pra análise</>
-                        : <><Check className="h-4 w-4 mr-1" /> Salvar e fechar</>}
+                    {saving ? "Salvando…" : <><Check className="h-4 w-4 mr-1" /> Salvar pendência</>}
                   </Button>
                 </div>
               </div>
             </>
+          )}
+
+          {stage === "pos_pendencia" && (
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                onClick={seguirBradesco}
+                disabled={saving}
+                className="justify-start gap-2 h-auto py-3"
+              >
+                <Building2 className="h-4 w-4" />
+                <div className="text-left">
+                  <p className="text-sm font-medium">Seguir fluxo Bradesco</p>
+                  <p className="text-[11px] opacity-80 font-normal">Pendência fica registrada, mas a análise Bradesco começa agora</p>
+                </div>
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={seguirArtesanal}
+                disabled={saving}
+                className="justify-start gap-2 h-auto py-3"
+              >
+                <PenSquare className="h-4 w-4 text-primary" />
+                <div className="text-left">
+                  <p className="text-sm font-medium">Seguir fluxo artesanal</p>
+                  <p className="text-[11px] opacity-80 font-normal">Vai pra fila de peças manuais com a pendência registrada</p>
+                </div>
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                disabled={saving}
+                className="justify-start gap-2 h-auto py-3 border-destructive/30 hover:border-destructive/50 hover:bg-destructive/5"
+              >
+                <X className="h-4 w-4 text-destructive" />
+                <div className="text-left">
+                  <p className="text-sm font-medium">Não seguir agora</p>
+                  <p className="text-[11px] opacity-80 font-normal">Fecha — só fica a pendência registrada</p>
+                </div>
+              </Button>
+            </div>
           )}
         </div>
       </DialogContent>

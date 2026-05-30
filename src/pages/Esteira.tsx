@@ -74,7 +74,7 @@ export default function Esteira() {
       const { data, error } = await supabase
         .from("demandas" as any)
         .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url)")
-        .in("etapa", ["pendencia_documental", "analise_vinculada", "pronta_para_protocolo"])
+        .in("etapa", ["pendencia_documental", "analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo"])
         .eq("status", "pendente")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -96,10 +96,12 @@ export default function Esteira() {
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
+      // Cliente sai de "Aguardando" assim que tem uma demanda em qualquer
+      // fluxo (Bradesco ou artesanal) que nao esteja cancelada.
       const { data: vincs, error: e2 } = await supabase
         .from("demandas" as any)
         .select("cliente_id")
-        .eq("etapa", "analise_vinculada")
+        .in("etapa", ["analise_vinculada", "fluxo_artesanal"])
         .neq("status", "cancelada")
         .in("cliente_id", ids);
       if (e2) throw e2;
@@ -114,21 +116,35 @@ export default function Esteira() {
   const isFetching = demRes.isFetching || cliRes.isFetching;
 
   // Particiona
-  const { pendencias, aguardando, vincs, protos } = useMemo(() => {
+  const { pendencias, aguardando, vincs, artesanais, protos } = useMemo(() => {
     const dem = demRes.data || [];
     const pendenciasAll = dem.filter(d => d.etapa === "pendencia_documental");
     const vincsAll = dem.filter(d => d.etapa === "analise_vinculada");
+    const artesanaisAll = dem.filter(d => d.etapa === "fluxo_artesanal");
     const protosAll = dem.filter(d => d.etapa === "pronta_para_protocolo");
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
     return {
       pendencias: pendenciasAll,
       aguardando: cliRes.data || [],
       vincs: vincsAll.filter(v => !protoIds.has(v.id)),
+      artesanais: artesanaisAll.filter(a => !protoIds.has(a.id)),
       protos: protosAll.filter(p => !p.protocolado_at),
     };
   }, [demRes.data, cliRes.data]);
 
-  const total = pendencias.length + aguardando.length + vincs.length + protos.length;
+  const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
+
+  // Avança uma peça artesanal direto pra "Peças prontas" (peça já no Drive).
+  const avancarArtesanalParaPronta = async (d: DemandaEsteira) => {
+    const nome = d.cliente?.nome || "cliente";
+    const novoTitulo = `Pronto pra protocolo — ${d.desconto || nome}`;
+    const { error } = await supabase.from("demandas" as any)
+      .update({ etapa: "pronta_para_protocolo", titulo: novoTitulo })
+      .eq("id", d.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Peça movida pra fila de protocolo");
+    refetchAll();
+  };
 
   const marcarResolvida = async (id: string) => {
     const { error } = await supabase.from("demandas" as any)
@@ -173,7 +189,7 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <Coluna
             titulo="0. Pendências"
             descricao="Documentos faltando — bloqueia o avanço até resolver"
@@ -231,7 +247,7 @@ export default function Esteira() {
           </Coluna>
 
           <Coluna
-            titulo="2. Análises vinculadas"
+            titulo="2. Análise vinculada Bradesco"
             descricao="Aguardando confecção da peça no Writer"
             icon={GitBranch}
             cor="primary"
@@ -271,7 +287,43 @@ export default function Esteira() {
           </Coluna>
 
           <Coluna
-            titulo="3. Peças prontas"
+            titulo="3. Fluxo artesanal"
+            descricao="Casos não-Bradesco — peça será confeccionada manualmente"
+            icon={PenSquare}
+            cor="primary"
+            count={artesanais.length}
+          >
+            {artesanais.length === 0 ? (
+              <Vazio />
+            ) : (
+              groupByCliente(artesanais).map(g => {
+                const key = `art-${g.items[0].cliente?.id || g.nome}`;
+                const hint = g.items[0].desconto || g.items[0].titulo;
+                return (
+                  <ClienteAccordion
+                    key={key}
+                    nome={g.nome}
+                    count={g.items.length}
+                    accent="primary"
+                    expanded={expandidos.has(key)}
+                    onToggle={() => toggleExpand(key)}
+                    hint={g.items.length === 1 ? hint : `${g.items.length} peças artesanais`}
+                  >
+                    {g.items.map(d => (
+                      <CardArtesanal
+                        key={d.id}
+                        demanda={d}
+                        onAvancar={() => avancarArtesanalParaPronta(d)}
+                      />
+                    ))}
+                  </ClienteAccordion>
+                );
+              })
+            )}
+          </Coluna>
+
+          <Coluna
+            titulo="4. Peças prontas"
             descricao="Geradas no Writer, aguardando protocolo no tribunal"
             icon={Send}
             cor="amber"
@@ -492,6 +544,37 @@ function CardBotao({
         </span>
       </div>
     </button>
+  );
+}
+
+// Card do "Fluxo artesanal": cliente abre a pasta do Drive, sobe a peca
+// feita a mao, e clica em "Peca pronta" pra mover pra fila de protocolo.
+function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvancar: () => void }) {
+  const drive = demanda.cliente?.drive_folder_url;
+  const abrirDrive = () => {
+    if (drive) window.open(drive, "_blank", "noopener,noreferrer");
+    else toast.error("Cliente sem pasta do Drive cadastrada.");
+  };
+  return (
+    <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <PenSquare className="h-3 w-3 text-primary shrink-0" />
+        <span className="text-xs font-semibold truncate flex-1">
+          {demanda.desconto || demanda.titulo}
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+        <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
+      </p>
+      <div className="grid grid-cols-2 gap-1.5 pt-1">
+        <Button size="sm" variant="outline" onClick={abrirDrive} className="h-7 text-[11px] gap-1 px-2">
+          <FolderOpen className="h-3 w-3" /> Subir peça
+        </Button>
+        <Button size="sm" onClick={onAvancar} className="h-7 text-[11px] gap-1 px-2">
+          <Send className="h-3 w-3" /> Peça pronta
+        </Button>
+      </div>
+    </div>
   );
 }
 
