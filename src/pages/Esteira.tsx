@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, FolderOpen, CheckCircle2, ExternalLink, X, ChevronDown,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -559,34 +559,64 @@ function CardBotao({
   );
 }
 
-// Card do "Fluxo artesanal": cliente abre a pasta do Drive, sobe a peca
-// feita a mao, e clica em "Peca pronta" pra mover pra fila de protocolo.
+// Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre a
+// pasta do Drive em outra aba (pra subir a peca) e mostra um AlertDialog
+// pedindo confirmacao antes de mover pra "Pecas prontas" — evita conclusao
+// acidental.
 function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvancar: () => void }) {
+  const [open, setOpen] = useState(false);
   const drive = demanda.cliente?.drive_folder_url;
-  const abrirDrive = () => {
+  const handleClick = () => {
     if (drive) window.open(drive, "_blank", "noopener,noreferrer");
-    else toast.error("Cliente sem pasta do Drive cadastrada.");
+    setOpen(true);
+  };
+  const handleConfirm = () => {
+    setOpen(false);
+    onAvancar();
   };
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <Hammer className="h-3 w-3 text-primary shrink-0" />
-        <span className="text-xs font-semibold truncate flex-1">
-          {demanda.desconto || demanda.titulo}
-        </span>
-      </div>
-      <p className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
-        <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
-      </p>
-      <div className="grid grid-cols-2 gap-1.5 pt-1">
-        <Button size="sm" variant="outline" onClick={abrirDrive} className="h-7 text-[11px] gap-1 px-2">
-          <FolderOpen className="h-3 w-3" /> Subir peça
-        </Button>
-        <Button size="sm" onClick={onAvancar} className="h-7 text-[11px] gap-1 px-2">
-          <Send className="h-3 w-3" /> Peça pronta
-        </Button>
-      </div>
-    </div>
+    <>
+      <button
+        onClick={handleClick}
+        className="w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <Hammer className="h-3 w-3 text-primary shrink-0" />
+          <span className="text-xs font-semibold truncate">
+            {demanda.desconto || demanda.titulo}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:gap-1.5 transition-all">
+            Concluir peça <Send className="h-3 w-3" />
+          </span>
+        </div>
+      </button>
+
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Peça já está na pasta do Drive?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {drive ? (
+                <>Acabei de abrir a pasta do Drive em outra aba. Suba o arquivo da peça lá <strong>antes</strong> de confirmar — depois disso o card vai pra "Peças prontas" e sai da fila artesanal.</>
+              ) : (
+                <>Este cliente ainda não tem pasta do Drive cadastrada. Confirme só se a peça já está pronta em outro lugar.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              <Send className="h-4 w-4 mr-1" /> Mover pra Peças prontas
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
