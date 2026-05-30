@@ -149,21 +149,26 @@ type AbaKey = "resumo" | "demandas" | "processos";
 const LANDING_SOCIO_BASE = "https://matheusenes.vercel.app/socioeconomico/";
 
 function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; telefone: string | null }) {
+  const [open, setOpen] = useState(false);
   const [copiado, setCopiado] = useState(false);
-  const link = `${LANDING_SOCIO_BASE}?c=${clienteId}`;
+  const link = clienteId ? `${LANDING_SOCIO_BASE}?c=${clienteId}` : "";
 
   const copiar = async () => {
+    if (!link) return;
     try {
       await navigator.clipboard.writeText(link);
       setCopiado(true);
-      toast.success("Link gerado e copiado — envie para o cliente preencher.");
-      setTimeout(() => setCopiado(false), 2000);
+      toast.success("Link copiado.");
+      setTimeout(() => setCopiado(false), 1800);
     } catch {
       window.prompt("Copie o link do formulário:", link);
     }
   };
 
+  const abrir = () => { if (link) window.open(link, "_blank", "noopener,noreferrer"); };
+
   const enviarWhatsApp = () => {
+    if (!link) return;
     let fone = (telefone || "").replace(/\D/g, "");
     if (fone && !fone.startsWith("55") && fone.length <= 11) fone = "55" + fone;
     const msg = encodeURIComponent(
@@ -174,16 +179,56 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
   };
 
   return (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={copiar}>
-        {copiado ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-        {copiado ? "Copiado" : "Gerar link"}
-      </Button>
-      <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={enviarWhatsApp}>
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 gap-1.5 text-xs shrink-0"
+        onClick={() => setOpen(true)}
+        disabled={!clienteId}
+      >
         <Send className="h-3.5 w-3.5" />
-        WhatsApp
+        Gerar link do formulário
       </Button>
-    </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Formulário socioeconômico</DialogTitle>
+            <DialogDescription>
+              Envie este link ao cliente. Ele preenche e as respostas aparecem aqui na ficha automaticamente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Link único deste cliente</Label>
+              <Input
+                value={link}
+                readOnly
+                onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Confira se a URL termina com <code className="bg-muted/30 px-1 rounded">?c=&lt;id&gt;</code> antes de enviar — sem o id ela mostra "Link indisponível".
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={abrir}>
+              <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir
+            </Button>
+            <Button variant="outline" size="sm" onClick={enviarWhatsApp}>
+              <Send className="h-3.5 w-3.5 mr-1.5" /> WhatsApp
+            </Button>
+            <Button size="sm" onClick={copiar}>
+              {copiado ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
+              {copiado ? "Copiado" : "Copiar link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
