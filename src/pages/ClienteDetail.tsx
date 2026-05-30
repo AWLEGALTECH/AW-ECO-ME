@@ -319,11 +319,11 @@ export default function ClienteDetail() {
         observacoes: draft.observacoes,
         drive_folder_url: draft.drive_folder_url,
         cadastrado_por: draft.cadastrado_por,
-        dados_socioeconomicos: Object.keys(ds).length ? ds : null,
+        dados_socioeconomicos: Object.keys(ds).length ? ds : {},
       } as any)
       .eq("id", draft.id);
     setSaving(false);
-    if (error) { toast.error("Erro ao salvar"); return; }
+    if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setCliente(draft);
     setEditing(false);
     toast.success("Cliente atualizado");
