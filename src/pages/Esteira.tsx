@@ -42,6 +42,7 @@ interface ClienteEsteira {
   origem: string | null;
   drive_folder_url: string | null;
   requerido: string | null;
+  observacoes: string | null;
 }
 
 const tempoDecorrido = (iso: string | null): string => {
@@ -91,7 +92,7 @@ export default function Esteira() {
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
-        .select("id, nome, created_at, origem, drive_folder_url, requerido")
+        .select("id, nome, created_at, origem, drive_folder_url, requerido, observacoes")
         .eq("precisa_analise_extratos" as any, true)
         .order("created_at", { ascending: false });
       if (e1) throw e1;
@@ -380,7 +381,7 @@ export default function Esteira() {
       <EsteiraInicioDialog
         open={!!inicioCliente}
         onClose={() => setInicioCliente(null)}
-        cliente={inicioCliente ? { id: inicioCliente.id, nome: inicioCliente.nome, drive_folder_url: inicioCliente.drive_folder_url } : null}
+        cliente={inicioCliente ? { id: inicioCliente.id, nome: inicioCliente.nome, drive_folder_url: inicioCliente.drive_folder_url, observacoes: inicioCliente.observacoes } : null}
         userId={user?.id || null}
         onCreated={refetchAll}
       />
