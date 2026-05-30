@@ -360,7 +360,7 @@ export default function Esteira() {
                     {g.items.map(d => (
                       <CardLinha
                         key={d.id}
-                        to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                        to={d.cliente?.id ? `/clientes/${d.cliente.id}?aba=demandas` : "/clientes"}
                         titulo={d.desconto || d.titulo.replace(/^Pronto pra protocolo — /, "")}
                         sub=""
                         data={d.completed_at || d.created_at}

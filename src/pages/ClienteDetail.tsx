@@ -244,7 +244,10 @@ export default function ClienteDetail() {
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [demandas, setDemandas] = useState<Demanda[]>([]);
 
-  const [aba, setAba] = useState<AbaKey>("resumo");
+  const [aba, setAba] = useState<AbaKey>(() => {
+    const p = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("aba") : null;
+    return p === "demandas" || p === "processos" ? p : "resumo";
+  });
   const [subDem, setSubDem] = useState<"pre" | "proc">("pre");
 
   const [editing, setEditing] = useState(false);
@@ -1012,6 +1015,9 @@ function EspelhoProtocoloDialog({
   // Total global ajuizado capturado ANTES do protocolo, pra animar
   // [totalAnterior] -> [totalAnterior + valor] na tela de sucesso.
   const [totalAnterior, setTotalAnterior] = useState<number>(0);
+  // Valor efetivamente protocolado (digitado no dialogo). Usado na tela
+  // de sucesso, ja que demanda.valor_causa so atualiza apos refetch.
+  const [valorProtocolado, setValorProtocolado] = useState<number>(0);
 
   useEffect(() => {
     if (demanda) {
@@ -1127,6 +1133,7 @@ function EspelhoProtocoloDialog({
     }
 
     setFinalizando(false);
+    setValorProtocolado(valorFinal);
     setStage("success");
     onProtocolado(numeroProcesso.trim(), valorFinal);
   };
@@ -1361,7 +1368,7 @@ function EspelhoProtocoloDialog({
         )}
 
         {stage === "success" && (
-          <EspelhoSucesso valor={valor} numero={numeroProcesso} totalAnterior={totalAnterior} onClose={fecharSeFinalizado} />
+          <EspelhoSucesso valor={valorProtocolado} numero={numeroProcesso} totalAnterior={totalAnterior} onClose={fecharSeFinalizado} />
         )}
         </div>
       </DialogContent>
