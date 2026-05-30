@@ -98,6 +98,7 @@ interface Demanda {
   comarca: string | null;
   uf: string | null;
   valor_causa: number | null;
+  local_tramite: string | null;
 }
 
 const fmtGenero = (g: string | null): string | null => {
@@ -1003,6 +1004,11 @@ function EspelhoProtocoloDialog({
   const [copiados, setCopiados] = useState<Set<string>>(new Set());
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [finalizando, setFinalizando] = useState(false);
+  // Campos pedidos no momento do protocolo quando faltam no banco. Sao
+  // gravados na demanda ao finalizar pra nao perguntar de novo.
+  const [valorCausaIn, setValorCausaIn] = useState("");
+  const [comarcaIn, setComarcaIn] = useState("");
+  const [localTramiteIn, setLocalTramiteIn] = useState("");
   // Total global ajuizado capturado ANTES do protocolo, pra animar
   // [totalAnterior] -> [totalAnterior + valor] na tela de sucesso.
   const [totalAnterior, setTotalAnterior] = useState<number>(0);
@@ -1013,8 +1019,11 @@ function EspelhoProtocoloDialog({
       setCopiados(new Set());
       setNumeroProcesso("");
       setFinalizando(false);
+      setValorCausaIn(demanda.valor_causa ? String(demanda.valor_causa) : "");
+      setComarcaIn(demanda.comarca || "");
+      setLocalTramiteIn(demanda.local_tramite || "");
     }
-  }, [demanda?.id]);
+  }, [demanda?.id, demanda?.valor_causa, demanda?.comarca, demanda?.local_tramite]);
 
   if (!demanda || !cliente) return null;
 
@@ -1046,9 +1055,30 @@ function EspelhoProtocoloDialog({
     { id: "valor", label: "Valor da causa", valor: valor > 0 ? fmtBRL(valor) : "—" },
   ];
 
+  // Parseia "1.500,00" / "1500" / "1500.00" pra numero. Retorna 0 se invalido.
+  const parseMoney = (s: string): number => {
+    if (!s) return 0;
+    const cleaned = String(s).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const finalizar = async () => {
     if (!numeroProcesso.trim()) {
       toast.error("Informe o número do processo gerado pelo tribunal");
+      return;
+    }
+    const valorFinal = parseMoney(valorCausaIn);
+    if (valorFinal <= 0) {
+      toast.error("Informe o valor da causa");
+      return;
+    }
+    if (!comarcaIn.trim()) {
+      toast.error("Informe a comarca");
+      return;
+    }
+    if (!localTramiteIn.trim()) {
+      toast.error("Informe o local de trâmite");
       return;
     }
     setFinalizando(true);
@@ -1062,12 +1092,16 @@ function EspelhoProtocoloDialog({
     );
     setTotalAnterior(oldTotal);
 
-    // 2. Atualiza demanda
+    // 2. Atualiza demanda — inclui campos que faltavam (gravados agora pra
+    //    nao precisar perguntar de novo).
     const { error: errDem } = await supabase.from("demandas" as any).update({
       numero_processo: numeroProcesso.trim(),
       protocolado_at: new Date().toISOString(),
       protocolado_tribunal: "projudi",
       status: "concluida",
+      valor_causa: valorFinal,
+      comarca: comarcaIn.trim(),
+      local_tramite: localTramiteIn.trim(),
     }).eq("id", demanda.id);
     if (errDem) {
       setFinalizando(false);
@@ -1077,7 +1111,7 @@ function EspelhoProtocoloDialog({
 
     // 3. Cria entrada na tabela processos pra aparecer na aba Processos
     //    do cliente. Usa numero_processo unico — se ja existe, ignora.
-    const comarcaUf = [demanda.comarca, demanda.uf].filter(Boolean).join(" / ");
+    const comarcaUf = [comarcaIn.trim(), demanda.uf].filter(Boolean).join(" / ");
     const { error: errProc } = await supabase.from("processos").insert({
       cliente_id: cliente.id,
       numero_processo: numeroProcesso.trim(),
@@ -1085,7 +1119,7 @@ function EspelhoProtocoloDialog({
       fase_processual: "Inicial",
       status_tarefa: "ativo",
       comarca_uf: comarcaUf || null,
-      valor_causa: valor > 0 ? valor : null,
+      valor_causa: valorFinal,
     } as any);
     if (errProc && !/duplicate|unique/i.test(errProc.message)) {
       console.warn("[protocolo] aviso ao criar processo:", errProc);
@@ -1094,7 +1128,7 @@ function EspelhoProtocoloDialog({
 
     setFinalizando(false);
     setStage("success");
-    onProtocolado(numeroProcesso.trim(), valor);
+    onProtocolado(numeroProcesso.trim(), valorFinal);
   };
 
   const fecharSeFinalizado = () => {
@@ -1250,22 +1284,76 @@ function EspelhoProtocoloDialog({
                 <Trophy className="h-5 w-5 text-emerald-400" /> Quase lá!
               </DialogTitle>
               <DialogDescription>
-                Cole o número do processo gerado pelo Projudi pra fechar essa peça.
+                Cole o número do processo e confirme os dados antes de fechar a peça.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 pt-2">
-              <Label className="text-xs">Número do processo</Label>
-              <Input
-                value={numeroProcesso}
-                onChange={(e) => setNumeroProcesso(e.target.value)}
-                placeholder="0000000-00.0000.0.00.0000"
-                autoFocus
-                onKeyDown={(e) => { if (e.key === "Enter") finalizar(); }}
-              />
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Número do processo</Label>
+                <Input
+                  value={numeroProcesso}
+                  onChange={(e) => setNumeroProcesso(e.target.value)}
+                  placeholder="0000000-00.0000.0.00.0000"
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1">
+                    Valor da causa (R$)
+                    {!!demanda.valor_causa && <span className="text-[10px] text-emerald-400">· do cadastro</span>}
+                  </Label>
+                  <Input
+                    value={valorCausaIn}
+                    onChange={(e) => setValorCausaIn(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="Ex.: 25000,00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1">
+                    Comarca
+                    {!!demanda.comarca && <span className="text-[10px] text-emerald-400">· do cadastro</span>}
+                  </Label>
+                  <Input
+                    value={comarcaIn}
+                    onChange={(e) => setComarcaIn(e.target.value)}
+                    placeholder="Ex.: Manaus"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs flex items-center gap-1">
+                    Local de trâmite
+                    {!!demanda.local_tramite && <span className="text-[10px] text-emerald-400">· do cadastro</span>}
+                  </Label>
+                  <Input
+                    list="locais-tramite"
+                    value={localTramiteIn}
+                    onChange={(e) => setLocalTramiteIn(e.target.value)}
+                    placeholder={
+                      parseMoney(valorCausaIn) > 0 && parseMoney(valorCausaIn) <= 64840
+                        ? "Sugestão: Juizado Especial Cível"
+                        : parseMoney(valorCausaIn) > 64840
+                          ? "Sugestão: Vara Cível Comum"
+                          : "Ex.: Juizado Especial Cível"
+                    }
+                  />
+                  <datalist id="locais-tramite">
+                    <option value="Juizado Especial Cível" />
+                    <option value="Vara Cível Comum" />
+                    <option value="Vara da Fazenda Pública" />
+                    <option value="Vara Cível e Empresarial" />
+                  </datalist>
+                </div>
+              </div>
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="ghost" onClick={() => setStage("projudi")} disabled={finalizando}>Voltar</Button>
-              <Button onClick={finalizar} disabled={finalizando || !numeroProcesso.trim()} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+              <Button
+                onClick={finalizar}
+                disabled={finalizando || !numeroProcesso.trim() || parseMoney(valorCausaIn) <= 0 || !comarcaIn.trim() || !localTramiteIn.trim()}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
                 {finalizando ? "Registrando…" : "Concluir protocolo"}
               </Button>
             </DialogFooter>
