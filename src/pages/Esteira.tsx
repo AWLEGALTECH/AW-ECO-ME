@@ -559,17 +559,13 @@ function CardBotao({
   );
 }
 
-// Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre a
-// pasta do Drive em outra aba (pra subir a peca) e mostra um AlertDialog
-// pedindo confirmacao antes de mover pra "Pecas prontas" — evita conclusao
-// acidental.
+// Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre um
+// dialog com botao pra abrir a pasta do Drive (subir a peca) e so depois
+// permite confirmar a conclusao — evita conclusao acidental.
 function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvancar: () => void }) {
   const [open, setOpen] = useState(false);
   const drive = demanda.cliente?.drive_folder_url;
-  const handleClick = () => {
-    if (drive) window.open(drive, "_blank", "noopener,noreferrer");
-    setOpen(true);
-  };
+  const nomeCliente = demanda.cliente?.nome || "cliente";
   const handleConfirm = () => {
     setOpen(false);
     onAvancar();
@@ -577,7 +573,7 @@ function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvan
   return (
     <>
       <button
-        onClick={handleClick}
+        onClick={() => setOpen(true)}
         className="w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
       >
         <div className="flex items-center gap-2 mb-1.5">
@@ -596,26 +592,44 @@ function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvan
         </div>
       </button>
 
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Peça já está na pasta do Drive?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {drive ? (
-                <>Acabei de abrir a pasta do Drive em outra aba. Suba o arquivo da peça lá <strong>antes</strong> de confirmar — depois disso o card vai pra "Peças prontas" e sai da fila artesanal.</>
-              ) : (
-                <>Este cliente ainda não tem pasta do Drive cadastrada. Confirme só se a peça já está pronta em outro lugar.</>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>
-              <Send className="h-4 w-4 mr-1" /> Mover pra Peças prontas
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Hammer className="h-4 w-4 text-primary" />
+              Concluir peça artesanal
+            </DialogTitle>
+            <DialogDescription>
+              {nomeCliente} — {demanda.desconto || demanda.titulo}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-1">
+            <p className="text-sm text-foreground/80">
+              1. Suba o arquivo da peça na pasta do Drive deste cliente.
+            </p>
+            {demanda.cliente && (
+              <DriveFolderButton
+                clienteId={demanda.cliente.id}
+                clienteNome={nomeCliente}
+                driveFolderUrl={drive}
+              />
+            )}
+            <p className="text-sm text-foreground/80 pt-1">
+              2. Depois, confirme abaixo. O card vai pra <strong>Peças prontas</strong> e sai da fila artesanal.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              <X className="h-4 w-4 mr-1" /> Voltar
+            </Button>
+            <Button onClick={handleConfirm} className="bg-emerald-600 hover:bg-emerald-500 text-white">
+              <Send className="h-4 w-4 mr-1" /> Confirmar conclusão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
