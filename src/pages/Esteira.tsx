@@ -606,6 +606,24 @@ function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvan
           </DialogHeader>
 
           <div className="space-y-3 pt-1">
+            {/* Atalho pro perfil — primeiro botao */}
+            {demanda.cliente && (
+              <a
+                href={`/clientes/${demanda.cliente.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
+              >
+                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                  <User className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">Abrir perfil do cliente</p>
+                  <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-primary opacity-70" />
+              </a>
+            )}
             <p className="text-sm text-foreground/80">
               1. Suba o arquivo da peça na pasta do Drive deste cliente.
             </p>
@@ -709,6 +727,25 @@ function PendenciaDetalheDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* Atalho pro perfil — primeiro botao */}
+          {demanda.cliente?.id && (
+            <a
+              href={`/clientes/${demanda.cliente.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
+            >
+              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                <User className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Abrir perfil do cliente</p>
+                <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
+              </div>
+              <ExternalLink className="h-4 w-4 text-primary opacity-70" />
+            </a>
+          )}
+
           <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 space-y-2">
             <div>
               <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Tipo</p>

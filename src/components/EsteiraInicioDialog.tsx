@@ -156,16 +156,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 </div>
               )}
 
-              {/* Passo 1: Drive */}
-              {cliente && (
-                <DriveFolderButton
-                  clienteId={cliente.id}
-                  clienteNome={cliente.nome}
-                  driveFolderUrl={cliente.drive_folder_url}
-                />
-              )}
-
-              {/* Atalho pro perfil completo do cliente */}
+              {/* Atalho pro perfil completo do cliente — primeiro botao */}
               {cliente && (
                 <a
                   href={`/clientes/${cliente.id}`}
@@ -182,6 +173,15 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                   </div>
                   <ExternalLink className="h-4 w-4 text-primary opacity-70" />
                 </a>
+              )}
+
+              {/* Passo 1: Drive */}
+              {cliente && (
+                <DriveFolderButton
+                  clienteId={cliente.id}
+                  clienteNome={cliente.nome}
+                  driveFolderUrl={cliente.drive_folder_url}
+                />
               )}
 
               <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-2">Decisão</div>
