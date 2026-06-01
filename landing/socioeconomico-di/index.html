@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Dr. Diego Ismael — Advocacia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{
+    --bg:#f3f4f6;          /* cinza neutro claro */
+    --paper:#ffffff;
+    --ink:#1b2435;         /* navy/charcoal */
+    --ink-soft:#3a4456;
+    --muted:#727a86;
+    --line:#e3e6ea;
+    --navy:#1f3350;        /* primaria */
+    --navy-dark:#16263d;
+    --silver:#9aa1ab;      /* acento prata */
+    --silver-soft:#d3d7dd;
+    --slate:#5a626d;       /* texto de acento sobrio */
+    --err:#a3372f;
+    --radius:18px;
+    --shadow:0 1px 2px rgba(27,36,53,.04), 0 12px 40px rgba(27,36,53,.07);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    color:var(--ink);
+    line-height:1.5; font-size:17px;
+    min-height:100dvh; display:flex; flex-direction:column;
+    background:
+      radial-gradient(1100px 520px at 50% -10%, rgba(120,150,200,.08), transparent 60%),
+      linear-gradient(180deg, #021229 0%, #010a1c 55%, #00050e 100%);
+    background-attachment:fixed;
+  }
+  .serif{font-family:'Inter',system-ui,sans-serif}
+
+  /* PROGRESSO */
+  .progress-wrap{position:sticky; top:0; z-index:20; background:rgba(2,12,32,.92); backdrop-filter:blur(8px); box-shadow:0 4px 16px rgba(0,3,10,.5)}
+  .progress-track{height:9px; width:100%; background:rgba(255,255,255,.10)}
+  .progress-fill{height:100%; width:0; background:linear-gradient(90deg,#5f93d6 0%,#9cc0ee 55%,#e9f2fd 100%); border-radius:0 6px 6px 0; box-shadow:0 0 16px rgba(140,180,235,.7), 0 0 5px rgba(200,222,248,.9); transition:width .55s cubic-bezier(.22,1,.36,1)}
+  .progress-meta{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 18px 9px; max-width:620px; margin:0 auto}
+  .progress-meta .lbl{font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:#9fb2cc; font-weight:700}
+  .progress-meta .pct{font-size:15px; font-weight:800; color:#eaf2fc; font-variant-numeric:tabular-nums; letter-spacing:.01em}
+
+  /* HEADER */
+  header{padding:20px 16px 8px; text-align:center}
+  .logo-slot{display:inline-flex; align-items:center; justify-content:center; gap:10px; margin-bottom:4px}
+  .logo-slot img{max-height:78px; max-width:260px; object-fit:contain; display:block; filter:drop-shadow(0 2px 10px rgba(0,0,0,.35)) brightness(1.15)}
+  header{padding:26px 16px 14px !important}
+  .wordmark{font-family:'Inter',sans-serif; font-weight:700; font-size:23px; letter-spacing:.01em; color:#eef1f6; line-height:1}
+  .submark{font-size:11px; letter-spacing:.32em; text-transform:uppercase; color:#aeb7c4; margin-top:6px; font-weight:600}
+
+  /* LAYOUT */
+  main{flex:1; display:flex; align-items:flex-start; justify-content:center; padding:18px 16px 40px}
+  .stage{width:100%; max-width:620px}
+  .card{position:relative; background:var(--paper); border:1px solid rgba(255,255,255,.5); border-radius:var(--radius); padding:36px 28px; box-shadow:0 1px 0 rgba(255,255,255,.6) inset, 0 24px 60px -18px rgba(8,16,28,.55), 0 8px 24px -12px rgba(8,16,28,.4); overflow:hidden}
+  .card::before{content:""; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--silver),var(--navy))}
+  .center{text-align:center}
+
+  /* STEP / animacao */
+  .step{animation:rise .45s cubic-bezier(.22,1,.36,1)}
+  @keyframes rise{from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none}}
+
+  .eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--slate); font-weight:600; margin-bottom:14px}
+  h1.q{font-family:'Inter',sans-serif; font-weight:700; font-size:25px; line-height:1.25; margin:0 0 10px; color:var(--ink); letter-spacing:-.01em}
+  .hint{color:var(--muted); font-size:15px; margin:0 0 22px}
+
+  /* INTRO */
+  .intro h1{font-family:'Inter',sans-serif; font-weight:700; font-size:27px; line-height:1.2; margin:6px 0 12px; letter-spacing:-.01em}
+  .intro p{color:var(--ink-soft); margin:0 0 14px; font-size:16.5px}
+  .seal{width:48px;height:48px;border-radius:50%;border:1.5px solid var(--silver-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:var(--slate)}
+  .reassure{display:flex; gap:10px; align-items:flex-start; background:#f5f6f8; border:1px solid var(--silver-soft); color:#545b66; border-radius:12px; padding:13px 15px; font-size:14px; text-align:left; margin-top:18px}
+  .reassure svg{flex:0 0 auto;margin-top:1px}
+
+  /* INPUTS */
+  .field{margin-top:4px}
+  input[type=text], textarea{
+    width:100%; font:inherit; color:var(--ink); background:#fff;
+    border:1.5px solid var(--line); border-radius:12px; padding:15px 16px; outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input[type=text]:focus, textarea:focus{border-color:var(--navy); box-shadow:0 0 0 3px rgba(31,51,80,.1)}
+  textarea{resize:vertical; min-height:110px}
+  .money{position:relative}
+  .money .prefix{position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--muted); font-weight:600; pointer-events:none}
+  .money input{padding-left:44px; font-size:20px; font-weight:600}
+
+  /* OPCOES (radio cards) */
+  .opts{display:flex; flex-direction:column; gap:10px}
+  .opt{display:flex; align-items:center; gap:13px; border:1.5px solid var(--line); border-radius:13px; padding:15px 16px; cursor:pointer; transition:border-color .15s, background .15s; background:#fff; user-select:none}
+  .opt:hover{border-color:var(--silver)}
+  .opt.sel{border-color:var(--navy); background:#f7f9fc}
+  .opt .tick{width:21px;height:21px;border-radius:50%;border:2px solid var(--line);flex:0 0 auto;display:flex;align-items:center;justify-content:center;transition:border-color .15s}
+  .opt.sel .tick{border-color:var(--navy)}
+  .opt.sel .tick::after{content:"";width:11px;height:11px;border-radius:50%;background:var(--navy)}
+  .opt .txt{font-size:16.5px; font-weight:500}
+
+  /* BOTOES */
+  .nav{display:flex; align-items:center; gap:12px; margin-top:28px}
+  .btn{font:inherit; font-weight:600; font-size:16.5px; border:none; border-radius:12px; padding:15px 22px; cursor:pointer; transition:filter .15s, transform .05s}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--navy); color:#fff; flex:1}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .btn-primary[disabled]{opacity:.55; cursor:default}
+  .btn-back{background:transparent; color:var(--muted); padding:15px 6px; font-weight:500}
+  .btn-back:hover{color:var(--ink)}
+  .skip{display:block; text-align:center; margin-top:14px; color:var(--muted); font-size:14px; text-decoration:underline; cursor:pointer}
+  .skip:hover{color:var(--ink)}
+
+  .msg{margin-top:16px; padding:12px 15px; border-radius:12px; font-size:14.5px; display:none}
+  .msg.show{display:block}
+  .msg.err{background:#fbecea; color:var(--err); border:1px solid #eccac6}
+
+  .spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--navy);animation:spin .8s linear infinite;margin:34px auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .big-serif{font-family:'Inter',sans-serif;font-size:27px;line-height:1.2;margin:8px 0 12px;font-weight:700;letter-spacing:-.01em}
+
+  footer{text-align:center; color:rgba(226,231,238,.55); font-size:12px; padding:14px 16px 26px; letter-spacing:.03em}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+
+<div class="progress-wrap">
+  <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+  <div class="progress-meta">
+    <span class="lbl" id="progressLabel">Seu progresso</span>
+    <span class="pct" id="progressPct">0%</span>
+  </div>
+</div>
+
+<header>
+  <div class="logo-slot">
+    <img id="logo" src="logo.png" alt="Diego Ismael Advocacia" onerror="this.style.display='none';var w=document.getElementById('wordmarkBox');if(w)w.style.display='block'">
+    <div id="wordmarkBox" style="display:none">
+      <div class="wordmark">Diego Ismael</div>
+      <div class="submark">Advocacia</div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="stage">
+
+    <!-- LOADING -->
+    <div id="loading" class="card center">
+      <div class="spinner"></div>
+      <p class="hint" style="margin:0">Carregando…</p>
+    </div>
+
+    <!-- LINK INVALIDO -->
+    <div id="badlink" class="card center hidden">
+      <div class="big-serif">Link indisponível</div>
+      <p class="hint">Este link não é válido ou expirou. Por favor, solicite um novo link ao escritório.</p>
+    </div>
+
+    <!-- INTRO -->
+    <div id="intro" class="card center intro hidden">
+      <div class="seal">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3 7.5-8 9-5-1.5-8-4.5-8-9V7z"/></svg>
+      </div>
+      <h1 id="introGreeting" class="serif">Olá!</h1>
+      <p>Para conduzir o seu caso com a atenção que ele merece, precisamos compreender um pouco da sua realidade. São poucas perguntas — responda com tranquilidade.</p>
+      <div id="introAlready" class="reassure hidden">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        <span>Você já havia enviado suas respostas — obrigado. Se desejar, pode revisá-las e enviar novamente.</span>
+      </div>
+      <div class="reassure">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        <span>Suas informações são tratadas com sigilo profissional e utilizadas exclusivamente na sua defesa.</span>
+      </div>
+      <div class="nav"><button class="btn btn-primary" type="button" onclick="LP.start()">Começar</button></div>
+    </div>
+
+    <!-- PASSO (perguntas, renderizadas via JS) -->
+    <div id="stepCard" class="card hidden"><div id="stepBody"></div></div>
+
+    <!-- SUCESSO -->
+    <div id="success" class="card center hidden">
+      <div class="seal"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="big-serif">Recebemos suas respostas</div>
+      <p class="hint">Muito obrigado pela confiança. Essas informações nos ajudarão a defender o seu caso da melhor forma. Você já pode fechar esta página.</p>
+    </div>
+
+  </div>
+</main>
+
+<footer>Dr. Diego Ismael · Advocacia &nbsp;·&nbsp; Suas informações estão seguras</footer>
+
+<script>
+window.LP = (function(){
+  "use strict";
+  var ENDPOINT = "https://wvltdjspytysuoybcfgb.supabase.co/functions/v1/landing-socioeconomico";
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // Perguntas — uma por tela. progress = largura da barra ao EXIBIR o passo.
+  // Avanco ponderado (sensacao de progresso rapido): 40,60,70,80,88,95,100.
+  var STEPS = [
+    { key:"renda_mensal", type:"money", progress:40,
+      q:"Qual é a sua renda por mês, aproximadamente?",
+      hint:"Some tudo o que entra no mês. Uma estimativa já basta." },
+    { key:"dependentes", type:"text", progress:60,
+      q:"Quantas pessoas dependem de você financeiramente?",
+      hint:"Filhos, pais, outros familiares — conte um pouco.",
+      placeholder:"Ex.: 2 filhos menores e minha mãe idosa" },
+    { key:"conjuge_trabalha", type:"choice", progress:70,
+      q:"Seu cônjuge trabalha?",
+      options:[ {v:"sim",t:"Sim, trabalha"}, {v:"nao",t:"Não trabalha"}, {v:"nao_se_aplica",t:"Não tenho cônjuge / não se aplica"} ] },
+    { key:"unico_provedor", type:"choice", progress:80,
+      q:"Você é a única pessoa que sustenta a casa?",
+      options:[ {v:"sim",t:"Sim, sou o único sustento"}, {v:"nao",t:"Não, há outras rendas em casa"} ] },
+    { key:"tipo_moradia", type:"choice", progress:88,
+      q:"A casa onde você mora é…",
+      options:[ {v:"propria",t:"Própria"}, {v:"alugada",t:"Alugada"}, {v:"financiada",t:"Financiada"}, {v:"cedida",t:"Cedida / emprestada"}, {v:"outros",t:"Outra situação"} ] },
+    { key:"condicao_saude", type:"textarea", progress:95,
+      q:"Há algum problema de saúde, doença ou deficiência na família?",
+      hint:"Se houver, conte qual. Caso contrário, pode deixar em branco.",
+      placeholder:"Ex.: tenho diabetes e meu filho é autista" },
+    { key:"observacoes_livres", type:"textarea", progress:100,
+      q:"Quer nos contar mais alguma coisa sobre a sua situação?",
+      hint:"Espaço livre — opcional.",
+      placeholder:"Fique à vontade" }
+  ];
+
+  var answers = {};
+  var idx = 0;
+  var clienteId = new URLSearchParams(location.search).get("c");
+
+  var $ = function(id){ return document.getElementById(id); };
+  function setProgress(p, label){
+    var f = $("progressFill"); if (f) f.style.width = p + "%";
+    var t = $("progressPct"); if (t) t.textContent = Math.round(p) + "%";
+    var l = $("progressLabel"); if (l && label !== undefined) l.textContent = label;
+  }
+  function show(id){
+    ["loading","badlink","intro","stepCard","success"].forEach(function(s){
+      $(s).classList.toggle("hidden", s!==id);
+    });
+  }
+  function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1).toLowerCase() : s; }
+
+  function api(payload){
+    return fetch(ENDPOINT,{ method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) })
+      .then(function(r){ return r.json().catch(function(){return {};}).then(function(b){ return {status:r.status, body:b}; }); });
+  }
+
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  function renderStep(){
+    var s = STEPS[idx];
+    setProgress(s.progress, "Pergunta " + (idx + 1) + " de " + STEPS.length);
+    var last = idx === STEPS.length - 1;
+    var cur = answers[s.key] || "";
+    var html = '<div class="step">';
+    html += '<div class="eyebrow">Pergunta '+(idx+1)+' de '+STEPS.length+'</div>';
+    html += '<h1 class="q serif">'+esc(s.q)+'</h1>';
+    if (s.hint) html += '<p class="hint">'+esc(s.hint)+'</p>';
+    html += '<div class="field">';
+
+    if (s.type === "money"){
+      html += '<div class="money"><span class="prefix">R$</span><input type="text" id="inp" inputmode="numeric" autocomplete="off" placeholder="Ex.: 1.500" value="'+esc(cur)+'"></div>';
+    } else if (s.type === "text"){
+      html += '<input type="text" id="inp" autocomplete="off" placeholder="'+esc(s.placeholder||"")+'" value="'+esc(cur)+'">';
+    } else if (s.type === "textarea"){
+      html += '<textarea id="inp" placeholder="'+esc(s.placeholder||"")+'">'+esc(cur)+'</textarea>';
+    } else if (s.type === "choice"){
+      html += '<div class="opts" id="opts">';
+      s.options.forEach(function(o){
+        html += '<div class="opt'+(cur===o.v?' sel':'')+'" data-v="'+esc(o.v)+'"><span class="tick"></span><span class="txt">'+esc(o.t)+'</span></div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div id="stepMsg" class="msg err"></div>';
+    html += '<div class="nav">';
+    if (idx>0) html += '<button class="btn btn-back" type="button" onclick="LP.back()">Voltar</button>';
+    html += '<button class="btn btn-primary" id="nextBtn" type="button" onclick="LP.next()">'+(last?'Enviar respostas':'Continuar')+'</button>';
+    html += '</div>';
+    if (s.type !== "choice") html += '<span class="skip" onclick="LP.next(true)">Prefiro pular esta pergunta</span>';
+    html += '</div>';
+
+    $("stepBody").innerHTML = html;
+    show("stepCard");
+
+    if (s.type === "choice"){
+      var opts = document.querySelectorAll("#opts .opt");
+      opts.forEach(function(el){
+        el.addEventListener("click", function(){
+          opts.forEach(function(o){ o.classList.remove("sel"); });
+          el.classList.add("sel");
+          answers[s.key] = el.getAttribute("data-v");
+          // avanca sozinho ao escolher (fluxo rapido)
+          setTimeout(next, 180);
+        });
+      });
+    } else {
+      var inp = $("inp"); if (inp){ inp.focus({preventScroll:true}); }
+    }
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+
+  function captureCurrent(){
+    var s = STEPS[idx];
+    if (s.type === "choice") return; // ja salvo no clique
+    var inp = $("inp");
+    if (inp) answers[s.key] = String(inp.value||"").trim();
+  }
+
+  function next(skip){
+    captureCurrent();
+    if (idx < STEPS.length - 1){ idx++; renderStep(); }
+    else { submit(); }
+  }
+
+  function back(){ if (idx>0){ captureCurrent(); idx--; renderStep(); } }
+
+  function submit(){
+    var btn = $("nextBtn"); var msg = $("stepMsg");
+    if (msg) msg.classList.remove("show");
+    var dados = {};
+    STEPS.forEach(function(s){ var v=answers[s.key]; if (v && String(v).trim()!=="") dados[s.key]=String(v).trim(); });
+    if (btn){ btn.disabled = true; btn.textContent = "Enviando…"; }
+    api({ action:"submit", cliente_id:clienteId, dados:dados }).then(function(res){
+      if (res.status===200 && res.body && res.body.ok){ setProgress(100, "Concluído"); show("success"); window.scrollTo({top:0,behavior:"smooth"}); }
+      else { fail(); }
+    }).catch(fail);
+    function fail(){
+      if (btn){ btn.disabled=false; btn.textContent="Enviar respostas"; }
+      if (msg){ msg.textContent="Não conseguimos enviar agora. Verifique sua conexão e tente novamente."; msg.classList.add("show"); }
+    }
+  }
+
+  function start(){ idx = 0; renderStep(); }
+
+  function init(){
+    if (!clienteId || !UUID_RE.test(clienteId)){ setProgress(0); show("badlink"); return; }
+    api({ action:"fetch", cliente_id:clienteId }).then(function(res){
+      if (res.status!==200 || !res.body || !res.body.ok){ show("badlink"); return; }
+      var nome = (res.body.primeiro_nome||"").trim();
+      $("introGreeting").textContent = nome ? ("Olá, "+cap(nome)+".") : "Olá.";
+      if (res.body.ja_respondido) $("introAlready").classList.remove("hidden");
+      setProgress(0);
+      show("intro");
+    }).catch(function(){ show("badlink"); });
+  }
+
+  init();
+  return { start:start, next:next, back:back };
+})();
+</script>
+</body>
+</html>
