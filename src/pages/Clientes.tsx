@@ -281,20 +281,35 @@ export default function Clientes() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
-                <TableHead className="hidden lg:table-cell w-32" title="CPF / CNPJ">
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                <TableHead className="hidden lg:table-cell w-36">
+                  <span className="inline-flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                    CPF / CNPJ
+                  </span>
                 </TableHead>
-                <TableHead className="w-32 text-right" title="Total ajuizado">
-                  <DollarSign className="h-4 w-4 text-emerald-400 ml-auto" />
+                <TableHead className="w-36 text-right">
+                  <span className="inline-flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5 text-emerald-400" />
+                    Total ajuizado
+                  </span>
                 </TableHead>
-                <TableHead className="w-16 text-center" title="Processos vinculados">
-                  <FileText className="h-4 w-4 text-muted-foreground mx-auto" />
+                <TableHead className="w-24 text-center">
+                  <span className="inline-flex items-center gap-1.5 justify-center w-full">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                    Processos
+                  </span>
                 </TableHead>
-                <TableHead className="w-40" title="Formulário socioeconômico">
-                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                <TableHead className="w-44">
+                  <span className="inline-flex items-center gap-1.5">
+                    <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
+                    Socioeconômico
+                  </span>
                 </TableHead>
-                <TableHead className="w-16 text-center" title="Esteira pré-protocolo">
-                  <Workflow className="h-4 w-4 text-muted-foreground mx-auto" />
+                <TableHead className="w-20 text-center">
+                  <span className="inline-flex items-center gap-1.5 justify-center w-full">
+                    <Workflow className="h-3.5 w-3.5 text-muted-foreground" />
+                    Esteira
+                  </span>
                 </TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
@@ -313,7 +328,11 @@ export default function Clientes() {
                       </span>
                     </span>
                   </TableCell>
-                  <TableCell className="hidden lg:table-cell text-muted-foreground tabular-nums">{c.cpf_cnpj || "—"}</TableCell>
+                  <TableCell className="hidden lg:table-cell tabular-nums">
+                    {c.cpf_cnpj
+                      ? <span className="text-muted-foreground">{c.cpf_cnpj}</span>
+                      : <span className="text-muted-foreground/25">—</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {c.total_ajuizado > 0 ? (
                       <span
@@ -323,10 +342,14 @@ export default function Clientes() {
                         {fmtBRL(c.total_ajuizado)}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground/40">—</span>
+                      <span className="text-muted-foreground/25">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-center tabular-nums">{c.processos_count}</TableCell>
+                  <TableCell className="text-center tabular-nums">
+                    {c.processos_count > 0
+                      ? c.processos_count
+                      : <span className="text-muted-foreground/25">—</span>}
+                  </TableCell>
                   <TableCell>
                     <SocioBadge status={c.socio_status} />
                   </TableCell>
@@ -339,7 +362,7 @@ export default function Clientes() {
                         <Workflow className="h-3.5 w-3.5" />
                       </span>
                     ) : (
-                      <span className="text-muted-foreground/40 text-xs">—</span>
+                      <span className="text-muted-foreground/25 text-xs">—</span>
                     )}
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
