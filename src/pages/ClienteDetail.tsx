@@ -145,15 +145,30 @@ const STATUS_META: Record<string, { label: string; color: string; Icon: any }> =
 
 type AbaKey = "resumo" | "demandas" | "processos";
 
-// Base da landing externa de coleta socioeconomica (dominio proprio do
-// escritorio). O link leva o id do cliente em ?c= e a pagina ja sauda pelo
-// nome e grava as respostas de volta na tabela clientes.
-const LANDING_SOCIO_BASE = "https://matheusenes.vercel.app/socioeconomico/";
+// Landings externas de coleta socioeconomica (uma por advogado). Cada
+// uma carrega o id do cliente em ?c=, sauda pelo nome e grava as
+// respostas de volta na tabela clientes. O ato de gerar link pergunta
+// qual advogado vai usar a landing antes de copiar/enviar.
+const LANDING_OPCOES = {
+  matheus: {
+    label: "Dr. Matheus Enes",
+    base: "https://matheusenes.vercel.app/socioeconomico/",
+  },
+  diego: {
+    label: "Dr. Diego Ismael",
+    base: "https://matheusenes.vercel.app/socioeconomico-di/",
+  },
+} as const;
+type AdvogadoKey = keyof typeof LANDING_OPCOES;
 
 function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; telefone: string | null }) {
   const [open, setOpen] = useState(false);
+  const [advogado, setAdvogado] = useState<AdvogadoKey | null>(null);
   const [copiado, setCopiado] = useState(false);
-  const link = clienteId ? `${LANDING_SOCIO_BASE}?c=${clienteId}` : "";
+  const link = clienteId && advogado ? `${LANDING_OPCOES[advogado].base}?c=${clienteId}` : "";
+
+  const reset = () => { setAdvogado(null); setCopiado(false); };
+  const handleClose = (v: boolean) => { setOpen(v); if (!v) setTimeout(reset, 200); };
 
   const copiar = async () => {
     if (!link) return;
@@ -192,42 +207,73 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
         <Send className="h-3.5 w-3.5" />
         Gerar link do formulário
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Formulário socioeconômico</DialogTitle>
             <DialogDescription>
-              Envie este link ao cliente. Ele preenche e as respostas aparecem aqui na ficha automaticamente.
+              {advogado
+                ? "Envie este link ao cliente. As respostas aparecem aqui na ficha automaticamente."
+                : "Para qual advogado esse formulário vai ser preenchido?"}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 pt-1">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Link único deste cliente</Label>
-              <Input
-                value={link}
-                readOnly
-                onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
-                className="font-mono text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Confira se a URL termina com <code className="bg-muted/30 px-1 rounded">?c=&lt;id&gt;</code> antes de enviar — sem o id ela mostra "Link indisponível".
-              </p>
+          {!advogado && (
+            <div className="grid grid-cols-1 gap-2 pt-1">
+              {(Object.keys(LANDING_OPCOES) as AdvogadoKey[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setAdvogado(k)}
+                  className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors text-left"
+                >
+                  <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                    <User className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">{LANDING_OPCOES[k].label}</p>
+                    <p className="text-[11px] text-muted-foreground break-all">{LANDING_OPCOES[k].base}</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-primary opacity-70" />
+                </button>
+              ))}
             </div>
-          </div>
+          )}
 
-          <DialogFooter className="gap-2 sm:gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={abrir}>
-              <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir
-            </Button>
-            <Button variant="outline" size="sm" onClick={enviarWhatsApp}>
-              <Send className="h-3.5 w-3.5 mr-1.5" /> WhatsApp
-            </Button>
-            <Button size="sm" onClick={copiar}>
-              {copiado ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
-              {copiado ? "Copiado" : "Copiar link"}
-            </Button>
-          </DialogFooter>
+          {advogado && (
+            <div className="space-y-3 pt-1">
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground inline-flex items-center gap-2 w-full">
+                Landing:&nbsp;<strong className="text-foreground">{LANDING_OPCOES[advogado].label}</strong>
+                <button onClick={() => setAdvogado(null)} className="ml-auto text-primary hover:underline">trocar</button>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Link único deste cliente</Label>
+                <Input
+                  value={link}
+                  readOnly
+                  onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Confira se a URL termina com <code className="bg-muted/30 px-1 rounded">?c=&lt;id&gt;</code> antes de enviar.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {advogado && (
+            <DialogFooter className="gap-2 sm:gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={abrir}>
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir
+              </Button>
+              <Button variant="outline" size="sm" onClick={enviarWhatsApp}>
+                <Send className="h-3.5 w-3.5 mr-1.5" /> WhatsApp
+              </Button>
+              <Button size="sm" onClick={copiar}>
+                {copiado ? <Check className="h-3.5 w-3.5 mr-1.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
+                {copiado ? "Copiado" : "Copiar link"}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </>
