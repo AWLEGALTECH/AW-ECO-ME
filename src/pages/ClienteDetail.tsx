@@ -170,6 +170,16 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
   const reset = () => { setAdvogado(null); setCopiado(false); };
   const handleClose = (v: boolean) => { setOpen(v); if (!v) setTimeout(reset, 200); };
 
+  // Marca quando o link foi gerado/enviado pra cliente. Usado pra
+  // diferenciar "aguardando geracao" vs "aguardando resposta" na lista.
+  const carimbarEnvio = async () => {
+    if (!clienteId) return;
+    await supabase
+      .from("clientes")
+      .update({ socio_link_enviado_at: new Date().toISOString() } as any)
+      .eq("id", clienteId);
+  };
+
   const copiar = async () => {
     if (!link) return;
     try {
@@ -177,6 +187,7 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
       setCopiado(true);
       toast.success("Link copiado.");
       setTimeout(() => setCopiado(false), 1800);
+      carimbarEnvio();
     } catch {
       window.prompt("Copie o link do formulário:", link);
     }
@@ -193,6 +204,7 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
     );
     const base = fone ? `https://wa.me/${fone}` : `https://wa.me/`;
     window.open(`${base}?text=${msg}`, "_blank", "noopener,noreferrer");
+    carimbarEnvio();
   };
 
   return (

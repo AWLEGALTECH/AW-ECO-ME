@@ -15,8 +15,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, Trash2, User, FolderOpen, ExternalLink, Loader2, Check } from "lucide-react";
+import { Plus, Search, Eye, Trash2, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
 
 interface Cliente {
   id: string;
@@ -24,8 +26,17 @@ interface Cliente {
   cpf_cnpj: string | null;
   telefone: string | null;
   email: string | null;
-  processos_count?: number;
+  processos_count: number;
+  total_ajuizado: number;
+  em_esteira: boolean;
+  socio_status: SocioStatus;
 }
+
+const fmtBRL = (v: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
+
+// Etapas/status que indicam que o cliente esta sendo trabalhado no pipeline.
+const STATUS_ATIVOS = new Set(["pendente", "em_andamento", "bloqueada"]);
 
 type Stage = "form" | "drive";
 
@@ -57,21 +68,52 @@ export default function Clientes() {
   };
 
   const fetchAll = useCallback(async () => {
-    const { data: clientesData } = await supabase
-      .from("clientes")
-      .select("id, nome, cpf_cnpj, telefone, email")
-      .order("nome", { ascending: true });
-    if (!clientesData) return;
+    const [cliRes, procRes, demRes] = await Promise.all([
+      supabase
+        .from("clientes")
+        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at")
+        .order("nome", { ascending: true }),
+      supabase.from("processos").select("cliente_id, valor_causa"),
+      supabase.from("demandas" as any).select("cliente_id, status"),
+    ]);
+    if (!cliRes.data) return;
 
-    const { data: counts } = await supabase
-      .from("processos")
-      .select("cliente_id");
-    const countMap = new Map<string, number>();
-    (counts || []).forEach((p) => {
-      countMap.set(p.cliente_id, (countMap.get(p.cliente_id) || 0) + 1);
+    const agg = new Map<string, { count: number; total: number }>();
+    (procRes.data || []).forEach((p: any) => {
+      const cur = agg.get(p.cliente_id) || { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += Number(p.valor_causa) || 0;
+      agg.set(p.cliente_id, cur);
     });
 
-    setClientes(clientesData.map((c) => ({ ...c, processos_count: countMap.get(c.id) || 0 })));
+    const esteira = new Set<string>();
+    (demRes.data || []).forEach((d: any) => {
+      if (STATUS_ATIVOS.has(d.status)) esteira.add(d.cliente_id);
+    });
+
+    setClientes(cliRes.data.map((c: any) => {
+      const a = agg.get(c.id) || { count: 0, total: 0 };
+      const ds = c.dados_socioeconomicos || {};
+      const preenchido = Object.values(ds).some(
+        (v) => v !== null && v !== undefined && String(v).trim() !== ""
+      );
+      const socio_status: SocioStatus = preenchido
+        ? "preenchido"
+        : c.socio_link_enviado_at
+          ? "aguardando_resposta"
+          : "aguardando_geracao";
+      return {
+        id: c.id,
+        nome: c.nome,
+        cpf_cnpj: c.cpf_cnpj,
+        telefone: c.telefone,
+        email: c.email,
+        processos_count: a.count,
+        total_ajuizado: a.total,
+        em_esteira: esteira.has(c.id),
+        socio_status,
+      };
+    }));
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -236,9 +278,11 @@ export default function Clientes() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
-                <TableHead className="hidden md:table-cell">CPF/CNPJ</TableHead>
-                <TableHead className="hidden md:table-cell">Telefone</TableHead>
-                <TableHead className="w-24">Processos</TableHead>
+                <TableHead className="hidden lg:table-cell">CPF/CNPJ</TableHead>
+                <TableHead className="w-16 text-center">Esteira</TableHead>
+                <TableHead className="w-40">Socioeconômico</TableHead>
+                <TableHead className="w-20 text-center">Processos</TableHead>
+                <TableHead className="w-32 text-right">Total ajuizado</TableHead>
                 <TableHead className="w-20">Ações</TableHead>
               </TableRow>
             </TableHeader>
@@ -250,12 +294,36 @@ export default function Clientes() {
                       <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
                         <User className="h-5 w-5 text-primary" />
                       </span>
-                      {c.nome}
+                      <span className="flex flex-col">
+                        <span>{c.nome}</span>
+                        {c.telefone && <span className="text-[11px] text-muted-foreground font-normal">{c.telefone}</span>}
+                      </span>
                     </span>
                   </TableCell>
-                  <TableCell className="hidden md:table-cell text-muted-foreground">{c.cpf_cnpj || "—"}</TableCell>
-                  <TableCell className="hidden md:table-cell text-muted-foreground">{c.telefone || "—"}</TableCell>
-                  <TableCell>{c.processos_count}</TableCell>
+                  <TableCell className="hidden lg:table-cell text-muted-foreground">{c.cpf_cnpj || "—"}</TableCell>
+                  <TableCell className="text-center">
+                    {c.em_esteira ? (
+                      <span
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-amber-400/15 ring-1 ring-amber-400/40 text-amber-400"
+                        title="Em andamento na esteira pré-protocolo"
+                      >
+                        <Workflow className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40 text-xs">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <SocioBadge status={c.socio_status} />
+                  </TableCell>
+                  <TableCell className="text-center tabular-nums">{c.processos_count}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {c.total_ajuizado > 0 ? (
+                      <span className="text-foreground font-medium">{fmtBRL(c.total_ajuizado)}</span>
+                    ) : (
+                      <span className="text-muted-foreground/50">—</span>
+                    )}
+                  </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1">
                       <Button size="icon" variant="ghost" onClick={() => navigate(`/clientes/${c.id}`)}><Eye className="h-4 w-4" /></Button>
@@ -265,7 +333,7 @@ export default function Clientes() {
                 </TableRow>
               ))}
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -285,5 +353,21 @@ export default function Clientes() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function SocioBadge({ status }: { status: SocioStatus }) {
+  const META = {
+    preenchido:          { label: "Preenchido",          Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 ring-emerald-400/30" },
+    aguardando_resposta: { label: "Aguardando resposta", Icon: Hourglass,    cls: "text-amber-400 bg-amber-400/10 ring-amber-400/30" },
+    aguardando_geracao:  { label: "Aguardando envio",    Icon: Send,         cls: "text-muted-foreground bg-muted/20 ring-border" },
+  } as const;
+  const m = META[status];
+  const Icon = m.Icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium ring-1 ${m.cls}`}>
+      <Icon className="h-3 w-3" />
+      {m.label}
+    </span>
   );
 }
