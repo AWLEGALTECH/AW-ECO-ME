@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -99,6 +100,7 @@ interface Demanda {
   uf: string | null;
   valor_causa: number | null;
   local_tramite: string | null;
+  procedimento: string | null;
 }
 
 const fmtGenero = (g: string | null): string | null => {
@@ -1070,6 +1072,7 @@ function EspelhoProtocoloDialog({
   const [valorCausaIn, setValorCausaIn] = useState("");
   const [comarcaIn, setComarcaIn] = useState("");
   const [localTramiteIn, setLocalTramiteIn] = useState("");
+  const [procedimentoIn, setProcedimentoIn] = useState("");
   // Total global ajuizado capturado ANTES do protocolo, pra animar
   // [totalAnterior] -> [totalAnterior + valor] na tela de sucesso.
   const [totalAnterior, setTotalAnterior] = useState<number>(0);
@@ -1086,8 +1089,9 @@ function EspelhoProtocoloDialog({
       setValorCausaIn(demanda.valor_causa ? String(demanda.valor_causa) : "");
       setComarcaIn(demanda.comarca || "");
       setLocalTramiteIn(demanda.local_tramite || "");
+      setProcedimentoIn(demanda.procedimento || "");
     }
-  }, [demanda?.id, demanda?.valor_causa, demanda?.comarca, demanda?.local_tramite]);
+  }, [demanda?.id, demanda?.valor_causa, demanda?.comarca, demanda?.local_tramite, demanda?.procedimento]);
 
   if (!demanda || !cliente) return null;
 
@@ -1145,6 +1149,10 @@ function EspelhoProtocoloDialog({
       toast.error("Informe o local de trâmite");
       return;
     }
+    if (!procedimentoIn) {
+      toast.error("Selecione o procedimento");
+      return;
+    }
     setFinalizando(true);
     // 1. Captura total global atual ANTES do INSERT (pra animacao)
     const { data: totaisAntes } = await supabase
@@ -1166,6 +1174,7 @@ function EspelhoProtocoloDialog({
       valor_causa: valorFinal,
       comarca: comarcaIn.trim(),
       local_tramite: localTramiteIn.trim(),
+      procedimento: procedimentoIn,
     }).eq("id", demanda.id);
     if (errDem) {
       setFinalizando(false);
@@ -1386,29 +1395,46 @@ function EspelhoProtocoloDialog({
                     placeholder="Ex.: Manaus"
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1">
+                    Procedimento
+                    {!!demanda.procedimento && <span className="text-[10px] text-emerald-400">· do cadastro</span>}
+                  </Label>
+                  <Select value={procedimentoIn} onValueChange={setProcedimentoIn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={
+                        parseMoney(valorCausaIn) > 0 && parseMoney(valorCausaIn) <= 64840
+                          ? "Sugestão: JEC"
+                          : parseMoney(valorCausaIn) > 64840
+                            ? "Sugestão: Comum"
+                            : "Selecione…"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="JEC">JEC — Juizado Especial Cível</SelectItem>
+                      <SelectItem value="Comum">Comum — Vara Cível Comum</SelectItem>
+                      <SelectItem value="Fazenda Pública">Fazenda Pública</SelectItem>
+                      <SelectItem value="JEFP">JEFP — Juizado Especial da Fazenda Pública</SelectItem>
+                      <SelectItem value="JEF">JEF — Juizado Especial Federal</SelectItem>
+                      <SelectItem value="Cível e Empresarial">Cível e Empresarial</SelectItem>
+                      <SelectItem value="Família">Família</SelectItem>
+                      <SelectItem value="Criminal">Criminal</SelectItem>
+                      <SelectItem value="Trabalhista">Trabalhista</SelectItem>
+                      <SelectItem value="Execução">Execução</SelectItem>
+                      <SelectItem value="Outros">Outros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-xs flex items-center gap-1">
                     Local de trâmite
                     {!!demanda.local_tramite && <span className="text-[10px] text-emerald-400">· do cadastro</span>}
                   </Label>
                   <Input
-                    list="locais-tramite"
                     value={localTramiteIn}
                     onChange={(e) => setLocalTramiteIn(e.target.value)}
-                    placeholder={
-                      parseMoney(valorCausaIn) > 0 && parseMoney(valorCausaIn) <= 64840
-                        ? "Sugestão: Juizado Especial Cível"
-                        : parseMoney(valorCausaIn) > 64840
-                          ? "Sugestão: Vara Cível Comum"
-                          : "Ex.: Juizado Especial Cível"
-                    }
+                    placeholder="Ex.: Vara Única de Beruri / 1ª Vara Cível de Manaus"
                   />
-                  <datalist id="locais-tramite">
-                    <option value="Juizado Especial Cível" />
-                    <option value="Vara Cível Comum" />
-                    <option value="Vara da Fazenda Pública" />
-                    <option value="Vara Cível e Empresarial" />
-                  </datalist>
                 </div>
               </div>
             </div>
@@ -1416,7 +1442,7 @@ function EspelhoProtocoloDialog({
               <Button variant="ghost" onClick={() => setStage("projudi")} disabled={finalizando}>Voltar</Button>
               <Button
                 onClick={finalizar}
-                disabled={finalizando || !numeroProcesso.trim() || parseMoney(valorCausaIn) <= 0 || !comarcaIn.trim() || !localTramiteIn.trim()}
+                disabled={finalizando || !numeroProcesso.trim() || parseMoney(valorCausaIn) <= 0 || !comarcaIn.trim() || !localTramiteIn.trim() || !procedimentoIn}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white"
               >
                 {finalizando ? "Registrando…" : "Concluir protocolo"}
