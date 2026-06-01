@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList } from "lucide-react";
+import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
@@ -32,10 +32,36 @@ interface Cliente {
 }
 
 const fmtBRL = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(v);
+
+// Renderiza valor BRL com os centavos numa fonte menor (estilo dashboard
+// financeiro): "R$ 1.234,<small>56</small>".
+function MoneyValue({ value, glow }: { value: number; glow?: boolean }) {
+  const f = fmtBRL(value);
+  const [intPart, centsPart] = f.split(",");
+  return (
+    <span
+      className="text-emerald-400 font-medium tabular-nums"
+      style={glow ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
+    >
+      {intPart}
+      {centsPart != null && <span className="text-[0.72em] opacity-80">,{centsPart}</span>}
+    </span>
+  );
+}
 
 // Etapas/status que indicam que o cliente esta sendo trabalhado no pipeline.
 const STATUS_ATIVOS = new Set(["pendente", "em_andamento", "bloqueada"]);
+
+// Ordem do status socio pra ordenacao: preenchido > aguardando_resposta > aguardando_geracao.
+const SOCIO_ORDER: Record<SocioStatus, number> = {
+  preenchido: 3,
+  aguardando_resposta: 2,
+  aguardando_geracao: 1,
+};
+
+type SortKey = "nome" | "cpf_cnpj" | "total_ajuizado" | "processos_count" | "socio_status" | "em_esteira";
+type SortDir = "asc" | "desc";
 
 type Stage = "form" | "drive";
 
@@ -47,6 +73,15 @@ export default function Clientes() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [resumo, setResumo] = useState<Cliente | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "nome", dir: "asc" });
+  const onSort = (key: SortKey) => {
+    setSort((prev) => {
+      if (prev.key === key) return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+      // Numericas e categoricas comecam descrescente (maior/mais relevante primeiro)
+      const numericKeys: SortKey[] = ["total_ajuizado", "processos_count", "em_esteira", "socio_status"];
+      return { key, dir: numericKeys.includes(key) ? "desc" : "asc" };
+    });
+  };
   const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<Stage>("form");
@@ -124,6 +159,19 @@ export default function Clientes() {
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     (c.cpf_cnpj ?? "").toLowerCase().includes(search.toLowerCase())
   );
+
+  const sortedList = [...filtered].sort((a, b) => {
+    const mult = sort.dir === "asc" ? 1 : -1;
+    switch (sort.key) {
+      case "nome":             return a.nome.localeCompare(b.nome, "pt-BR") * mult;
+      case "cpf_cnpj":         return (a.cpf_cnpj || "").localeCompare(b.cpf_cnpj || "", "pt-BR") * mult;
+      case "total_ajuizado":   return (a.total_ajuizado - b.total_ajuizado) * mult;
+      case "processos_count":  return (a.processos_count - b.processos_count) * mult;
+      case "socio_status":     return (SOCIO_ORDER[a.socio_status] - SOCIO_ORDER[b.socio_status]) * mult;
+      case "em_esteira":       return ((a.em_esteira ? 1 : 0) - (b.em_esteira ? 1 : 0)) * mult;
+      default: return 0;
+    }
+  });
 
   const handleSave = async () => {
     if (!form.nome.trim()) { toast.error("Nome é obrigatório"); return; }
@@ -280,42 +328,17 @@ export default function Clientes() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nome</TableHead>
-                <TableHead className="hidden lg:table-cell w-36">
-                  <span className="inline-flex items-center gap-1.5">
-                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
-                    CPF / CNPJ
-                  </span>
-                </TableHead>
-                <TableHead className="w-36 text-right">
-                  <span className="inline-flex items-center gap-1.5">
-                    <DollarSign className="h-3.5 w-3.5 text-emerald-400" />
-                    Total ajuizado
-                  </span>
-                </TableHead>
-                <TableHead className="w-24 text-center">
-                  <span className="inline-flex items-center gap-1.5 justify-center w-full">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    Processos
-                  </span>
-                </TableHead>
-                <TableHead className="w-44">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
-                    Socioeconômico
-                  </span>
-                </TableHead>
-                <TableHead className="w-20 text-center">
-                  <span className="inline-flex items-center gap-1.5 justify-center w-full">
-                    <Workflow className="h-3.5 w-3.5 text-muted-foreground" />
-                    Esteira
-                  </span>
-                </TableHead>
+                <SortableHead label="Nome" sortKey="nome" sort={sort} onSort={onSort} />
+                <SortableHead label="CPF / CNPJ" icon={CreditCard} sortKey="cpf_cnpj" sort={sort} onSort={onSort} className="hidden lg:table-cell w-36" />
+                <SortableHead label="Total ajuizado" icon={DollarSign} sortKey="total_ajuizado" sort={sort} onSort={onSort} className="w-40 text-right" align="right" />
+                <SortableHead label="Processos" icon={FileText} sortKey="processos_count" sort={sort} onSort={onSort} className="w-24 text-center" align="center" />
+                <SortableHead label="Socioeconômico" icon={ClipboardList} sortKey="socio_status" sort={sort} onSort={onSort} className="w-44" />
+                <SortableHead label="Esteira" icon={Workflow} sortKey="em_esteira" sort={sort} onSort={onSort} className="w-24 text-center" align="center" />
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => (
+              {sortedList.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => setResumo(c)}>
                   <TableCell className="font-medium">
                     <span className="inline-flex items-center gap-3">
@@ -333,14 +356,9 @@ export default function Clientes() {
                       ? <span className="text-muted-foreground">{c.cpf_cnpj}</span>
                       : <span className="text-muted-foreground/25">—</span>}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">
+                  <TableCell className="text-right">
                     {c.total_ajuizado > 0 ? (
-                      <span
-                        className="text-emerald-400 font-medium"
-                        style={c.total_ajuizado >= 100000 ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
-                      >
-                        {fmtBRL(c.total_ajuizado)}
-                      </span>
+                      <MoneyValue value={c.total_ajuizado} glow={c.total_ajuizado >= 100000} />
                     ) : (
                       <span className="text-muted-foreground/25">—</span>
                     )}
@@ -372,7 +390,7 @@ export default function Clientes() {
                   </TableCell>
                 </TableRow>
               ))}
-              {filtered.length === 0 && (
+              {sortedList.length === 0 && (
                 <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
               )}
             </TableBody>
@@ -412,14 +430,9 @@ function ClienteResumoDialog({ cliente, onClose, onIrPerfil }: {
           {cliente.email && <ResumoRow icon={Mail} label="E-mail" value={cliente.email} />}
           {cliente.requerido && <ResumoRow icon={Building2} label="Requerido" value={cliente.requerido} />}
           <ResumoRow icon={DollarSign} label="Total ajuizado" value={
-            cliente.total_ajuizado > 0 ? (
-              <span
-                className="text-emerald-400 font-medium tabular-nums"
-                style={cliente.total_ajuizado >= 100000 ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
-              >
-                {fmtBRL(cliente.total_ajuizado)}
-              </span>
-            ) : "—"
+            cliente.total_ajuizado > 0
+              ? <MoneyValue value={cliente.total_ajuizado} glow={cliente.total_ajuizado >= 100000} />
+              : "—"
           } />
           <ResumoRow icon={FileText} label="Processos" value={<span className="tabular-nums">{cliente.processos_count}</span>} />
           <ResumoRow icon={ClipboardList} label="Socioeconômico" value={<SocioBadge status={cliente.socio_status} />} />
@@ -464,6 +477,40 @@ function ResumoRow({ icon: Icon, label, value }: { icon: any; label: string; val
       <span className="text-muted-foreground w-28 shrink-0 text-[12px]">{label}</span>
       <span className="flex-1 break-words text-[13px]">{value}</span>
     </div>
+  );
+}
+
+function SortableHead({
+  label, icon: Icon, sortKey, sort, onSort, align = "left", className = "",
+}: {
+  label: string;
+  icon?: any;
+  sortKey: SortKey;
+  sort: { key: SortKey; dir: SortDir };
+  onSort: (k: SortKey) => void;
+  align?: "left" | "center" | "right";
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  const alignCls = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1.5 ${alignCls} w-full hover:text-foreground transition-colors text-left`}
+      >
+        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+        <span>{label}</span>
+        {active ? (
+          sort.dir === "asc"
+            ? <ChevronUp className="h-3 w-3 text-foreground" />
+            : <ChevronDown className="h-3 w-3 text-foreground" />
+        ) : (
+          <ChevronsUpDown className="h-3 w-3 text-muted-foreground/30" />
+        )}
+      </button>
+    </TableHead>
   );
 }
 
