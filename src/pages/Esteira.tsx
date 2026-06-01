@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,6 +12,7 @@ import {
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
+import { EspelhoProtocoloDialog, type Cliente as ClienteCheia, type Demanda as DemandaCheia } from "@/pages/ClienteDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -59,9 +60,26 @@ const tempoDecorrido = (iso: string | null): string => {
 export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [inicioCliente, setInicioCliente] = useState<ClienteEsteira | null>(null);
   const [pendenciaOpen, setPendenciaOpen] = useState<DemandaEsteira | null>(null);
   const [confirmandoResolver, setConfirmandoResolver] = useState(false);
+  // Espelho de protocolo (clicar em "Pecas Prontas" abre o dialog
+  // direto, sem passar pela ficha do cliente).
+  const [espelhoOpen, setEspelhoOpen] = useState<{ cliente: ClienteCheia; demanda: DemandaCheia } | null>(null);
+  const [espelhoLoading, setEspelhoLoading] = useState(false);
+  const abrirEspelho = async (d: DemandaEsteira) => {
+    if (espelhoLoading || !d.cliente?.id) return;
+    setEspelhoLoading(true);
+    const [cliRes, demRes] = await Promise.all([
+      supabase.from("clientes").select("*").eq("id", d.cliente.id).single(),
+      supabase.from("demandas" as any).select("*").eq("id", d.id).single(),
+    ]);
+    setEspelhoLoading(false);
+    if (cliRes.error || !cliRes.data) { toast.error("Não consegui carregar o cliente"); return; }
+    if (demRes.error || !demRes.data)  { toast.error("Não consegui carregar a demanda"); return; }
+    setEspelhoOpen({ cliente: cliRes.data as ClienteCheia, demanda: demRes.data as unknown as DemandaCheia });
+  };
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) => setExpandidos(prev => {
     const next = new Set(prev);
@@ -359,11 +377,10 @@ export default function Esteira() {
                     hint={g.items.length === 1 ? firstTitle : `${g.items.length} peças prontas`}
                   >
                     {g.items.map(d => (
-                      <CardLinha
+                      <CardBotaoLinha
                         key={d.id}
-                        to={d.cliente?.id ? `/clientes/${d.cliente.id}?aba=demandas` : "/clientes"}
+                        onClick={() => abrirEspelho(d)}
                         titulo={d.desconto || d.titulo.replace(/^Pronto pra protocolo — /, "")}
-                        sub=""
                         data={d.completed_at || d.created_at}
                         acao="Abrir espelho"
                         acaoIcon={Send}
@@ -411,6 +428,18 @@ export default function Esteira() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <EspelhoProtocoloDialog
+        demanda={espelhoOpen?.demanda || null}
+        cliente={espelhoOpen?.cliente || null}
+        onClose={() => setEspelhoOpen(null)}
+        onProtocolado={() => { setEspelhoOpen(null); refetchAll(); }}
+        onVerPerfil={() => {
+          const id = espelhoOpen?.cliente?.id;
+          setEspelhoOpen(null);
+          if (id) navigate(`/clientes/${id}?aba=demandas`);
+        }}
+      />
     </div>
   );
 }
@@ -525,6 +554,40 @@ function CardLinha({
         </span>
       </div>
     </Link>
+  );
+}
+
+// Versao botao do CardLinha — usada quando o clique nao navega mas abre
+// um dialog (ex: espelho de protocolo na coluna "Pecas Prontas").
+function CardBotaoLinha({
+  onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary",
+}: {
+  onClick: () => void;
+  titulo: string;
+  data: string | null;
+  acao: string;
+  acaoIcon?: any;
+  accent?: "primary" | "amber";
+}) {
+  const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
+  return (
+    <button
+      onClick={onClick}
+      className="block w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <User className="h-3 w-3 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold truncate">{titulo}</span>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}
+        </span>
+        <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${accentText} group-hover:gap-1.5 transition-all`}>
+          {acao} <AcaoIcon className="h-3 w-3" />
+        </span>
+      </div>
+    </button>
   );
 }
 

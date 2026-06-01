@@ -29,7 +29,7 @@ import {
   Scale, Gavel, Building2,
 } from "lucide-react";
 
-interface Cliente {
+export interface Cliente {
   id: string;
   nome: string;
   cpf_cnpj: string | null;
@@ -74,7 +74,7 @@ interface Contrato {
   created_at: string;
 }
 
-interface Demanda {
+export interface Demanda {
   id: string;
   tipo: "pre_protocolo" | "processual";
   etapa: string;
@@ -1055,13 +1055,17 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
 // ─── ESPELHO DE PROTOCOLO — modal multi-etapa ────────────────────────────
 type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success";
 
-function EspelhoProtocoloDialog({
-  demanda, cliente, onClose, onProtocolado,
+export function EspelhoProtocoloDialog({
+  demanda, cliente, onClose, onProtocolado, onVerPerfil,
 }: {
   demanda: Demanda | null;
   cliente: Cliente | null;
   onClose: () => void;
   onProtocolado: (numero: string, valor: number) => void;
+  // Quando fornecido, exibe um botao "Ver perfil do cliente" no estagio
+  // inicial do dialog. Util quando o dialog e aberto fora da ficha do
+  // cliente (ex: clicando direto em "Pecas Prontas" na esteira geral).
+  onVerPerfil?: () => void;
 }) {
   const [stage, setStage] = useState<EspelhoStage>("actions");
   const [copiados, setCopiados] = useState<Set<string>>(new Set());
@@ -1226,6 +1230,21 @@ function EspelhoProtocoloDialog({
             {/* Sequencia: 1) baixa a peca (passo menor, primeiro), 2) abre o
                 espelho (acao principal, abaixo) — visual ja sugere o fluxo. */}
             <div className="space-y-3 pt-2">
+              {onVerPerfil && (
+                <button
+                  onClick={onVerPerfil}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/15 transition-colors"
+                >
+                  <div className="h-8 w-8 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
+                    <User className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="text-sm font-medium leading-tight">Ver perfil do cliente</div>
+                    <div className="text-[11px] text-muted-foreground">Abre a ficha completa de {cliente.nome}</div>
+                  </div>
+                  <ExternalLink className="h-3.5 w-3.5 text-primary opacity-70 shrink-0" />
+                </button>
+              )}
               <a
                 href={demanda.peca_drive_url || "#"}
                 target="_blank"
