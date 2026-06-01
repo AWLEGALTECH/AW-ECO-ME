@@ -35,7 +35,7 @@ const fmtBRL = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(v);
 
 // Limite a partir do qual o valor entra em "verde dinheiro".
-const MONEY_HIGHLIGHT_FROM = 110_000;
+const MONEY_HIGHLIGHT_FROM = 100_000;
 
 // Renderiza valor BRL com os centavos numa fonte menor (estilo dashboard
 // financeiro): "R$ 1.234,<small>56</small>". Cor padrao do tema; entra em
