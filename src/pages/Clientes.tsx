@@ -7,15 +7,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, Trash2, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send } from "lucide-react";
+import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
@@ -26,6 +22,9 @@ interface Cliente {
   cpf_cnpj: string | null;
   telefone: string | null;
   email: string | null;
+  requerido: string | null;
+  observacoes: string | null;
+  drive_folder_url: string | null;
   processos_count: number;
   total_ajuizado: number;
   em_esteira: boolean;
@@ -47,7 +46,7 @@ export default function Clientes() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [resumo, setResumo] = useState<Cliente | null>(null);
   const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<Stage>("form");
@@ -71,7 +70,7 @@ export default function Clientes() {
     const [cliRes, procRes, demRes] = await Promise.all([
       supabase
         .from("clientes")
-        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at")
+        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at, requerido, observacoes, drive_folder_url")
         .order("nome", { ascending: true }),
       supabase.from("processos").select("cliente_id, valor_causa"),
       supabase.from("demandas" as any).select("cliente_id, status"),
@@ -108,6 +107,9 @@ export default function Clientes() {
         cpf_cnpj: c.cpf_cnpj,
         telefone: c.telefone,
         email: c.email,
+        requerido: c.requerido ?? null,
+        observacoes: c.observacoes ?? null,
+        drive_folder_url: c.drive_folder_url ?? null,
         processos_count: a.count,
         total_ajuizado: a.total,
         em_esteira: esteira.has(c.id),
@@ -161,11 +163,12 @@ export default function Clientes() {
     setDriveUrl((fnData as any).folder_url);
   };
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    const { error } = await supabase.from("clientes").delete().eq("id", deleteId);
-    if (error) { toast.error("Erro ao excluir (cliente pode ter processos vinculados)"); return; }
-    toast.success("Cliente removido"); setDeleteId(null); fetchAll();
+  const irPerfilDoResumo = () => {
+    if (resumo) {
+      const id = resumo.id;
+      setResumo(null);
+      navigate(`/clientes/${id}`);
+    }
   };
 
   return (
@@ -278,18 +281,28 @@ export default function Clientes() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nome</TableHead>
-                <TableHead className="hidden lg:table-cell">CPF/CNPJ</TableHead>
-                <TableHead className="w-16 text-center">Esteira</TableHead>
-                <TableHead className="w-40">Socioeconômico</TableHead>
-                <TableHead className="w-20 text-center">Processos</TableHead>
-                <TableHead className="w-32 text-right">Total ajuizado</TableHead>
-                <TableHead className="w-20">Ações</TableHead>
+                <TableHead className="hidden lg:table-cell w-32" title="CPF / CNPJ">
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                </TableHead>
+                <TableHead className="w-32 text-right" title="Total ajuizado">
+                  <DollarSign className="h-4 w-4 text-emerald-400 ml-auto" />
+                </TableHead>
+                <TableHead className="w-16 text-center" title="Processos vinculados">
+                  <FileText className="h-4 w-4 text-muted-foreground mx-auto" />
+                </TableHead>
+                <TableHead className="w-40" title="Formulário socioeconômico">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                </TableHead>
+                <TableHead className="w-16 text-center" title="Esteira pré-protocolo">
+                  <Workflow className="h-4 w-4 text-muted-foreground mx-auto" />
+                </TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/clientes/${c.id}`)}>
-                  <TableCell className="font-medium hover:underline">
+                <TableRow key={c.id} className="cursor-pointer" onClick={() => setResumo(c)}>
+                  <TableCell className="font-medium">
                     <span className="inline-flex items-center gap-3">
                       <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
                         <User className="h-5 w-5 text-primary" />
@@ -300,7 +313,23 @@ export default function Clientes() {
                       </span>
                     </span>
                   </TableCell>
-                  <TableCell className="hidden lg:table-cell text-muted-foreground">{c.cpf_cnpj || "—"}</TableCell>
+                  <TableCell className="hidden lg:table-cell text-muted-foreground tabular-nums">{c.cpf_cnpj || "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {c.total_ajuizado > 0 ? (
+                      <span
+                        className="text-emerald-400 font-medium"
+                        style={c.total_ajuizado >= 100000 ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
+                      >
+                        {fmtBRL(c.total_ajuizado)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center tabular-nums">{c.processos_count}</TableCell>
+                  <TableCell>
+                    <SocioBadge status={c.socio_status} />
+                  </TableCell>
                   <TableCell className="text-center">
                     {c.em_esteira ? (
                       <span
@@ -313,22 +342,10 @@ export default function Clientes() {
                       <span className="text-muted-foreground/40 text-xs">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <SocioBadge status={c.socio_status} />
-                  </TableCell>
-                  <TableCell className="text-center tabular-nums">{c.processos_count}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {c.total_ajuizado > 0 ? (
-                      <span className="text-foreground font-medium">{fmtBRL(c.total_ajuizado)}</span>
-                    ) : (
-                      <span className="text-muted-foreground/50">—</span>
-                    )}
-                  </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
-                    <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => navigate(`/clientes/${c.id}`)}><Eye className="h-4 w-4" /></Button>
-                      <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)}><Trash2 className="h-4 w-4" /></Button>
-                    </div>
+                    <Button size="icon" variant="ghost" onClick={() => setResumo(c)}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -340,19 +357,90 @@ export default function Clientes() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-            <AlertDialogDescription>Tem certeza? Se o cliente tem processos vinculados, a exclusão será bloqueada.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ClienteResumoDialog
+        cliente={resumo}
+        onClose={() => setResumo(null)}
+        onIrPerfil={irPerfilDoResumo}
+      />
     </>
+  );
+}
+
+// Popup com resumo dos dados do cliente — abre ao clicar no olhinho ou na linha
+function ClienteResumoDialog({ cliente, onClose, onIrPerfil }: {
+  cliente: Cliente | null;
+  onClose: () => void;
+  onIrPerfil: () => void;
+}) {
+  if (!cliente) return null;
+  return (
+    <Dialog open={!!cliente} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="items-center text-center space-y-2">
+          <div className="h-14 w-14 rounded-full bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+            <User className="h-7 w-7 text-primary" />
+          </div>
+          <DialogTitle>{cliente.nome}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-1 text-sm pt-1">
+          {cliente.cpf_cnpj && <ResumoRow icon={CreditCard} label="CPF / CNPJ" value={cliente.cpf_cnpj} />}
+          {cliente.telefone && <ResumoRow icon={Phone} label="Telefone" value={cliente.telefone} />}
+          {cliente.email && <ResumoRow icon={Mail} label="E-mail" value={cliente.email} />}
+          {cliente.requerido && <ResumoRow icon={Building2} label="Requerido" value={cliente.requerido} />}
+          <ResumoRow icon={DollarSign} label="Total ajuizado" value={
+            cliente.total_ajuizado > 0 ? (
+              <span
+                className="text-emerald-400 font-medium tabular-nums"
+                style={cliente.total_ajuizado >= 100000 ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
+              >
+                {fmtBRL(cliente.total_ajuizado)}
+              </span>
+            ) : "—"
+          } />
+          <ResumoRow icon={FileText} label="Processos" value={<span className="tabular-nums">{cliente.processos_count}</span>} />
+          <ResumoRow icon={ClipboardList} label="Socioeconômico" value={<SocioBadge status={cliente.socio_status} />} />
+          <ResumoRow icon={Workflow} label="Esteira" value={
+            cliente.em_esteira ? (
+              <span className="inline-flex items-center gap-1 text-amber-400">
+                <Workflow className="h-3 w-3" /> Em andamento
+              </span>
+            ) : <span className="text-muted-foreground/60">Sem demanda ativa</span>
+          } />
+          {cliente.drive_folder_url && (
+            <ResumoRow icon={FolderOpen} label="Drive" value={
+              <a href={cliente.drive_folder_url} target="_blank" rel="noopener noreferrer"
+                 className="inline-flex items-center gap-1 text-primary hover:underline truncate">
+                Abrir pasta <ExternalLink className="h-3 w-3" />
+              </a>
+            } />
+          )}
+          {cliente.observacoes && (
+            <div className="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 mt-2">
+              <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 font-semibold mb-1">Observação</p>
+              <p className="text-[12px] text-foreground/90 whitespace-pre-wrap break-words">{cliente.observacoes}</p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+          <Button onClick={onIrPerfil}>
+            <ExternalLink className="h-4 w-4 mr-1.5" /> Ir pro perfil
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResumoRow({ icon: Icon, label, value }: { icon: any; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 px-2 py-1.5 rounded-md">
+      <Icon className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+      <span className="text-muted-foreground w-28 shrink-0 text-[12px]">{label}</span>
+      <span className="flex-1 break-words text-[13px]">{value}</span>
+    </div>
   );
 }
 
