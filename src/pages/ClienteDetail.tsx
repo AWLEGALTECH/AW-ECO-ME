@@ -156,7 +156,7 @@ const LANDING_OPCOES = {
   },
   diego: {
     label: "Dr. Diego Ismael",
-    base: "https://matheusenes.vercel.app/socioeconomico-di/",
+    base: "https://diegoismael.vercel.app/",
   },
 } as const;
 type AdvogadoKey = keyof typeof LANDING_OPCOES;
