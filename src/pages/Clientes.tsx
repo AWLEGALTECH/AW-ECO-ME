@@ -34,16 +34,18 @@ interface Cliente {
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(v);
 
+// Limite a partir do qual o valor entra em "verde dinheiro".
+const MONEY_HIGHLIGHT_FROM = 110_000;
+
 // Renderiza valor BRL com os centavos numa fonte menor (estilo dashboard
-// financeiro): "R$ 1.234,<small>56</small>".
-function MoneyValue({ value, glow }: { value: number; glow?: boolean }) {
+// financeiro): "R$ 1.234,<small>56</small>". Cor padrao do tema; entra em
+// verde dinheiro apenas quando o valor atinge MONEY_HIGHLIGHT_FROM.
+function MoneyValue({ value }: { value: number }) {
   const f = fmtBRL(value);
   const [intPart, centsPart] = f.split(",");
+  const highlight = value >= MONEY_HIGHLIGHT_FROM;
   return (
-    <span
-      className="text-emerald-400 font-medium tabular-nums"
-      style={glow ? { textShadow: "0 0 14px rgba(52,211,153,.6)" } : undefined}
-    >
+    <span className={`font-medium tabular-nums ${highlight ? "text-emerald-400" : "text-foreground"}`}>
       {intPart}
       {centsPart != null && <span className="text-[0.72em] opacity-80">,{centsPart}</span>}
     </span>
@@ -358,7 +360,7 @@ export default function Clientes() {
                   </TableCell>
                   <TableCell className="text-right">
                     {c.total_ajuizado > 0 ? (
-                      <MoneyValue value={c.total_ajuizado} glow={c.total_ajuizado >= 100000} />
+                      <MoneyValue value={c.total_ajuizado} />
                     ) : (
                       <span className="text-muted-foreground/25">—</span>
                     )}
@@ -431,7 +433,7 @@ function ClienteResumoDialog({ cliente, onClose, onIrPerfil }: {
           {cliente.requerido && <ResumoRow icon={Building2} label="Requerido" value={cliente.requerido} />}
           <ResumoRow icon={DollarSign} label="Total ajuizado" value={
             cliente.total_ajuizado > 0
-              ? <MoneyValue value={cliente.total_ajuizado} glow={cliente.total_ajuizado >= 100000} />
+              ? <MoneyValue value={cliente.total_ajuizado} />
               : "—"
           } />
           <ResumoRow icon={FileText} label="Processos" value={<span className="tabular-nums">{cliente.processos_count}</span>} />
