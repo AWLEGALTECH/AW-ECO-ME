@@ -100,26 +100,41 @@ export default function Publicacoes() {
   });
 
   // Mapa numero_processo -> { cliente_id, cliente_nome } pra exibir
-  // o nome do dono do processo como titulo do card.
+  // o nome do dono do processo como titulo do card. Faz duas queries
+  // separadas pra evitar problemas de join inferido pelo Supabase.
   const processoMap = useQuery({
     queryKey: ["publicacoes_processos_clientes", pubsRes.data?.length ?? 0],
     enabled: !!pubsRes.data && pubsRes.data.length > 0,
     queryFn: async () => {
-      const numeros = Array.from(new Set(
-        (pubsRes.data || []).map(p => p.numero_processo).filter((n): n is string => !!n)
-      ));
-      if (numeros.length === 0) return new Map<string, { id: string; nome: string }>();
-      const { data } = await supabase
-        .from("processos")
-        .select("numero_processo, cliente_id, clientes(id, nome)")
-        .in("numero_processo", numeros);
       const map = new Map<string, { id: string; nome: string }>();
-      (data as any[] || []).forEach((row) => {
-        const cli = row.clientes;
-        if (cli && row.numero_processo) {
-          map.set(row.numero_processo, { id: cli.id, nome: cli.nome });
-        }
-      });
+      try {
+        const numeros = Array.from(new Set(
+          (pubsRes.data || []).map(p => p.numero_processo).filter((n): n is string => !!n)
+        ));
+        if (numeros.length === 0) return map;
+        const { data: procs } = await supabase
+          .from("processos")
+          .select("numero_processo, cliente_id")
+          .in("numero_processo", numeros);
+        const clienteIds = Array.from(new Set(
+          (procs || []).map((p: any) => p.cliente_id).filter((id: any) => !!id)
+        ));
+        if (clienteIds.length === 0) return map;
+        const { data: clis } = await supabase
+          .from("clientes")
+          .select("id, nome")
+          .in("id", clienteIds as string[]);
+        const cliMap = new Map<string, string>(
+          (clis || []).map((c: any) => [c.id, c.nome])
+        );
+        (procs || []).forEach((p: any) => {
+          if (!p.numero_processo || !p.cliente_id) return;
+          const nome = cliMap.get(p.cliente_id);
+          if (nome) map.set(p.numero_processo, { id: p.cliente_id, nome });
+        });
+      } catch (e) {
+        console.warn("[publicacoes] processoMap erro:", e);
+      }
       return map;
     },
   });
