@@ -4,7 +4,7 @@
 // pra cada advogado ativo em advogados_djen e grava novas publicacoes em
 // publicacoes. Deduplicado pelo djen_id (unique constraint).
 //
-// Body opcional: { advogado_id?: uuid, dias?: number (1..90, default 7) }
+// Body opcional: { advogado_id?: uuid, dias?: number (1..365, default 7) }
 // Sem body: roda pra todos os advogados ativos, ultimos 7 dias.
 //
 // Endpoint usado: GET https://comunicaapi.pje.jus.br/api/v1/comunicacao
@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     let body: { advogado_id?: string; dias?: number } = {};
     if (req.method === "POST") body = await req.json().catch(() => ({}));
     const filtroAdvogadoId = body.advogado_id || null;
-    const dias = Math.max(1, Math.min(90, Number(body.dias) || 7));
+    const dias = Math.max(1, Math.min(365, Number(body.dias) || 7));
 
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
