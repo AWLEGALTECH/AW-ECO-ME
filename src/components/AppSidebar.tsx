@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -27,6 +27,7 @@ const navItems: NavItem[] = [
   { title: "Clientes",      url: "/clientes",      icon: Users,           module: "clientes" },
   { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature,   module: "pre_clientes", badgeKey: "pendentes" },
   { title: "Esteira",       url: "/esteira",       icon: Workflow,        module: "esteira",      badgeKey: "esteira" },
+  { title: "Publicações",   url: "/publicacoes",   icon: Newspaper,       module: "publicacoes",  badgeKey: "publicacoes" },
   { title: "Processos",     url: "/processos",     icon: Briefcase,       module: "processos" },
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
@@ -97,6 +98,19 @@ export function AppSidebar() {
     refetchInterval: 30_000,
   });
 
+  // Publicacoes nao-lidas
+  const { data: publicacoesCount } = useQuery({
+    queryKey: ["publicacoes_nao_lidas_count"],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("publicacoes" as any)
+        .select("*", { count: "exact", head: true })
+        .eq("status_leitura", "nao_lida");
+      return count || 0;
+    },
+    refetchInterval: 60_000,
+  });
+
   return (
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
       <button
@@ -153,6 +167,11 @@ export function AppSidebar() {
                             {item.badgeKey === "esteira" && (esteiraCount ?? 0) > 0 && (
                               <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {esteiraCount}
+                              </span>
+                            )}
+                            {item.badgeKey === "publicacoes" && (publicacoesCount ?? 0) > 0 && (
+                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium">
+                                {publicacoesCount}
                               </span>
                             )}
                           </span>

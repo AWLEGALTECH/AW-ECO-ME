@@ -5,6 +5,7 @@ export const MODULES = [
   { key: "clientes",     label: "Clientes",      path: "/clientes" },
   { key: "pre_clientes", label: "Pré-clientes",  path: "/pre-clientes" },
   { key: "esteira",      label: "Esteira",       path: "/esteira" },
+  { key: "publicacoes",  label: "Publicações",   path: "/publicacoes" },
   { key: "processos",    label: "Processos",     path: "/processos" },
   { key: "writer",       label: "Writer",        path: "/writer" },
   { key: "finder",       label: "Finder",        path: "/finder" },

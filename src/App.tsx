@@ -19,6 +19,7 @@ import Writer from "./pages/Writer";
 import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
+import Publicacoes from "./pages/Publicacoes";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
@@ -77,6 +78,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="esteira" />}>
                   <Route path="/esteira" element={<Esteira />} />
+                </Route>
+                <Route element={<RequireModule module="publicacoes" />}>
+                  <Route path="/publicacoes" element={<Publicacoes />} />
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
