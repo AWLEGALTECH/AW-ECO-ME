@@ -2,14 +2,13 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
-// Pré-registra Service Worker no boot pra ter pushManager disponivel
-// imediatamente quando o user clicar "Ativar notificações".
+// Desregistra qualquer service worker antigo (legado, ainda nao temos
+// /sw.js servido). Garante que o navegador nao fique servindo cache
+// quebrado de uma versao antiga do app.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js")
-      .then((reg) => { console.log("[push] SW registered scope=", reg.scope); })
-      .catch((err) => { console.error("[push] SW register failed:", err); });
-  });
+  navigator.serviceWorker.getRegistrations()
+    .then((regs) => { regs.forEach((r) => r.unregister()); })
+    .catch(() => {});
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
