@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Newspaper, Search, RefreshCw, CheckCircle2, Archive, ExternalLink, Hourglass, Inbox, Filter, Scale } from "lucide-react";
+import { Newspaper, Search, RefreshCw, CheckCircle2, Archive, ExternalLink, Hourglass, Inbox, Filter, Scale, Copy, Calendar, FileText, UserCheck, MapPin, Check } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 
 type StatusLeitura = "nao_lida" | "lida" | "arquivada";
@@ -379,25 +379,63 @@ function PublicacaoDialog({
   onMarcar: (id: string, status: StatusLeitura) => void;
 }) {
   const navigate = useNavigate();
+  const [copiado, setCopiado] = useState(false);
+
   if (!p) return null;
+
+  const copiarNumero = async () => {
+    if (!p.numero_processo) return;
+    try {
+      await navigator.clipboard.writeText(p.numero_processo);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    } catch {
+      toast.error("Não foi possível copiar");
+    }
+  };
+
+  const local = [p.tribunal, p.orgao].filter(Boolean).join(" · ");
+
   return (
     <Dialog open={!!p} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Scale className="h-5 w-5 text-primary" />
-            {cliente?.nome || "Cliente não cadastrado"}
+        <DialogHeader className="space-y-2">
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <Scale className="h-5 w-5 text-primary shrink-0" />
+            <span className="truncate">{cliente?.nome || "Cliente não cadastrado"}</span>
           </DialogTitle>
-          <DialogDescription className="tabular-nums">
-            {p.numero_processo || "—"} · {[p.tribunal, p.orgao].filter(Boolean).join(" · ") || "—"}
+          <DialogDescription asChild>
+            <div className="space-y-1.5">
+              {p.numero_processo && (
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-semibold tabular-nums text-foreground/90">
+                    {p.numero_processo}
+                  </span>
+                  <button
+                    onClick={copiarNumero}
+                    title="Copiar número do processo"
+                    className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  >
+                    {copiado ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              )}
+              {local && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{local}</span>
+                </p>
+              )}
+            </div>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-            <Info label="Disponibilizado" value={fmtDate(p.data_disponibilizacao)} />
-            <Info label="Tipo" value={p.tipo_documento || "—"} />
+            <Info icon={Calendar} label="Disponibilizado" value={fmtDate(p.data_disponibilizacao)} />
+            <Info icon={FileText} label="Tipo" value={p.tipo_documento || "—"} />
             <Info
+              icon={UserCheck}
               label="Destinatário"
               value={
                 (p.advogados_destinatarios && p.advogados_destinatarios.length > 0)
@@ -447,10 +485,13 @@ function PublicacaoDialog({
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-muted/10 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
+      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-1.5">
+        <Icon className="h-3 w-3" />
+        {label}
+      </p>
       <p className="text-[12px] text-foreground/90 mt-0.5 truncate">{value}</p>
     </div>
   );
