@@ -26,6 +26,7 @@ interface Publicacao {
   link_origem: string | null;
   status_leitura: StatusLeitura;
   lido_em: string | null;
+  advogados_destinatarios: string[] | null;
   created_at: string;
 }
 
@@ -286,11 +287,14 @@ function PublicacaoCard({ p, advogadoNome, onClick }: { p: Publicacao; advogadoN
             </p>
           )}
           <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-border/40">
-            <span className="text-[10px] text-muted-foreground">
-              {p.tipo_documento ? `${p.tipo_documento} · ` : ""}{advogadoNome}
+            <span className="text-[10px] text-muted-foreground truncate">
+              {p.tipo_documento ? `${p.tipo_documento} · ` : ""}
+              {(p.advogados_destinatarios && p.advogados_destinatarios.length > 0)
+                ? `→ ${p.advogados_destinatarios.join(", ")}`
+                : advogadoNome}
             </span>
             {naoLida && (
-              <span className="text-[10px] uppercase tracking-wider text-amber-400 font-medium">
+              <span className="text-[10px] uppercase tracking-wider text-amber-400 font-medium shrink-0">
                 Não lida
               </span>
             )}
@@ -327,7 +331,14 @@ function PublicacaoDialog({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
             <Info label="Disponibilizado" value={fmtDate(p.data_disponibilizacao)} />
             <Info label="Tipo" value={p.tipo_documento || "—"} />
-            <Info label="Advogado" value={advogadoNome} />
+            <Info
+              label="Destinatário"
+              value={
+                (p.advogados_destinatarios && p.advogados_destinatarios.length > 0)
+                  ? p.advogados_destinatarios.join(", ")
+                  : advogadoNome
+              }
+            />
           </div>
           {p.conteudo && (
             <div className="rounded-md border border-border bg-muted/10 p-3">
