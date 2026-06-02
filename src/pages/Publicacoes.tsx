@@ -99,19 +99,21 @@ export default function Publicacoes() {
     refetchInterval: 60_000,
   });
 
-  // Mapa numero_processo -> { cliente_id, cliente_nome } pra exibir
-  // o nome do dono do processo como titulo do card. Faz duas queries
-  // separadas pra evitar problemas de join inferido pelo Supabase.
+  // Dicionario numero_processo -> { cliente_id, cliente_nome } pra exibir
+  // o nome do dono do processo como titulo do card. Usa Record (nao Map)
+  // pq Map nao serializa pra JSON e o cache persistente quebraria no
+  // rehydrate. Faz duas queries separadas pra evitar problemas de join
+  // inferido pelo Supabase.
   const processoMap = useQuery({
     queryKey: ["publicacoes_processos_clientes", pubsRes.data?.length ?? 0],
     enabled: !!pubsRes.data && pubsRes.data.length > 0,
-    queryFn: async () => {
-      const map = new Map<string, { id: string; nome: string }>();
+    queryFn: async (): Promise<Record<string, { id: string; nome: string }>> => {
+      const out: Record<string, { id: string; nome: string }> = {};
       try {
         const numeros = Array.from(new Set(
           (pubsRes.data || []).map(p => p.numero_processo).filter((n): n is string => !!n)
         ));
-        if (numeros.length === 0) return map;
+        if (numeros.length === 0) return out;
         const { data: procs } = await supabase
           .from("processos")
           .select("numero_processo, cliente_id")
@@ -119,25 +121,33 @@ export default function Publicacoes() {
         const clienteIds = Array.from(new Set(
           (procs || []).map((p: any) => p.cliente_id).filter((id: any) => !!id)
         ));
-        if (clienteIds.length === 0) return map;
+        if (clienteIds.length === 0) return out;
         const { data: clis } = await supabase
           .from("clientes")
           .select("id, nome")
           .in("id", clienteIds as string[]);
-        const cliMap = new Map<string, string>(
-          (clis || []).map((c: any) => [c.id, c.nome])
-        );
+        const cliNome: Record<string, string> = {};
+        (clis || []).forEach((c: any) => { cliNome[c.id] = c.nome; });
         (procs || []).forEach((p: any) => {
           if (!p.numero_processo || !p.cliente_id) return;
-          const nome = cliMap.get(p.cliente_id);
-          if (nome) map.set(p.numero_processo, { id: p.cliente_id, nome });
+          const nome = cliNome[p.cliente_id];
+          if (nome) out[p.numero_processo] = { id: p.cliente_id, nome };
         });
       } catch (e) {
         console.warn("[publicacoes] processoMap erro:", e);
       }
-      return map;
+      return out;
     },
   });
+
+  // Helper defensivo: aceita Record ou (legado) Map sem quebrar
+  const lookupCliente = (numero: string | null | undefined) => {
+    if (!numero) return undefined;
+    const m: any = processoMap.data;
+    if (!m) return undefined;
+    if (typeof m.get === "function") return m.get(numero);
+    return m[numero];
+  };
 
   const filtered = useMemo(() => {
     if (!busca.trim()) return pubsRes.data || [];
@@ -284,7 +294,7 @@ export default function Publicacoes() {
                   key={p.id}
                   p={p}
                   advogadoNome={advogadoNome(p.advogado_id)}
-                  cliente={p.numero_processo ? processoMap.data?.get(p.numero_processo) : undefined}
+                  cliente={lookupCliente(p.numero_processo)}
                   onClick={() => setAberta(p)}
                 />
               ))}
@@ -296,7 +306,7 @@ export default function Publicacoes() {
       <PublicacaoDialog
         p={aberta}
         advogadoNome={aberta ? advogadoNome(aberta.advogado_id) : ""}
-        cliente={aberta?.numero_processo ? processoMap.data?.get(aberta.numero_processo) : undefined}
+        cliente={lookupCliente(aberta?.numero_processo)}
         onClose={() => setAberta(null)}
         onMarcar={marcar}
       />
