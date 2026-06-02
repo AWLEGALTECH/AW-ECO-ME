@@ -1,0 +1,33 @@
+name: Vercel Deploy (bypass webhook)
+
+# Contorna o webhook Vercel<->GitHub que para de funcionar de tempos
+# em tempos. Cada push em main dispara um Vercel Deploy Hook (URL
+# publica configurada no proprio dashboard do Vercel apontando pra
+# branch main). Resultado: deploy instantaneo como antes, sem
+# depender do GitHub App do Vercel.
+#
+# Pra ativar:
+#   1. Vercel -> projeto aw-eco-me -> Settings -> Git -> Deploy Hooks
+#      Create: nome "main-prod", branch "main" -> copia a URL
+#   2. GitHub -> repo Settings -> Secrets and variables -> Actions
+#      Nova secret: VERCEL_DEPLOY_HOOK_MAIN = <URL copiada>
+#
+# Depois disso, cada push em main vira deploy automatico em ~30s.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel deploy
+        run: |
+          if [ -z "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}" ]; then
+            echo "::error::VERCEL_DEPLOY_HOOK_MAIN secret nao configurada. Veja header do workflow."
+            exit 1
+          fi
+          RESPONSE=$(curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}")
+          echo "Vercel respondeu: $RESPONSE"
