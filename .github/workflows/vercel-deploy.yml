@@ -1,18 +1,20 @@
-name: Vercel Deploy (bypass webhook)
+name: Vercel Deploy
 
-# Contorna o webhook Vercel<->GitHub que para de funcionar de tempos
-# em tempos. Cada push em main dispara um Vercel Deploy Hook (URL
-# publica configurada no proprio dashboard do Vercel apontando pra
-# branch main). Resultado: deploy instantaneo como antes, sem
-# depender do GitHub App do Vercel.
+# Deploy de producao via Vercel CLI (com token). Substitui o Deploy
+# Hook anterior que ficava silenciosamente em PENDING sem buildar.
+# A CLI cria o deploy diretamente — mais previsivel que webhook/hook.
 #
-# Pra ativar:
-#   1. Vercel -> projeto aw-eco-me -> Settings -> Git -> Deploy Hooks
-#      Create: nome "main-prod", branch "main" -> copia a URL
+# Pra ativar (uma vez so):
+#   1. Vercel -> Account Settings -> Tokens -> Create Token
+#      Nome: "github-actions-aw-eco-me", Scope: full account
+#      Copia o token
 #   2. GitHub -> repo Settings -> Secrets and variables -> Actions
-#      Nova secret: VERCEL_DEPLOY_HOOK_MAIN = <URL copiada>
+#      Adiciona 3 secrets:
+#         VERCEL_TOKEN      = <token copiado>
+#         VERCEL_ORG_ID     = team_aYcRugarEplOJzjmfZT3H3Nf
+#         VERCEL_PROJECT_ID = prj_r5FwlEGbybDk7hhFQSr8CQ7mzvp1
 #
-# Depois disso, cada push em main vira deploy automatico em ~30s.
+# A secret VERCEL_DEPLOY_HOOK_MAIN antiga pode ser deletada.
 
 on:
   push:
@@ -20,14 +22,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  trigger-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - name: Trigger Vercel deploy
-        run: |
-          if [ -z "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}" ]; then
-            echo "::error::VERCEL_DEPLOY_HOOK_MAIN secret nao configurada. Veja header do workflow."
-            exit 1
-          fi
-          RESPONSE=$(curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}")
-          echo "Vercel respondeu: $RESPONSE"
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Vercel CLI
+        run: bun add -g vercel@latest
+
+      - name: Pull Vercel project config
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy prebuilt artifacts
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
