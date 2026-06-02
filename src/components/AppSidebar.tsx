@@ -98,14 +98,18 @@ export function AppSidebar() {
     refetchInterval: 30_000,
   });
 
-  // Publicacoes nao-lidas
+  // Publicacoes nao-lidas dos ultimos 7 dias (mesma janela exibida na pagina)
   const { data: publicacoesCount } = useQuery({
     queryKey: ["publicacoes_nao_lidas_count"],
     queryFn: async () => {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      const limite = d.toISOString().slice(0, 10);
       const { count } = await supabase
         .from("publicacoes" as any)
         .select("*", { count: "exact", head: true })
-        .eq("status_leitura", "nao_lida");
+        .eq("status_leitura", "nao_lida")
+        .gte("data_disponibilizacao", limite);
       return count || 0;
     },
     refetchInterval: 60_000,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -74,10 +75,21 @@ export default function Publicacoes() {
     },
   });
 
+  // Janela de exibicao: ultimos 7 dias (publicacoes mais antigas seguem
+  // no banco e podem ser ressuscitadas no futuro).
+  const dataLimite = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
   const pubsRes = useQuery({
-    queryKey: ["publicacoes", filtro, advogadoFiltro],
+    queryKey: ["publicacoes", filtro, advogadoFiltro, dataLimite],
     queryFn: async (): Promise<Publicacao[]> => {
-      let q = supabase.from("publicacoes" as any).select("*").order("data_disponibilizacao", { ascending: false, nullsFirst: false });
+      let q = supabase.from("publicacoes" as any)
+        .select("*")
+        .gte("data_disponibilizacao", dataLimite)
+        .order("data_disponibilizacao", { ascending: false, nullsFirst: false });
       if (filtro !== "todas") q = q.eq("status_leitura", filtro);
       if (advogadoFiltro !== "todos") q = q.eq("advogado_id", advogadoFiltro);
       const { data, error } = await q.limit(500);
@@ -85,6 +97,31 @@ export default function Publicacoes() {
       return (data as any) || [];
     },
     refetchInterval: 60_000,
+  });
+
+  // Mapa numero_processo -> { cliente_id, cliente_nome } pra exibir
+  // o nome do dono do processo como titulo do card.
+  const processoMap = useQuery({
+    queryKey: ["publicacoes_processos_clientes", pubsRes.data?.length ?? 0],
+    enabled: !!pubsRes.data && pubsRes.data.length > 0,
+    queryFn: async () => {
+      const numeros = Array.from(new Set(
+        (pubsRes.data || []).map(p => p.numero_processo).filter((n): n is string => !!n)
+      ));
+      if (numeros.length === 0) return new Map<string, { id: string; nome: string }>();
+      const { data } = await supabase
+        .from("processos")
+        .select("numero_processo, cliente_id, clientes(id, nome)")
+        .in("numero_processo", numeros);
+      const map = new Map<string, { id: string; nome: string }>();
+      (data as any[] || []).forEach((row) => {
+        const cli = row.clientes;
+        if (cli && row.numero_processo) {
+          map.set(row.numero_processo, { id: cli.id, nome: cli.nome });
+        }
+      });
+      return map;
+    },
   });
 
   const filtered = useMemo(() => {
@@ -232,6 +269,7 @@ export default function Publicacoes() {
                   key={p.id}
                   p={p}
                   advogadoNome={advogadoNome(p.advogado_id)}
+                  cliente={p.numero_processo ? processoMap.data?.get(p.numero_processo) : undefined}
                   onClick={() => setAberta(p)}
                 />
               ))}
@@ -243,6 +281,7 @@ export default function Publicacoes() {
       <PublicacaoDialog
         p={aberta}
         advogadoNome={aberta ? advogadoNome(aberta.advogado_id) : ""}
+        cliente={aberta?.numero_processo ? processoMap.data?.get(aberta.numero_processo) : undefined}
         onClose={() => setAberta(null)}
         onMarcar={marcar}
       />
@@ -250,7 +289,14 @@ export default function Publicacoes() {
   );
 }
 
-function PublicacaoCard({ p, advogadoNome, onClick }: { p: Publicacao; advogadoNome: string; onClick: () => void }) {
+function PublicacaoCard({
+  p, advogadoNome, cliente, onClick,
+}: {
+  p: Publicacao;
+  advogadoNome: string;
+  cliente?: { id: string; nome: string };
+  onClick: () => void;
+}) {
   const naoLida = p.status_leitura === "nao_lida";
   return (
     <button
@@ -270,10 +316,13 @@ function PublicacaoCard({ p, advogadoNome, onClick }: { p: Publicacao; advogadoN
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-medium truncate">
-                {p.numero_processo || "Processo não informado"}
+              <p className={`font-medium truncate ${cliente ? "text-sm" : "text-sm text-muted-foreground italic"}`}>
+                {cliente?.nome || "Cliente não cadastrado no AW ECO"}
               </p>
-              <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+              <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums truncate">
+                {p.numero_processo || "—"}
+              </p>
+              <p className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">
                 {[p.tribunal, p.orgao].filter(Boolean).join(" · ") || "—"}
               </p>
             </div>
@@ -306,13 +355,15 @@ function PublicacaoCard({ p, advogadoNome, onClick }: { p: Publicacao; advogadoN
 }
 
 function PublicacaoDialog({
-  p, advogadoNome, onClose, onMarcar,
+  p, advogadoNome, cliente, onClose, onMarcar,
 }: {
   p: Publicacao | null;
   advogadoNome: string;
+  cliente?: { id: string; nome: string };
   onClose: () => void;
   onMarcar: (id: string, status: StatusLeitura) => void;
 }) {
+  const navigate = useNavigate();
   if (!p) return null;
   return (
     <Dialog open={!!p} onOpenChange={(o) => !o && onClose()}>
@@ -320,10 +371,10 @@ function PublicacaoDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Scale className="h-5 w-5 text-primary" />
-            {p.numero_processo || "Publicação"}
+            {cliente?.nome || "Cliente não cadastrado"}
           </DialogTitle>
-          <DialogDescription>
-            {[p.tribunal, p.orgao].filter(Boolean).join(" · ") || "—"}
+          <DialogDescription className="tabular-nums">
+            {p.numero_processo || "—"} · {[p.tribunal, p.orgao].filter(Boolean).join(" · ") || "—"}
           </DialogDescription>
         </DialogHeader>
 
@@ -360,6 +411,11 @@ function PublicacaoDialog({
 
         <DialogFooter className="gap-2 sm:gap-2 flex-wrap">
           <Button variant="outline" onClick={onClose}>Fechar</Button>
+          {cliente && (
+            <Button variant="outline" onClick={() => { navigate(`/clientes/${cliente.id}`); onClose(); }}>
+              <ExternalLink className="h-4 w-4 mr-1.5" /> Abrir ficha
+            </Button>
+          )}
           {p.status_leitura !== "arquivada" && (
             <Button variant="outline" onClick={() => onMarcar(p.id, "arquivada")}>
               <Archive className="h-4 w-4 mr-1.5" /> Arquivar
