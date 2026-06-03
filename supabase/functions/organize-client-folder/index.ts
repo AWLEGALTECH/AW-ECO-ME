@@ -134,8 +134,10 @@ async function classificarComGemini(
     generationConfig: { temperature: 0, maxOutputTokens: 200 },
   };
   // Retry com backoff exponencial em 429 (rate limit do free tier eh 10 RPM)
-  // e em 5xx. 4 tentativas: imediata, 8s, 16s, 32s.
-  const delays = [0, 8000, 16000, 32000];
+  // e em 5xx. 2 tentativas total pra nao estourar wall-clock de 150s: imediata,
+  // depois 8s. Se falhar, marca como 'outro' — preferimos arquivo nao
+  // classificado a funcao timeout (que deixa a pasta sem mover).
+  const delays = [0, 8000];
   let lastErr = "";
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt] > 0) await new Promise((r) => setTimeout(r, delays[attempt]));
@@ -217,30 +219,11 @@ Deno.serve(async (req: Request) => {
     if (!pre.drive_folder_id) return jsonResponse({ error: "pre_cliente sem drive_folder_id" }, 400);
     const sa = await parseServiceAccount();
     const token = await obterAccessToken(sa);
-    const arquivos = await listarArquivos(token, pre.drive_folder_id);
-    console.log(`[organize] ${arquivos.length} arquivos em ${pre.drive_folder_id}`);
-    const usados: Record<string, number> = {};
-    const renames: Array<{ id: string; de: string; para: string; categoria: Categoria; debug?: string }> = [];
-    for (const arq of arquivos) {
-      try {
-        const bytes = await baixarArquivo(token, arq.id);
-        const { categoria: cat, debug } = await classificarComGemini(geminiKey, bytes, arq.mimeType);
-        if (cat === "outro") {
-          renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug });
-          continue;
-        }
-        const base = NOMES_CANONICOS[cat];
-        const ext = extensaoDe(arq.name, arq.mimeType);
-        usados[base] = (usados[base] || 0) + 1;
-        const sufixo = usados[base] > 1 ? ` (${usados[base]})` : "";
-        const novoNome = `${base}${sufixo}${ext}`;
-        if (novoNome !== arq.name) await renomear(token, arq.id, novoNome);
-        renames.push({ id: arq.id, de: arq.name, para: novoNome, categoria: cat, debug });
-      } catch (e) {
-        console.warn(`[organize] erro arquivo ${arq.name}:`, e);
-        renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: `excecao: ${String((e as Error)?.message || e).slice(0, 200)}` });
-      }
-    }
+
+    // 1) MOVE A PASTA PRIMEIRO. Garante que mesmo se a classificacao com
+    // Gemini estourar wall-clock (150s), a pasta ja estara em CLIENTES
+    // EFETIVOS. O loop antigo deixava a pasta orfa em PRE-CLIENTES quando
+    // dava timeout.
     const folderInfoResp = await fetch(`https://www.googleapis.com/drive/v3/files/${pre.drive_folder_id}?fields=parents,webViewLink&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
     if (!folderInfoResp.ok) throw new Error(`folder info ${folderInfoResp.status}: ${await folderInfoResp.text()}`);
     const folderInfo = await folderInfoResp.json();
@@ -250,6 +233,54 @@ Deno.serve(async (req: Request) => {
       await moverPasta(token, pre.drive_folder_id, destFolderId, paiAtual);
       folderMovido = true;
     }
+
+    // 2) Lista e classifica os arquivos em paralelo limitado (3 por vez).
+    // Serie estourava facil — 10 arquivos * (5-15s Gemini) ~= 50-150s.
+    const arquivos = await listarArquivos(token, pre.drive_folder_id);
+    console.log(`[organize] ${arquivos.length} arquivos em ${pre.drive_folder_id}`);
+    const usados: Record<string, number> = {};
+    const renames: Array<{ id: string; de: string; para: string; categoria: Categoria; debug?: string }> = [];
+    const CONCORRENCIA = 3;
+
+    type Classificado = { arq: DriveFile; cat: Categoria; debug?: string; erro?: string };
+    const classificados: Classificado[] = [];
+
+    for (let i = 0; i < arquivos.length; i += CONCORRENCIA) {
+      const lote = arquivos.slice(i, i + CONCORRENCIA);
+      const resultados = await Promise.all(lote.map(async (arq): Promise<Classificado> => {
+        try {
+          const bytes = await baixarArquivo(token, arq.id);
+          const { categoria, debug } = await classificarComGemini(geminiKey, bytes, arq.mimeType);
+          return { arq, cat: categoria, debug };
+        } catch (e) {
+          const erro = String((e as Error)?.message || e).slice(0, 200);
+          console.warn(`[organize] erro arquivo ${arq.name}: ${erro}`);
+          return { arq, cat: "outro", erro };
+        }
+      }));
+      classificados.push(...resultados);
+    }
+
+    // 3) Renomeia serialmente (rapido, ~200ms cada) pra contagem de sufixo
+    // ficar deterministica.
+    for (const { arq, cat, debug, erro } of classificados) {
+      if (cat === "outro") {
+        renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: erro ? `excecao: ${erro}` : debug });
+        continue;
+      }
+      const base = NOMES_CANONICOS[cat];
+      const ext = extensaoDe(arq.name, arq.mimeType);
+      usados[base] = (usados[base] || 0) + 1;
+      const sufixo = usados[base] > 1 ? ` (${usados[base]})` : "";
+      const novoNome = `${base}${sufixo}${ext}`;
+      try {
+        if (novoNome !== arq.name) await renomear(token, arq.id, novoNome);
+        renames.push({ id: arq.id, de: arq.name, para: novoNome, categoria: cat, debug });
+      } catch (e) {
+        renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: cat, debug: `rename falhou: ${String((e as Error)?.message || e).slice(0, 200)}` });
+      }
+    }
+
     return jsonResponse({ ok: true, total_arquivos: arquivos.length, renames, folder_movido: folderMovido, folder_url: folderInfo.webViewLink });
   } catch (e) {
     console.error("[organize-client-folder] erro", e);
