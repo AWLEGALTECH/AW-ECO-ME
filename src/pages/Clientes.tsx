@@ -84,7 +84,7 @@ export default function Clientes() {
       return { key, dir: numericKeys.includes(key) ? "desc" : "asc" };
     });
   };
-  const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
+  const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "" });
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<Stage>("form");
   const [createdName, setCreatedName] = useState("");
@@ -94,7 +94,7 @@ export default function Clientes() {
   const [creatingFolder, setCreatingFolder] = useState(false);
 
   const resetDialog = () => {
-    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "" });
+    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "" });
     setStage("form");
     setCreatedName("");
     setCreatedId(null);
@@ -184,6 +184,7 @@ export default function Clientes() {
       cpf_cnpj: form.cpf_cnpj.trim() || null,
       telefone: form.telefone.trim() || null,
       email: form.email.trim() || null,
+      parceiro: form.parceiro.trim() || null,
       origem: "manual",
       cadastrado_por: nomeSobrenome(profile),
     } as any).select("id").single();
@@ -255,6 +256,13 @@ export default function Clientes() {
                   <div><Label>CPF/CNPJ</Label><Input value={form.cpf_cnpj} onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })} /></div>
                   <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
                   <div><Label>E-mail</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                  <div className="col-span-2">
+                    <Label className="flex items-center gap-1.5">
+                      Parceiro
+                      <span className="text-[10px] text-muted-foreground font-normal">(colaborador que trouxe o caso)</span>
+                    </Label>
+                    <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} placeholder="ex: João Silva, Imobiliária X" />
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>

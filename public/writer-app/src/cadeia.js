@@ -143,6 +143,17 @@ function finalizarPecaPipeline(driveUrl) {
     const valDanoMoral = (typeof parseValor === 'function') ? parseValor(p3.valor_dano_moral) || 0 : 0;
     const valorCausa = (valDescontos * 2) + valDanoMoral;
 
+    // Competencia: usa a mesma logica/limite ja aplicado na peca DOCX
+    // (calcularTipoVara respeitando override manual do advogado). Manda
+    // o rotulo_curto pro aw-eco-me gravar e o Espelho usar diretamente
+    // sem recalcular com limites desatualizados.
+    let competencia = null;
+    if (typeof calcularTipoVara === 'function' && valorCausa > 0) {
+      const override = p3.tipo_vara_override || null;
+      const vara = calcularTipoVara(valorCausa, override);
+      competencia = vara && vara.rotulo_curto ? vara.rotulo_curto : null;
+    }
+
     window.parent.postMessage({
       type: 'aw-eco-me:pecaFinalizada',
       payload: {
@@ -151,6 +162,7 @@ function finalizarPecaPipeline(driveUrl) {
         comarca: p3.comarca || null,
         uf: p3.uf || null,
         valor_causa: valorCausa > 0 ? valorCausa : null,
+        competencia,
       },
     }, window.location.origin);
   });

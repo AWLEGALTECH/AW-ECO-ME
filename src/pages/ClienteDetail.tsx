@@ -49,6 +49,7 @@ export interface Cliente {
   origem: string | null;
   cadastrado_por: string | null;
   requerido: string | null;
+  parceiro: string | null;
   created_at: string;
 }
 
@@ -357,7 +358,12 @@ export default function ClienteDetail() {
     setDraft({ ...draft, dados_socioeconomicos: { ...(draft.dados_socioeconomicos || {}), [key]: value } });
   };
 
-  const handleSave = async () => {
+  // Parceiro eh dado sensivel (financeiro/comissao). Antes de salvar, se a
+  // edicao alterou esse campo, mostra confirmacao explicita pra evitar
+  // troca acidental. Os demais campos salvam direto.
+  const [confirmarParceiro, setConfirmarParceiro] = useState(false);
+
+  const persistirCliente = async () => {
     if (!draft) return;
     setSaving(true);
     // Limpa chaves vazias do jsonb pra nao gravar strings vazias
@@ -385,6 +391,7 @@ export default function ClienteDetail() {
         drive_folder_url: draft.drive_folder_url,
         cadastrado_por: draft.cadastrado_por,
         requerido: draft.requerido,
+        parceiro: draft.parceiro,
         dados_socioeconomicos: Object.keys(ds).length ? ds : {},
       } as any)
       .eq("id", draft.id);
@@ -392,7 +399,18 @@ export default function ClienteDetail() {
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setCliente(draft);
     setEditing(false);
+    setConfirmarParceiro(false);
     toast.success("Cliente atualizado");
+  };
+
+  const handleSave = async () => {
+    if (!draft || !cliente) return;
+    const parceiroMudou = (cliente.parceiro || "").trim() !== (draft.parceiro || "").trim();
+    if (parceiroMudou) {
+      setConfirmarParceiro(true);
+      return;
+    }
+    await persistirCliente();
   };
 
   if (!cliente) return <div className="text-center text-muted-foreground py-8">Carregando…</div>;
@@ -782,6 +800,13 @@ export default function ClienteDetail() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div><Label>Cadastrado por</Label><Input value={draft.cadastrado_por ?? ""} onChange={(e) => setDraft({ ...draft, cadastrado_por: e.target.value })} /></div>
                   <div><Label>Requerido (réu)</Label><Input value={draft.requerido ?? ""} onChange={(e) => setDraft({ ...draft, requerido: e.target.value })} placeholder="Ex.: Banco Bradesco" /></div>
+                  <div>
+                    <Label className="flex items-center gap-1.5">
+                      Parceiro
+                      <span className="text-[10px] text-muted-foreground font-normal">(collab que trouxe)</span>
+                    </Label>
+                    <Input value={draft.parceiro ?? ""} onChange={(e) => setDraft({ ...draft, parceiro: e.target.value })} placeholder="ex: João Silva" />
+                  </div>
                   <div className="sm:col-span-2"><Label>Pasta no Google Drive</Label><Input value={draft.drive_folder_url ?? ""} onChange={(e) => setDraft({ ...draft, drive_folder_url: e.target.value })} placeholder="https://drive.google.com/drive/folders/..." /></div>
                 </div>
               </div>
@@ -794,6 +819,34 @@ export default function ClienteDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmacao especifica de troca de parceiro — campo sensivel
+          (financeiro/comissao). Aparece soh quando o draft alterou o valor
+          em relacao ao cliente atual. */}
+      <AlertDialog open={confirmarParceiro} onOpenChange={(o) => !o && setConfirmarParceiro(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alterar o parceiro deste cliente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="block">
+                De: <strong className="text-foreground">{cliente?.parceiro || "(nenhum)"}</strong>
+              </span>
+              <span className="block mt-1">
+                Para: <strong className="text-foreground">{draft?.parceiro?.trim() || "(nenhum)"}</strong>
+              </span>
+              <span className="block mt-3 text-amber-400">
+                Parceiro é dado financeiro (comissão/colaboração). Mudar afeta relatórios e divisão futura. Confirme se foi proposital.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); persistirCliente(); }} disabled={saving}>
+              {saving ? "Salvando…" : "Sim, trocar parceiro"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1099,9 +1152,15 @@ export function EspelhoProtocoloDialog({
 
   if (!demanda || !cliente) return null;
 
-  // Determina competencia (JEC se valor <= 40 SM ~ 60k; comum caso contrario)
+  // Determina competencia. Prioridade:
+  //  1. demanda.competencia (definida pelo Writer no momento da finalizacao).
+  //  2. Fallback baseado no valor da causa com limite atualizado de 40 SM
+  //     (R$ 64.840 em 2026, Lei 9.099/95 art. 3 I — antes estava 60k, fora
+  //     de sintonia com o Writer e gerava JEC/Vara errado na faixa 60-64,8k).
   const valor = Number(demanda.valor_causa || 0);
-  const competencia = valor > 0 && valor <= 60000 ? "Juizado Especial Cível" : "Vara Cível Comum";
+  const LIMITE_JEC = 64840;
+  const competencia = (demanda as any).competencia
+    || (valor > 0 && valor < LIMITE_JEC ? "Juizado Especial Cível" : "Vara Cível Comum");
 
   const copy = async (id: string, txt: string) => {
     try {
