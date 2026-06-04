@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -306,7 +306,7 @@ export default function Esteira() {
       </header>
 
       <div className="relative">
-        <ScanSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Buscar por nome do cliente, requerido, desconto ou descrição…"
           value={busca}
