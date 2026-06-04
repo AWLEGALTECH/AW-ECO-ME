@@ -9,11 +9,12 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
-  Globe, Trophy, Ban, Mail,
+  Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
@@ -152,49 +153,66 @@ export default function Prospeccao() {
         </div>
       </header>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por nome, telefone, instagram, lista ou cidade..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          className="pl-9 h-10"
-        />
-        {busca && (
-          <button
-            onClick={() => setBusca("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      <Tabs defaultValue="pipeline" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="pipeline" className="gap-1.5">
+            <Layers className="h-3.5 w-3.5" /> Pipeline
+          </TabsTrigger>
+          <TabsTrigger value="historico" className="gap-1.5">
+            <History className="h-3.5 w-3.5" /> Histórico
+          </TabsTrigger>
+        </TabsList>
 
-      {q.isLoading ? (
-        <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
-      ) : (
-        <div className="space-y-6">
-          {/* Pipeline ativo */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-            {ESTAGIOS_ORDEM.map((e) => (
-              <ColunaEstagio
-                key={e}
-                estagio={e}
-                prospects={porEstagio[e]}
-                onCardClick={setDetalheOpen}
-              />
-            ))}
+        <TabsContent value="pipeline" className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por nome, telefone, instagram, lista ou cidade..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="pl-9 h-10"
+            />
+            {busca && (
+              <button
+                onClick={() => setBusca("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Terminais (ganho / perdido) compactos abaixo */}
-          {(porEstagio.ganho.length > 0 || porEstagio.perdido.length > 0) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/40">
-              <ColunaEstagio estagio="ganho"   prospects={porEstagio.ganho}   onCardClick={setDetalheOpen} terminal />
-              <ColunaEstagio estagio="perdido" prospects={porEstagio.perdido} onCardClick={setDetalheOpen} terminal />
+          {q.isLoading ? (
+            <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
+          ) : (
+            <div className="space-y-6">
+              {/* Pipeline ativo */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                {ESTAGIOS_ORDEM.map((e) => (
+                  <ColunaEstagio
+                    key={e}
+                    estagio={e}
+                    prospects={porEstagio[e]}
+                    onCardClick={setDetalheOpen}
+                  />
+                ))}
+              </div>
+
+              {/* Terminais (ganho / perdido) compactos abaixo */}
+              {(porEstagio.ganho.length > 0 || porEstagio.perdido.length > 0) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/40">
+                  <ColunaEstagio estagio="ganho"   prospects={porEstagio.ganho}   onCardClick={setDetalheOpen} terminal />
+                  <ColunaEstagio estagio="perdido" prospects={porEstagio.perdido} onCardClick={setDetalheOpen} terminal />
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
+        </TabsContent>
+
+        <TabsContent value="historico" className="space-y-4">
+          <HistoricoView onProspectClick={setDetalheOpen} />
+        </TabsContent>
+      </Tabs>
 
       <InserirLeadsDialog
         open={inserirOpen}
@@ -369,6 +387,10 @@ function InserirLeadsDialog({
   const inserir = async () => {
     if (!parseados || parseados.length === 0) return;
     setSaving(true);
+    // Todos os leads desse dialog compartilham o mesmo batch_id pra que
+    // o histórico consiga agrupá-los e mostrar "X leads importados em Y
+    // por Z" como uma única entrada na linha do tempo.
+    const batchId = crypto.randomUUID();
     const rows = parseados.map(p => ({
       nome: p.nome,
       telefone: p.telefone,
@@ -383,6 +405,7 @@ function InserirLeadsDialog({
       cidade: cidade.trim() || null,
       lista_origem: listaOrigem.trim() || null,
       estagio: "aguardando_contato",
+      batch_id: batchId,
       created_by: userId,
     }));
     const { error } = await supabase.from("prospects" as any).insert(rows);
@@ -815,5 +838,275 @@ function EventoLinha({ ev }: { ev: Evento }) {
       <span className="text-muted-foreground tabular-nums shrink-0 mt-0.5">{fmt}</span>
       <span className="flex-1 text-muted-foreground">{conteudo}</span>
     </div>
+  );
+}
+
+// ============================================================================
+// Histórico — timeline de inserções agrupadas por batch_id
+// ============================================================================
+
+interface ProspectLite {
+  id: string;
+  nome: string;
+  batch_id: string | null;
+  lista_origem: string | null;
+  cidade: string | null;
+  created_at: string;
+  created_by: string | null;
+  estagio: Estagio;
+  whatsapp: string | null;
+  instagram: string | null;
+  telefone: string | null;
+}
+
+interface Lote {
+  batchId: string;
+  criadoEm: string;
+  autorEmail: string | null;
+  autorNome: string;
+  listaOrigem: string | null;
+  cidade: string | null;
+  qtd: number;
+  leads: ProspectLite[];
+}
+
+const fmtDataHora = (iso: string): string =>
+  new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  }).format(new Date(iso));
+
+const fmtDiaCurto = (iso: string): string =>
+  new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(iso));
+
+const tempoAtras = (iso: string): string => {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min}min atrás`;
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return `${horas}h atrás`;
+  const dias = Math.floor(horas / 24);
+  if (dias < 30) return `${dias}d atrás`;
+  const meses = Math.floor(dias / 30);
+  return `${meses}m atrás`;
+};
+
+function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => void }) {
+  const q = useQuery({
+    queryKey: ["prospect-historico"],
+    queryFn: async (): Promise<Lote[]> => {
+      // 1) prospects mais recentes primeiro
+      const { data: rows, error } = await supabase
+        .from("prospects" as any)
+        .select("id, nome, batch_id, lista_origem, cidade, created_at, created_by, estagio, whatsapp, instagram, telefone")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      const prospects = (rows || []) as unknown as ProspectLite[];
+      if (prospects.length === 0) return [];
+
+      // 2) email do autor via prospect_eventos (trigger grava 'criado' com user_email)
+      const ids = prospects.map(p => p.id);
+      const { data: eventos } = await supabase
+        .from("prospect_eventos" as any)
+        .select("prospect_id, user_email")
+        .eq("tipo", "criado")
+        .in("prospect_id", ids);
+      const emailPorProspect: Record<string, string> = {};
+      for (const ev of (eventos || []) as any[]) {
+        if (ev.user_email) emailPorProspect[ev.prospect_id] = ev.user_email;
+      }
+
+      // 3) agrupa por batch_id (sem batch_id -> lote individual)
+      const mapa = new Map<string, ProspectLite[]>();
+      for (const p of prospects) {
+        const key = p.batch_id || `solo-${p.id}`;
+        if (!mapa.has(key)) mapa.set(key, []);
+        mapa.get(key)!.push(p);
+      }
+
+      // 4) constroi lotes ordenados por data desc
+      const lotes: Lote[] = [];
+      for (const [batchId, leads] of mapa) {
+        const primeiro = leads[leads.length - 1]; // mais antigo do lote
+        const email = emailPorProspect[primeiro.id] || null;
+        const nomeAutor = email ? email.split("@")[0] : "Sistema";
+        lotes.push({
+          batchId,
+          criadoEm: primeiro.created_at,
+          autorEmail: email,
+          autorNome: nomeAutor,
+          listaOrigem: primeiro.lista_origem,
+          cidade: primeiro.cidade,
+          qtd: leads.length,
+          leads,
+        });
+      }
+      lotes.sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
+      return lotes;
+    },
+    refetchInterval: 60_000,
+  });
+
+  if (q.isLoading) {
+    return <div className="text-center text-muted-foreground py-12 text-sm">Carregando histórico…</div>;
+  }
+  const lotes = q.data || [];
+  if (lotes.length === 0) {
+    return (
+      <div className="text-center py-16 text-muted-foreground text-sm rounded-lg border border-dashed border-border">
+        Nenhuma inserção registrada ainda.
+      </div>
+    );
+  }
+
+  // Separadores por dia
+  const porDia = new Map<string, Lote[]>();
+  for (const l of lotes) {
+    const dia = l.criadoEm.slice(0, 10);
+    if (!porDia.has(dia)) porDia.set(dia, []);
+    porDia.get(dia)!.push(l);
+  }
+
+  const totalLeads = lotes.reduce((acc, l) => acc + l.qtd, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4 text-sm text-muted-foreground border-b border-border/60 pb-3">
+        <span className="inline-flex items-center gap-1.5">
+          <Layers className="h-4 w-4 text-primary" />
+          <strong className="text-foreground">{lotes.length}</strong> inserções
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Target className="h-4 w-4 text-primary" />
+          <strong className="text-foreground">{totalLeads}</strong> leads no total
+        </span>
+        <Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching} className="ml-auto">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${q.isFetching ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
+      </div>
+
+      <div className="space-y-6">
+        {Array.from(porDia.entries()).map(([dia, lotesDoDia]) => (
+          <div key={dia} className="space-y-2">
+            <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur z-10 py-1">
+              <div className="h-px flex-1 bg-border/60" />
+              <span className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground font-semibold">
+                {fmtDiaCurto(dia)}
+              </span>
+              <div className="h-px flex-1 bg-border/60" />
+            </div>
+            <div className="space-y-2">
+              {lotesDoDia.map(lote => (
+                <LoteCard key={lote.batchId} lote={lote} onProspectClick={onProspectClick} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: Prospect) => void }) {
+  const [expandido, setExpandido] = useState(false);
+  const single = lote.qtd === 1;
+  const iconBg = single ? "bg-primary/15" : "bg-emerald-500/15";
+  const iconColor = single ? "text-primary" : "text-emerald-400";
+
+  const abrirProspect = async (lite: ProspectLite) => {
+    const { data } = await supabase
+      .from("prospects" as any)
+      .select("*")
+      .eq("id", lite.id)
+      .single();
+    if (data) onProspectClick(data as unknown as Prospect);
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card/40 hover:border-primary/30 transition-colors">
+      <button
+        onClick={() => setExpandido(v => !v)}
+        className="w-full flex items-center gap-3 p-3 text-left"
+      >
+        <div className={`h-10 w-10 rounded-full ${iconBg} flex items-center justify-center shrink-0`}>
+          {single
+            ? <Plus className={`h-4 w-4 ${iconColor}`} />
+            : <Upload className={`h-4 w-4 ${iconColor}`} />}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-sm font-semibold">
+              {single ? `1 lead inserido` : `${lote.qtd} leads importados`}
+            </span>
+            {lote.listaOrigem && (
+              <span className="text-[11px] inline-flex items-center gap-1 text-primary/90 bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
+                <Target className="h-2.5 w-2.5" />
+                {lote.listaOrigem}
+              </span>
+            )}
+            {lote.cidade && (
+              <span className="text-[11px] inline-flex items-center gap-1 text-muted-foreground">
+                <MapPin className="h-2.5 w-2.5" />
+                {lote.cidade}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <User className="h-2.5 w-2.5" />
+              <strong className="text-foreground/80 font-medium">{lote.autorNome}</strong>
+            </span>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="inline-flex items-center gap-1 tabular-nums">
+              <Clock className="h-2.5 w-2.5" />
+              {fmtDataHora(lote.criadoEm)}
+            </span>
+            <span className="text-muted-foreground/50">·</span>
+            <span>{tempoAtras(lote.criadoEm)}</span>
+          </div>
+        </div>
+
+        <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${expandido ? "rotate-180" : ""}`} />
+      </button>
+
+      {expandido && (
+        <div className="border-t border-border/60 px-3 pb-3 pt-2 space-y-1">
+          {lote.leads.map(lead => (
+            <button
+              key={lead.id}
+              onClick={() => abrirProspect(lead)}
+              className="w-full text-left rounded-md px-2 py-1.5 hover:bg-card/80 transition-colors group flex items-center gap-2"
+            >
+              <Target className="h-3 w-3 text-muted-foreground/60 group-hover:text-primary shrink-0" />
+              <span className="text-xs font-medium truncate flex-1">{lead.nome}</span>
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
+                {lead.whatsapp && <MessageCircle className="h-2.5 w-2.5 text-emerald-400" />}
+                {lead.instagram && <Instagram className="h-2.5 w-2.5 text-pink-400" />}
+                {lead.telefone && !lead.whatsapp && <Phone className="h-2.5 w-2.5" />}
+                <EstagioMiniBadge estagio={lead.estagio} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EstagioMiniBadge({ estagio }: { estagio: Estagio }) {
+  const meta = ESTAGIO_META[estagio];
+  const cls =
+    meta.cor === "amber"   ? "text-amber-400 bg-amber-400/10" :
+    meta.cor === "emerald" ? "text-emerald-400 bg-emerald-400/10" :
+    meta.cor === "red"     ? "text-red-400 bg-red-400/10" :
+                             "text-primary bg-primary/10";
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${cls} ml-1`}>
+      {meta.label}
+    </span>
   );
 }
