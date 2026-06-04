@@ -234,13 +234,16 @@ Deno.serve(async (req: Request) => {
       folderMovido = true;
     }
 
-    // 2) Lista e classifica os arquivos em paralelo limitado (3 por vez).
-    // Serie estourava facil — 10 arquivos * (5-15s Gemini) ~= 50-150s.
+    // 2) Lista e classifica os arquivos respeitando o limite de 10 RPM do
+    // Gemini free tier. Paralelismo 2 + delay 12s entre lotes = exatamente
+    // 10 req/min. Pra 12 arquivos: 6 lotes * 12s = 72s + overhead ~80s,
+    // cabe no wall-clock de 150s.
     const arquivos = await listarArquivos(token, pre.drive_folder_id);
     console.log(`[organize] ${arquivos.length} arquivos em ${pre.drive_folder_id}`);
     const usados: Record<string, number> = {};
     const renames: Array<{ id: string; de: string; para: string; categoria: Categoria; debug?: string }> = [];
-    const CONCORRENCIA = 3;
+    const CONCORRENCIA = 2;
+    const DELAY_ENTRE_LOTES_MS = 12_000;
 
     type Classificado = { arq: DriveFile; cat: Categoria; debug?: string; erro?: string };
     const classificados: Classificado[] = [];
@@ -259,6 +262,11 @@ Deno.serve(async (req: Request) => {
         }
       }));
       classificados.push(...resultados);
+      // Espera entre lotes pra nao estourar 10 RPM do Gemini free tier.
+      // Pula o delay no ultimo lote.
+      if (i + CONCORRENCIA < arquivos.length) {
+        await new Promise((r) => setTimeout(r, DELAY_ENTRE_LOTES_MS));
+      }
     }
 
     // 3) Renomeia serialmente (rapido, ~200ms cada) pra contagem de sufixo
