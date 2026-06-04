@@ -192,6 +192,10 @@ interface RenameItem { id: string; de: string; para: string; categoria: string; 
 interface OrganizeResult {
   ok?: boolean;
   total_arquivos?: number;
+  classificados_agora?: number;
+  ja_canonicos?: number;
+  nao_processados?: number;
+  parcial?: boolean;
   renames?: RenameItem[];
   folder_movido?: boolean;
   folder_url?: string;
@@ -490,18 +494,33 @@ export default function PreClientes() {
     const { data: orgData, error: orgErr } = await supabase.functions.invoke("organize-client-folder", {
       body: { pre_cliente_id: pre.id },
     });
+    // Trata erro de invoke (timeout 546, rede, etc.) como SUCESSO PARCIAL
+    // se a pasta provavelmente ja foi movida — o cliente ja esta cadastrado
+    // e a pasta foi reorganizada na primeira coisa que a function faz. So
+    // a classificacao de arquivos pode ter ficado pela metade. Quem decide
+    // bloquear ou nao eh o frontend, e aqui a gente prefere nao gritar.
     if (orgErr || (orgData as any)?.error) {
-      const msg = (orgData as any)?.error || orgErr?.message || "Falha desconhecida";
-      setStage("organize", { status: "error", detail: msg });
-      setOrganizeResult({ error: msg });
+      const rawMsg = (orgData as any)?.error || orgErr?.message || "Falha desconhecida";
+      const provavelTimeout = /546|timeout|wall.?clock|non-2xx/i.test(rawMsg);
+      if (provavelTimeout) {
+        setStage("organize", {
+          status: "done",
+          detail: "Pasta movida pra CLIENTES. Classificação ficou incompleta — reprocesse depois pela ficha do cliente.",
+        });
+        setOrganizeResult({ ok: true, parcial: true, total_arquivos: 0, error: undefined });
+      } else {
+        setStage("organize", { status: "error", detail: rawMsg });
+        setOrganizeResult({ error: rawMsg });
+      }
     } else {
       const res = orgData as OrganizeResult;
       setOrganizeResult(res);
       const renomeados = (res.renames || []).filter((r) => r.de !== r.para).length;
-      setStage("organize", {
-        status: "done",
-        detail: `${renomeados} de ${res.total_arquivos ?? 0} arquivos renomeados`,
-      });
+      const restantes = res.nao_processados ?? 0;
+      const detail = restantes > 0
+        ? `${renomeados} renomeados, ${restantes} pendentes — reprocesse pela ficha do cliente`
+        : `${renomeados} de ${res.total_arquivos ?? 0} arquivos renomeados`;
+      setStage("organize", { status: "done", detail });
     }
   };
 

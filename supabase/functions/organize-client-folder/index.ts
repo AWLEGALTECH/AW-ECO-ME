@@ -238,18 +238,72 @@ Deno.serve(async (req: Request) => {
     // Gemini free tier. Paralelismo 2 + delay 12s entre lotes = exatamente
     // 10 req/min. Pra 12 arquivos: 6 lotes * 12s = 72s + overhead ~80s,
     // cabe no wall-clock de 150s.
+    //
+    // IDEMPOTENCIA: arquivos ja com nome canonico (ex: "RG.pdf",
+    // "CPF (2).pdf") sao pulados na classificacao — economiza chamadas
+    // Gemini em re-runs e deixa a contagem de sufixo consistente.
+    //
+    // BUDGET DE TEMPO: paramos de classificar antes do wall-clock 150s
+    // do Supabase. O que sobrar fica com nome original e a resposta vem
+    // com parcial=true, pra o frontend mostrar "X de Y classificados" e
+    // permitir re-rodar depois (cheio de re-runs e barato, pq os ja
+    // classificados sao pulados).
     const arquivos = await listarArquivos(token, pre.drive_folder_id);
     console.log(`[organize] ${arquivos.length} arquivos em ${pre.drive_folder_id}`);
+
+    // Detecta nome canonico (ex: "RG.pdf", "CPF (2).pdf"). Re-popula
+    // contador `usados` pra novos arquivos nao colidirem com os antigos.
     const usados: Record<string, number> = {};
     const renames: Array<{ id: string; de: string; para: string; categoria: Categoria; debug?: string }> = [];
+
+    const NOMES_BASE = Object.values(NOMES_CANONICOS).map(n =>
+      n.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"),
+    ).join("|");
+    const RE_CANONICO = new RegExp(`^(${NOMES_BASE})(?:\\s*\\((\\d+)\\))?\\.[a-z0-9]+$`, "i");
+
+    const jaCanonicos: DriveFile[] = [];
+    const aClassificar: DriveFile[] = [];
+    const baseDeNomeCanonico = (nome: string): string | null => {
+      const m = nome.match(RE_CANONICO);
+      if (!m) return null;
+      // Acha o nome canonico exato (case-insensitive)
+      const canon = Object.values(NOMES_CANONICOS).find(
+        n => n.toLowerCase() === m[1].toLowerCase(),
+      );
+      return canon || null;
+    };
+    for (const arq of arquivos) {
+      const base = baseDeNomeCanonico(arq.name);
+      if (base) {
+        jaCanonicos.push(arq);
+        usados[base] = (usados[base] || 0) + 1;
+      } else {
+        aClassificar.push(arq);
+      }
+    }
+    console.log(`[organize] ${jaCanonicos.length} ja canonicos, ${aClassificar.length} pra classificar`);
+
     const CONCORRENCIA = 2;
     const DELAY_ENTRE_LOTES_MS = 12_000;
+    // Buffer pra renames + resposta. Edge function tem 150s wall-clock;
+    // queremos terminar classificacao em ~125s pra ter ~25s pros renames.
+    const T0 = Date.now();
+    const BUDGET_CLASSIFICACAO_MS = 125_000;
+    const tempoRestante = () => BUDGET_CLASSIFICACAO_MS - (Date.now() - T0);
 
     type Classificado = { arq: DriveFile; cat: Categoria; debug?: string; erro?: string };
     const classificados: Classificado[] = [];
+    const naoProcessados: DriveFile[] = [];
 
-    for (let i = 0; i < arquivos.length; i += CONCORRENCIA) {
-      const lote = arquivos.slice(i, i + CONCORRENCIA);
+    for (let i = 0; i < aClassificar.length; i += CONCORRENCIA) {
+      // Se ja nao cabe mais um lote (com seu delay), encerra aqui e marca
+      // o restante como nao processado.
+      if (tempoRestante() < 18_000) {
+        naoProcessados.push(...aClassificar.slice(i));
+        console.warn(`[organize] budget esgotado, ${naoProcessados.length} arquivos ficam pra re-run`);
+        break;
+      }
+      const lote = aClassificar.slice(i, i + CONCORRENCIA);
       const resultados = await Promise.all(lote.map(async (arq): Promise<Classificado> => {
         try {
           const bytes = await baixarArquivo(token, arq.id);
@@ -264,13 +318,16 @@ Deno.serve(async (req: Request) => {
       classificados.push(...resultados);
       // Espera entre lotes pra nao estourar 10 RPM do Gemini free tier.
       // Pula o delay no ultimo lote.
-      if (i + CONCORRENCIA < arquivos.length) {
+      if (i + CONCORRENCIA < aClassificar.length) {
         await new Promise((r) => setTimeout(r, DELAY_ENTRE_LOTES_MS));
       }
     }
 
     // 3) Renomeia serialmente (rapido, ~200ms cada) pra contagem de sufixo
-    // ficar deterministica.
+    // ficar deterministica. Pula os ja canonicos (nao precisam de rename).
+    for (const arq of jaCanonicos) {
+      renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: "ja canonico" });
+    }
     for (const { arq, cat, debug, erro } of classificados) {
       if (cat === "outro") {
         renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: erro ? `excecao: ${erro}` : debug });
@@ -288,8 +345,24 @@ Deno.serve(async (req: Request) => {
         renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: cat, debug: `rename falhou: ${String((e as Error)?.message || e).slice(0, 200)}` });
       }
     }
+    // Arquivos que ficaram pra re-run aparecem com flag pro frontend
+    // saber que ainda ha trabalho. NAO sao erro — sao backlog.
+    for (const arq of naoProcessados) {
+      renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: "nao processado (budget)" });
+    }
 
-    return jsonResponse({ ok: true, total_arquivos: arquivos.length, renames, folder_movido: folderMovido, folder_url: folderInfo.webViewLink });
+    const parcial = naoProcessados.length > 0;
+    return jsonResponse({
+      ok: true,
+      total_arquivos: arquivos.length,
+      classificados_agora: classificados.length,
+      ja_canonicos: jaCanonicos.length,
+      nao_processados: naoProcessados.length,
+      parcial,
+      renames,
+      folder_movido: folderMovido,
+      folder_url: folderInfo.webViewLink,
+    });
   } catch (e) {
     console.error("[organize-client-folder] erro", e);
     return jsonResponse({ error: String((e as Error)?.message || e) }, 500);
