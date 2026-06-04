@@ -684,11 +684,15 @@ function AuditFooter({ audit }: { audit?: AuditInfo }) {
   if (!audit) return null;
   const verbo = audit.verbo === "criou" ? "criou" : "moveu";
   const para = audit.para ? ETAPA_LABEL[audit.para] || audit.para : null;
+  // Belt-and-suspenders: se por qualquer razao chegar who vazio ou "—",
+  // exibe "Sistema" em vez de deixar a linha sem nome.
+  const whoLimpo = (audit.who || "").trim();
+  const who = whoLimpo && whoLimpo !== "—" ? whoLimpo : "Sistema";
   return (
     <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 pt-1 truncate">
       <History className="h-2.5 w-2.5 shrink-0" />
       <span className="truncate">
-        <span className="font-medium text-foreground/70">{audit.who}</span>{" "}
+        <span className="font-medium text-foreground/70">{who}</span>{" "}
         {verbo}
         {para && verbo === "moveu" && <> → <span className="text-foreground/60">{para}</span></>}
         {" · "}
