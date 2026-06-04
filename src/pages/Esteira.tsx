@@ -51,7 +51,7 @@ interface DemandaEsteira {
   created_at: string;
   completed_at: string | null;
   cliente_id: string;
-  cliente: { id: string; nome: string; drive_folder_url?: string | null } | null;
+  cliente: { id: string; nome: string; drive_folder_url?: string | null; cadastrado_por?: string | null } | null;
 }
 
 interface ClienteEsteira {
@@ -111,7 +111,7 @@ export default function Esteira() {
     queryFn: async (): Promise<DemandaEsteira[]> => {
       const { data, error } = await supabase
         .from("demandas" as any)
-        .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url)")
+        .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url, cadastrado_por)")
         .in("etapa", ["pendencia_documental", "analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo"])
         .eq("status", "pendente")
         .order("created_at", { ascending: false });
@@ -163,9 +163,19 @@ export default function Esteira() {
     queryKey: ["esteira-audit", (demRes.data || []).map(d => d.id).sort().join(",")],
     enabled: !!demRes.data && demRes.data.length > 0,
     queryFn: async (): Promise<Record<string, AuditInfo>> => {
-      const ids = (demRes.data || []).map(d => d.id);
+      const dems = demRes.data || [];
+      const ids = dems.map(d => d.id);
       const out: Record<string, AuditInfo> = {};
       if (ids.length === 0) return out;
+      // Fallback por demanda: se o audit_log nao tem user_email (caso de
+      // demanda criada via SECURITY DEFINER ou funcao sem auth.uid()),
+      // usa o cadastrado_por do cliente. Garante que TODO card mostra
+      // algum responsavel.
+      const fallbackPorDemanda: Record<string, string> = {};
+      for (const d of dems) {
+        const cp = (d.cliente as any)?.cadastrado_por;
+        if (cp) fallbackPorDemanda[d.id] = String(cp).trim();
+      }
       const { data } = await supabase
         .from("audit_log" as any)
         .select("resource_id, user_email, created_at, action, diff")
@@ -176,7 +186,8 @@ export default function Esteira() {
       for (const row of (data || []) as any[]) {
         const id = row.resource_id as string;
         if (out[id]) continue;
-        const who = (row.user_email || "—").split("@")[0];
+        const emailPart = (row.user_email || "").split("@")[0].trim();
+        const who = emailPart || fallbackPorDemanda[id] || "Sistema";
         const etapaDiff = row.diff?.etapa;
         if (row.action === "create") {
           out[id] = { who, when: row.created_at, verbo: "criou" };
@@ -189,6 +200,16 @@ export default function Esteira() {
             para: etapaDiff.after,
           };
         }
+      }
+      // Garante entrada pra demandas sem nenhum audit (raro — significa que
+      // o trigger nao rodou). Usa cadastrado_por + created_at da demanda.
+      for (const d of dems) {
+        if (out[d.id]) continue;
+        out[d.id] = {
+          who: fallbackPorDemanda[d.id] || "Sistema",
+          when: d.created_at,
+          verbo: "criou",
+        };
       }
       return out;
     },
