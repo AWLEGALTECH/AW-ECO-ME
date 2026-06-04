@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -18,6 +18,23 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+interface AuditInfo {
+  who: string;
+  when: string;
+  verbo: "criou" | "moveu";
+  de?: string;
+  para?: string;
+}
+
+// Rotulos curtos das etapas pra exibir no log do card
+const ETAPA_LABEL: Record<string, string> = {
+  analise_documental: "Análise",
+  analise_vinculada: "Vinculada",
+  fluxo_artesanal: "Artesanal",
+  pronta_para_protocolo: "Pronta",
+  pendencia_documental: "Pendência",
+};
 
 interface DemandaEsteira {
   id: string;
@@ -116,12 +133,15 @@ export default function Esteira() {
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
-      // Cliente sai de "Aguardando" assim que tem uma demanda em qualquer
-      // fluxo (Bradesco ou artesanal) que nao esteja cancelada.
+      // Cliente sai de "Aguardando" assim que tem uma demanda em QUALQUER
+      // etapa downstream (vinculada, artesanal, peca pronta, pendencia)
+      // que nao esteja cancelada. Antes so checava vinculada/artesanal, o
+      // que deixava clientes aparecerem em col 1 E col 4 simultaneamente
+      // quando a peca avancava direto pra "pronta_para_protocolo".
       const { data: vincs, error: e2 } = await supabase
         .from("demandas" as any)
         .select("cliente_id")
-        .in("etapa", ["analise_vinculada", "fluxo_artesanal"])
+        .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "pendencia_documental"])
         .neq("status", "cancelada")
         .in("cliente_id", ids);
       if (e2) throw e2;
@@ -131,7 +151,48 @@ export default function Esteira() {
     refetchInterval: 30_000,
   });
 
-  const refetchAll = () => { demRes.refetch(); cliRes.refetch(); };
+  // Query 3: audit log das demandas visiveis — pra mostrar "movido por X
+  // ha Y" no card. Pega o evento mais recente onde houve mudanca de etapa
+  // (ou a criacao, se nunca foi movida).
+  const auditRes = useQuery({
+    queryKey: ["esteira-audit", (demRes.data || []).map(d => d.id).sort().join(",")],
+    enabled: !!demRes.data && demRes.data.length > 0,
+    queryFn: async (): Promise<Map<string, AuditInfo>> => {
+      const ids = (demRes.data || []).map(d => d.id);
+      const map = new Map<string, AuditInfo>();
+      if (ids.length === 0) return map;
+      const { data } = await supabase
+        .from("audit_log" as any)
+        .select("resource_id, user_email, created_at, action, diff")
+        .eq("resource_type", "demandas")
+        .in("resource_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      // Itera do mais recente pro mais antigo; pra cada demanda guarda o
+      // primeiro evento "interessante" (mudanca de etapa OU criacao).
+      for (const row of (data || []) as any[]) {
+        const id = row.resource_id as string;
+        if (map.has(id)) continue;
+        const who = (row.user_email || "—").split("@")[0];
+        const etapaDiff = row.diff?.etapa;
+        if (row.action === "create") {
+          map.set(id, { who, when: row.created_at, verbo: "criou" });
+        } else if (etapaDiff) {
+          map.set(id, {
+            who,
+            when: row.created_at,
+            verbo: "moveu",
+            de: etapaDiff.before,
+            para: etapaDiff.after,
+          });
+        }
+      }
+      return map;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const refetchAll = () => { demRes.refetch(); cliRes.refetch(); auditRes.refetch(); };
   const isLoading = demRes.isLoading || cliRes.isLoading;
   const isFetching = demRes.isFetching || cliRes.isFetching;
 
@@ -234,7 +295,7 @@ export default function Esteira() {
                     hint={g.items.length === 1 ? hint : `${g.items.length} pendências documentais`}
                   >
                     {g.items.map(p => (
-                      <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} />
+                      <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} audit={auditRes.data?.get(p.id)} />
                     ))}
                   </ClienteAccordion>
                 );
@@ -309,6 +370,7 @@ export default function Esteira() {
                         data={d.created_at}
                         acao="Confeccionar peça"
                         acaoIcon={PenSquare}
+                        audit={auditRes.data?.get(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
@@ -345,6 +407,7 @@ export default function Esteira() {
                         key={d.id}
                         demanda={d}
                         onAvancar={() => avancarArtesanalParaPronta(d)}
+                        audit={auditRes.data?.get(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
@@ -385,6 +448,7 @@ export default function Esteira() {
                         acao="Abrir espelho"
                         acaoIcon={Send}
                         accent="amber"
+                        audit={auditRes.data?.get(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
@@ -523,8 +587,29 @@ function Vazio() {
   );
 }
 
+// Mostra "moveu por X · ha Y" baseado no audit_log. Aparece em cada card
+// que tem demanda. Se vier sem audit (ainda carregando ou sem registro),
+// renderiza nada.
+function AuditFooter({ audit }: { audit?: AuditInfo }) {
+  if (!audit) return null;
+  const verbo = audit.verbo === "criou" ? "criou" : "moveu";
+  const para = audit.para ? ETAPA_LABEL[audit.para] || audit.para : null;
+  return (
+    <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 pt-1 truncate">
+      <History className="h-2.5 w-2.5 shrink-0" />
+      <span className="truncate">
+        <span className="font-medium text-foreground/70">{audit.who}</span>{" "}
+        {verbo}
+        {para && verbo === "moveu" && <> → <span className="text-foreground/60">{para}</span></>}
+        {" · "}
+        {tempoDecorrido(audit.when)}
+      </span>
+    </div>
+  );
+}
+
 function CardLinha({
-  to, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary",
+  to, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
 }: {
   to: string;
   titulo: string;
@@ -533,6 +618,7 @@ function CardLinha({
   acao: string;
   acaoIcon?: any;
   accent?: "primary" | "amber";
+  audit?: AuditInfo;
 }) {
   const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
   return (
@@ -553,6 +639,7 @@ function CardLinha({
           {acao} <AcaoIcon className="h-3 w-3" />
         </span>
       </div>
+      <AuditFooter audit={audit} />
     </Link>
   );
 }
@@ -560,7 +647,7 @@ function CardLinha({
 // Versao botao do CardLinha — usada quando o clique nao navega mas abre
 // um dialog (ex: espelho de protocolo na coluna "Pecas Prontas").
 function CardBotaoLinha({
-  onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary",
+  onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
 }: {
   onClick: () => void;
   titulo: string;
@@ -568,6 +655,7 @@ function CardBotaoLinha({
   acao: string;
   acaoIcon?: any;
   accent?: "primary" | "amber";
+  audit?: AuditInfo;
 }) {
   const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
   return (
@@ -587,6 +675,7 @@ function CardBotaoLinha({
           {acao} <AcaoIcon className="h-3 w-3" />
         </span>
       </div>
+      <AuditFooter audit={audit} />
     </button>
   );
 }
@@ -626,7 +715,7 @@ function CardBotao({
 // Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre um
 // dialog com botao pra abrir a pasta do Drive (subir a peca) e so depois
 // permite confirmar a conclusao — evita conclusao acidental.
-function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvancar: () => void }) {
+function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira; onAvancar: () => void; audit?: AuditInfo }) {
   const [open, setOpen] = useState(false);
   const drive = demanda.cliente?.drive_folder_url;
   const nomeCliente = demanda.cliente?.nome || "cliente";
@@ -654,6 +743,7 @@ function CardArtesanal({ demanda, onAvancar }: { demanda: DemandaEsteira; onAvan
             Concluir peça <Send className="h-3 w-3" />
           </span>
         </div>
+        <AuditFooter audit={audit} />
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -736,7 +826,7 @@ function pendenciaLabel(demanda: DemandaEsteira): string {
   return TIPOS_PENDENCIA.find(t => t.key === demanda.pendencia_tipo)?.label || demanda.titulo;
 }
 
-function PendenciaCard({ demanda, onClick }: { demanda: DemandaEsteira; onClick: () => void }) {
+function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; onClick: () => void; audit?: AuditInfo }) {
   const tipoLabel = pendenciaLabel(demanda);
   const materia = demanda.titulo.replace(/^Pend[êe]ncia documental\s*—\s*/i, "");
   const mostrarMateria = materia && materia !== demanda.titulo && materia !== tipoLabel;
@@ -758,6 +848,7 @@ function PendenciaCard({ demanda, onClick }: { demanda: DemandaEsteira; onClick:
         </span>
         <span className="text-[10px] text-amber-400/70 font-medium">ver detalhes →</span>
       </div>
+      <AuditFooter audit={audit} />
     </button>
   );
 }
