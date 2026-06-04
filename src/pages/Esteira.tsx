@@ -81,6 +81,15 @@ const tempoDecorrido = (iso: string | null): string => {
   return meses === 1 ? "1 mês atrás" : `${meses} meses atrás`;
 };
 
+// Formato curto da data de entrada, exibido junto do "X dias atras"
+// no rodape do card. Ex: "04/06/26".
+const fmtData = (iso: string | null): string => {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+  }).format(new Date(iso));
+};
+
 export default function Esteira() {
   useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
   const { user } = useAuth();
@@ -124,7 +133,10 @@ export default function Esteira() {
         .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url, cadastrado_por)")
         .in("etapa", ["pendencia_documental", "analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo"])
         .eq("status", "pendente")
-        .order("created_at", { ascending: false });
+        // FIFO: mais antigos no topo, recem-chegados ao final. Cada coluna
+        // re-ordena pelo seu campo de entrada na fase (created_at na maioria,
+        // completed_at pra 'pronta_para_protocolo').
+        .order("created_at", { ascending: true });
       if (error) throw error;
       return (data || []) as unknown as DemandaEsteira[];
     },
@@ -146,7 +158,7 @@ export default function Esteira() {
         .select("id, nome, created_at, origem, drive_folder_url, requerido, observacoes")
         .eq("precisa_analise_extratos" as any, true)
         .is("analise_primaria_finalizada_at" as any, null)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: true });
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
@@ -264,7 +276,12 @@ export default function Esteira() {
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
     const vincsFil = vincsAll.filter(v => !protoIds.has(v.id));
     const artesFil = artesanaisAll.filter(a => !protoIds.has(a.id));
-    const protosFil = protosAll.filter(p => !p.protocolado_at);
+    // 'pronta_para_protocolo' eh uma demanda que TROCOU de etapa (UPDATE),
+    // entao created_at nao reflete a entrada nessa fase. Re-ordena pelo
+    // completed_at (timestamp do UPDATE pra pronta) com fallback created_at.
+    const protosFil = protosAll
+      .filter(p => !p.protocolado_at)
+      .sort((a, b) => (a.completed_at || a.created_at || "").localeCompare(b.completed_at || b.created_at || ""));
     const aguarAll = cliRes.data || [];
     const totalAntesFiltro = pendenciasAll.length + aguarAll.length + vincsFil.length + artesFil.length + protosFil.length;
 
@@ -854,7 +871,10 @@ function CardLinha({
       <p className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</p>
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}
+          <Clock className="h-2.5 w-2.5" />
+          <span>{tempoDecorrido(data)}</span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">{fmtData(data)}</span>
         </span>
         <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${accentText} group-hover:gap-1.5 transition-all`}>
           {acao} <AcaoIcon className="h-3 w-3" />
@@ -890,7 +910,10 @@ function CardBotaoLinha({
       </div>
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}
+          <Clock className="h-2.5 w-2.5" />
+          <span>{tempoDecorrido(data)}</span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">{fmtData(data)}</span>
         </span>
         <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${accentText} group-hover:gap-1.5 transition-all`}>
           {acao} <AcaoIcon className="h-3 w-3" />
@@ -923,7 +946,10 @@ function CardBotao({
       <div className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</div>
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(data)}
+          <Clock className="h-2.5 w-2.5" />
+          <span>{tempoDecorrido(data)}</span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">{fmtData(data)}</span>
         </span>
         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:gap-1.5 transition-all">
           {acao} <AcaoIcon className="h-3 w-3" />
@@ -965,7 +991,10 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit }: { demanda: Dem
         </div>
         <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
           <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
+            <Clock className="h-2.5 w-2.5" />
+            <span>{tempoDecorrido(demanda.created_at)}</span>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="tabular-nums">{fmtData(demanda.created_at)}</span>
           </span>
           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-primary group-hover:gap-1.5 transition-all">
             Concluir peça <Send className="h-3 w-3" />
@@ -1104,7 +1133,10 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
       )}
       <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="h-2.5 w-2.5" /> {tempoDecorrido(demanda.created_at)}
+          <Clock className="h-2.5 w-2.5" />
+          <span>{tempoDecorrido(demanda.created_at)}</span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">{fmtData(demanda.created_at)}</span>
         </span>
         <span className="text-[10px] text-amber-400/70 font-medium">ver detalhes →</span>
       </div>
@@ -1167,7 +1199,7 @@ function PendenciaDetalheDialog({
           )}
 
           <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-            <Clock className="h-3 w-3" /> Aberta {tempoDecorrido(demanda.created_at)}
+            <Clock className="h-3 w-3" /> Aberta {tempoDecorrido(demanda.created_at)} <span className="text-muted-foreground/50">·</span> <span className="tabular-nums">{fmtData(demanda.created_at)}</span>
           </div>
 
           {/* Acoes padronizadas */}
