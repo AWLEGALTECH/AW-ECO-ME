@@ -35,13 +35,18 @@ interface Props {
   onConfirmar?: () => Promise<void> | void;
   // Customiza titulo do modal pra contextos diferentes
   titulo?: string;
+  // Quando true, exibe o botao "Finalizar analise primaria" — quem
+  // controla a saida do cliente da coluna 1 da esteira. Usado apenas
+  // quando o dialog eh aberto a partir da Esteira.
+  permitirFinalizarPrimaria?: boolean;
 }
 
 type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_qtd" | "artesanal_specs";
 
-export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo }: Props) {
+export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo, permitirFinalizarPrimaria }: Props) {
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>("actions");
+  const [finalizandoPrimaria, setFinalizandoPrimaria] = useState(false);
   const [tipos, setTipos] = useState<Set<TipoPendencia>>(new Set());
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,6 +71,23 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   };
 
   const handleClose = () => { onClose(); setTimeout(reset, 200); };
+
+  const finalizarPrimaria = async () => {
+    if (!cliente) return;
+    setFinalizandoPrimaria(true);
+    const { error } = await supabase
+      .from("clientes")
+      .update({
+        analise_primaria_finalizada_at: new Date().toISOString(),
+        analise_primaria_finalizada_by: userId,
+      } as any)
+      .eq("id", cliente.id);
+    setFinalizandoPrimaria(false);
+    if (error) { toast.error("Erro ao finalizar: " + error.message); return; }
+    toast.success("Análise primária finalizada — cliente sai da coluna 1.");
+    onCreated();
+    handleClose();
+  };
 
   const seguirBradesco = async () => {
     if (!cliente) return;
@@ -282,6 +304,33 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                   </div>
                 </Button>
               </div>
+
+              {/* Finalizar analise primaria — so aparece quando chamado
+                  pela esteira (col 1). Tira o cliente da fila enquanto
+                  preserva qualquer demanda ja gerada (Bradesco / artesanal). */}
+              {permitirFinalizarPrimaria && (
+                <>
+                  <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-3">
+                    Encerrar análise primária
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={finalizarPrimaria}
+                    disabled={finalizandoPrimaria}
+                    className="w-full justify-start gap-2 h-auto py-3 border-emerald-500/40 hover:border-emerald-500/60 hover:bg-emerald-500/5"
+                  >
+                    <Check className="h-4 w-4 text-emerald-400" />
+                    <div className="text-left">
+                      <p className="text-sm font-medium">
+                        {finalizandoPrimaria ? "Finalizando…" : "Finalizar análise primária"}
+                      </p>
+                      <p className="text-[11px] opacity-80 font-normal">
+                        Tira o cliente da coluna 1. As peças geradas continuam nas colunas seguintes.
+                      </p>
+                    </div>
+                  </Button>
+                </>
+              )}
             </>
           )}
 

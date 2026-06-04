@@ -32,7 +32,7 @@ interface AuditInfo {
 // Rotulos curtos das etapas pra exibir no log do card.
 const ETAPA_LABEL: Record<string, string> = {
   analise_documental: "Análise",
-  analise_vinculada: "Vinculada",
+  analise_vinculada: "Vinculada Bradesco",
   fluxo_artesanal: "Artesanal",
   pronta_para_protocolo: "Pronta",
   pendencia_documental: "Pendência",
@@ -63,6 +63,11 @@ interface ClienteEsteira {
   drive_folder_url: string | null;
   requerido: string | null;
   observacoes: string | null;
+  // Quantas demandas downstream o cliente ja tem (analise_vinculada,
+  // fluxo_artesanal, pronta_para_protocolo) — mostra no card como dica.
+  // Como agora o cliente NAO sai da col 1 automaticamente, ele pode estar
+  // aqui E ter pecas geradas. Esse contador deixa visivel.
+  demandas_downstream: number;
 }
 
 const tempoDecorrido = (iso: string | null): string => {
@@ -126,33 +131,42 @@ export default function Esteira() {
     refetchInterval: 30_000,
   });
 
-  // Query 2: clientes com tag 'precisa_analise_extratos' E que NUNCA
-  // tiveram nenhuma analise_vinculada nao-cancelada (pipeline nao iniciado).
+  // Query 2: clientes com tag 'precisa_analise_extratos' que ainda NAO
+  // tiveram a "analise primaria" expressamente finalizada. Antes, o
+  // criterio era "sem nenhuma demanda downstream" — o que tirava o cliente
+  // automaticamente da col 1 quando a primeira analise vinculada ou peca
+  // artesanal era criada. Agora o advogado decide o momento, clicando em
+  // "Finalizar analise primaria" no dialog do cliente. Enquanto isso,
+  // o cliente pode aparecer aqui E nas colunas seguintes em paralelo.
   const cliRes = useQuery({
-    queryKey: ["esteira-clientes-aguardando"],
+    queryKey: ["esteira-clientes-analise-primaria"],
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
         .select("id, nome, created_at, origem, drive_folder_url, requerido, observacoes")
         .eq("precisa_analise_extratos" as any, true)
+        .is("analise_primaria_finalizada_at" as any, null)
         .order("created_at", { ascending: false });
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
       if (ids.length === 0) return [];
-      // Cliente sai de "Aguardando" assim que tem uma demanda em QUALQUER
-      // etapa downstream (vinculada, artesanal, peca pronta, pendencia)
-      // que nao esteja cancelada. Antes so checava vinculada/artesanal, o
-      // que deixava clientes aparecerem em col 1 E col 4 simultaneamente
-      // quando a peca avancava direto pra "pronta_para_protocolo".
-      const { data: vincs, error: e2 } = await supabase
+      // Conta demandas downstream pra mostrar como hint no card (deixa
+      // claro que ja existem pecas em produção pra esse cliente).
+      const { data: downs, error: e2 } = await supabase
         .from("demandas" as any)
-        .select("cliente_id")
-        .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "pendencia_documental"])
+        .select("cliente_id, etapa")
+        .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo"])
         .neq("status", "cancelada")
         .in("cliente_id", ids);
       if (e2) throw e2;
-      const comVinc = new Set((vincs || []).map((v: any) => v.cliente_id));
-      return (tagged || []).filter(c => !comVinc.has(c.id)) as ClienteEsteira[];
+      const contagem = new Map<string, number>();
+      for (const r of (downs || []) as any[]) {
+        contagem.set(r.cliente_id, (contagem.get(r.cliente_id) || 0) + 1);
+      }
+      return (tagged || []).map(c => ({
+        ...(c as any),
+        demandas_downstream: contagem.get(c.id) || 0,
+      })) as ClienteEsteira[];
     },
     refetchInterval: 30_000,
   });
@@ -399,8 +413,8 @@ export default function Esteira() {
           </Coluna>
 
           <Coluna
-            titulo="1. Aguardando análise"
-            descricao="Clientes com perfil de análise que ainda não tiveram análise iniciada"
+            titulo="1. Análise primária"
+            descricao="Primeira análise do cliente. Só sai daqui quando o advogado clicar em 'Finalizar análise primária'."
             icon={ScanSearch}
             cor="primary"
             count={aguardando.length}
@@ -414,19 +428,29 @@ export default function Esteira() {
                   onClick={() => setInicioCliente(c)}
                   titulo={c.nome}
                   sub={
-                    c.requerido ? (
-                      <span className="inline-flex items-center gap-1.5 text-foreground/80">
-                        <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
-                        <span className="truncate">{c.requerido}</span>
-                      </span>
-                    ) : (
-                      <span className="text-foreground/80">
-                        {c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
-                      </span>
-                    )
+                    <div className="space-y-1">
+                      {c.requerido ? (
+                        <span className="inline-flex items-center gap-1.5 text-foreground/80">
+                          <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{c.requerido}</span>
+                        </span>
+                      ) : (
+                        <span className="text-foreground/80">
+                          {c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
+                        </span>
+                      )}
+                      {c.demandas_downstream > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/90">
+                          <CheckCircle2 className="h-2.5 w-2.5" />
+                          {c.demandas_downstream === 1
+                            ? "1 peça em produção"
+                            : `${c.demandas_downstream} peças em produção`}
+                        </span>
+                      )}
+                    </div>
                   }
                   data={c.created_at}
-                  acao="Iniciar análise"
+                  acao={c.demandas_downstream > 0 ? "Continuar / finalizar" : "Iniciar análise"}
                   acaoIcon={ScanSearch}
                 />
               ))
@@ -559,6 +583,7 @@ export default function Esteira() {
         cliente={inicioCliente ? { id: inicioCliente.id, nome: inicioCliente.nome, drive_folder_url: inicioCliente.drive_folder_url, observacoes: inicioCliente.observacoes } : null}
         userId={user?.id || null}
         onCreated={refetchAll}
+        permitirFinalizarPrimaria
       />
 
       <PendenciaDetalheDialog

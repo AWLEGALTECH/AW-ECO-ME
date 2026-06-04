@@ -27,7 +27,7 @@ import {
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
-  Scale, Gavel, Building2,
+  Scale, Gavel, Building2, Hammer,
 } from "lucide-react";
 
 export interface Cliente {
@@ -131,12 +131,13 @@ const ORIGEM_META: Record<string, { label: string; color: string }> = {
 };
 
 const ETAPA_META: Record<string, { label: string; ordem: number; Icon: any }> = {
-  analise_documental:    { label: "Análise Documental",   ordem: 1, Icon: ClipboardList },
-  analise_vinculada:     { label: "Análise Vinculada",    ordem: 2, Icon: GitBranch },
-  confeccao_peca:        { label: "Confecção da Peça",    ordem: 3, Icon: FileText },
-  pronta_para_protocolo: { label: "Pronta pra Protocolo", ordem: 4, Icon: Send },
-  protocolada:           { label: "Protocolada",          ordem: 5, Icon: CheckCircle2 },
-  processual:            { label: "Em andamento",         ordem: 6, Icon: Briefcase },
+  analise_documental:    { label: "Análise Documental",          ordem: 1, Icon: ClipboardList },
+  analise_vinculada:     { label: "Análise Vinculada Bradesco",  ordem: 2, Icon: GitBranch },
+  fluxo_artesanal:       { label: "Fluxo Artesanal",             ordem: 2, Icon: Hammer },
+  confeccao_peca:        { label: "Confecção da Peça",           ordem: 3, Icon: FileText },
+  pronta_para_protocolo: { label: "Pronta pra Protocolo",        ordem: 4, Icon: Send },
+  protocolada:           { label: "Protocolada",                 ordem: 5, Icon: CheckCircle2 },
+  processual:            { label: "Em andamento",                ordem: 6, Icon: Briefcase },
 };
 
 const STATUS_META: Record<string, { label: string; color: string; Icon: any }> = {
@@ -1669,15 +1670,21 @@ function PrePipeline({
     return id ? autorMap.get(id) || null : null;
   };
 
+  const temArtesanal = demandas.some(d => d.etapa === "fluxo_artesanal" && d.status !== "cancelada");
+
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",    label: "1. Análise Documental",    Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
-    { key: "analise_vinculada",     label: "2. Análises Vinculadas",   Icon: GitBranch,  hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
-    { key: "pronta_para_protocolo", label: "3. Peças Prontas pra Protocolo", Icon: Send,  hint: "Peças finalizadas no Writer, com link do Drive." },
+    { key: "analise_documental",     label: "1. Análise Documental",                   Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
+    { key: "analise_vinculada",      label: "2. Análise Vinculada Bradesco",           Icon: GitBranch,  hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
+    // Grupo so aparece quando o cliente tem peca artesanal (nao-Bradesco) —
+    // alimentado pelo "Seguir fluxo artesanal" da esteira.
+    ...(temArtesanal ? [{ key: "fluxo_artesanal", label: "2b. Fluxo Artesanal", Icon: Hammer, hint: "Peças não-Bradesco confeccionadas à mão. Cada item carrega a especificação digitada." }] : []),
+    { key: "pronta_para_protocolo",  label: "3. Peças Prontas pra Protocolo",          Icon: Send,       hint: "Peças finalizadas no Writer, com link do Drive." },
   ];
 
   // Lógica de bloqueio sequencial:
   // - 1 sempre liberada
   // - 2 liberada quando existe alguma analise_vinculada
+  // - 2b (artesanal) liberada quando existe peca artesanal nao cancelada
   // - 3 liberada quando alguma peça já saiu do writer pronta pro protocolo
   const temAnaliseVinculada = demandas.some(d => d.etapa === "analise_vinculada" && d.status !== "cancelada");
   const temPecaPronta       = demandas.some(d => d.etapa === "pronta_para_protocolo");
@@ -1686,6 +1693,7 @@ function PrePipeline({
     switch (key) {
       case "analise_documental":    return true;
       case "analise_vinculada":     return temAnaliseVinculada;
+      case "fluxo_artesanal":       return temArtesanal;
       case "pronta_para_protocolo": return temPecaPronta;
       default: return false;
     }
