@@ -19,7 +19,7 @@ import {
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
 
-type Estagio = "aguardando_contato" | "em_cadencia" | "respondeu" | "diagnostico" | "proposta" | "ganho" | "perdido";
+type Estagio = "aguardando_contato" | "em_cadencia" | "respondeu" | "diagnostico" | "proposta" | "follow_up" | "ganho" | "perdido";
 
 const ESTAGIOS_ORDEM: Estagio[] = [
   "aguardando_contato", "em_cadencia", "respondeu", "diagnostico", "proposta",
@@ -31,6 +31,7 @@ const ESTAGIO_META: Record<Estagio, { label: string; cor: "primary" | "amber" | 
   respondeu:          { label: "Respondeu",           cor: "primary", hint: "Lead engajou — agendar reunião de diagnóstico.",          acaoLabel: "Agendar diagnóstico" },
   diagnostico:        { label: "Diagnóstico",         cor: "primary", hint: "Reunião de diagnóstico marcada/realizada.",                acaoLabel: "Enviar proposta" },
   proposta:           { label: "Proposta",            cor: "primary", hint: "Proposta entregue, aguardando decisão.",                  acaoLabel: "Marcar ganho" },
+  follow_up:          { label: "Follow-up",           cor: "amber",   hint: "Leads aguardando retorno em data agendada.",              acaoLabel: "" },
   ganho:              { label: "Ganho",               cor: "emerald", hint: "Conversao confirmada.",                                   acaoLabel: "" },
   perdido:            { label: "Perdido",             cor: "red",     hint: "Lead descartado / sem fit.",                              acaoLabel: "" },
 };
@@ -53,6 +54,7 @@ interface Prospect {
   lista_origem: string | null;
   observacoes: string | null;
   entrou_na_etapa_at: string;
+  follow_up_at: string | null;
   created_at: string;
 }
 
@@ -64,6 +66,20 @@ const tempoNaEtapa = (iso: string): string => {
   if (d === 0) return "hoje";
   if (d === 1) return "1 dia";
   return `${d} dias`;
+};
+
+// Mostra "amanhã 14:00", "em 3d", "vencido há 2d" pra leads em follow-up.
+const fmtFollowUp = (iso: string): string => {
+  const target = new Date(iso);
+  const ms = target.getTime() - Date.now();
+  const dias = Math.round(ms / 86400000);
+  const hora = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(target);
+  if (dias < -1) return `vencido há ${Math.abs(dias)}d`;
+  if (dias === -1) return "vencido ontem";
+  if (dias === 0) return `hoje ${hora}`;
+  if (dias === 1) return `amanhã ${hora}`;
+  if (dias < 7) return `em ${dias} dias (${hora})`;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(target);
 };
 
 export default function Prospeccao() {
@@ -109,9 +125,11 @@ export default function Prospeccao() {
   const porEstagio = useMemo(() => {
     const grupos: Record<Estagio, Prospect[]> = {
       aguardando_contato: [], em_cadencia: [], respondeu: [],
-      diagnostico: [], proposta: [], ganho: [], perdido: [],
+      diagnostico: [], proposta: [], follow_up: [], ganho: [], perdido: [],
     };
     for (const p of filtrados) grupos[p.estagio].push(p);
+    // Follow-up: ordena pela data agendada mais próxima primeiro
+    grupos.follow_up.sort((a, b) => (a.follow_up_at || "").localeCompare(b.follow_up_at || ""));
     return grupos;
   }, [filtrados]);
 
@@ -198,11 +216,22 @@ export default function Prospeccao() {
                 ))}
               </div>
 
-              {/* Terminais (ganho / perdido) compactos abaixo */}
+              {/* Follow-up: coluna propria pra leads aguardando retorno em data agendada */}
+              {porEstagio.follow_up.length > 0 && (
+                <div className="pt-2 border-t border-border/40">
+                  <ColunaEstagio estagio="follow_up" prospects={porEstagio.follow_up} onCardClick={setDetalheOpen} />
+                </div>
+              )}
+
+              {/* Ganho/Perdido legado: so aparece se ja houver historico de uso */}
               {(porEstagio.ganho.length > 0 || porEstagio.perdido.length > 0) && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/40">
-                  <ColunaEstagio estagio="ganho"   prospects={porEstagio.ganho}   onCardClick={setDetalheOpen} terminal />
-                  <ColunaEstagio estagio="perdido" prospects={porEstagio.perdido} onCardClick={setDetalheOpen} terminal />
+                  {porEstagio.ganho.length > 0 && (
+                    <ColunaEstagio estagio="ganho" prospects={porEstagio.ganho} onCardClick={setDetalheOpen} terminal />
+                  )}
+                  {porEstagio.perdido.length > 0 && (
+                    <ColunaEstagio estagio="perdido" prospects={porEstagio.perdido} onCardClick={setDetalheOpen} terminal />
+                  )}
                 </div>
               )}
             </div>
@@ -325,6 +354,12 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
       {prospect.lista_origem && (
         <div className="text-[10px] text-muted-foreground/70 truncate mb-1">
           <span className="opacity-60">de</span> {prospect.lista_origem}
+        </div>
+      )}
+      {prospect.estagio === "follow_up" && prospect.follow_up_at && (
+        <div className="text-[10px] inline-flex items-center gap-1 text-amber-400 mb-1">
+          <Clock className="h-2.5 w-2.5" />
+          Retomar {fmtFollowUp(prospect.follow_up_at)}
         </div>
       )}
       {!terminal && (
@@ -552,6 +587,10 @@ function ProspectDetalheDialog({
 }) {
   const [nota, setNota] = useState("");
   const [salvandoNota, setSalvandoNota] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpData, setFollowUpData] = useState("");
+  const [followUpHora, setFollowUpHora] = useState("09:00");
+  const [salvandoFollowUp, setSalvandoFollowUp] = useState(false);
 
   const eventosQ = useQuery({
     queryKey: ["prospect-eventos", prospect?.id],
@@ -562,8 +601,8 @@ function ProspectDetalheDialog({
         .from("prospect_eventos" as any)
         .select("id, tipo, de_estagio, para_estagio, texto, user_email, created_at")
         .eq("prospect_id", prospect.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
+        .order("created_at", { ascending: true })
+        .limit(200);
       if (error) throw error;
       return (data || []) as unknown as Evento[];
     },
@@ -594,14 +633,37 @@ function ProspectDetalheDialog({
     onClose();
   };
 
-  const finalizar = async (resultado: "ganho" | "perdido") => {
+  const agendarFollowUp = async () => {
+    if (!prospect || !followUpData) return;
+    setSalvandoFollowUp(true);
+    const isoLocal = `${followUpData}T${followUpHora || "09:00"}:00`;
+    const targetIso = new Date(isoLocal).toISOString();
+    const de = prospect.estagio;
+    const { error } = await supabase.from("prospects" as any)
+      .update({ estagio: "follow_up", follow_up_at: targetIso })
+      .eq("id", prospect.id);
+    setSalvandoFollowUp(false);
+    if (error) { toast.error(error.message); return; }
+    await logEvento("follow_up", {
+      de_estagio: de,
+      para_estagio: "follow_up",
+      texto: `Follow-up agendado pra ${new Date(isoLocal).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    });
+    toast.success("Follow-up agendado.");
+    setFollowUpOpen(false);
+    setFollowUpData("");
+    onChanged();
+    onClose();
+  };
+
+  const arquivar = async () => {
     if (!prospect) return;
     const { error } = await supabase.from("prospects" as any)
-      .update({ estagio: resultado })
+      .update({ status: "arquivado" })
       .eq("id", prospect.id);
     if (error) { toast.error(error.message); return; }
-    await logEvento("status", { de_estagio: prospect.estagio, para_estagio: resultado });
-    toast.success(resultado === "ganho" ? "Lead marcado como Ganho 🎉" : "Lead marcado como Perdido.");
+    await logEvento("status", { texto: "arquivado" });
+    toast.success("Lead arquivado.");
     onChanged();
     onClose();
   };
@@ -613,7 +675,6 @@ function ProspectDetalheDialog({
     setSalvandoNota(false);
     setNota("");
     eventosQ.refetch();
-    toast.success("Nota adicionada.");
   };
 
   if (!prospect) return null;
@@ -629,21 +690,32 @@ function ProspectDetalheDialog({
     return ESTAGIOS_ORDEM[idx - 1];
   })();
 
+  const waDigits = prospect.whatsapp ? prospect.whatsapp.replace(/\D/g, "") : "";
   const waLink = prospect.whatsapp
-    ? prospect.whatsapp.startsWith("http") ? prospect.whatsapp : `https://wa.me/${prospect.whatsapp.replace(/\D/g, "")}`
+    ? (prospect.whatsapp.startsWith("http") ? prospect.whatsapp : `https://wa.me/${waDigits}`)
     : null;
   const igLink = prospect.instagram ? `https://instagram.com/${prospect.instagram}` : null;
+  const telLink = prospect.telefone ? `tel:${prospect.telefone.replace(/\D/g, "")}` : null;
+
+  // Data minima do calendario de follow-up: hoje
+  const hoje = new Date();
+  const minDate = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
 
   return (
     <Dialog open={!!prospect} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-start gap-2">
-            <Target className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-            <span className="break-words">{prospect.nome}</span>
+          <DialogTitle className="flex items-start gap-2 pr-6">
+            <Target className="h-5 w-5 text-primary mt-1 shrink-0" />
+            <span className="break-words text-lg">{prospect.nome}</span>
           </DialogTitle>
           <DialogDescription className="flex items-center gap-2 flex-wrap">
             <EstagioBadge estagio={prospect.estagio} />
+            {prospect.estagio === "follow_up" && prospect.follow_up_at && (
+              <span className="text-[11px] inline-flex items-center gap-1 text-amber-400">
+                <Clock className="h-3 w-3" /> {fmtFollowUp(prospect.follow_up_at)}
+              </span>
+            )}
             <span className="text-[11px]">há {tempoNaEtapa(prospect.entrou_na_etapa_at)} na etapa</span>
             {prospect.lista_origem && (
               <span className="text-[11px] text-muted-foreground">· {prospect.lista_origem}</span>
@@ -651,136 +723,163 @@ function ProspectDetalheDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Contatos */}
-        <div className="space-y-1.5 rounded-lg border border-border bg-card/30 p-3">
-          {prospect.telefone && (
-            <InfoRow icon={Phone} label="Telefone" value={prospect.telefone} />
-          )}
+        {/* CONTATOS — destaque visual com botões grandes coloridos */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {waLink && (
-            <InfoRow icon={MessageCircle} label="WhatsApp" value={
-              <a href={waLink} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline inline-flex items-center gap-1">
-                Abrir conversa <ExternalLink className="h-3 w-3" />
-              </a>
-            } />
+            <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
+              cor="emerald" sub={prospect.telefone || waDigits} />
           )}
-          {igLink && (
-            <InfoRow icon={Instagram} label="Instagram" value={
-              <a href={igLink} target="_blank" rel="noreferrer" className="text-pink-400 hover:underline inline-flex items-center gap-1">
-                @{prospect.instagram} <ExternalLink className="h-3 w-3" />
-              </a>
-            } />
-          )}
-          {prospect.email && (
-            <InfoRow icon={Mail} label="E-mail" value={
-              <a href={`mailto:${prospect.email}`} className="text-primary hover:underline break-all">
-                {prospect.email}
-              </a>
-            } />
-          )}
-          {prospect.site && (
-            <InfoRow icon={Globe} label="Site" value={
-              <a href={prospect.site} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 break-all">
-                {(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site; } })()} <ExternalLink className="h-3 w-3" />
-              </a>
-            } />
-          )}
-          {prospect.endereco && (
-            <InfoRow icon={MapPin} label="Endereço" value={
-              <span className="text-[12px] text-foreground/90 break-words">{prospect.endereco}</span>
-            } />
+          {telLink && !waLink && (
+            <ContatoBtn href={telLink} icon={Phone} label="Ligar"
+              cor="primary" sub={prospect.telefone || ""} />
           )}
           {prospect.google_maps_url && (
-            <InfoRow icon={MapPin} label="Maps" value={
-              <a href={prospect.google_maps_url} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline inline-flex items-center gap-1">
-                Abrir no Google Maps <ExternalLink className="h-3 w-3" />
-              </a>
-            } />
+            <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
+              cor="primary" sub="Abrir local" />
           )}
-          {prospect.avaliacao != null && (
-            <InfoRow icon={Star} label="Avaliação" value={
-              <span className="inline-flex items-center gap-1 text-amber-400">
-                <Star className="h-3 w-3 fill-amber-400" /> {prospect.avaliacao.toFixed(1)}
-              </span>
-            } />
+          {igLink && (
+            <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
+              cor="pink" sub={`@${prospect.instagram}`} />
           )}
-          {prospect.horario_funcionamento && (
-            <InfoRow icon={Clock} label="Horário" value={
-              <span className="text-[11px] text-muted-foreground line-clamp-2">{prospect.horario_funcionamento}</span>
-            } />
+          {prospect.email && (
+            <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
+              cor="primary" sub={prospect.email} />
+          )}
+          {prospect.site && (
+            <ContatoBtn href={prospect.site} icon={Globe} label="Site"
+              cor="primary"
+              sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
           )}
         </div>
 
-        {/* Ações de avanço/recuo */}
+        {/* Metainfo compacta (avaliacao, endereco, horario) */}
+        {(prospect.avaliacao != null || prospect.endereco || prospect.horario_funcionamento) && (
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground border-y border-border/40 py-2 flex-wrap">
+            {prospect.avaliacao != null && (
+              <span className="inline-flex items-center gap-1 text-amber-400">
+                <Star className="h-3 w-3 fill-amber-400" /> {prospect.avaliacao.toFixed(1)}
+              </span>
+            )}
+            {prospect.endereco && (
+              <span className="inline-flex items-center gap-1 truncate max-w-[260px]">
+                <MapPin className="h-3 w-3" /> {prospect.endereco}
+              </span>
+            )}
+            {prospect.horario_funcionamento && (
+              <span className="inline-flex items-center gap-1 truncate max-w-[300px]">
+                <Clock className="h-3 w-3" /> {prospect.horario_funcionamento}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* AÇÕES DE FUNIL — sutis (linha de botões pequenos) */}
         {prospect.estagio !== "ganho" && prospect.estagio !== "perdido" && (
-          <div className="space-y-2">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Mover</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {proximoEstagio && (
-                <Button onClick={() => mover(proximoEstagio)} className="justify-start gap-2 h-auto py-2.5">
-                  <ArrowRight className="h-4 w-4" />
-                  <div className="text-left text-[11px]">
-                    <p className="font-medium">{ESTAGIO_META[prospect.estagio].acaoLabel}</p>
-                    <p className="opacity-70">→ {ESTAGIO_META[proximoEstagio].label}</p>
-                  </div>
-                </Button>
-              )}
-              {estagioAnterior && (
-                <Button variant="outline" onClick={() => mover(estagioAnterior)} className="justify-start gap-2 h-auto py-2.5">
-                  <ArrowLeft className="h-4 w-4" />
-                  <div className="text-left text-[11px]">
-                    <p className="font-medium">Voltar etapa</p>
-                    <p className="opacity-70">← {ESTAGIO_META[estagioAnterior].label}</p>
-                  </div>
-                </Button>
-              )}
+          <div className="flex flex-wrap items-center gap-2">
+            {estagioAnterior && (
+              <button
+                onClick={() => mover(estagioAnterior)}
+                className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-border bg-card/40 hover:bg-card/80 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title={`Voltar pra ${ESTAGIO_META[estagioAnterior].label}`}
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Voltar
+              </button>
+            )}
+            {proximoEstagio && (
+              <button
+                onClick={() => mover(proximoEstagio)}
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors"
+              >
+                Avançar etapa → {ESTAGIO_META[proximoEstagio].label}
+                <ArrowRight className="h-3 w-3" />
+              </button>
+            )}
+            <div className="flex-1" />
+            <button
+              onClick={() => {
+                if (prospect.estagio === "follow_up" && prospect.follow_up_at) {
+                  const d = new Date(prospect.follow_up_at);
+                  setFollowUpData(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+                  setFollowUpHora(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+                } else {
+                  setFollowUpData(minDate);
+                  setFollowUpHora("09:00");
+                }
+                setFollowUpOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 text-xs text-amber-400 transition-colors"
+            >
+              <Clock className="h-3 w-3" />
+              {prospect.estagio === "follow_up" ? "Reagendar follow-up" : "Follow-up"}
+            </button>
+            <button
+              onClick={arquivar}
+              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-border bg-card/40 hover:bg-muted/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Ban className="h-3 w-3" />
+              Arquivar
+            </button>
+          </div>
+        )}
+
+        {/* Mini-form pra agendar follow-up (inline, expansivel) */}
+        {followUpOpen && (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 space-y-2">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-amber-400/90 font-semibold flex items-center gap-1">
+              <Clock className="h-3 w-3" /> Quando retomar este lead?
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button
-                variant="outline"
-                onClick={() => finalizar("ganho")}
-                className="justify-start gap-2 border-emerald-500/40 hover:border-emerald-500/60 hover:bg-emerald-500/10 text-emerald-400"
-              >
-                <Trophy className="h-4 w-4" /> Marcar como Ganho
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                type="date"
+                min={minDate}
+                value={followUpData}
+                onChange={(e) => setFollowUpData(e.target.value)}
+                className="h-9 w-auto"
+              />
+              <Input
+                type="time"
+                value={followUpHora}
+                onChange={(e) => setFollowUpHora(e.target.value)}
+                className="h-9 w-auto"
+              />
+              <div className="flex-1" />
+              <Button variant="outline" size="sm" onClick={() => setFollowUpOpen(false)} disabled={salvandoFollowUp}>
+                Cancelar
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => finalizar("perdido")}
-                className="justify-start gap-2 border-red-500/30 hover:border-red-500/50 hover:bg-red-500/10 text-red-400"
-              >
-                <Ban className="h-4 w-4" /> Marcar como Perdido
+              <Button size="sm" onClick={agendarFollowUp} disabled={!followUpData || salvandoFollowUp}>
+                {salvandoFollowUp ? "Agendando…" : "Agendar"}
               </Button>
             </div>
           </div>
         )}
 
-        {/* Nota */}
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Adicionar nota</div>
-          <div className="flex items-end gap-2">
+        {/* CHAT DE NOTAS */}
+        <div className="space-y-2 pt-2">
+          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-1.5">
+            <History className="h-3 w-3" /> Histórico de notas
+          </div>
+          <ChatNotas
+            eventos={eventosQ.data || []}
+            currentEmail={userEmail}
+          />
+          <div className="flex items-end gap-2 pt-1">
             <Textarea
               value={nota}
               onChange={(e) => setNota(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  salvarNota();
+                }
+              }}
               rows={2}
-              placeholder="Ex.: Pediu pra retornar quinta. Tem interesse mas precisa falar com o sócio."
+              placeholder="Adicionar nota ao chat…"
               className="resize-none text-xs"
             />
             <Button size="sm" onClick={salvarNota} disabled={salvandoNota || !nota.trim()}>
-              {salvandoNota ? "..." : "Salvar"}
+              {salvandoNota ? "..." : "Enviar"}
             </Button>
-          </div>
-        </div>
-
-        {/* Timeline */}
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-1">
-            <History className="h-3 w-3" /> Histórico
-          </div>
-          <div className="rounded-lg border border-border bg-card/30 divide-y divide-border/40 max-h-60 overflow-y-auto">
-            {(eventosQ.data || []).length === 0 ? (
-              <p className="text-[11px] italic text-muted-foreground/60 px-3 py-4 text-center">Sem eventos ainda.</p>
-            ) : (
-              (eventosQ.data || []).map((e) => <EventoLinha key={e.id} ev={e} />)
-            )}
           </div>
         </div>
       </DialogContent>
@@ -788,12 +887,116 @@ function ProspectDetalheDialog({
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value: React.ReactNode }) {
+// Botão de contato grande com ícone + label + sub. Usado no topo do
+// ProspectDetalheDialog pra dar destaque visual aos canais.
+function ContatoBtn({
+  href, icon: Icon, label, sub, cor,
+}: {
+  href: string;
+  icon: any;
+  label: string;
+  sub: string;
+  cor: "emerald" | "primary" | "pink";
+}) {
+  const cls =
+    cor === "emerald" ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400" :
+    cor === "pink"    ? "border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-pink-400" :
+                        "border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary";
   return (
-    <div className="flex items-start gap-2 text-[12px]">
-      <Icon className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-      <span className="text-muted-foreground w-20 shrink-0 text-[11px]">{label}</span>
-      <span className="flex-1 break-words">{value}</span>
+    <a
+      href={href}
+      target={href.startsWith("http") ? "_blank" : undefined}
+      rel={href.startsWith("http") ? "noreferrer" : undefined}
+      className={`flex flex-col items-start gap-1 p-2.5 rounded-lg border transition-colors min-w-0 ${cls}`}
+    >
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <span className="text-[10px] opacity-80 truncate w-full">{sub}</span>
+    </a>
+  );
+}
+
+// Renderiza eventos como bolhas de chat. Notas têm bolha grande,
+// sistema (criou/moveu/follow-up/status) vira linha cinza centralizada.
+function ChatNotas({ eventos, currentEmail }: { eventos: Evento[]; currentEmail: string | null }) {
+  if (eventos.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-card/30 px-3 py-6 text-center text-[11px] italic text-muted-foreground/60">
+        Nenhuma mensagem no chat ainda. Adicione a primeira nota abaixo.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-border bg-card/30 max-h-72 overflow-y-auto px-3 py-3 space-y-2.5">
+      {eventos.map((ev) => {
+        if (ev.tipo === "nota") {
+          return <BolhaNota key={ev.id} ev={ev} isMine={currentEmail === ev.user_email} />;
+        }
+        return <LinhaSistema key={ev.id} ev={ev} />;
+      })}
+    </div>
+  );
+}
+
+function BolhaNota({ ev, isMine }: { ev: Evento; isMine: boolean }) {
+  const quando = new Date(ev.created_at);
+  const fmt = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).format(quando);
+  const handle = (ev.user_email || "Sistema").split("@")[0];
+  const inicial = handle.charAt(0).toUpperCase() || "?";
+  return (
+    <div className={`flex gap-2 ${isMine ? "flex-row-reverse" : ""}`}>
+      <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 ${
+        isMine ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+      }`}>
+        {inicial}
+      </div>
+      <div className={`flex flex-col gap-0.5 max-w-[78%] ${isMine ? "items-end" : "items-start"}`}>
+        <div className={`flex items-center gap-1.5 text-[10px] text-muted-foreground ${isMine ? "flex-row-reverse" : ""}`}>
+          <strong className="text-foreground/80">{handle}</strong>
+          <span>·</span>
+          <span className="tabular-nums">{fmt}</span>
+        </div>
+        <div className={`px-3 py-2 rounded-2xl text-xs whitespace-pre-wrap break-words ${
+          isMine
+            ? "bg-primary/20 text-foreground rounded-tr-sm"
+            : "bg-muted/60 text-foreground rounded-tl-sm"
+        }`}>
+          {ev.texto}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinhaSistema({ ev }: { ev: Evento }) {
+  const quando = new Date(ev.created_at);
+  const fmt = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).format(quando);
+  const who = (ev.user_email || "Sistema").split("@")[0];
+  let conteudo: React.ReactNode = null;
+  if (ev.tipo === "criado") {
+    conteudo = <><strong className="text-foreground/70">{who}</strong> criou o lead</>;
+  } else if (ev.tipo === "movido" && ev.de_estagio && ev.para_estagio) {
+    const de = ESTAGIO_META[ev.de_estagio as Estagio]?.label || ev.de_estagio;
+    const pa = ESTAGIO_META[ev.para_estagio as Estagio]?.label || ev.para_estagio;
+    conteudo = <><strong className="text-foreground/70">{who}</strong> moveu {de} → <span className="text-foreground/80">{pa}</span></>;
+  } else if (ev.tipo === "follow_up") {
+    conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "agendou follow-up"}</>;
+  } else if (ev.tipo === "status") {
+    conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "atualizou status"}</>;
+  } else if (ev.tipo === "contato") {
+    conteudo = <><strong className="text-foreground/70">{who}</strong> registrou contato: {ev.texto}</>;
+  }
+  return (
+    <div className="flex items-center gap-2 py-0.5 text-[10px] text-muted-foreground">
+      <div className="h-px flex-1 bg-border/40" />
+      <span className="px-2">{conteudo} · <span className="tabular-nums opacity-70">{fmt}</span></span>
+      <div className="h-px flex-1 bg-border/40" />
     </div>
   );
 }
@@ -809,35 +1012,6 @@ function EstagioBadge({ estagio }: { estagio: Estagio }) {
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${cls}`}>
       {meta.label}
     </span>
-  );
-}
-
-function EventoLinha({ ev }: { ev: Evento }) {
-  const quando = new Date(ev.created_at);
-  const fmt = new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-  }).format(quando);
-  const who = (ev.user_email || "").split("@")[0] || "Sistema";
-  let conteudo: React.ReactNode = null;
-  if (ev.tipo === "criado") {
-    conteudo = <span><strong>{who}</strong> criou o lead</span>;
-  } else if (ev.tipo === "movido" && ev.de_estagio && ev.para_estagio) {
-    const de = ESTAGIO_META[ev.de_estagio as Estagio]?.label || ev.de_estagio;
-    const pa = ESTAGIO_META[ev.para_estagio as Estagio]?.label || ev.para_estagio;
-    conteudo = <span><strong>{who}</strong> moveu {de} → <span className="text-foreground">{pa}</span></span>;
-  } else if (ev.tipo === "status" && ev.para_estagio) {
-    const pa = ESTAGIO_META[ev.para_estagio as Estagio]?.label || ev.para_estagio;
-    conteudo = <span><strong>{who}</strong> finalizou como <span className="text-foreground">{pa}</span></span>;
-  } else if (ev.tipo === "nota") {
-    conteudo = <span><strong>{who}</strong>: <span className="text-foreground/90 whitespace-pre-wrap">{ev.texto}</span></span>;
-  } else if (ev.tipo === "contato") {
-    conteudo = <span><strong>{who}</strong> registrou contato: {ev.texto}</span>;
-  }
-  return (
-    <div className="px-3 py-2 text-[11px] flex items-start gap-2">
-      <span className="text-muted-foreground tabular-nums shrink-0 mt-0.5">{fmt}</span>
-      <span className="flex-1 text-muted-foreground">{conteudo}</span>
-    </div>
   );
 }
 
