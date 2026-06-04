@@ -1,6 +1,10 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/socio/matheus",  "destination": "/socio/matheus/index.html" },
+    { "source": "/socio/matheus/", "destination": "/socio/matheus/index.html" },
+    { "source": "/socio/diego",    "destination": "/socio/diego/index.html" },
+    { "source": "/socio/diego/",   "destination": "/socio/diego/index.html" },
+    { "source": "/((?!socio/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -23,6 +27,12 @@
     },
     {
       "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/socio/(.*)\\.html",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]

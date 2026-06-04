@@ -155,14 +155,19 @@ type AbaKey = "resumo" | "demandas" | "processos";
 // uma carrega o id do cliente em ?c=, sauda pelo nome e grava as
 // respostas de volta na tabela clientes. O ato de gerar link pergunta
 // qual advogado vai usar a landing antes de copiar/enviar.
+// Landings hospedadas DENTRO do app principal (public/socio/{matheus|diego}/)
+// — os projetos Vercel matheusenes.vercel.app/diegoismael.vercel.app ficaram
+// com auto-deploy quebrado, entao migramos pra ca pra garantir que toda
+// atualizacao do formulario reflete pro cliente sem depender deles. O id
+// do cliente vai no ?c=, e a edge function landing-socioeconomico salva.
 const LANDING_OPCOES = {
   matheus: {
     label: "Dr. Matheus Enes",
-    base: "https://matheusenes.vercel.app/socioeconomico/",
+    base: "https://aw-eco-me.vercel.app/socio/matheus/",
   },
   diego: {
     label: "Dr. Diego Ismael",
-    base: "https://diegoismael.vercel.app/socioeconomico/",
+    base: "https://aw-eco-me.vercel.app/socio/diego/",
   },
 } as const;
 type AdvogadoKey = keyof typeof LANDING_OPCOES;
