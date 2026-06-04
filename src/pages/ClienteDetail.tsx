@@ -1331,6 +1331,16 @@ export function EspelhoProtocoloDialog({
                 acaoIcon={ExternalLink}
                 disabled={!demanda.peca_drive_url}
               />
+              {cliente.drive_folder_url && (
+                <AcaoCard
+                  icon={FolderOpen}
+                  titulo="Abrir pasta no Drive"
+                  hint="Documentos do cliente"
+                  href={cliente.drive_folder_url}
+                  external
+                  acaoIcon={ExternalLink}
+                />
+              )}
               <AcaoCard
                 icon={Scale}
                 titulo="Espelho de Protocolo"
