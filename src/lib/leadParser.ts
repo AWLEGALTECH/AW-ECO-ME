@@ -228,17 +228,67 @@ function isLixo(linha: string): boolean {
   return false;
 }
 
+// "@handle" puro numa linha (sem prefixo de label tipo "Insta:").
+const HANDLE_PURO = /^@([A-Za-z0-9._]{2,30})$/;
+
+// Modo "lista densa de @handles": user cola uma lista onde toda linha
+// nao-vazia eh um @handle. Cada linha vira um lead independente, mesmo
+// sem linha em branco entre elas. Saida no formato do parseLeads.
+function tryListaDensaInsta(texto: string): LeadParsed[] | null {
+  const linhas = texto.replace(/\r\n/g, "\n").split("\n").map(l => l.trim()).filter(Boolean);
+  if (linhas.length < 2) return null;
+  if (!linhas.every(l => HANDLE_PURO.test(l))) return null;
+  return linhas.map((l) => {
+    const handle = l.replace(/^@/, "");
+    return {
+      nome: `@${handle}`,
+      telefone: null,
+      whatsapp: null,
+      instagram: handle,
+      email: null,
+      site: null,
+      google_maps_url: null,
+      avaliacao: null,
+      horario_funcionamento: null,
+      endereco: null,
+    };
+  });
+}
+
 export function parseLeads(texto: string): LeadParsed[] {
+  // Caso especial: lista densa de @handles (linha-por-linha sem nada mais).
+  const listaInsta = tryListaDensaInsta(texto);
+  if (listaInsta) return listaInsta;
+
   const blocos = splitBlocos(texto);
   const out: LeadParsed[] = [];
   for (const blocoRaw of blocos) {
     const linhas = blocoRaw.split("\n").map(l => l.trim()).filter(Boolean);
     if (linhas.length === 0) continue;
 
+    // Caso bloco com 1 linha unica que eh @handle puro: vira lead so de Instagram.
+    if (linhas.length === 1 && HANDLE_PURO.test(linhas[0])) {
+      const handle = linhas[0].replace(/^@/, "");
+      out.push({
+        nome: `@${handle}`,
+        telefone: null,
+        whatsapp: null,
+        instagram: handle,
+        email: null,
+        site: null,
+        google_maps_url: null,
+        avaliacao: null,
+        horario_funcionamento: null,
+        endereco: null,
+      });
+      continue;
+    }
+
     // Acha o nome: primeira linha que NAO eh label, NAO eh lixo e
-    // tem pelo menos um caractere alfabetico.
+    // tem pelo menos um caractere alfabetico. Aceita tambem @handle puro
+    // como nome (sera tratado depois pra extrair o instagram).
     const nomeLinha = linhas.find(l =>
-      !isLinhaLabel(l) && !isLixo(l) && /[a-zA-ZÀ-ÿ]/.test(l),
+      (!isLinhaLabel(l) || HANDLE_PURO.test(l)) && !isLixo(l) && /[a-zA-Z@À-ÿ]/.test(l),
     );
     if (!nomeLinha) continue;
     const nome = limparNome(nomeLinha);
@@ -295,6 +345,11 @@ export function parseLeads(texto: string): LeadParsed[] {
       if (instaSolto && !/^(\d{2,3}|tel|fone|whatsapp|wa|zap)$/i.test(instaSolto)) {
         instagramHandle = instaSolto;
       }
+    }
+
+    // Se o proprio nome eh um @handle puro, extrai o handle dele.
+    if (!instagramHandle && HANDLE_PURO.test(nome)) {
+      instagramHandle = nome.replace(/^@/, "");
     }
 
     // Avaliacao com label ou solta
