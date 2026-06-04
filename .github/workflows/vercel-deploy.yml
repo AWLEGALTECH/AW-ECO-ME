@@ -37,3 +37,33 @@ jobs:
               sleep 30
             fi
           done
+
+      # Deploy hooks das landings dos advogados (matheusenes.vercel.app,
+      # diegoismael.vercel.app). Sao projetos Vercel SEPARADOS do app
+      # principal — sem isso, mudar landing/ ou landing-di/ no main nao
+      # atualizava o que o cliente final ve.
+      #
+      # Pra ativar:
+      #   1. Vercel -> projeto "matheusenes" -> Settings -> Git -> Deploy
+      #      Hooks -> Create -> branch main -> copia URL
+      #      Idem pro "diegoismael"
+      #   2. GitHub -> Settings -> Secrets and variables -> Actions:
+      #      VERCEL_DEPLOY_HOOK_MATHEUS = <URL>
+      #      VERCEL_DEPLOY_HOOK_DIEGO   = <URL>
+      #
+      # Se as secrets nao estiverem configuradas, esse step apenas avisa
+      # e segue (nao falha o workflow).
+      - name: Trigger landings dos advogados
+        run: |
+          if [ -n "${{ secrets.VERCEL_DEPLOY_HOOK_MATHEUS }}" ]; then
+            echo "=== Disparando matheusenes ==="
+            curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MATHEUS }}" || echo "Falhou"
+          else
+            echo "::warning::VERCEL_DEPLOY_HOOK_MATHEUS nao configurada — landing do Matheus nao sera atualizada automaticamente."
+          fi
+          if [ -n "${{ secrets.VERCEL_DEPLOY_HOOK_DIEGO }}" ]; then
+            echo "=== Disparando diegoismael ==="
+            curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_DIEGO }}" || echo "Falhou"
+          else
+            echo "::warning::VERCEL_DEPLOY_HOOK_DIEGO nao configurada — landing do Diego nao sera atualizada automaticamente."
+          fi
