@@ -202,13 +202,29 @@ interface OrganizeResult {
   error?: string;
 }
 
+// Espelha o JSON gravado em pre_clientes.organize_progress pela edge
+// function organize-client-folder. Atualizado a cada arquivo classificado;
+// o frontend faz polling pra mostrar em tempo real.
+interface OrganizeLiveProgress {
+  atualizado_em?: string;
+  total?: number;
+  processados?: number;
+  ja_canonicos?: number;
+  a_classificar?: number;
+  atual?: string | null;
+  etapa?: "preparando" | "classificando" | "esperando_rate_limit" | "finalizado" | "parcial";
+  ultimo_renomeado?: { de: string; para: string; categoria: string };
+  finalizado?: boolean;
+}
+
 function ProgressoModal({
-  open, pre, stages, organizeResult, onClose, onMinimize,
+  open, pre, stages, organizeResult, liveProgress, onClose, onMinimize,
 }: {
   open: boolean;
   pre: PreCliente | null;
   stages: StagesMap;
   organizeResult: OrganizeResult | null;
+  liveProgress: OrganizeLiveProgress | null;
   onClose: () => void;
   onMinimize: () => void;
 }) {
@@ -264,6 +280,47 @@ function ProgressoModal({
               );
             })}
           </div>
+
+          {/* Progresso ao vivo da renomeacao — so aparece enquanto a etapa
+              organize esta rodando (antes do resultado final estar pronto). */}
+          {stages.organize.status === "running" && liveProgress && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span>
+                  Renomeando arquivos
+                  {typeof liveProgress.processados === "number" && typeof liveProgress.total === "number" && liveProgress.total > 0 && (
+                    <> · <span className="tabular-nums">{liveProgress.processados}/{liveProgress.total}</span></>
+                  )}
+                </span>
+              </div>
+              {typeof liveProgress.processados === "number" && typeof liveProgress.total === "number" && liveProgress.total > 0 && (
+                <Progress
+                  value={Math.round((liveProgress.processados / liveProgress.total) * 100)}
+                  className="h-1.5"
+                />
+              )}
+              {liveProgress.etapa === "esperando_rate_limit" ? (
+                <p className="text-[11px] text-muted-foreground italic">
+                  Aguardando intervalo do rate limit do Gemini (free tier 10 RPM)…
+                </p>
+              ) : liveProgress.atual ? (
+                <div className="text-[11px] text-muted-foreground">
+                  <span className="text-foreground/70">Analisando:</span>{" "}
+                  <span className="font-mono break-all">{liveProgress.atual}</span>
+                </div>
+              ) : null}
+              {liveProgress.ultimo_renomeado && (
+                <div className="text-[11px] flex items-center gap-1.5 flex-wrap">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                  <span className="text-muted-foreground/70 line-through truncate max-w-[140px]">{liveProgress.ultimo_renomeado.de}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="text-foreground font-medium font-mono break-all">{liveProgress.ultimo_renomeado.para}</span>
+                  <span className="text-[10px] text-muted-foreground/60 ml-auto">{liveProgress.ultimo_renomeado.categoria}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Resultado da organização */}
           {organizeResult && organizeResult.renames && organizeResult.renames.length > 0 && (
@@ -361,6 +418,31 @@ export default function PreClientes() {
   const [modalMinimizado, setModalMinimizado] = useState(false);
   const [stages, setStages] = useState<StagesMap>(STAGES_INICIAIS);
   const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null);
+  const [liveProgress, setLiveProgress] = useState<OrganizeLiveProgress | null>(null);
+
+  // Polling do progresso em tempo real durante a etapa "organize". A edge
+  // function escreve em pre_clientes.organize_progress a cada arquivo
+  // processado; o frontend le essa coluna a cada 1.5s pra mostrar o
+  // arquivo atual + o ultimo renomeado.
+  useEffect(() => {
+    if (!confirmandoPre) return;
+    if (stages.organize.status !== "running") return;
+    let cancelado = false;
+    const tick = async () => {
+      if (cancelado) return;
+      const { data } = await supabase
+        .from("pre_clientes")
+        .select("organize_progress" as any)
+        .eq("id", confirmandoPre.id)
+        .single();
+      if (cancelado) return;
+      const p = (data as any)?.organize_progress as OrganizeLiveProgress | null;
+      if (p) setLiveProgress(p);
+    };
+    tick();
+    const id = setInterval(tick, 1500);
+    return () => { cancelado = true; clearInterval(id); };
+  }, [confirmandoPre, stages.organize.status]);
 
   // Quando o modal esta minimizado e a etapa final termina, dispara toast
   // com botao pra reabrir o modal e ver detalhes.
@@ -384,6 +466,7 @@ export default function PreClientes() {
     setConfirmandoPre(null);
     setStages(STAGES_INICIAIS);
     setOrganizeResult(null);
+    setLiveProgress(null);
     setModalMinimizado(false);
   }, [stages.organize.status, modalMinimizado, confirmandoPre, organizeResult]);
 
@@ -395,6 +478,7 @@ export default function PreClientes() {
     setConfirmandoPre(pre);
     setStages(STAGES_INICIAIS);
     setOrganizeResult(null);
+    setLiveProgress(null);
 
     const dkInicial: any = (pre as any).dados_completos?.dadosKit ?? null;
     const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
@@ -528,6 +612,7 @@ export default function PreClientes() {
     setConfirmandoPre(null);
     setStages(STAGES_INICIAIS);
     setOrganizeResult(null);
+    setLiveProgress(null);
   };
 
   const preClientesFiltrados = (preClientes ?? []).filter(p => {
@@ -709,6 +794,7 @@ export default function PreClientes() {
         pre={confirmandoPre}
         stages={stages}
         organizeResult={organizeResult}
+        liveProgress={liveProgress}
         onClose={fecharProgresso}
         onMinimize={() => setModalMinimizado(true)}
       />

@@ -251,6 +251,25 @@ Deno.serve(async (req: Request) => {
     const arquivos = await listarArquivos(token, pre.drive_folder_id);
     console.log(`[organize] ${arquivos.length} arquivos em ${pre.drive_folder_id}`);
 
+    // Helper pra escrever progresso na coluna `organize_progress` do
+    // pre_cliente. O frontend faz polling dessa coluna a cada ~1.5s pra
+    // mostrar em tempo real qual arquivo esta sendo processado.
+    const escreverProgresso = async (patch: Record<string, unknown>) => {
+      try {
+        await sb.from("pre_clientes").update({
+          organize_progress: {
+            atualizado_em: new Date().toISOString(),
+            total: arquivos.length,
+            ...patch,
+          },
+        } as any).eq("id", preClienteId);
+      } catch (e) {
+        console.warn("[organize] falha ao escrever progresso:", e);
+      }
+    };
+
+    await escreverProgresso({ processados: 0, atual: null, etapa: "preparando", finalizado: false });
+
     // Detecta nome canonico (ex: "RG.pdf", "CPF (2).pdf"). Re-popula
     // contador `usados` pra novos arquivos nao colidirem com os antigos.
     const usados: Record<string, number> = {};
@@ -266,7 +285,6 @@ Deno.serve(async (req: Request) => {
     const baseDeNomeCanonico = (nome: string): string | null => {
       const m = nome.match(RE_CANONICO);
       if (!m) return null;
-      // Acha o nome canonico exato (case-insensitive)
       const canon = Object.values(NOMES_CANONICOS).find(
         n => n.toLowerCase() === m[1].toLowerCase(),
       );
@@ -282,6 +300,14 @@ Deno.serve(async (req: Request) => {
       }
     }
     console.log(`[organize] ${jaCanonicos.length} ja canonicos, ${aClassificar.length} pra classificar`);
+
+    let processados = jaCanonicos.length;
+    await escreverProgresso({
+      processados,
+      ja_canonicos: jaCanonicos.length,
+      a_classificar: aClassificar.length,
+      etapa: "classificando",
+    });
 
     const CONCORRENCIA = 2;
     const DELAY_ENTRE_LOTES_MS = 12_000;
@@ -304,6 +330,13 @@ Deno.serve(async (req: Request) => {
         break;
       }
       const lote = aClassificar.slice(i, i + CONCORRENCIA);
+      // Antes de processar o lote, registra quais arquivos estao em
+      // processamento pro frontend mostrar "Classificando: X, Y".
+      await escreverProgresso({
+        processados,
+        atual: lote.map(a => a.name).join(", "),
+        etapa: "classificando",
+      });
       const resultados = await Promise.all(lote.map(async (arq): Promise<Classificado> => {
         try {
           const bytes = await baixarArquivo(token, arq.id);
@@ -316,42 +349,66 @@ Deno.serve(async (req: Request) => {
         }
       }));
       classificados.push(...resultados);
+
+      // Renomeia imediatamente os arquivos desse lote pra que o usuario
+      // veja o resultado em tempo real (antes era serial no final).
+      // Como a contagem de sufixo `usados` ja foi pre-populada com os
+      // canonicos, fica deterministica.
+      for (const r of resultados) {
+        processados++;
+        if (r.cat === "outro") {
+          renames.push({ id: r.arq.id, de: r.arq.name, para: r.arq.name, categoria: "outro", debug: r.erro ? `excecao: ${r.erro}` : r.debug });
+          await escreverProgresso({
+            processados,
+            atual: r.arq.name,
+            ultimo_renomeado: { de: r.arq.name, para: r.arq.name, categoria: "outro" },
+            etapa: "classificando",
+          });
+          continue;
+        }
+        const base = NOMES_CANONICOS[r.cat];
+        const ext = extensaoDe(r.arq.name, r.arq.mimeType);
+        usados[base] = (usados[base] || 0) + 1;
+        const sufixo = usados[base] > 1 ? ` (${usados[base]})` : "";
+        const novoNome = `${base}${sufixo}${ext}`;
+        try {
+          if (novoNome !== r.arq.name) await renomear(token, r.arq.id, novoNome);
+          renames.push({ id: r.arq.id, de: r.arq.name, para: novoNome, categoria: r.cat, debug: r.debug });
+          await escreverProgresso({
+            processados,
+            atual: r.arq.name,
+            ultimo_renomeado: { de: r.arq.name, para: novoNome, categoria: r.cat },
+            etapa: "classificando",
+          });
+        } catch (e) {
+          renames.push({ id: r.arq.id, de: r.arq.name, para: r.arq.name, categoria: r.cat, debug: `rename falhou: ${String((e as Error)?.message || e).slice(0, 200)}` });
+        }
+      }
+
       // Espera entre lotes pra nao estourar 10 RPM do Gemini free tier.
       // Pula o delay no ultimo lote.
       if (i + CONCORRENCIA < aClassificar.length) {
+        await escreverProgresso({ processados, atual: null, etapa: "esperando_rate_limit" });
         await new Promise((r) => setTimeout(r, DELAY_ENTRE_LOTES_MS));
       }
     }
 
-    // 3) Renomeia serialmente (rapido, ~200ms cada) pra contagem de sufixo
-    // ficar deterministica. Pula os ja canonicos (nao precisam de rename).
+    // Os ja-canonicos entram no resultado como "nao precisam mexer", e os
+    // nao processados (estourou budget) ficam pra re-run.
     for (const arq of jaCanonicos) {
       renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: "ja canonico" });
     }
-    for (const { arq, cat, debug, erro } of classificados) {
-      if (cat === "outro") {
-        renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: erro ? `excecao: ${erro}` : debug });
-        continue;
-      }
-      const base = NOMES_CANONICOS[cat];
-      const ext = extensaoDe(arq.name, arq.mimeType);
-      usados[base] = (usados[base] || 0) + 1;
-      const sufixo = usados[base] > 1 ? ` (${usados[base]})` : "";
-      const novoNome = `${base}${sufixo}${ext}`;
-      try {
-        if (novoNome !== arq.name) await renomear(token, arq.id, novoNome);
-        renames.push({ id: arq.id, de: arq.name, para: novoNome, categoria: cat, debug });
-      } catch (e) {
-        renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: cat, debug: `rename falhou: ${String((e as Error)?.message || e).slice(0, 200)}` });
-      }
-    }
-    // Arquivos que ficaram pra re-run aparecem com flag pro frontend
-    // saber que ainda ha trabalho. NAO sao erro — sao backlog.
     for (const arq of naoProcessados) {
       renames.push({ id: arq.id, de: arq.name, para: arq.name, categoria: "outro", debug: "nao processado (budget)" });
     }
 
     const parcial = naoProcessados.length > 0;
+    await escreverProgresso({
+      processados,
+      atual: null,
+      etapa: parcial ? "parcial" : "finalizado",
+      finalizado: true,
+    });
     return jsonResponse({
       ok: true,
       total_arquivos: arquivos.length,
