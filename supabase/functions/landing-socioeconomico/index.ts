@@ -27,8 +27,9 @@ function j(b: unknown, status = 200) {
 
 // Apenas estes campos podem ser gravados a partir da landing publica.
 const CAMPOS_PERMITIDOS = [
-  "renda_mensal", "dependentes", "conjuge_trabalha",
-  "unico_provedor", "tipo_moradia", "condicao_saude", "observacoes_livres",
+  "idade", "escolaridade", "numero_filhos", "idades_filhos",
+  "conjuge_trabalha", "renda_mensal", "unico_provedor", "tipo_moradia",
+  "outros_dependentes", "condicao_saude", "observacoes_livres",
 ];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

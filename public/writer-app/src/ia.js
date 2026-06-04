@@ -477,19 +477,22 @@ function montarConfigLastroDanoMaterial() {
 function gerarTrechosMock(tentativa = 0) {
   const d = { ...state.dadosPacote1, ...state.dadosPacote2 };
   const prof = d.profissao || 'trabalhador';
+  const filhos = parseInt(d.numero_filhos) || 0;
   const renda = d.renda_mensal ? `R$ ${parseFloat(d.renda_mensal).toLocaleString('pt-BR')}` : 'renda modesta';
   const nome = d.nome_completo || 'a parte autora';
   const ecCasado = d.estado_civil?.includes('cas');
   const ecMasc = ecCasado ? 'casado' : '';
   const ecFem  = ecCasado ? 'casada' : '';
-  // Campo unificado 'dependentes' (texto livre) + sinais de vulnerabilidade
-  // do nucleo familiar (conjuge, provedor unico, moradia).
-  const depTxt = (d.dependentes || '').trim();
+  // Sinais de vulnerabilidade do nucleo familiar (filhos, conjuge,
+  // provedor unico, moradia, outros dependentes).
+  const filhosFrag = filhos > 0 ? `, com ${filhos} filho${filhos > 1 ? 's' : ''} sob seus cuidados` : '';
+  const outrosDep = (d.outros_dependentes || '').trim();
+  const outrosFrag = outrosDep ? `, ${filhosFrag ? 'e ainda ' : 'responsável por '}${outrosDep}` : '';
   const conjugeFrag = d.conjuge_trabalha === 'nao' ? ', cujo cônjuge não exerce atividade remunerada' : '';
   const provedorFrag = d.unico_provedor === 'sim' ? ', único provedor do lar' : '';
   const moradiaMap = { alugada: 'residindo em imóvel alugado', cedida: 'residindo em imóvel cedido', financiada: 'com imóvel ainda financiado' };
   const moradiaFrag = moradiaMap[d.tipo_moradia] ? `, ${moradiaMap[d.tipo_moradia]}` : '';
-  const sufFilhos = `${depTxt ? `, responsável por ${depTxt}` : ''}${provedorFrag}${conjugeFrag}${moradiaFrag}`;
+  const sufFilhos = `${filhosFrag}${outrosFrag}${provedorFrag}${conjugeFrag}${moradiaFrag}`;
 
   // 3 variantes por zona: rotacionam por tentativa (mod 3). Cada variante muda
   // ABERTURA, ORDEM dos argumentos e ÊNFASE — bate com as exigências do
@@ -554,8 +557,10 @@ function gerarTrechosMock(tentativa = 0) {
       ? '[Lastro humanizado desativado pelo advogado.]'
       : (() => {
           const valorTexto = state.dadosPacote3.valor_total_descontos || '0';
-          const depRaw = (d.dependentes || '').trim();
-          const dependentes = depRaw ? `, responsável por ${depRaw}` : '';
+          const filhosNum = parseInt(d.numero_filhos) || 0;
+          const dependentes = filhosNum > 0
+            ? `, com ${filhosNum} filho${filhosNum > 1 ? 's' : ''} dependente${filhosNum > 1 ? 's' : ''}`
+            : '';
           return `Esse montante de R$ ${valorTexto}, embora possa parecer modesto na contabilidade do banco, representa, em termos práticos para a parte autora${dependentes}, recursos com aptidão para custear despesas cotidianas como o gás de cozinha, parte do mercado do mês, conta de luz e transporte público de várias semanas. São compras e contas que entram ou deixam de entrar no orçamento doméstico, e cada subtração desse porte tem potencial concreto de adiar uma despesa essencial e forçar o consumidor a escolher o que pagar antes do quê.`;
         })(),
   };

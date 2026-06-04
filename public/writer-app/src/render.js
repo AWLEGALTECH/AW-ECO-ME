@@ -1691,15 +1691,24 @@ function selecionarCliente(id) {
    ========================================================================= */
 function renderPacote2(view) {
   const campos = [
-    { key: 'renda_mensal', label: 'Renda mensal (R$)', tipo: 'number', placeholder: 'ex: 1800' },
-    { key: 'dependentes', label: 'Dependentes', tipo: 'text', wide: true, placeholder: 'quem depende da renda? ex: 3 filhos menores, mãe idosa' },
+    { key: 'idade', label: 'Idade', tipo: 'number' },
+    { key: 'escolaridade', label: 'Escolaridade', tipo: 'select', opcoes: [
+      { value: '', label: '— selecione —' },
+      { value: 'fundamental', label: 'Fundamental' },
+      { value: 'médio', label: 'Médio' },
+      { value: 'superior', label: 'Superior' },
+      { value: 'pós-graduação', label: 'Pós-graduação' },
+    ] },
+    { key: 'numero_filhos', label: 'Número de filhos', tipo: 'number' },
+    { key: 'idades_filhos', label: 'Idades dos filhos', tipo: 'text', placeholder: 'ex: 5, 9 e 14 anos' },
     { key: 'conjuge_trabalha', label: 'Cônjuge trabalha?', tipo: 'select', opcoes: [
       { value: '', label: '— selecione —' },
       { value: 'sim', label: 'Sim' },
-      { value: 'nao', label: 'Não (desempregado / do lar)' },
+      { value: 'nao', label: 'Não' },
       { value: 'nao_se_aplica', label: 'Não se aplica (sem cônjuge)' },
     ] },
-    { key: 'unico_provedor', label: 'Único provedor do lar?', tipo: 'select', opcoes: [
+    { key: 'renda_mensal', label: 'Renda mensal (R$)', tipo: 'number', placeholder: 'ex: 1800' },
+    { key: 'unico_provedor', label: 'Único provedor?', tipo: 'select', opcoes: [
       { value: '', label: '— selecione —' },
       { value: 'sim', label: 'Sim' },
       { value: 'nao', label: 'Não' },
@@ -1712,8 +1721,9 @@ function renderPacote2(view) {
       { value: 'cedida', label: 'Cedida' },
       { value: 'outros', label: 'Outros' },
     ] },
-    { key: 'condicao_saude', label: 'Condição de saúde relevante', tipo: 'text', wide: true, placeholder: 'ex: hipertensão, uso contínuo de medicação, deficiência' },
-    { key: 'observacoes_livres', label: 'Observações adicionais', tipo: 'textarea', placeholder: 'Qualquer contexto de vulnerabilidade que ajude a personalizar a peça', wide: true },
+    { key: 'outros_dependentes', label: 'Outros dependentes', tipo: 'text', placeholder: 'descrever', wide: true },
+    { key: 'condicao_saude', label: 'Condição de saúde relevante', tipo: 'text', placeholder: 'opcional', wide: true },
+    { key: 'observacoes_livres', label: 'Observações adicionais', tipo: 'textarea', placeholder: 'Contexto livre que ajude a IA a personalizar a peça', wide: true },
   ];
 
   view.innerHTML = `

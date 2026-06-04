@@ -109,20 +109,31 @@
     <div class="reassure">🔒 Suas respostas são confidenciais e usadas apenas para fortalecer o seu processo.</div>
 
     <div class="field">
-      <label class="q" for="renda_mensal">Qual é a sua renda por mês, mais ou menos?
-        <span class="hint">Some tudo o que entra no mês. Se não souber exato, faça uma estimativa.</span>
-      </label>
-      <div class="money">
-        <span class="prefix">R$</span>
-        <input type="text" id="renda_mensal" inputmode="numeric" placeholder="Ex.: 1.500" autocomplete="off">
-      </div>
+      <label class="q" for="idade">Qual a sua idade?</label>
+      <input type="text" id="idade" inputmode="numeric" placeholder="Ex.: 45" autocomplete="off">
     </div>
 
     <div class="field">
-      <label class="q" for="dependentes">Quantas pessoas dependem de você financeiramente?
-        <span class="hint">Filhos, pais, outros familiares… conte um pouco.</span>
+      <label class="q" for="escolaridade">Até onde você estudou?</label>
+      <select id="escolaridade">
+        <option value="">Selecione…</option>
+        <option value="fundamental">Fundamental</option>
+        <option value="médio">Médio</option>
+        <option value="superior">Superior</option>
+        <option value="pós-graduação">Pós-graduação</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="numero_filhos">Quantos filhos você tem?
+        <span class="hint">Se não tiver, pode deixar em branco.</span>
       </label>
-      <input type="text" id="dependentes" placeholder="Ex.: 2 filhos menores e minha mãe idosa" autocomplete="off">
+      <input type="text" id="numero_filhos" inputmode="numeric" placeholder="Ex.: 3" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label class="q" for="idades_filhos">Quais as idades dos seus filhos?</label>
+      <input type="text" id="idades_filhos" placeholder="Ex.: 5, 9 e 14 anos" autocomplete="off">
     </div>
 
     <div class="field">
@@ -133,6 +144,16 @@
         <option value="nao">Não trabalha</option>
         <option value="nao_se_aplica">Não tenho cônjuge / não se aplica</option>
       </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="renda_mensal">Qual é a sua renda por mês, mais ou menos?
+        <span class="hint">Some tudo o que entra no mês. Se não souber exato, faça uma estimativa.</span>
+      </label>
+      <div class="money">
+        <span class="prefix">R$</span>
+        <input type="text" id="renda_mensal" inputmode="numeric" placeholder="Ex.: 1.500" autocomplete="off">
+      </div>
     </div>
 
     <div class="field">
@@ -154,6 +175,13 @@
         <option value="cedida">Cedida / emprestada</option>
         <option value="outros">Outra situação</option>
       </select>
+    </div>
+
+    <div class="field">
+      <label class="q" for="outros_dependentes">Outras pessoas que dependem de você financeiramente?
+        <span class="hint">Além dos seus filhos. Ex.: mãe idosa, irmão com deficiência.</span>
+      </label>
+      <input type="text" id="outros_dependentes" placeholder="Ex.: minha mãe idosa" autocomplete="off">
     </div>
 
     <div class="field">
@@ -188,7 +216,7 @@
   "use strict";
   var ENDPOINT = "https://wvltdjspytysuoybcfgb.supabase.co/functions/v1/landing-socioeconomico";
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  var FIELDS = ["renda_mensal","dependentes","conjuge_trabalha","unico_provedor","tipo_moradia","condicao_saude","observacoes_livres"];
+  var FIELDS = ["idade","escolaridade","numero_filhos","idades_filhos","conjuge_trabalha","renda_mensal","unico_provedor","tipo_moradia","outros_dependentes","condicao_saude","observacoes_livres"];
 
   var $ = function(id){ return document.getElementById(id); };
   function show(id){ ["loading","badlink","form","success"].forEach(function(s){ $(s).classList.toggle("hidden", s!==id); }); }

@@ -557,17 +557,22 @@ export default function ClienteDetail() {
               const map: Record<string, string> = {
                 sim: "Sim", nao: "Não", nao_se_aplica: "Não se aplica",
                 propria: "Própria", alugada: "Alugada", financiada: "Financiada", cedida: "Cedida", outros: "Outros",
+                fundamental: "Fundamental", "médio": "Médio", superior: "Superior", "pós-graduação": "Pós-graduação",
               };
               return map[String(v)] || String(v);
             };
             const campos: Array<{ label: string; key: string; icon: any; wide?: boolean; fmt?: (v: any) => string }> = [
-              { label: "Renda mensal",       key: "renda_mensal",       icon: CreditCard },
-              { label: "Dependentes",        key: "dependentes",        icon: User, wide: true },
+              { label: "Idade",              key: "idade",              icon: User },
+              { label: "Escolaridade",       key: "escolaridade",       icon: FileText, fmt: fmtSelect },
+              { label: "Nº de filhos",       key: "numero_filhos",      icon: User },
+              { label: "Idades dos filhos",  key: "idades_filhos",      icon: User },
               { label: "Cônjuge trabalha",   key: "conjuge_trabalha",   icon: User, fmt: fmtSelect },
+              { label: "Renda mensal",       key: "renda_mensal",       icon: CreditCard },
               { label: "Único provedor",     key: "unico_provedor",     icon: User, fmt: fmtSelect },
               { label: "Tipo de moradia",    key: "tipo_moradia",       icon: MapPin, fmt: fmtSelect },
+              { label: "Outros dependentes", key: "outros_dependentes", icon: User, wide: true },
               { label: "Condição de saúde",  key: "condicao_saude",     icon: FileText, wide: true },
-              { label: "Observações livres", key: "observacoes_livres", icon: FileText, wide: true },
+              { label: "Observações adicionais", key: "observacoes_livres", icon: FileText, wide: true },
             ];
             const algumPreenchido = campos.some(c => val(c.key) !== null);
             return (
@@ -759,8 +764,20 @@ export default function ClienteDetail() {
               <div className="space-y-2">
                 <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Perfil socioeconômico</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div><Label>Renda mensal (R$)</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} placeholder="ex: 1800" /></div>
-                  <div className="sm:col-span-2"><Label>Dependentes</Label><Input value={ds.dependentes ?? ""} onChange={(e) => setDS("dependentes", e.target.value)} placeholder="ex: 3 filhos menores, mãe idosa" /></div>
+                  <div><Label>Idade</Label><Input value={ds.idade ?? ""} onChange={(e) => setDS("idade", e.target.value)} placeholder="ex: 45" /></div>
+                  <div>
+                    <Label>Escolaridade</Label>
+                    <select value={ds.escolaridade ?? ""} onChange={(e) => setDS("escolaridade", e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="">— selecione —</option>
+                      <option value="fundamental">Fundamental</option>
+                      <option value="médio">Médio</option>
+                      <option value="superior">Superior</option>
+                      <option value="pós-graduação">Pós-graduação</option>
+                    </select>
+                  </div>
+                  <div><Label>Nº de filhos</Label><Input value={ds.numero_filhos ?? ""} onChange={(e) => setDS("numero_filhos", e.target.value)} placeholder="ex: 3" /></div>
+                  <div><Label>Idades dos filhos</Label><Input value={ds.idades_filhos ?? ""} onChange={(e) => setDS("idades_filhos", e.target.value)} placeholder="ex: 5, 9 e 14 anos" /></div>
                   <div>
                     <Label>Cônjuge trabalha?</Label>
                     <select value={ds.conjuge_trabalha ?? ""} onChange={(e) => setDS("conjuge_trabalha", e.target.value)}
@@ -771,6 +788,7 @@ export default function ClienteDetail() {
                       <option value="nao_se_aplica">Não se aplica (sem cônjuge)</option>
                     </select>
                   </div>
+                  <div><Label>Renda mensal (R$)</Label><Input value={ds.renda_mensal ?? ""} onChange={(e) => setDS("renda_mensal", e.target.value)} placeholder="ex: 1800" /></div>
                   <div>
                     <Label>Único provedor do lar?</Label>
                     <select value={ds.unico_provedor ?? ""} onChange={(e) => setDS("unico_provedor", e.target.value)}
@@ -792,8 +810,9 @@ export default function ClienteDetail() {
                       <option value="outros">Outros</option>
                     </select>
                   </div>
+                  <div className="sm:col-span-2"><Label>Outros dependentes</Label><Input value={ds.outros_dependentes ?? ""} onChange={(e) => setDS("outros_dependentes", e.target.value)} placeholder="ex: mãe idosa, irmão com deficiência" /></div>
                   <div className="sm:col-span-2"><Label>Condição de saúde relevante</Label><Input value={ds.condicao_saude ?? ""} onChange={(e) => setDS("condicao_saude", e.target.value)} placeholder="ex: hipertensão, uso contínuo de medicação" /></div>
-                  <div className="sm:col-span-2"><Label>Observações livres</Label><Textarea rows={2} value={ds.observacoes_livres ?? ""} onChange={(e) => setDS("observacoes_livres", e.target.value)} /></div>
+                  <div className="sm:col-span-2"><Label>Observações adicionais</Label><Textarea rows={2} value={ds.observacoes_livres ?? ""} onChange={(e) => setDS("observacoes_livres", e.target.value)} placeholder="Contexto livre que ajude a IA a personalizar a peça" /></div>
                 </div>
               </div>
 
