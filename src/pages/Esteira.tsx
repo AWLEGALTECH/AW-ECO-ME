@@ -870,6 +870,7 @@ function CardBotao({
 // permite confirmar a conclusao — evita conclusao acidental.
 function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira; onAvancar: () => void; audit?: AuditInfo }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   const drive = demanda.cliente?.drive_folder_url;
   const nomeCliente = demanda.cliente?.nome || "cliente";
   const handleConfirm = () => {
@@ -915,9 +916,11 @@ function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira;
                 icon={User}
                 titulo="Abrir ficha do cliente"
                 hint="Dados, demandas e histórico completo"
-                href={`/clientes/${demanda.cliente.id}`}
-                external
-                acaoIcon={ExternalLink}
+                onClick={() => {
+                  const id = demanda.cliente!.id;
+                  setOpen(false);
+                  navigate(`/clientes/${id}?aba=demandas`);
+                }}
               />
             )}
             {demanda.cliente && drive && (
@@ -1006,6 +1009,7 @@ function PendenciaDetalheDialog({
   onClose: () => void;
   onResolver: () => void;
 }) {
+  const navigate = useNavigate();
   if (!demanda) return null;
   const tipoLabel = demanda.pendencia_tipo === "personalizada"
     ? "Personalizada"
@@ -1062,9 +1066,11 @@ function PendenciaDetalheDialog({
                 icon={User}
                 titulo="Abrir ficha do cliente"
                 hint="Dados, demandas e histórico completo"
-                href={`/clientes/${demanda.cliente.id}`}
-                external
-                acaoIcon={ExternalLink}
+                onClick={() => {
+                  const id = demanda.cliente!.id;
+                  onClose();
+                  navigate(`/clientes/${id}?aba=demandas`);
+                }}
               />
             )}
             {demanda.cliente?.id && driveUrl && (
