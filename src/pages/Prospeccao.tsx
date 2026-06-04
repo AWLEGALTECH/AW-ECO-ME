@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
-  Globe, Trophy, Ban,
+  Globe, Trophy, Ban, Mail,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
@@ -46,6 +46,7 @@ interface Prospect {
   avaliacao: number | null;
   horario_funcionamento: string | null;
   cidade: string | null;
+  endereco: string | null;
   estagio: Estagio;
   status: "ativo" | "arquivado";
   lista_origem: string | null;
@@ -373,10 +374,12 @@ function InserirLeadsDialog({
       telefone: p.telefone,
       whatsapp: p.whatsapp,
       instagram: p.instagram,
+      email: p.email,
       site: p.site,
       google_maps_url: p.google_maps_url,
       avaliacao: p.avaliacao,
       horario_funcionamento: p.horario_funcionamento,
+      endereco: p.endereco,
       cidade: cidade.trim() || null,
       lista_origem: listaOrigem.trim() || null,
       estagio: "aguardando_contato",
@@ -477,9 +480,11 @@ Próximo lead...`}
                     </div>
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground flex-wrap pl-1">
                       {p.telefone && <span><Phone className="inline h-2.5 w-2.5 mr-0.5" /> {p.telefone}</span>}
+                      {p.email && <span className="truncate max-w-[160px]"><Mail className="inline h-2.5 w-2.5 mr-0.5" /> {p.email}</span>}
                       {p.instagram && <span><Instagram className="inline h-2.5 w-2.5 mr-0.5 text-pink-400" /> @{p.instagram}</span>}
-                      {p.site && <span><Globe className="inline h-2.5 w-2.5 mr-0.5" /> {new URL(p.site).hostname.replace(/^www\./, "")}</span>}
+                      {p.site && <span><Globe className="inline h-2.5 w-2.5 mr-0.5" /> {(() => { try { return new URL(p.site!).hostname.replace(/^www\./, ""); } catch { return p.site; } })()}</span>}
                       {p.google_maps_url && <span><MapPin className="inline h-2.5 w-2.5 mr-0.5 text-emerald-400" /> Maps</span>}
+                      {p.endereco && <span className="truncate max-w-[200px]"><MapPin className="inline h-2.5 w-2.5 mr-0.5" /> {p.endereco}</span>}
                       {p.avaliacao != null && <span><Star className="inline h-2.5 w-2.5 mr-0.5 text-amber-400 fill-amber-400" /> {p.avaliacao.toFixed(1)}</span>}
                     </div>
                   </div>
@@ -642,11 +647,23 @@ function ProspectDetalheDialog({
               </a>
             } />
           )}
+          {prospect.email && (
+            <InfoRow icon={Mail} label="E-mail" value={
+              <a href={`mailto:${prospect.email}`} className="text-primary hover:underline break-all">
+                {prospect.email}
+              </a>
+            } />
+          )}
           {prospect.site && (
             <InfoRow icon={Globe} label="Site" value={
               <a href={prospect.site} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 break-all">
-                {new URL(prospect.site).hostname.replace(/^www\./, "")} <ExternalLink className="h-3 w-3" />
+                {(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site; } })()} <ExternalLink className="h-3 w-3" />
               </a>
+            } />
+          )}
+          {prospect.endereco && (
+            <InfoRow icon={MapPin} label="Endereço" value={
+              <span className="text-[12px] text-foreground/90 break-words">{prospect.endereco}</span>
             } />
           )}
           {prospect.google_maps_url && (
