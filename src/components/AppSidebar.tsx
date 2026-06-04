@@ -76,9 +76,12 @@ export function AppSidebar() {
       const [tagged, vincAny, vincPendente, proto, pend] = await Promise.all([
         supabase.from("clientes").select("id" as any, { count: "exact", head: false })
           .eq("precisa_analise_extratos" as any, true),
-        // Qualquer vinculada nao-cancelada — exclui tagged que ja iniciou pipeline
+        // Qualquer demanda downstream nao-cancelada — exclui tagged que ja
+        // iniciou pipeline (inclui vinculada, artesanal, pronta, pendencia)
+        // pra cliente nao contar 2x quando peca avancou.
         supabase.from("demandas" as any).select("cliente_id", { count: "exact", head: false })
-          .eq("etapa", "analise_vinculada").neq("status", "cancelada"),
+          .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "pendencia_documental"])
+          .neq("status", "cancelada"),
         // So vinculadas pendentes — contam pra coluna 2 da esteira
         supabase.from("demandas" as any).select("cliente_id", { count: "exact", head: false })
           .eq("etapa", "analise_vinculada").eq("status", "pendente"),
