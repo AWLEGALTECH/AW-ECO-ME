@@ -20,10 +20,14 @@ type WriterMessage =
         uf?: string | null;
         valor_causa?: number | null;
         // Definida pelo Writer (writer-app/src/cadeia.js) — "Juizado
-        // Especial Cível" ou "Vara Cível Comum". Quando presente, eh
-        // gravada em demandas.competencia e usada pelo Espelho de
-        // Protocolo, evitando recalculo divergente no front-end do ME.
+        // Especial Cível" ou "Vara Cível". Quando presente, eh gravada
+        // em demandas.competencia e usada pelo Espelho de Protocolo,
+        // evitando recalculo divergente no front-end do ME.
         competencia?: string | null;
+        // true se o advogado FORCOU manualmente o tipo de vara no Writer
+        // (override em vez do calculo automatico). O Espelho mostra um
+        // badge nesse caso pra alertar o operador do protocolo.
+        competencia_forcada?: boolean | null;
       };
     }
   | {
@@ -51,7 +55,7 @@ export default function Writer() {
       if (!msg || typeof msg !== "object" || !("type" in msg)) return;
 
       if (msg.type === "aw-eco-me:pecaFinalizada") {
-        const { demandaId, driveUrl, comarca, uf, valor_causa, competencia } = msg.payload as any;
+        const { demandaId, driveUrl, comarca, uf, valor_causa, competencia, competencia_forcada } = msg.payload as any;
         const { data: pecaData, error } = await supabase
           .from("demandas" as any)
           .update({
@@ -64,6 +68,7 @@ export default function Writer() {
             uf: uf || null,
             valor_causa: valor_causa ?? null,
             competencia: competencia || null,
+            competencia_forcada: !!competencia_forcada,
           })
           .eq("id", demandaId)
           .select("analise_pai_id")

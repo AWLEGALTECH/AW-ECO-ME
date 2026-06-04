@@ -146,12 +146,17 @@ function finalizarPecaPipeline(driveUrl) {
     // Competencia: usa a mesma logica/limite ja aplicado na peca DOCX
     // (calcularTipoVara respeitando override manual do advogado). Manda
     // o rotulo_curto pro aw-eco-me gravar e o Espelho usar diretamente
-    // sem recalcular com limites desatualizados.
+    // sem recalcular com limites desatualizados. Tambem manda se foi
+    // forcado manualmente — Espelho mostra badge "forcado pelo advogado"
+    // pra deixar claro que a regra geral (valor) foi quebrada de forma
+    // consciente.
     let competencia = null;
+    let competencia_forcada = false;
     if (typeof calcularTipoVara === 'function' && valorCausa > 0) {
       const override = p3.tipo_vara_override || null;
       const vara = calcularTipoVara(valorCausa, override);
       competencia = vara && vara.rotulo_curto ? vara.rotulo_curto : null;
+      competencia_forcada = !!override;
     }
 
     window.parent.postMessage({
@@ -163,6 +168,7 @@ function finalizarPecaPipeline(driveUrl) {
         uf: p3.uf || null,
         valor_causa: valorCausa > 0 ? valorCausa : null,
         competencia,
+        competencia_forcada,
       },
     }, window.location.origin);
   });

@@ -1130,6 +1130,12 @@ export function EspelhoProtocoloDialog({
   const [comarcaIn, setComarcaIn] = useState("");
   const [localTramiteIn, setLocalTramiteIn] = useState("");
   const [procedimentoIn, setProcedimentoIn] = useState("");
+  // Competencia editavel no proprio espelho (com persistencia). Inicia com
+  // o que o Writer gravou OU fallback automatico. Toggle abaixo permite o
+  // advogado trocar JEC <-> Vara Civel na hora, registrando como forcada.
+  const [competenciaState, setCompetenciaState] = useState<string>("");
+  const [competenciaForcadaState, setCompetenciaForcadaState] = useState(false);
+  const [trocandoCompetencia, setTrocandoCompetencia] = useState(false);
   // Total global ajuizado capturado ANTES do protocolo, pra animar
   // [totalAnterior] -> [totalAnterior + valor] na tela de sucesso.
   const [totalAnterior, setTotalAnterior] = useState<number>(0);
@@ -1147,20 +1153,39 @@ export function EspelhoProtocoloDialog({
       setComarcaIn(demanda.comarca || "");
       setLocalTramiteIn(demanda.local_tramite || "");
       setProcedimentoIn(demanda.procedimento || "");
+      // Inicializa competencia: prioriza valor gravado pelo Writer, senao
+      // fallback baseado em valor (limite atualizado 64.840).
+      const v = Number(demanda.valor_causa || 0);
+      const auto = v > 0 && v < 64840 ? "Juizado Especial Cível" : "Vara Cível Comum";
+      setCompetenciaState((demanda as any).competencia || auto);
+      setCompetenciaForcadaState(!!(demanda as any).competencia_forcada);
     }
   }, [demanda?.id, demanda?.valor_causa, demanda?.comarca, demanda?.local_tramite, demanda?.procedimento]);
 
   if (!demanda || !cliente) return null;
 
-  // Determina competencia. Prioridade:
-  //  1. demanda.competencia (definida pelo Writer no momento da finalizacao).
-  //  2. Fallback baseado no valor da causa com limite atualizado de 40 SM
-  //     (R$ 64.840 em 2026, Lei 9.099/95 art. 3 I — antes estava 60k, fora
-  //     de sintonia com o Writer e gerava JEC/Vara errado na faixa 60-64,8k).
   const valor = Number(demanda.valor_causa || 0);
   const LIMITE_JEC = 64840;
-  const competencia = (demanda as any).competencia
-    || (valor > 0 && valor < LIMITE_JEC ? "Juizado Especial Cível" : "Vara Cível Comum");
+  const competencia = competenciaState || (valor > 0 && valor < LIMITE_JEC ? "Juizado Especial Cível" : "Vara Cível Comum");
+
+  // Troca JEC <-> Vara Civel Comum no proprio espelho. Persiste imediatamente
+  // pra refletir em re-aberturas e auditoria. Marca como forcada se o novo
+  // valor diverge do que o calculo automatico apontaria.
+  const trocarCompetencia = async () => {
+    if (trocandoCompetencia) return;
+    const nova = competencia === "Juizado Especial Cível" ? "Vara Cível Comum" : "Juizado Especial Cível";
+    const automaticoSeria = valor > 0 && valor < LIMITE_JEC ? "Juizado Especial Cível" : "Vara Cível Comum";
+    const forcadaNova = nova !== automaticoSeria;
+    setTrocandoCompetencia(true);
+    const { error } = await supabase.from("demandas" as any)
+      .update({ competencia: nova, competencia_forcada: forcadaNova })
+      .eq("id", demanda.id);
+    setTrocandoCompetencia(false);
+    if (error) { toast.error("Erro ao trocar competência: " + error.message); return; }
+    setCompetenciaState(nova);
+    setCompetenciaForcadaState(forcadaNova);
+    toast.success(`Competência alterada pra ${nova}${forcadaNova ? " (forçado)" : ""}`);
+  };
 
   const copy = async (id: string, txt: string) => {
     try {
@@ -1391,6 +1416,7 @@ export function EspelhoProtocoloDialog({
               {campos.map((c) => {
                 const copiado = copiados.has(c.id);
                 const vazio = !c.valor;
+                const isCompetencia = c.id === "competencia";
                 return (
                   <div
                     key={c.id}
@@ -1399,10 +1425,28 @@ export function EspelhoProtocoloDialog({
                     }`}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.label}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        {c.label}
+                        {isCompetencia && competenciaForcadaState && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-400 text-[9px] font-semibold uppercase tracking-wider normal-case">
+                            <AlertTriangle className="h-2.5 w-2.5" /> Forçado pelo advogado
+                          </span>
+                        )}
+                      </div>
                       <div className={`text-sm font-medium truncate ${vazio ? "text-muted-foreground italic" : ""}`}>
                         {c.valor || "(não informado)"}
                       </div>
+                      {isCompetencia && (
+                        <button
+                          onClick={trocarCompetencia}
+                          disabled={trocandoCompetencia}
+                          className="text-[10px] text-primary hover:text-primary/80 mt-1 inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          {trocandoCompetencia ? "salvando…" : (
+                            <>trocar pra <strong>{competencia === "Juizado Especial Cível" ? "Vara Cível Comum" : "Juizado Especial Cível"}</strong></>
+                          )}
+                        </button>
+                      )}
                     </div>
                     <button
                       onClick={() => copy(c.id, c.valor)}
