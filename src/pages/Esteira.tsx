@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
@@ -196,22 +197,54 @@ export default function Esteira() {
   const isLoading = demRes.isLoading || cliRes.isLoading;
   const isFetching = demRes.isFetching || cliRes.isFetching;
 
-  // Particiona
-  const { pendencias, aguardando, vincs, artesanais, protos } = useMemo(() => {
+  // Particiona + aplica filtro de busca (nome do cliente, titulo, desconto
+  // ou descricao da demanda). Case-insensitive, sem acentos.
+  const [busca, setBusca] = useState("");
+  const normalizar = (s: string | null | undefined) =>
+    (s || "").toString().normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+  const { pendencias, aguardando, vincs, artesanais, protos, totalSemFiltro } = useMemo(() => {
     const dem = demRes.data || [];
     const pendenciasAll = dem.filter(d => d.etapa === "pendencia_documental");
     const vincsAll = dem.filter(d => d.etapa === "analise_vinculada");
     const artesanaisAll = dem.filter(d => d.etapa === "fluxo_artesanal");
     const protosAll = dem.filter(d => d.etapa === "pronta_para_protocolo");
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
+    const vincsFil = vincsAll.filter(v => !protoIds.has(v.id));
+    const artesFil = artesanaisAll.filter(a => !protoIds.has(a.id));
+    const protosFil = protosAll.filter(p => !p.protocolado_at);
+    const aguarAll = cliRes.data || [];
+    const totalAntesFiltro = pendenciasAll.length + aguarAll.length + vincsFil.length + artesFil.length + protosFil.length;
+
+    const q = normalizar(busca).trim();
+    if (!q) {
+      return {
+        pendencias: pendenciasAll,
+        aguardando: aguarAll,
+        vincs: vincsFil,
+        artesanais: artesFil,
+        protos: protosFil,
+        totalSemFiltro: totalAntesFiltro,
+      };
+    }
+    const demandaBate = (d: DemandaEsteira) =>
+      normalizar(d.cliente?.nome).includes(q) ||
+      normalizar(d.titulo).includes(q) ||
+      normalizar(d.desconto).includes(q) ||
+      normalizar(d.descricao).includes(q);
+    const clienteBate = (c: ClienteEsteira) =>
+      normalizar(c.nome).includes(q) ||
+      normalizar(c.requerido).includes(q) ||
+      normalizar(c.observacoes).includes(q);
     return {
-      pendencias: pendenciasAll,
-      aguardando: cliRes.data || [],
-      vincs: vincsAll.filter(v => !protoIds.has(v.id)),
-      artesanais: artesanaisAll.filter(a => !protoIds.has(a.id)),
-      protos: protosAll.filter(p => !p.protocolado_at),
+      pendencias: pendenciasAll.filter(demandaBate),
+      aguardando: aguarAll.filter(clienteBate),
+      vincs: vincsFil.filter(demandaBate),
+      artesanais: artesFil.filter(demandaBate),
+      protos: protosFil.filter(demandaBate),
+      totalSemFiltro: totalAntesFiltro,
     };
-  }, [demRes.data, cliRes.data]);
+  }, [demRes.data, cliRes.data, busca]);
 
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
 
@@ -258,7 +291,12 @@ export default function Esteira() {
             Esteira Pré-Protocolo
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Visão unificada de tudo pendente em produção. Total: <strong className="text-foreground">{total}</strong> item{total === 1 ? "" : "s"}.
+            Visão unificada de tudo pendente em produção. Total:{" "}
+            <strong className="text-foreground">{total}</strong>
+            {busca.trim() && totalSemFiltro !== total ? (
+              <> de {totalSemFiltro}</>
+            ) : null}
+            {" "}item{total === 1 ? "" : "s"}{busca.trim() ? " (filtrado)" : ""}.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={refetchAll} disabled={isFetching}>
@@ -266,6 +304,25 @@ export default function Esteira() {
           Atualizar
         </Button>
       </header>
+
+      <div className="relative">
+        <ScanSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por nome do cliente, requerido, desconto ou descrição…"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="pl-9 h-10"
+        />
+        {busca && (
+          <button
+            onClick={() => setBusca("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            title="Limpar busca"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
