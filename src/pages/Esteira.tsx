@@ -98,6 +98,10 @@ export default function Esteira() {
     if (demRes.error || !demRes.data)  { toast.error("Não consegui carregar a demanda"); return; }
     setEspelhoOpen({ cliente: cliRes.data as ClienteCheia, demanda: demRes.data as unknown as DemandaCheia });
   };
+  // Sub-popup ao clicar em card de Analise Vinculada — antes de levar pro
+  // perfil do cliente, oferece tambem o atalho pra abrir a analise no Finder
+  // (continuar a triagem) ou pular pra Writer (confeccionar a peca).
+  const [vincAcoes, setVincAcoes] = useState<DemandaEsteira | null>(null);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) => setExpandidos(prev => {
     const next = new Set(prev);
@@ -452,13 +456,12 @@ export default function Esteira() {
                     hint={g.items.length === 1 ? hint : `${g.items.length} análises vinculadas`}
                   >
                     {g.items.map(d => (
-                      <CardLinha
+                      <CardBotaoLinha
                         key={d.id}
-                        to={d.cliente?.id ? `/clientes/${d.cliente.id}` : "/clientes"}
+                        onClick={() => setVincAcoes(d)}
                         titulo={d.desconto || d.titulo}
-                        sub=""
                         data={d.created_at}
-                        acao="Confeccionar peça"
+                        acao="Ver opções"
                         acaoIcon={PenSquare}
                         audit={lookupAudit(d.id)}
                       />
@@ -594,6 +597,86 @@ export default function Esteira() {
           if (id) navigate(`/clientes/${id}?aba=demandas`);
         }}
       />
+
+      {/* Sub-popup do card de Analise Vinculada: oferece atalhos pra
+          (1) ficha do cliente, (2) Finder pra continuar a triagem,
+          (3) Writer pra confeccionar a peca. Antes era um Link direto
+          pro perfil, agora deixa o usuario escolher o destino. */}
+      <Dialog open={!!vincAcoes} onOpenChange={(v) => !v && setVincAcoes(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-primary" />
+              {vincAcoes?.cliente?.nome || "Análise vinculada"}
+            </DialogTitle>
+            <DialogDescription className="line-clamp-2">
+              {vincAcoes?.desconto || vincAcoes?.titulo}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 pt-1">
+            <button
+              onClick={() => {
+                const id = vincAcoes?.cliente?.id;
+                setVincAcoes(null);
+                if (id) navigate(`/clientes/${id}?aba=demandas`);
+              }}
+              disabled={!vincAcoes?.cliente?.id}
+              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border border-border bg-card/40 hover:border-primary/60 hover:bg-card/60 transition-all text-left disabled:opacity-50"
+            >
+              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Abrir ficha do cliente</p>
+                <p className="text-[11px] text-muted-foreground">Dados, demandas e histórico completo</p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            </button>
+
+            <button
+              onClick={() => {
+                const cli = vincAcoes?.cliente;
+                setVincAcoes(null);
+                if (cli?.id && cli.nome) {
+                  navigate(`/finder?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
+                }
+              }}
+              disabled={!vincAcoes?.cliente?.id}
+              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border border-border bg-card/40 hover:border-primary/60 hover:bg-card/60 transition-all text-left disabled:opacity-50"
+            >
+              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
+                <ScanSearch className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Abrir análise no Finder</p>
+                <p className="text-[11px] text-muted-foreground">Continuar triagem documental</p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            </button>
+
+            <button
+              onClick={() => {
+                const cli = vincAcoes?.cliente;
+                setVincAcoes(null);
+                if (cli?.id && cli.nome) {
+                  navigate(`/writer?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
+                }
+              }}
+              disabled={!vincAcoes?.cliente?.id}
+              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all text-left disabled:opacity-50"
+            >
+              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
+                <PenSquare className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Confeccionar peça no Writer</p>
+                <p className="text-[11px] text-muted-foreground">Gerar inicial pra essa análise</p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-primary" />
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
