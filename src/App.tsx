@@ -46,7 +46,7 @@ const persister = createSyncStoragePersister({
 const App = () => (
   <PersistQueryClientProvider
     client={queryClient}
-    persistOptions={{ persister, maxAge: 24 * 60 * 60 * 1000, buster: "v4-cadastrado-por" }}
+    persistOptions={{ persister, maxAge: 24 * 60 * 60 * 1000, buster: "v5-socio-11-campos" }}
   >
     <TooltipProvider>
       <Toaster />
