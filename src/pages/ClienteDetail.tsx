@@ -46,6 +46,7 @@ export interface Cliente {
   dados_socioeconomicos: Record<string, any> | null;
   observacoes: string | null;
   precisa_analise_extratos: boolean | null;
+  analise_primaria_finalizada_at: string | null;
   drive_folder_url: string | null;
   origem: string | null;
   cadastrado_por: string | null;
@@ -916,9 +917,13 @@ function DemandaCard({ demanda, action, onCancelarVinculo, autor }: { demanda: D
   const etapa = ETAPA_META[demanda.etapa] ?? ETAPA_META.analise_documental;
   const status = STATUS_META[demanda.status] ?? STATUS_META.pendente;
   const cancelada = demanda.status === "cancelada";
-  // Pra analise_vinculada cancelada, badge customizado pra deixar claro
-  // que foi vinculo cancelado (nao demanda cancelada generica)
+  const isArtesanal = demanda.etapa === "fluxo_artesanal";
+  // Pra analise_vinculada / artesanal cancelada, badge customizado pra
+  // deixar claro o tipo do cancelamento.
   const isVincCancelado = cancelada && demanda.etapa === "analise_vinculada";
+  const isArtCancelado  = cancelada && isArtesanal;
+  const tipoCancelLabel = isArtesanal ? "peça artesanal" : "vínculo";
+  const tipoCancelBtn   = isArtesanal ? "Cancelar peça" : "Cancelar vínculo";
 
   return (
     <div className={`rounded-xl border p-4 transition-colors ${
@@ -942,12 +947,12 @@ function DemandaCard({ demanda, action, onCancelarVinculo, autor }: { demanda: D
               )}
             </div>
             <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-              isVincCancelado
+              isVincCancelado || isArtCancelado
                 ? "text-red-400 bg-red-400/10 border-red-400/30"
                 : status.color
             }`}>
-              {isVincCancelado ? <Ban className="h-2.5 w-2.5" /> : <status.Icon className="h-2.5 w-2.5" />}
-              {isVincCancelado ? "Vínculo cancelado" : status.label}
+              {isVincCancelado || isArtCancelado ? <Ban className="h-2.5 w-2.5" /> : <status.Icon className="h-2.5 w-2.5" />}
+              {isVincCancelado ? "Vínculo cancelado" : isArtCancelado ? "Peça cancelada" : status.label}
             </span>
           </div>
           {demanda.descricao && (
@@ -972,22 +977,22 @@ function DemandaCard({ demanda, action, onCancelarVinculo, autor }: { demanda: D
                 <AlertDialogTrigger asChild>
                   <button
                     className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-red-400/5"
-                    title="Cancelar este vínculo"
+                    title={`Cancelar esta ${tipoCancelLabel}`}
                   >
-                    <X className="h-3 w-3" /> Cancelar vínculo
+                    <X className="h-3 w-3" /> {tipoCancelBtn}
                   </button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Cancelar este vínculo?</AlertDialogTitle>
+                    <AlertDialogTitle>Cancelar esta {tipoCancelLabel}?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      O vínculo <strong>{demanda.desconto || demanda.titulo}</strong> ficará marcado como cancelado e dimmed na lista, mas o registro permanece pra histórico. Você pode reverter manualmente depois se mudar de ideia.
+                      <strong>{demanda.desconto || demanda.titulo}</strong> ficará marcada como cancelada e dimmed na lista, mas o registro permanece pra histórico. Se o cliente ficar sem nenhuma análise vinculada nem peça artesanal ativa, ele volta automaticamente pra "Análise primária" na esteira.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Voltar</AlertDialogCancel>
                     <AlertDialogAction onClick={onCancelarVinculo} className="bg-red-600 hover:bg-red-500">
-                      Cancelar vínculo
+                      {tipoCancelBtn}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -1758,16 +1763,44 @@ function PrePipeline({
       p.etapa === "pronta_para_protocolo" && p.analise_pai_id === av.id
     ));
 
-  const cancelarVinculo = async (av: Demanda) => {
+  // Cancela uma demanda (analise vinculada OU peca artesanal). Fica
+  // riscada na lista — nao some, pra preservar historico. Apos cancelar,
+  // se o cliente acabar com ZERO analises vinculadas E ZERO pecas
+  // artesanais ativas, reabre a "Analise primaria" (volta pra col 1 da
+  // esteira), porque na pratica o pipeline foi zerado.
+  const cancelarDemanda = async (d: Demanda) => {
     const { error } = await supabase
       .from("demandas" as any)
       .update({ status: "cancelada" })
-      .eq("id", av.id);
+      .eq("id", d.id);
     if (error) {
-      toast.error("Erro ao cancelar vínculo: " + error.message);
+      toast.error("Erro ao cancelar: " + error.message);
       return;
     }
-    toast.success("Vínculo cancelado");
+
+    // Checa se sobrou algo vivo (vinculada ou artesanal nao cancelada).
+    const { data: vivas } = await supabase
+      .from("demandas" as any)
+      .select("id")
+      .eq("cliente_id", clienteId)
+      .in("etapa", ["analise_vinculada", "fluxo_artesanal"])
+      .neq("status", "cancelada")
+      .limit(1);
+
+    const reabriu = (!vivas || vivas.length === 0) && cliente.precisa_analise_extratos;
+    if (reabriu) {
+      await supabase
+        .from("clientes")
+        .update({
+          analise_primaria_finalizada_at: null,
+          analise_primaria_finalizada_by: null,
+        } as any)
+        .eq("id", clienteId);
+      toast.info("Sem peças ativas — cliente voltou pra 'Análise primária'.");
+    } else {
+      const labelTipo = d.etapa === "fluxo_artesanal" ? "Peça artesanal" : "Vínculo";
+      toast.success(`${labelTipo} cancelado`);
+    }
     onChange();
   };
 
@@ -1851,6 +1884,31 @@ function PrePipeline({
 
   const pendenciasAbertas = demandas.filter(d => d.etapa === "pendencia_documental" && d.status === "pendente");
 
+  // Banner: "Analise primaria pendente" — visivel quando o cliente esta
+  // na coluna 1 da esteira (precisa_analise_extratos = true E nao foi
+  // expressamente finalizada). Cliente pode ter pecas em producao em
+  // paralelo, mas a triagem inicial ainda nao foi declarada completa.
+  const analisePrimariaPendente = !!cliente.precisa_analise_extratos && !cliente.analise_primaria_finalizada_at;
+  const analisePrimariaBanner = !analisePrimariaPendente ? null : (
+    <div className="rounded-2xl border border-primary/40 bg-primary/5 p-4 flex items-start gap-3">
+      <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
+        <ScanSearch className="h-4 w-4 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h3 className="text-sm font-semibold">Análise primária pendente</h3>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          Este cliente está na coluna 1 da esteira. Finalize a análise primária por lá quando tiver decidido o que fazer com ele.
+        </p>
+      </div>
+      <Link
+        to="/esteira"
+        className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-1 shrink-0"
+      >
+        Ver na esteira <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+
   const resolverPendencia = async (id: string) => {
     const { error } = await supabase.from("demandas" as any)
       .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: userId })
@@ -1933,6 +1991,7 @@ function PrePipeline({
   if (demandas.filter(d => d.etapa !== "pendencia_documental").length === 0) {
     return (
       <div className="space-y-3">
+        {analisePrimariaBanner}
         {pendenciasBanner}
         <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-5 py-4 flex items-center gap-4">
           <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
@@ -1960,6 +2019,7 @@ function PrePipeline({
 
   return (
     <div className="space-y-3">
+      {analisePrimariaBanner}
       {pendenciasBanner}
       {grupos.map((g, idx) => {
         const itens = demandas.filter(d => d.etapa === g.key);
@@ -2048,6 +2108,7 @@ function PrePipeline({
               <div className="space-y-2">
                 {itens.map(d => {
                   const isAnaliseVinc = d.etapa === "analise_vinculada";
+                  const isArtesanal = d.etapa === "fluxo_artesanal";
                   // analise_vinculada ja virou pronta (tem espelho gerado)?
                   const jaVirouPeca = isAnaliseVinc && demandas.some(p =>
                     p.etapa === "pronta_para_protocolo" && p.analise_pai_id === d.id
@@ -2057,7 +2118,7 @@ function PrePipeline({
                       key={d.id}
                       demanda={d}
                       autor={autorDe(d)}
-                      onCancelarVinculo={isAnaliseVinc ? () => cancelarVinculo(d) : undefined}
+                      onCancelarVinculo={isAnaliseVinc || isArtesanal ? () => cancelarDemanda(d) : undefined}
                       action={
                         isAnaliseVinc && !jaVirouPeca ? (
                           <Button

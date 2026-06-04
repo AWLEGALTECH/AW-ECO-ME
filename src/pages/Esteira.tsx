@@ -312,6 +312,48 @@ export default function Esteira() {
     refetchAll();
   };
 
+  // Cancela uma peça artesanal direto da esteira. Se o cliente acabar
+  // sem nenhuma análise vinculada / peça artesanal viva, reabre a
+  // "análise primária" (volta pra coluna 1).
+  const cancelarArtesanal = async (d: DemandaEsteira) => {
+    const cliId = d.cliente?.id;
+    const { error } = await supabase.from("demandas" as any)
+      .update({ status: "cancelada" })
+      .eq("id", d.id);
+    if (error) { toast.error(error.message); return; }
+
+    if (cliId) {
+      const { data: vivas } = await supabase
+        .from("demandas" as any)
+        .select("id")
+        .eq("cliente_id", cliId)
+        .in("etapa", ["analise_vinculada", "fluxo_artesanal"])
+        .neq("status", "cancelada")
+        .limit(1);
+      if (!vivas || vivas.length === 0) {
+        const { data: cli } = await supabase
+          .from("clientes")
+          .select("precisa_analise_extratos")
+          .eq("id", cliId)
+          .single();
+        if ((cli as any)?.precisa_analise_extratos) {
+          await supabase
+            .from("clientes")
+            .update({
+              analise_primaria_finalizada_at: null,
+              analise_primaria_finalizada_by: null,
+            } as any)
+            .eq("id", cliId);
+          toast.info("Sem peças ativas — cliente voltou pra 'Análise primária'.");
+          refetchAll();
+          return;
+        }
+      }
+    }
+    toast.success("Peça cancelada");
+    refetchAll();
+  };
+
   const marcarResolvida = async (id: string) => {
     const { error } = await supabase.from("demandas" as any)
       .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: user?.id || null })
@@ -525,6 +567,7 @@ export default function Esteira() {
                         key={d.id}
                         demanda={d}
                         onAvancar={() => avancarArtesanalParaPronta(d)}
+                        onCancelar={() => cancelarArtesanal(d)}
                         audit={lookupAudit(d.id)}
                       />
                     ))}
@@ -893,14 +936,20 @@ function CardBotao({
 // Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre um
 // dialog com botao pra abrir a pasta do Drive (subir a peca) e so depois
 // permite confirmar a conclusao — evita conclusao acidental.
-function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira; onAvancar: () => void; audit?: AuditInfo }) {
+function CardArtesanal({ demanda, onAvancar, onCancelar, audit }: { demanda: DemandaEsteira; onAvancar: () => void; onCancelar: () => void; audit?: AuditInfo }) {
   const [open, setOpen] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const navigate = useNavigate();
   const drive = demanda.cliente?.drive_folder_url;
   const nomeCliente = demanda.cliente?.nome || "cliente";
   const handleConfirm = () => {
     setOpen(false);
     onAvancar();
+  };
+  const handleCancel = () => {
+    setOpen(false);
+    setConfirmCancel(false);
+    onCancelar();
   };
   return (
     <>
@@ -986,9 +1035,33 @@ function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira;
               variant="sucesso"
               onClick={handleConfirm}
             />
+
+            <button
+              onClick={() => setConfirmCancel(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-red-400 transition-colors py-2 mt-1"
+            >
+              <X className="h-3 w-3" /> Cancelar esta peça
+            </button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar esta peça artesanal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A peça <strong>{demanda.desconto || demanda.titulo}</strong> sai da esteira. Ela continua aparecendo riscada na ficha do cliente pra histórico. Se este for o último item ativo do cliente, ele volta pra "Análise primária".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancel} className="bg-red-600 hover:bg-red-500">
+              Cancelar peça
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
