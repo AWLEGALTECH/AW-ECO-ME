@@ -9,6 +9,7 @@ export const MODULES = [
   { key: "processos",    label: "Processos",     path: "/processos" },
   { key: "writer",       label: "Writer",        path: "/writer" },
   { key: "finder",       label: "Finder",        path: "/finder" },
+  { key: "prospeccao",   label: "Prospecção",    path: "/prospeccao" },
 ] as const;
 
 export type ModuleKey = typeof MODULES[number]["key"];
