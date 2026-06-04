@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, CheckCircle2, FolderOpen } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
+import { useFinderSession } from "@/hooks/useFinderSession";
 
+// Pagina /finder eh uma casca fina. O iframe propriamente dito e o header
+// de contexto vivem no <PersistentFinderHost /> renderizado no
+// SidebarLayout, que mantem o iframe vivo entre navegacoes (analise nao
+// morre quando o usuario minimiza pra ver o cliente, esteira, etc).
 export default function Finder() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const cliente = searchParams.get("cliente");
   const nome = searchParams.get("nome");
-  const [carregando, setCarregando] = useState(true);
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
+  const { active, iniciar } = useFinderSession();
 
   useEffect(() => {
     document.title = nome
@@ -18,8 +21,6 @@ export default function Finder() {
       : `Finder — ${appConfig.name}`;
   }, [nome]);
 
-  // Puxa a URL da pasta do Drive desse cliente — pra dar atalho de acesso
-  // direto durante a analise (extratos costumam estar la, nao na maquina).
   useEffect(() => {
     if (!cliente) return;
     (async () => {
@@ -33,84 +34,27 @@ export default function Finder() {
     })();
   }, [cliente]);
 
-  const iframeQs = new URLSearchParams();
-  if (cliente) iframeQs.set("cliente", cliente);
-  if (nome)    iframeQs.set("nome", nome);
-  if (driveUrl) iframeQs.set("drive", driveUrl);
-  // Extrai o folder_id da URL pra que o iframe possa listar arquivos via SA
-  if (driveUrl) {
-    const m = driveUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-    if (m) iframeQs.set("drive_folder_id", m[1]);
-  }
-  const iframeSrc = `/finder-app/index.html${iframeQs.toString() ? `?${iframeQs.toString()}` : ""}`;
+  // Inicia/reusa a sessao persistente. Sobrescreve se ja tem sessao pra
+  // outro cliente. Atualiza driveUrl quando ela chega.
+  useEffect(() => {
+    if (!cliente || !nome) return;
+    const driveFolderId = driveUrl?.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+    if (active && active.clienteId === cliente) {
+      if (driveUrl && !active.driveUrl) {
+        iniciar({ ...active, driveUrl, driveFolderId });
+      }
+      return;
+    }
+    iniciar({
+      clienteId: cliente,
+      nome,
+      driveUrl,
+      driveFolderId,
+      startedAt: Date.now(),
+    });
+  }, [cliente, nome, driveUrl, active, iniciar]);
 
-  const finalizarAnalise = () => {
-    if (cliente) navigate(`/clientes/${cliente}`);
-    else navigate("/clientes");
-  };
-
-  return (
-    <div className="h-full w-full flex flex-col -m-3 sm:-m-6 relative">
-      {/* Barra de contexto: aparece quando o Finder foi aberto a partir de um
-          cliente, deixa explicita a opção de finalizar e voltar pro perfil
-          com a pipeline atualizada. */}
-      {cliente && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border/60 bg-card/40 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-            <button
-              onClick={finalizarAnalise}
-              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-              title="Voltar pro perfil do cliente"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-            </button>
-            <span className="truncate">
-              Analisando extratos de <strong className="text-foreground">{nome || "cliente"}</strong>
-            </span>
-          </div>
-          <div className="shrink-0 flex items-center gap-2">
-            {driveUrl && (
-              <a
-                href={driveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-card/80 hover:bg-card border border-border/70 hover:border-primary/60 text-xs font-medium transition-colors"
-                title="Abre a pasta do cliente no Google Drive — extratos costumam estar aqui"
-              >
-                <FolderOpen className="h-3.5 w-3.5 text-primary" />
-                Pasta no Drive
-              </a>
-            )}
-            <button
-              onClick={finalizarAnalise}
-              className="inline-flex items-center gap-1.5 px-3.5 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
-              title="Encerra a sessão no Finder e volta pro perfil do cliente com a pipeline atualizada"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Finalizar análise
-            </button>
-          </div>
-        </div>
-      )}
-
-      {carregando && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-background">
-          <Loader2 className="h-8 w-8 text-primary animate-spin" />
-          <div className="text-center">
-            <p className="text-sm font-medium text-foreground">Carregando Finder…</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {nome ? `Pronto pra analisar extratos de ${nome}` : "Inicializando motor de auditoria"}
-            </p>
-          </div>
-        </div>
-      )}
-      <iframe
-        src={iframeSrc}
-        title="AW Finder"
-        onLoad={() => setCarregando(false)}
-        className="flex-1 w-full border-0"
-        allow="clipboard-read; clipboard-write; downloads"
-      />
-    </div>
-  );
+  // Renderiza placeholder transparente — o conteudo real vem do
+  // PersistentFinderHost posicionado absoluto sobre essa area.
+  return <div className="h-full w-full -m-3 sm:-m-6" />;
 }

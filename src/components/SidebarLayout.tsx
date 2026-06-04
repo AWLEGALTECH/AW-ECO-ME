@@ -6,6 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { Outlet, useLocation, Navigate } from "react-router-dom";
 import { toast } from "sonner";
+import { FinderSessionProvider } from "@/hooks/useFinderSession";
+import { PersistentFinderHost } from "@/components/PersistentFinderHost";
+import { FinderPill } from "@/components/FinderPill";
 
 export function SidebarLayout() {
   const { user, loading, accessReady } = useAuth();
@@ -37,58 +40,66 @@ export function SidebarLayout() {
   }
 
   return (
-    <SidebarProvider>
-      {/* Full-screen deep space canvas */}
-      <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
-        {/* Faixa do topo no SEI — azul escuro #155f9b com texto branco
-            (replica o "CONSELHO FEDERAL DE MEDICINA" do SEI real). */}
-        {isSei && (
-          <div
-            className="shrink-0 h-5 flex items-center px-3 text-[10px] font-bold uppercase tracking-[0.18em]"
-            style={{ background: "#155f9b", color: "white" }}
-          >
-            AW LEGALTECH
-          </div>
-        )}
+    <FinderSessionProvider>
+      <SidebarProvider>
+        {/* Full-screen deep space canvas */}
+        <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
+          {/* Faixa do topo no SEI — azul escuro #155f9b com texto branco
+              (replica o "CONSELHO FEDERAL DE MEDICINA" do SEI real). */}
+          {isSei && (
+            <div
+              className="shrink-0 h-5 flex items-center px-3 text-[10px] font-bold uppercase tracking-[0.18em]"
+              style={{ background: "#155f9b", color: "white" }}
+            >
+              AW LEGALTECH
+            </div>
+          )}
 
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Ambient light orbs in background — escondidos no SEI via CSS */}
-          <div className="mesh-blob mesh-blob-1 pointer-events-none" />
-          <div className="mesh-blob mesh-blob-2 pointer-events-none" />
-          <div className="mesh-blob mesh-blob-3 pointer-events-none" />
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Ambient light orbs in background — escondidos no SEI via CSS */}
+            <div className="mesh-blob mesh-blob-1 pointer-events-none" />
+            <div className="mesh-blob mesh-blob-2 pointer-events-none" />
+            <div className="mesh-blob mesh-blob-3 pointer-events-none" />
 
-          {/* Sidebar wrapper — sem padding/borderradius no SEI pra encostar
-              na borda como o sistema do governo faz. */}
-          <div className={`relative z-20 flex flex-col shrink-0 ${isSei ? "" : "p-3"}`}>
-            <div className={`h-full overflow-hidden ${isSei ? "border-r border-sidebar-border" : "rounded-2xl glass-sidebar border border-sidebar-border"}`}>
-              <AppSidebar />
+            {/* Sidebar wrapper — sem padding/borderradius no SEI pra encostar
+                na borda como o sistema do governo faz. */}
+            <div className={`relative z-20 flex flex-col shrink-0 ${isSei ? "" : "p-3"}`}>
+              <div className={`h-full overflow-hidden ${isSei ? "border-r border-sidebar-border" : "rounded-2xl glass-sidebar border border-sidebar-border"}`}>
+                <AppSidebar />
+              </div>
+            </div>
+
+            {/* Main content column */}
+            <div className="flex-1 flex flex-col min-w-0 min-h-0 z-10 overflow-hidden">
+              {/* Topbar — fica cyan no SEI via override CSS scoped */}
+              <header className={`h-14 flex items-center justify-between px-4 shrink-0 z-30 ${isSei ? "" : "glass-card border-b border-sidebar-border backdrop-blur-xl"}`}>
+                <div className="flex items-center gap-2">
+                  <SidebarTrigger className={isSei ? "text-white" : "text-muted-foreground hover:text-foreground transition-colors"} />
+                </div>
+                <div />
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs hidden md:inline font-mono ${isSei ? "text-white" : "text-muted-foreground"}`}>
+                    {user?.email}
+                  </span>
+                  <UserPanel />
+                </div>
+              </header>
+
+              <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col relative">
+                <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-3 sm:px-6 sm:py-6">
+                  <Outlet />
+                </div>
+                {/* Iframe persistente do Finder — sobreposto ao Outlet quando
+                    rota /finder, off-screen quando em outras rotas (mas vivo). */}
+                <PersistentFinderHost />
+              </main>
             </div>
           </div>
-
-          {/* Main content column */}
-          <div className="flex-1 flex flex-col min-w-0 min-h-0 z-10 overflow-hidden">
-            {/* Topbar — fica cyan no SEI via override CSS scoped */}
-            <header className={`h-14 flex items-center justify-between px-4 shrink-0 z-30 ${isSei ? "" : "glass-card border-b border-sidebar-border backdrop-blur-xl"}`}>
-              <div className="flex items-center gap-2">
-                <SidebarTrigger className={isSei ? "text-white" : "text-muted-foreground hover:text-foreground transition-colors"} />
-              </div>
-              <div />
-              <div className="flex items-center gap-2">
-                <span className={`text-xs hidden md:inline font-mono ${isSei ? "text-white" : "text-muted-foreground"}`}>
-                  {user?.email}
-                </span>
-                <UserPanel />
-              </div>
-            </header>
-
-            <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
-              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-3 sm:px-6 sm:py-6">
-                <Outlet />
-              </div>
-            </main>
-          </div>
         </div>
-      </div>
-    </SidebarProvider>
+        {/* Pill fixa no topo da janela quando ha sessao Finder ativa e
+            o user nao esta em /finder. */}
+        <FinderPill />
+      </SidebarProvider>
+    </FinderSessionProvider>
   );
 }
