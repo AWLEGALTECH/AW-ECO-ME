@@ -29,7 +29,7 @@ interface AuditInfo {
   para?: string;
 }
 
-// Rotulos curtos das etapas pra exibir no log do card
+// Rotulos curtos das etapas pra exibir no log do card.
 const ETAPA_LABEL: Record<string, string> = {
   analise_documental: "Análise",
   analise_vinculada: "Vinculada",
