@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
@@ -25,11 +25,20 @@ interface Cliente {
   requerido: string | null;
   observacoes: string | null;
   drive_folder_url: string | null;
+  created_at: string;
+  cadastrado_por: string | null;
   processos_count: number;
   total_ajuizado: number;
   em_esteira: boolean;
   socio_status: SocioStatus;
 }
+
+const fmtDataCurta = (iso: string | null): string => {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+  }).format(new Date(iso));
+};
 
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 }).format(v);
@@ -62,7 +71,7 @@ const SOCIO_ORDER: Record<SocioStatus, number> = {
   aguardando_geracao: 1,
 };
 
-type SortKey = "nome" | "cpf_cnpj" | "total_ajuizado" | "processos_count" | "socio_status" | "em_esteira";
+type SortKey = "nome" | "cpf_cnpj" | "total_ajuizado" | "processos_count" | "socio_status" | "em_esteira" | "created_at" | "cadastrado_por";
 type SortDir = "asc" | "desc";
 
 type Stage = "form" | "drive";
@@ -80,7 +89,7 @@ export default function Clientes() {
     setSort((prev) => {
       if (prev.key === key) return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
       // Numericas e categoricas comecam descrescente (maior/mais relevante primeiro)
-      const numericKeys: SortKey[] = ["total_ajuizado", "processos_count", "em_esteira", "socio_status"];
+      const numericKeys: SortKey[] = ["total_ajuizado", "processos_count", "em_esteira", "socio_status", "created_at"];
       return { key, dir: numericKeys.includes(key) ? "desc" : "asc" };
     });
   };
@@ -107,7 +116,7 @@ export default function Clientes() {
     const [cliRes, procRes, demRes] = await Promise.all([
       supabase
         .from("clientes")
-        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at, requerido, observacoes, drive_folder_url")
+        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at, requerido, observacoes, drive_folder_url, created_at, cadastrado_por")
         .order("nome", { ascending: true }),
       supabase.from("processos").select("cliente_id, valor_causa"),
       supabase.from("demandas" as any).select("cliente_id, status"),
@@ -147,6 +156,8 @@ export default function Clientes() {
         requerido: c.requerido ?? null,
         observacoes: c.observacoes ?? null,
         drive_folder_url: c.drive_folder_url ?? null,
+        created_at: c.created_at,
+        cadastrado_por: c.cadastrado_por ?? null,
         processos_count: a.count,
         total_ajuizado: a.total,
         em_esteira: esteira.has(c.id),
@@ -171,6 +182,8 @@ export default function Clientes() {
       case "processos_count":  return (a.processos_count - b.processos_count) * mult;
       case "socio_status":     return (SOCIO_ORDER[a.socio_status] - SOCIO_ORDER[b.socio_status]) * mult;
       case "em_esteira":       return ((a.em_esteira ? 1 : 0) - (b.em_esteira ? 1 : 0)) * mult;
+      case "created_at":       return (a.created_at || "").localeCompare(b.created_at || "") * mult;
+      case "cadastrado_por":   return (a.cadastrado_por || "").localeCompare(b.cadastrado_por || "", "pt-BR") * mult;
       default: return 0;
     }
   });
@@ -343,6 +356,8 @@ export default function Clientes() {
                 <SortableHead label="Total ajuizado" icon={DollarSign} sortKey="total_ajuizado" sort={sort} onSort={onSort} className="w-40 text-right" align="right" />
                 <SortableHead label="Processos" icon={FileText} sortKey="processos_count" sort={sort} onSort={onSort} className="w-24 text-center" align="center" />
                 <SortableHead label="Socioeconômico" icon={ClipboardList} sortKey="socio_status" sort={sort} onSort={onSort} className="w-44" />
+                <SortableHead label="Entrada" icon={Calendar} sortKey="created_at" sort={sort} onSort={onSort} className="hidden md:table-cell w-28" />
+                <SortableHead label="Cadastrou" icon={UserPlus} sortKey="cadastrado_por" sort={sort} onSort={onSort} className="hidden xl:table-cell w-36" />
                 <SortableHead label="Esteira" icon={Workflow} sortKey="em_esteira" sort={sort} onSort={onSort} className="w-24 text-center" align="center" />
                 <TableHead className="w-12"></TableHead>
               </TableRow>
@@ -381,6 +396,14 @@ export default function Clientes() {
                   <TableCell>
                     <SocioBadge status={c.socio_status} />
                   </TableCell>
+                  <TableCell className="hidden md:table-cell tabular-nums text-muted-foreground text-[12px]">
+                    {fmtDataCurta(c.created_at)}
+                  </TableCell>
+                  <TableCell className="hidden xl:table-cell text-[12px]">
+                    {c.cadastrado_por
+                      ? <span className="truncate inline-block max-w-[140px]">{c.cadastrado_por}</span>
+                      : <span className="text-muted-foreground/25">—</span>}
+                  </TableCell>
                   <TableCell className="text-center">
                     {c.em_esteira ? (
                       <span
@@ -401,7 +424,7 @@ export default function Clientes() {
                 </TableRow>
               ))}
               {sortedList.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Nenhum cliente encontrado.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -439,6 +462,10 @@ function ClienteResumoDialog({ cliente, onClose, onIrPerfil }: {
           {cliente.telefone && <ResumoRow icon={Phone} label="Telefone" value={cliente.telefone} />}
           {cliente.email && <ResumoRow icon={Mail} label="E-mail" value={cliente.email} />}
           {cliente.requerido && <ResumoRow icon={Building2} label="Requerido" value={cliente.requerido} />}
+          <ResumoRow icon={Calendar} label="Entrada" value={
+            <span className="tabular-nums">{fmtDataCurta(cliente.created_at)}</span>
+          } />
+          {cliente.cadastrado_por && <ResumoRow icon={UserPlus} label="Cadastrou" value={cliente.cadastrado_por} />}
           <ResumoRow icon={DollarSign} label="Total ajuizado" value={
             cliente.total_ajuizado > 0
               ? <MoneyValue value={cliente.total_ajuizado} />
