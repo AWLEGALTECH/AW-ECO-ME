@@ -155,13 +155,17 @@ export default function Esteira() {
   // Query 3: audit log das demandas visiveis — pra mostrar "movido por X
   // ha Y" no card. Pega o evento mais recente onde houve mudanca de etapa
   // (ou a criacao, se nunca foi movida).
+  // IMPORTANTE: retorna Record<string, AuditInfo> (nao Map) pq o
+  // PersistQueryClientProvider salva tudo no localStorage como JSON, e
+  // Map nao serializa — vira {} no rehydrate e quebra .get() ao recarregar.
+  // Mesma armadilha que tive em Publicacoes.
   const auditRes = useQuery({
     queryKey: ["esteira-audit", (demRes.data || []).map(d => d.id).sort().join(",")],
     enabled: !!demRes.data && demRes.data.length > 0,
-    queryFn: async (): Promise<Map<string, AuditInfo>> => {
+    queryFn: async (): Promise<Record<string, AuditInfo>> => {
       const ids = (demRes.data || []).map(d => d.id);
-      const map = new Map<string, AuditInfo>();
-      if (ids.length === 0) return map;
+      const out: Record<string, AuditInfo> = {};
+      if (ids.length === 0) return out;
       const { data } = await supabase
         .from("audit_log" as any)
         .select("resource_id, user_email, created_at, action, diff")
@@ -169,29 +173,37 @@ export default function Esteira() {
         .in("resource_id", ids)
         .order("created_at", { ascending: false })
         .limit(1000);
-      // Itera do mais recente pro mais antigo; pra cada demanda guarda o
-      // primeiro evento "interessante" (mudanca de etapa OU criacao).
       for (const row of (data || []) as any[]) {
         const id = row.resource_id as string;
-        if (map.has(id)) continue;
+        if (out[id]) continue;
         const who = (row.user_email || "—").split("@")[0];
         const etapaDiff = row.diff?.etapa;
         if (row.action === "create") {
-          map.set(id, { who, when: row.created_at, verbo: "criou" });
+          out[id] = { who, when: row.created_at, verbo: "criou" };
         } else if (etapaDiff) {
-          map.set(id, {
+          out[id] = {
             who,
             when: row.created_at,
             verbo: "moveu",
             de: etapaDiff.before,
             para: etapaDiff.after,
-          });
+          };
         }
       }
-      return map;
+      return out;
     },
     refetchInterval: 30_000,
   });
+
+  // Helper defensivo: aceita Record OU Map (legado, pra cache antigo que
+  // ainda nao foi descartado pelo buster).
+  const lookupAudit = (id: string | undefined | null): AuditInfo | undefined => {
+    if (!id) return undefined;
+    const d: any = auditRes.data;
+    if (!d) return undefined;
+    if (typeof d.get === "function") return d.get(id);
+    return d[id];
+  };
 
   const refetchAll = () => { demRes.refetch(); cliRes.refetch(); auditRes.refetch(); };
   const isLoading = demRes.isLoading || cliRes.isLoading;
@@ -352,7 +364,7 @@ export default function Esteira() {
                     hint={g.items.length === 1 ? hint : `${g.items.length} pendências documentais`}
                   >
                     {g.items.map(p => (
-                      <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} audit={auditRes.data?.get(p.id)} />
+                      <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} audit={lookupAudit(p.id)} />
                     ))}
                   </ClienteAccordion>
                 );
@@ -427,7 +439,7 @@ export default function Esteira() {
                         data={d.created_at}
                         acao="Confeccionar peça"
                         acaoIcon={PenSquare}
-                        audit={auditRes.data?.get(d.id)}
+                        audit={lookupAudit(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
@@ -464,7 +476,7 @@ export default function Esteira() {
                         key={d.id}
                         demanda={d}
                         onAvancar={() => avancarArtesanalParaPronta(d)}
-                        audit={auditRes.data?.get(d.id)}
+                        audit={lookupAudit(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
@@ -505,7 +517,7 @@ export default function Esteira() {
                         acao="Abrir espelho"
                         acaoIcon={Send}
                         accent="amber"
-                        audit={auditRes.data?.get(d.id)}
+                        audit={lookupAudit(d.id)}
                       />
                     ))}
                   </ClienteAccordion>
