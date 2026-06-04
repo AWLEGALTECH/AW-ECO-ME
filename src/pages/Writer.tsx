@@ -13,7 +13,18 @@ import { nomeSobrenome } from "@/lib/audit";
 type WriterMessage =
   | {
       type: "aw-eco-me:pecaFinalizada";
-      payload: { demandaId: string; driveUrl: string; comarca?: string | null; uf?: string | null; valor_causa?: number | null };
+      payload: {
+        demandaId: string;
+        driveUrl: string;
+        comarca?: string | null;
+        uf?: string | null;
+        valor_causa?: number | null;
+        // Definida pelo Writer (writer-app/src/cadeia.js) — "Juizado
+        // Especial Cível" ou "Vara Cível Comum". Quando presente, eh
+        // gravada em demandas.competencia e usada pelo Espelho de
+        // Protocolo, evitando recalculo divergente no front-end do ME.
+        competencia?: string | null;
+      };
     }
   | {
       type: "aw-eco-me:cadeiaCompleta";
@@ -40,7 +51,7 @@ export default function Writer() {
       if (!msg || typeof msg !== "object" || !("type" in msg)) return;
 
       if (msg.type === "aw-eco-me:pecaFinalizada") {
-        const { demandaId, driveUrl, comarca, uf, valor_causa } = msg.payload as any;
+        const { demandaId, driveUrl, comarca, uf, valor_causa, competencia } = msg.payload as any;
         const { data: pecaData, error } = await supabase
           .from("demandas" as any)
           .update({
@@ -52,6 +63,7 @@ export default function Writer() {
             comarca: comarca || null,
             uf: uf || null,
             valor_causa: valor_causa ?? null,
+            competencia: competencia || null,
           })
           .eq("id", demandaId)
           .select("analise_pai_id")
