@@ -13,6 +13,7 @@ import {
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
+import { AcaoCard } from "@/components/AcaoCard";
 import { EspelhoProtocoloDialog, type Cliente as ClienteCheia, type Demanda as DemandaCheia } from "@/pages/ClienteDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -614,66 +615,40 @@ export default function Esteira() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 pt-1">
-            <button
+            <AcaoCard
+              icon={User}
+              titulo="Abrir ficha do cliente"
+              hint="Dados, demandas e histórico completo"
+              disabled={!vincAcoes?.cliente?.id}
               onClick={() => {
                 const id = vincAcoes?.cliente?.id;
                 setVincAcoes(null);
                 if (id) navigate(`/clientes/${id}?aba=demandas`);
               }}
+            />
+            <AcaoCard
+              icon={ScanSearch}
+              titulo="Abrir análise no Finder"
+              hint="Continuar triagem documental"
               disabled={!vincAcoes?.cliente?.id}
-              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border border-border bg-card/40 hover:border-primary/60 hover:bg-card/60 transition-all text-left disabled:opacity-50"
-            >
-              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
-                <User className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Abrir ficha do cliente</p>
-                <p className="text-[11px] text-muted-foreground">Dados, demandas e histórico completo</p>
-              </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-
-            <button
               onClick={() => {
                 const cli = vincAcoes?.cliente;
                 setVincAcoes(null);
-                if (cli?.id && cli.nome) {
-                  navigate(`/finder?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
-                }
+                if (cli?.id && cli.nome) navigate(`/finder?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
               }}
+            />
+            <AcaoCard
+              icon={PenSquare}
+              titulo="Confeccionar peça no Writer"
+              hint="Gerar inicial pra essa análise"
+              variant="primary"
               disabled={!vincAcoes?.cliente?.id}
-              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border border-border bg-card/40 hover:border-primary/60 hover:bg-card/60 transition-all text-left disabled:opacity-50"
-            >
-              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
-                <ScanSearch className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Abrir análise no Finder</p>
-                <p className="text-[11px] text-muted-foreground">Continuar triagem documental</p>
-              </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            </button>
-
-            <button
               onClick={() => {
                 const cli = vincAcoes?.cliente;
                 setVincAcoes(null);
-                if (cli?.id && cli.nome) {
-                  navigate(`/writer?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
-                }
+                if (cli?.id && cli.nome) navigate(`/writer?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
               }}
-              disabled={!vincAcoes?.cliente?.id}
-              className="w-full flex items-center gap-3 px-3.5 py-3 rounded-lg border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all text-left disabled:opacity-50"
-            >
-              <div className="h-9 w-9 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
-                <PenSquare className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Confeccionar peça no Writer</p>
-                <p className="text-[11px] text-muted-foreground">Gerar inicial pra essa análise</p>
-              </div>
-              <ArrowRight className="h-4 w-4 text-primary" />
-            </button>
+            />
           </div>
         </DialogContent>
       </Dialog>
@@ -759,6 +734,7 @@ function Vazio() {
     </div>
   );
 }
+
 
 // Mostra "moveu por X · ha Y" baseado no audit_log. Aparece em cada card
 // que tem demanda. Se vier sem audit (ainda carregando ou sem registro),
@@ -927,56 +903,49 @@ function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira;
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Hammer className="h-4 w-4 text-primary" />
-              Concluir peça artesanal
+              <Hammer className="h-5 w-5 text-primary" />
+              {nomeCliente}
             </DialogTitle>
-            <DialogDescription>
-              {nomeCliente} — {demanda.desconto || demanda.titulo}
-            </DialogDescription>
+            <DialogDescription>Peça artesanal — {demanda.desconto || demanda.titulo}</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 pt-1">
-            {/* Atalho pro perfil — primeiro botao */}
+          <div className="space-y-2 pt-1">
             {demanda.cliente && (
-              <a
+              <AcaoCard
+                icon={User}
+                titulo="Abrir ficha do cliente"
+                hint="Dados, demandas e histórico completo"
                 href={`/clientes/${demanda.cliente.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
-              >
-                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                  <User className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold">Abrir perfil do cliente</p>
-                  <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
-                </div>
-                <ExternalLink className="h-4 w-4 text-primary opacity-70" />
-              </a>
+                external
+                acaoIcon={ExternalLink}
+              />
             )}
-            <p className="text-sm text-foreground/80">
-              1. Suba o arquivo da peça na pasta do Drive deste cliente.
-            </p>
-            {demanda.cliente && (
+            {demanda.cliente && drive && (
+              <AcaoCard
+                icon={Building2}
+                titulo="Abrir pasta no Drive"
+                hint="Suba o .docx da peça aqui antes de confirmar"
+                href={drive}
+                external
+                acaoIcon={ExternalLink}
+              />
+            )}
+            {/* Sem URL: ainda usa o botao que cria a pasta */}
+            {demanda.cliente && !drive && (
               <DriveFolderButton
                 clienteId={demanda.cliente.id}
                 clienteNome={nomeCliente}
                 driveFolderUrl={drive}
               />
             )}
-            <p className="text-sm text-foreground/80 pt-1">
-              2. Depois, confirme abaixo. O card vai pra <strong>Peças prontas</strong> e sai da fila artesanal.
-            </p>
+            <AcaoCard
+              icon={Send}
+              titulo="Concluir peça artesanal"
+              hint="Move o card pra Peças prontas"
+              variant="sucesso"
+              onClick={handleConfirm}
+            />
           </div>
-
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              <X className="h-4 w-4 mr-1" /> Voltar
-            </Button>
-            <Button onClick={handleConfirm} className="bg-emerald-600 hover:bg-emerald-500 text-white">
-              <Send className="h-4 w-4 mr-1" /> Confirmar conclusão
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
@@ -1052,77 +1021,79 @@ function PendenciaDetalheDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-400" />
-            Pendência documental
+            {demanda.cliente?.nome || "Cliente"}
           </DialogTitle>
-          <DialogDescription>{demanda.cliente?.nome || "cliente"}</DialogDescription>
+          <DialogDescription>Pendência documental — {tipoLabel}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          {/* Atalho pro perfil — primeiro botao */}
-          {demanda.cliente?.id && (
-            <a
-              href={`/clientes/${demanda.cliente.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
-            >
-              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                <User className="h-5 w-5 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold">Abrir perfil do cliente</p>
-                <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
-              </div>
-              <ExternalLink className="h-4 w-4 text-primary opacity-70" />
-            </a>
-          )}
-
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 space-y-2">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Tipo</p>
-              <p className="text-sm font-medium">{tipoLabel}</p>
+          {/* Box informativa: contexto da pendencia (especifico desse dialog) */}
+          {(mostrarMateria || comarca || obsLimpa) && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-3 py-2.5 space-y-2">
+              {mostrarMateria && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Matéria</p>
+                  <p className="text-[12px] text-foreground/90">{materia}</p>
+                </div>
+              )}
+              {comarca && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Comarca</p>
+                  <p className="text-[12px] text-foreground/90">{comarca}</p>
+                </div>
+              )}
+              {obsLimpa && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Observação</p>
+                  <p className="text-[12px] text-foreground/90 whitespace-pre-line">{obsLimpa}</p>
+                </div>
+              )}
             </div>
-            {mostrarMateria && (
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Matéria</p>
-                <p className="text-[12px] text-foreground/90">{materia}</p>
-              </div>
-            )}
-            {comarca && (
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Comarca</p>
-                <p className="text-[12px] text-foreground/90">{comarca}</p>
-              </div>
-            )}
-            {obsLimpa && (
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 mb-1">Observação</p>
-                <p className="text-[12px] text-foreground/90 whitespace-pre-line">{obsLimpa}</p>
-              </div>
-            )}
-          </div>
+          )}
 
           <div className="text-[11px] text-muted-foreground flex items-center gap-1">
             <Clock className="h-3 w-3" /> Aberta {tempoDecorrido(demanda.created_at)}
           </div>
 
-          {demanda.cliente?.id && (
-            <DriveFolderButton
-              clienteId={demanda.cliente.id}
-              clienteNome={demanda.cliente.nome}
-              driveFolderUrl={driveUrl}
+          {/* Acoes padronizadas */}
+          <div className="space-y-2">
+            {demanda.cliente?.id && (
+              <AcaoCard
+                icon={User}
+                titulo="Abrir ficha do cliente"
+                hint="Dados, demandas e histórico completo"
+                href={`/clientes/${demanda.cliente.id}`}
+                external
+                acaoIcon={ExternalLink}
+              />
+            )}
+            {demanda.cliente?.id && driveUrl && (
+              <AcaoCard
+                icon={Building2}
+                titulo="Abrir pasta no Drive"
+                hint="Subir o documento que tá faltando"
+                href={driveUrl}
+                external
+                acaoIcon={ExternalLink}
+              />
+            )}
+            {/* Sem URL do Drive: usa o componente original que cria a pasta */}
+            {demanda.cliente?.id && !driveUrl && (
+              <DriveFolderButton
+                clienteId={demanda.cliente.id}
+                clienteNome={demanda.cliente.nome}
+                driveFolderUrl={driveUrl}
+              />
+            )}
+            <AcaoCard
+              icon={CheckCircle2}
+              titulo="Marcar como resolvida"
+              hint="Documento já está no Drive, tira da fila"
+              variant="sucesso"
+              onClick={onResolver}
             />
-          )}
+          </div>
         </div>
-
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={onClose}>
-            <X className="h-4 w-4 mr-1" /> Fechar
-          </Button>
-          <Button onClick={onResolver} className="bg-emerald-600 hover:bg-emerald-500 text-white">
-            <CheckCircle2 className="h-4 w-4 mr-1" /> Marcar como resolvida
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

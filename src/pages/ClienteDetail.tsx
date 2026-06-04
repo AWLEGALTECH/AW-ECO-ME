@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
+import { AcaoCard } from "@/components/AcaoCard";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
@@ -1305,64 +1306,38 @@ export function EspelhoProtocoloDialog({
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Send className="h-5 w-5 text-primary" /> {demanda.titulo}
+                <Send className="h-5 w-5 text-primary" />
+                {cliente.nome}
               </DialogTitle>
               <DialogDescription>
-                Peça gerada · {demanda.desconto || "—"} · finalizada em {fmtDateTime(demanda.completed_at)}
+                Peça pronta — {demanda.desconto || demanda.titulo} · finalizada em {fmtDateTime(demanda.completed_at)}
               </DialogDescription>
             </DialogHeader>
-            {/* Sequencia: 1) baixa a peca (passo menor, primeiro), 2) abre o
-                espelho (acao principal, abaixo) — visual ja sugere o fluxo. */}
-            <div className="space-y-3 pt-2">
+            <div className="space-y-2 pt-2">
               {onVerPerfil && (
-                <button
+                <AcaoCard
+                  icon={User}
+                  titulo="Ver perfil do cliente"
+                  hint={`Abre a ficha completa de ${cliente.nome}`}
                   onClick={onVerPerfil}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/15 transition-colors"
-                >
-                  <div className="h-8 w-8 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
-                    <User className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="text-sm font-medium leading-tight">Ver perfil do cliente</div>
-                    <div className="text-[11px] text-muted-foreground">Abre a ficha completa de {cliente.nome}</div>
-                  </div>
-                  <ExternalLink className="h-3.5 w-3.5 text-primary opacity-70 shrink-0" />
-                </button>
+                />
               )}
-              <a
-                href={demanda.peca_drive_url || "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg border transition-all ${demanda.peca_drive_url ? "border-border hover:border-primary/60 bg-card/40 hover:bg-card/60" : "border-border/30 bg-muted/10 cursor-not-allowed opacity-50"}`}
-                onClick={(e) => { if (!demanda.peca_drive_url) e.preventDefault(); }}
-              >
-                <div className="h-8 w-8 shrink-0 rounded-full bg-primary/15 flex items-center justify-center">
-                  <Download className="h-3.5 w-3.5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium leading-tight">1. Baixar peça</div>
-                  <div className="text-[11px] text-muted-foreground">.docx no Drive</div>
-                </div>
-                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              </a>
-
-              {/* Linha-divisora com seta sugere passagem pro proximo passo */}
-              <div className="flex items-center gap-2 px-2 py-0.5">
-                <div className="h-px flex-1 bg-border" />
-                <ArrowRight className="h-3 w-3 text-muted-foreground rotate-90" />
-                <div className="h-px flex-1 bg-border" />
-              </div>
-
-              <button
+              <AcaoCard
+                icon={Download}
+                titulo="Baixar peça (.docx)"
+                hint={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
+                href={demanda.peca_drive_url || undefined}
+                external
+                acaoIcon={ExternalLink}
+                disabled={!demanda.peca_drive_url}
+              />
+              <AcaoCard
+                icon={Scale}
+                titulo="Espelho de Protocolo"
+                hint="Copia-cola assistido pelo tribunal"
+                variant="primary"
                 onClick={() => setStage("tribunal")}
-                className="w-full flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all"
-              >
-                <div className="h-12 w-12 rounded-full bg-primary/20 ring-1 ring-primary/30 flex items-center justify-center">
-                  <Scale className="h-6 w-6 text-primary" />
-                </div>
-                <span className="text-base font-semibold">2. Espelho de Protocolo</span>
-                <span className="text-[11px] text-muted-foreground text-center">copia-cola assistido pelo tribunal</span>
-              </button>
+              />
             </div>
           </>
         )}
