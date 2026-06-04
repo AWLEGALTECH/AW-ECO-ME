@@ -907,8 +907,21 @@ function CardArtesanal({ demanda, onAvancar, audit }: { demanda: DemandaEsteira;
               <Hammer className="h-5 w-5 text-primary" />
               {nomeCliente}
             </DialogTitle>
-            <DialogDescription>Peça artesanal — {demanda.desconto || demanda.titulo}</DialogDescription>
+            <DialogDescription>Peça artesanal</DialogDescription>
           </DialogHeader>
+
+          {/* Especificacao da peca (digitada por quem iniciou o fluxo).
+              Aparece como um aviso pro advogado saber o que produzir. */}
+          {demanda.descricao && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.15em] text-primary/80 font-semibold mb-1">
+                Especificação da peça
+              </p>
+              <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
+                {demanda.descricao}
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2 pt-1">
             {demanda.cliente && (

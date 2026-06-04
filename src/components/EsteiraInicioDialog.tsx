@@ -6,8 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -36,7 +37,7 @@ interface Props {
   titulo?: string;
 }
 
-type Stage = "actions" | "pendencia" | "pos_pendencia";
+type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_qtd" | "artesanal_specs";
 
 export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo }: Props) {
   const navigate = useNavigate();
@@ -44,8 +45,17 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   const [tipos, setTipos] = useState<Set<TipoPendencia>>(new Set());
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);
+  // Fluxo artesanal: quantidade de pecas + descricao de cada uma
+  const [artesanalQtd, setArtesanalQtd] = useState<number>(1);
+  const [artesanalSpecs, setArtesanalSpecs] = useState<string[]>([""]);
 
-  const reset = () => { setStage("actions"); setTipos(new Set()); setCustom(""); };
+  const reset = () => {
+    setStage("actions");
+    setTipos(new Set());
+    setCustom("");
+    setArtesanalQtd(1);
+    setArtesanalSpecs([""]);
+  };
 
   const toggleTipo = (key: TipoPendencia) => {
     setTipos(prev => {
@@ -68,21 +78,63 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     }
   };
 
-  const seguirArtesanal = async () => {
-    if (!cliente) return;
-    setSaving(true);
-    const { error } = await supabase.from("demandas" as any).insert({
-      cliente_id: cliente.id,
-      tipo: "pre_protocolo",
-      etapa: "fluxo_artesanal",
-      status: "pendente",
-      titulo: `Peça artesanal — ${cliente.nome}`,
-      descricao: "Caso não-Bradesco. Peça será confeccionada manualmente.",
-      created_by: userId,
+  // Entra no fluxo de configuracao artesanal: primeiro escolhe quantas
+  // pecas, depois descreve cada uma. So cria as demandas no final.
+  const iniciarArtesanal = () => {
+    setArtesanalQtd(1);
+    setArtesanalSpecs([""]);
+    setStage("artesanal_qtd");
+  };
+
+  const confirmarQtd = () => {
+    const n = Math.max(1, Math.min(20, Math.floor(artesanalQtd || 1)));
+    setArtesanalQtd(n);
+    // Mantem o que ja foi digitado se a qtd diminui, completa com "" se aumenta
+    setArtesanalSpecs(prev => {
+      const next = [...prev];
+      while (next.length < n) next.push("");
+      next.length = n;
+      return next;
     });
+    setStage("artesanal_specs");
+  };
+
+  const setSpec = (idx: number, valor: string) => {
+    setArtesanalSpecs(prev => {
+      const next = [...prev];
+      next[idx] = valor;
+      return next;
+    });
+  };
+
+  const criarPecasArtesanais = async () => {
+    if (!cliente) return;
+    const especs = artesanalSpecs.map(s => s.trim());
+    if (especs.some(s => !s)) {
+      toast.error("Descreva cada peça antes de continuar.");
+      return;
+    }
+    setSaving(true);
+    const total = especs.length;
+    const rows = especs.map((spec, i) => {
+      const sufixo = total > 1 ? ` (${i + 1}/${total})` : "";
+      const tituloCurto = spec.length > 50 ? spec.slice(0, 50) + "…" : spec;
+      return {
+        cliente_id: cliente.id,
+        tipo: "pre_protocolo",
+        etapa: "fluxo_artesanal",
+        status: "pendente",
+        // titulo eh o que aparece como hint no card da esteira
+        titulo: `Peça artesanal${sufixo} — ${tituloCurto}`,
+        // descricao guarda a especificacao COMPLETA, exibida no popup
+        descricao: spec,
+        created_by: userId,
+      };
+    });
+    const { error } = await supabase.from("demandas" as any).insert(rows);
     setSaving(false);
     if (error) { toast.error(error.message); return; }
-    toast.success("Cliente enviado pro fluxo artesanal");
+    toast.success(total === 1 ? "Peça artesanal criada" : `${total} peças artesanais criadas`);
     onCreated();
     handleClose();
   };
@@ -124,8 +176,13 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
       <DialogContent className="max-w-lg overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {stage === "pendencia" && (
+            {(stage === "pendencia" || stage === "artesanal_qtd") && (
               <button onClick={() => setStage("actions")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+            {stage === "artesanal_specs" && (
+              <button onClick={() => setStage("artesanal_qtd")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -135,6 +192,8 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             {stage === "actions" && "1. Analise a pasta do Drive. Depois escolha o próximo passo."}
             {stage === "pendencia" && "Selecione tudo que está faltando nesse cliente."}
             {stage === "pos_pendencia" && "Apesar da pendência registrada, este cliente segue ou não?"}
+            {stage === "artesanal_qtd" && "Quantas peças serão confeccionadas pra esse cliente?"}
+            {stage === "artesanal_specs" && "Descreva cada peça pra que o advogado saiba o que produzir."}
           </DialogDescription>
         </DialogHeader>
 
@@ -200,7 +259,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
                 <Button
                   variant="outline"
-                  onClick={seguirArtesanal}
+                  onClick={iniciarArtesanal}
                   disabled={saving}
                   className="justify-start gap-2 h-auto py-3"
                 >
@@ -281,6 +340,65 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             </>
           )}
 
+          {stage === "artesanal_qtd" && (
+            <>
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-foreground">
+                  Quantidade de peças
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={artesanalQtd}
+                  onChange={(e) => setArtesanalQtd(Number(e.target.value) || 1)}
+                  className="h-12 text-lg font-semibold text-center"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Cada peça vira um card separado na coluna "Fluxo artesanal".
+                  Mínimo 1, máximo 20.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setStage("actions")} disabled={saving}>Voltar</Button>
+                <Button onClick={confirmarQtd} disabled={saving || artesanalQtd < 1}>
+                  Próximo: especificar peças
+                </Button>
+              </div>
+            </>
+          )}
+
+          {stage === "artesanal_specs" && (
+            <>
+              <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+                {artesanalSpecs.map((spec, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground flex items-center gap-2">
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold">
+                        {i + 1}
+                      </span>
+                      Peça {i + 1} de {artesanalQtd}
+                    </label>
+                    <Textarea
+                      value={spec}
+                      onChange={(e) => setSpec(i, e.target.value)}
+                      placeholder="Ex.: Ação revisional contra Banco Pan — empréstimo consignado com taxa de 5,2% a.m., questionar abusividade."
+                      className="resize-none min-h-[80px]"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setStage("artesanal_qtd")} disabled={saving}>Voltar</Button>
+                <Button onClick={criarPecasArtesanais} disabled={saving}>
+                  {saving ? "Criando…" : <><Check className="h-4 w-4 mr-1" /> Enviar pro fluxo</>}
+                </Button>
+              </div>
+            </>
+          )}
+
           {stage === "pos_pendencia" && (
             <div className="grid grid-cols-1 gap-2">
               <Button
@@ -297,7 +415,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
               <Button
                 variant="outline"
-                onClick={seguirArtesanal}
+                onClick={iniciarArtesanal}
                 disabled={saving}
                 className="justify-start gap-2 h-auto py-3"
               >
