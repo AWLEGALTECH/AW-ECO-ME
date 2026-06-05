@@ -27,7 +27,7 @@ const ESTAGIOS_ORDEM: Estagio[] = [
 
 const ESTAGIO_META: Record<Estagio, { label: string; cor: "primary" | "amber" | "emerald" | "red"; hint: string; acaoLabel: string }> = {
   aguardando_contato: { label: "Aguardando contato",  cor: "amber",   hint: "Leads frios — primeiro contato ainda nao feito.",        acaoLabel: "Iniciar cadencia" },
-  em_cadencia:        { label: "Em cadência",         cor: "primary", hint: "Mensagens (Insta/Zap/Call) enviadas, aguardando resposta.", acaoLabel: "Marcar como respondido" },
+  em_cadencia:        { label: "Cadência iniciada",   cor: "primary", hint: "Mensagens (Insta/Zap/Call) enviadas, aguardando resposta.", acaoLabel: "Marcar como respondido" },
   respondeu:          { label: "Respondeu",           cor: "primary", hint: "Lead engajou — agendar reunião de diagnóstico.",          acaoLabel: "Agendar diagnóstico" },
   diagnostico:        { label: "Diagnóstico",         cor: "primary", hint: "Reunião de diagnóstico marcada/realizada.",                acaoLabel: "Enviar proposta" },
   proposta:           { label: "Proposta",            cor: "primary", hint: "Proposta entregue, aguardando decisão.",                  acaoLabel: "Marcar ganho" },
@@ -55,6 +55,8 @@ interface Prospect {
   observacoes: string | null;
   entrou_na_etapa_at: string;
   follow_up_at: string | null;
+  responsavel_id: string | null;
+  responsavel_email: string | null;
   created_at: string;
 }
 
@@ -356,6 +358,12 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
           <span className="opacity-60">de</span> {prospect.lista_origem}
         </div>
       )}
+      {prospect.responsavel_email && (
+        <div className="inline-flex items-center gap-1 text-[10px] text-primary/90 mb-1">
+          <User className="h-2.5 w-2.5" />
+          {prospect.responsavel_email.split("@")[0]}
+        </div>
+      )}
       {prospect.estagio === "follow_up" && prospect.follow_up_at && (
         <div className="text-[10px] inline-flex items-center gap-1 text-amber-400 mb-1">
           <Clock className="h-2.5 w-2.5" />
@@ -622,8 +630,20 @@ function ProspectDetalheDialog({
   const mover = async (para: Estagio) => {
     if (!prospect) return;
     const de = prospect.estagio;
+    // Quando o lead sai da inercia ("aguardando_contato" -> "em_cadencia")
+    // e ainda nao tem responsavel, carimba quem fez a acao.
+    const carimbarResponsavel =
+      de === "aguardando_contato" && para === "em_cadencia" && !prospect.responsavel_id && userId;
+    const patch: Record<string, unknown> = {
+      estagio: para,
+      ultimo_contato_at: new Date().toISOString(),
+    };
+    if (carimbarResponsavel) {
+      patch.responsavel_id = userId;
+      patch.responsavel_email = userEmail;
+    }
     const { error } = await supabase.from("prospects" as any)
-      .update({ estagio: para, ultimo_contato_at: new Date().toISOString() })
+      .update(patch)
       .eq("id", prospect.id);
     if (error) { toast.error(error.message); return; }
     await logEvento("movido", { de_estagio: de, para_estagio: para });
@@ -631,6 +651,18 @@ function ProspectDetalheDialog({
     eventosQ.refetch();
     onChanged();
     onClose();
+  };
+
+  // Marca um item do checklist de cadencia. Publica no chat como evento
+  // de contato — todo mundo ve quem registrou e quando.
+  const marcarContatoCadencia = async (canal: "wa" | "insta" | "tel") => {
+    if (!prospect) return;
+    const rotulo =
+      canal === "wa" ? "Mensagem enviada via WhatsApp" :
+      canal === "insta" ? "Mensagem enviada via Instagram" :
+                          "Ligação realizada";
+    await logEvento("contato", { texto: `cadencia.${canal}|${rotulo}` });
+    eventosQ.refetch();
   };
 
   const agendarFollowUp = async () => {
@@ -690,6 +722,19 @@ function ProspectDetalheDialog({
     return ESTAGIOS_ORDEM[idx - 1];
   })();
 
+  // Quais canais ja foram registrados na cadencia (deriva dos eventos
+  // do tipo 'contato' com prefixo "cadencia.X|").
+  const cadenciaFeita = (() => {
+    const out = { wa: false, insta: false, tel: false };
+    for (const ev of eventosQ.data || []) {
+      if (ev.tipo !== "contato" || !ev.texto) continue;
+      if (ev.texto.startsWith("cadencia.wa|")) out.wa = true;
+      else if (ev.texto.startsWith("cadencia.insta|")) out.insta = true;
+      else if (ev.texto.startsWith("cadencia.tel|")) out.tel = true;
+    }
+    return out;
+  })();
+
   const waDigits = prospect.whatsapp ? prospect.whatsapp.replace(/\D/g, "") : "";
   const waLink = prospect.whatsapp
     ? (prospect.whatsapp.startsWith("http") ? prospect.whatsapp : `https://wa.me/${waDigits}`)
@@ -720,37 +765,49 @@ function ProspectDetalheDialog({
             {prospect.lista_origem && (
               <span className="text-[11px] text-muted-foreground">· {prospect.lista_origem}</span>
             )}
+            {prospect.responsavel_email && (
+              <span className="text-[11px] inline-flex items-center gap-1 text-primary">
+                <User className="h-3 w-3" /> {prospect.responsavel_email.split("@")[0]}
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        {/* CONTATOS — destaque visual com botões grandes coloridos */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {waLink && (
-            <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
-              cor="emerald" sub={prospect.telefone || waDigits} />
-          )}
-          {telLink && !waLink && (
-            <ContatoBtn href={telLink} icon={Phone} label="Ligar"
-              cor="primary" sub={prospect.telefone || ""} />
-          )}
-          {prospect.google_maps_url && (
-            <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
-              cor="primary" sub="Abrir local" />
-          )}
-          {igLink && (
-            <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
-              cor="pink" sub={`@${prospect.instagram}`} />
-          )}
-          {prospect.email && (
-            <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
-              cor="primary" sub={prospect.email} />
-          )}
-          {prospect.site && (
-            <ContatoBtn href={prospect.site} icon={Globe} label="Site"
-              cor="primary"
-              sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
-          )}
-        </div>
+        {/* CANAIS PROTAGONISTAS — WhatsApp + Instagram (maiores, coloridos) */}
+        {(waLink || igLink) && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pb-2">
+            {waLink && (
+              <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
+                cor="emerald" big sub={prospect.telefone || waDigits} />
+            )}
+            {igLink && (
+              <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
+                cor="pink" big sub={`@${prospect.instagram}`} />
+            )}
+          </div>
+        )}
+        {/* Canais secundarios — cinza, menores */}
+        {(telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {telLink && !waLink && (
+              <ContatoBtn href={telLink} icon={Phone} label="Ligar"
+                cor="muted" sub={prospect.telefone || ""} />
+            )}
+            {prospect.google_maps_url && (
+              <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
+                cor="muted" sub="Abrir local" />
+            )}
+            {prospect.email && (
+              <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
+                cor="muted" sub={prospect.email} />
+            )}
+            {prospect.site && (
+              <ContatoBtn href={prospect.site} icon={Globe} label="Site"
+                cor="muted"
+                sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
+            )}
+          </div>
+        ) : null}
 
         {/* Metainfo compacta (avaliacao, endereco, horario) */}
         {(prospect.avaliacao != null || prospect.endereco || prospect.horario_funcionamento) && (
@@ -773,53 +830,84 @@ function ProspectDetalheDialog({
           </div>
         )}
 
-        {/* AÇÕES DE FUNIL — sutis (linha de botões pequenos) */}
+        {/* CHECKLIST DE CADENCIA — só aparece em em_cadencia. Cada clique
+            publica no chat como evento de contato (todos veem). */}
+        {prospect.estagio === "em_cadencia" && (
+          <div className="rounded-lg border border-primary/25 bg-primary/5 p-2.5 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" /> Registrar contato realizado
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <ChecklistContatoBtn
+                icon={MessageCircle} label="WhatsApp" cor="emerald"
+                feito={cadenciaFeita.wa} disabled={!waLink}
+                onClick={() => marcarContatoCadencia("wa")}
+              />
+              <ChecklistContatoBtn
+                icon={Instagram} label="Instagram" cor="pink"
+                feito={cadenciaFeita.insta} disabled={!igLink}
+                onClick={() => marcarContatoCadencia("insta")}
+              />
+              <ChecklistContatoBtn
+                icon={Phone} label="Telefone" cor="primary"
+                feito={cadenciaFeita.tel} disabled={!telLink && !waLink}
+                onClick={() => marcarContatoCadencia("tel")}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* AÇÕES DE FUNIL — Voltar discreto no topo + Avançar/Follow/Arquivar
+            do mesmo tamanho, distribuídos em 3 colunas iguais. */}
         {prospect.estagio !== "ganho" && prospect.estagio !== "perdido" && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="space-y-2">
             {estagioAnterior && (
               <button
                 onClick={() => mover(estagioAnterior)}
-                className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-border bg-card/40 hover:bg-card/80 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex items-center gap-1 px-2 h-7 rounded-md text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 title={`Voltar pra ${ESTAGIO_META[estagioAnterior].label}`}
               >
                 <ArrowLeft className="h-3 w-3" />
                 Voltar
               </button>
             )}
-            {proximoEstagio && (
+            <div className="grid grid-cols-3 gap-2">
+              {proximoEstagio ? (
+                <button
+                  onClick={() => mover(proximoEstagio)}
+                  className="inline-flex items-center justify-center gap-1.5 px-2 h-9 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors"
+                >
+                  <ArrowRight className="h-3.5 w-3.5" />
+                  Avançar etapa
+                </button>
+              ) : (
+                <div />
+              )}
               <button
-                onClick={() => mover(proximoEstagio)}
-                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors"
+                onClick={() => {
+                  if (prospect.estagio === "follow_up" && prospect.follow_up_at) {
+                    const d = new Date(prospect.follow_up_at);
+                    setFollowUpData(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+                    setFollowUpHora(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+                  } else {
+                    setFollowUpData(minDate);
+                    setFollowUpHora("09:00");
+                  }
+                  setFollowUpOpen(true);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 px-2 h-9 rounded-md border border-border bg-card/40 hover:bg-muted/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Avançar etapa → {ESTAGIO_META[proximoEstagio].label}
-                <ArrowRight className="h-3 w-3" />
+                <Clock className="h-3.5 w-3.5" />
+                {prospect.estagio === "follow_up" ? "Reagendar" : "Follow-up"}
               </button>
-            )}
-            <div className="flex-1" />
-            <button
-              onClick={() => {
-                if (prospect.estagio === "follow_up" && prospect.follow_up_at) {
-                  const d = new Date(prospect.follow_up_at);
-                  setFollowUpData(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-                  setFollowUpHora(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
-                } else {
-                  setFollowUpData(minDate);
-                  setFollowUpHora("09:00");
-                }
-                setFollowUpOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 text-xs text-amber-400 transition-colors"
-            >
-              <Clock className="h-3 w-3" />
-              {prospect.estagio === "follow_up" ? "Reagendar follow-up" : "Follow-up"}
-            </button>
-            <button
-              onClick={arquivar}
-              className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-md border border-border bg-card/40 hover:bg-muted/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Ban className="h-3 w-3" />
-              Arquivar
-            </button>
+              <button
+                onClick={arquivar}
+                className="inline-flex items-center justify-center gap-1.5 px-2 h-9 rounded-md border border-border bg-card/40 hover:bg-muted/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                Arquivar
+              </button>
+            </div>
           </div>
         )}
 
@@ -888,33 +976,74 @@ function ProspectDetalheDialog({
 }
 
 // Botão de contato grande com ícone + label + sub. Usado no topo do
-// ProspectDetalheDialog pra dar destaque visual aos canais.
+// ProspectDetalheDialog. `big` é pros canais protagonistas (WA/Insta);
+// cor="muted" pros secundarios (cinza).
 function ContatoBtn({
-  href, icon: Icon, label, sub, cor,
+  href, icon: Icon, label, sub, cor, big,
 }: {
   href: string;
   icon: any;
   label: string;
   sub: string;
-  cor: "emerald" | "primary" | "pink";
+  cor: "emerald" | "primary" | "pink" | "muted";
+  big?: boolean;
 }) {
   const cls =
     cor === "emerald" ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400" :
     cor === "pink"    ? "border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-pink-400" :
+    cor === "muted"   ? "border-border bg-card/40 hover:bg-muted/40 text-muted-foreground" :
                         "border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary";
+  const sizing = big ? "p-3.5 gap-1.5" : "p-2.5 gap-1";
+  const iconSize = big ? "h-4 w-4" : "h-3.5 w-3.5";
+  const labelSize = big ? "text-sm" : "text-[11px]";
+  const subSize = big ? "text-[11px]" : "text-[10px]";
   return (
     <a
       href={href}
       target={href.startsWith("http") ? "_blank" : undefined}
       rel={href.startsWith("http") ? "noreferrer" : undefined}
-      className={`flex flex-col items-start gap-1 p-2.5 rounded-lg border transition-colors min-w-0 ${cls}`}
+      className={`flex flex-col items-start rounded-lg border transition-colors min-w-0 ${sizing} ${cls}`}
     >
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold">
-        <Icon className="h-3.5 w-3.5" />
+      <div className={`flex items-center gap-1.5 font-semibold ${labelSize}`}>
+        <Icon className={iconSize} />
         {label}
       </div>
-      <span className="text-[10px] opacity-80 truncate w-full">{sub}</span>
+      <span className={`opacity-80 truncate w-full ${subSize}`}>{sub}</span>
     </a>
+  );
+}
+
+// Item do checklist de cadência: clicado, registra contato e fica
+// marcado. Quando `disabled`, indica que aquele canal nao existe no lead.
+function ChecklistContatoBtn({
+  icon: Icon, label, cor, feito, disabled, onClick,
+}: {
+  icon: any;
+  label: string;
+  cor: "emerald" | "pink" | "primary";
+  feito: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const corCls =
+    cor === "emerald" ? "border-emerald-500/40 text-emerald-400" :
+    cor === "pink"    ? "border-pink-500/40 text-pink-400" :
+                        "border-primary/40 text-primary";
+  const feitoCls = feito
+    ? cor === "emerald" ? "bg-emerald-500/20" :
+      cor === "pink"    ? "bg-pink-500/20" :
+                          "bg-primary/20"
+    : "bg-card/40 hover:bg-card/60";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || feito}
+      className={`flex items-center justify-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${corCls} ${feitoCls}`}
+      title={feito ? "Já registrado" : disabled ? "Sem dado pra esse canal" : `Marcar ${label} como contatado`}
+    >
+      {feito ? <span className="font-bold">✓</span> : <Icon className="h-3.5 w-3.5" />}
+      {label}
+    </button>
   );
 }
 
@@ -990,7 +1119,10 @@ function LinhaSistema({ ev }: { ev: Evento }) {
   } else if (ev.tipo === "status") {
     conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "atualizou status"}</>;
   } else if (ev.tipo === "contato") {
-    conteudo = <><strong className="text-foreground/70">{who}</strong> registrou contato: {ev.texto}</>;
+    // Eventos de cadencia vem como "cadencia.wa|Mensagem enviada..."
+    // — strip do prefixo na exibicao.
+    const texto = (ev.texto || "").replace(/^cadencia\.(wa|insta|tel)\|/, "");
+    conteudo = <><strong className="text-foreground/70">{who}</strong> ✓ {texto || "registrou contato"}</>;
   }
   return (
     <div className="flex items-center gap-2 py-0.5 text-[10px] text-muted-foreground">
