@@ -13,8 +13,16 @@ export function nomeCurto(full: string | null | undefined): string {
   return `${partes[0]} ${partes[partes.length - 1]}`;
 }
 
+export interface ProfileLite {
+  id: string;
+  nome: string | null;
+  email: string | null;
+  display: string;
+}
+
 export interface UserDisplayMap {
   display: (input: { email?: string | null; id?: string | null }) => string;
+  profiles: ProfileLite[];
   isLoading: boolean;
 }
 
@@ -33,11 +41,14 @@ export function useUserDisplayNames(): UserDisplayMap {
 
   const byEmail = new Map<string, string>();
   const byId = new Map<string, string>();
+  const profiles: ProfileLite[] = [];
   for (const p of (q.data || []) as Array<{ id: string; nome: string | null; email: string | null }>) {
     const short = nomeCurto(p.nome) || (p.email ? p.email.split("@")[0] : "—");
     if (p.email) byEmail.set(p.email.toLowerCase(), short);
     if (p.id) byId.set(p.id, short);
+    profiles.push({ id: p.id, nome: p.nome, email: p.email, display: short });
   }
+  profiles.sort((a, b) => a.display.localeCompare(b.display));
 
   const display: UserDisplayMap["display"] = ({ email, id }) => {
     if (id && byId.has(id)) return byId.get(id)!;
@@ -49,5 +60,5 @@ export function useUserDisplayNames(): UserDisplayMap {
     return "Sistema";
   };
 
-  return { display, isLoading: q.isLoading };
+  return { display, profiles, isLoading: q.isLoading };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,11 +10,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
-  Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User,
+  Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
@@ -91,6 +93,9 @@ export default function Prospeccao() {
   const [inserirOpen, setInserirOpen] = useState(false);
   const [detalheOpen, setDetalheOpen] = useState<Prospect | null>(null);
   const [busca, setBusca] = useState("");
+  // Filtro multi-select por responsavel. Set de user_ids. Set vazio = sem filtro.
+  // Regra: 'aguardando_contato' SEMPRE aparece full (fila de entrada compartilhada).
+  const [filtroResp, setFiltroResp] = useState<Set<string>>(new Set());
 
   const q = useQuery({
     queryKey: ["prospeccao-prospects"],
@@ -106,11 +111,50 @@ export default function Prospeccao() {
     refetchInterval: 30_000,
   });
 
+  // Movimentacao por arrastar (drag-and-drop). Mesma logica do mover()
+  // do popup, mas sem fechar dialog. Carimba responsavel quando lead
+  // sai de 'aguardando_contato' pra 'em_cadencia' a primeira vez.
+  const moverPorDrag = async (prospectId: string, paraEstagio: Estagio) => {
+    const p = (q.data || []).find(x => x.id === prospectId);
+    if (!p) return;
+    if (p.estagio === paraEstagio) return;
+    const carimbar =
+      p.estagio === "aguardando_contato" && paraEstagio === "em_cadencia" && !p.responsavel_id && user?.id;
+    const patch: Record<string, unknown> = {
+      estagio: paraEstagio,
+      ultimo_contato_at: new Date().toISOString(),
+    };
+    if (carimbar) {
+      patch.responsavel_id = user!.id;
+      patch.responsavel_email = user!.email || null;
+    }
+    const { error } = await supabase.from("prospects" as any).update(patch).eq("id", prospectId);
+    if (error) { toast.error(error.message); return; }
+    await supabase.from("prospect_eventos" as any).insert({
+      prospect_id: prospectId,
+      tipo: "movido",
+      de_estagio: p.estagio,
+      para_estagio: paraEstagio,
+      user_id: user?.id || null,
+      user_email: user?.email || null,
+    });
+    toast.success(`Movido para "${ESTAGIO_META[paraEstagio].label}".`);
+    q.refetch();
+  };
+
   const normalizar = (s: string | null | undefined) =>
     (s || "").toString().normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
   const filtrados = useMemo(() => {
-    const lista = q.data || [];
+    let lista = q.data || [];
+    // Filtro por responsavel: 'aguardando_contato' sempre passa (fila comum);
+    // pras demais colunas, so passa se o responsavel esta na selecao.
+    if (filtroResp.size > 0) {
+      lista = lista.filter(p =>
+        p.estagio === "aguardando_contato" ||
+        (p.responsavel_id && filtroResp.has(p.responsavel_id))
+      );
+    }
     const t = normalizar(busca).trim();
     if (!t) return lista;
     return lista.filter(p =>
@@ -120,7 +164,7 @@ export default function Prospeccao() {
       normalizar(p.lista_origem).includes(t) ||
       normalizar(p.cidade).includes(t)
     );
-  }, [q.data, busca]);
+  }, [q.data, busca, filtroResp]);
 
   const total = filtrados.length;
   const totalSemFiltro = (q.data || []).length;
@@ -185,22 +229,29 @@ export default function Prospeccao() {
         </TabsList>
 
         <TabsContent value="pipeline" className="space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome, telefone, instagram, lista ou cidade..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              className="pl-9 h-10"
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome, telefone, instagram, lista ou cidade..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="pl-9 h-10"
+              />
+              {busca && (
+                <button
+                  onClick={() => setBusca("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <FiltroResponsavelBtn
+              filtroResp={filtroResp}
+              setFiltroResp={setFiltroResp}
+              userId={user?.id || null}
             />
-            {busca && (
-              <button
-                onClick={() => setBusca("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
 
           {q.isLoading ? (
@@ -215,6 +266,7 @@ export default function Prospeccao() {
                     estagio={e}
                     prospects={porEstagio[e]}
                     onCardClick={setDetalheOpen}
+                    onDropCard={moverPorDrag}
                   />
                 ))}
               </div>
@@ -222,7 +274,7 @@ export default function Prospeccao() {
               {/* Follow-up: coluna propria pra leads aguardando retorno em data agendada */}
               {porEstagio.follow_up.length > 0 && (
                 <div className="pt-2 border-t border-border/40">
-                  <ColunaEstagio estagio="follow_up" prospects={porEstagio.follow_up} onCardClick={setDetalheOpen} />
+                  <ColunaEstagio estagio="follow_up" prospects={porEstagio.follow_up} onCardClick={setDetalheOpen} onDropCard={moverPorDrag} />
                 </div>
               )}
 
@@ -265,14 +317,16 @@ export default function Prospeccao() {
 }
 
 function ColunaEstagio({
-  estagio, prospects, onCardClick, terminal = false,
+  estagio, prospects, onCardClick, terminal = false, onDropCard,
 }: {
   estagio: Estagio;
   prospects: Prospect[];
   onCardClick: (p: Prospect) => void;
   terminal?: boolean;
+  onDropCard?: (prospectId: string, paraEstagio: Estagio) => void;
 }) {
   const meta = ESTAGIO_META[estagio];
+  const [dragOver, setDragOver] = useState(false);
   const corBadge =
     meta.cor === "amber"   ? "text-amber-400 bg-amber-400/10 border-amber-400/30" :
     meta.cor === "emerald" ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/30" :
@@ -283,8 +337,21 @@ function ColunaEstagio({
     meta.cor === "red"     ? Ban    :
     meta.cor === "amber"   ? TrendingUp :
                              ArrowRight;
+
+  // Drop zone: aceita prospect-id e chama onDropCard.
+  const drop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const id = e.dataTransfer.getData("prospect-id");
+    if (id && onDropCard) onDropCard(id, estagio);
+  };
   return (
-    <div className="space-y-2 min-w-0">
+    <div
+      className={`space-y-2 min-w-0 rounded-lg transition-colors ${dragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
+      onDragOver={(e) => { if (onDropCard) { e.preventDefault(); setDragOver(true); } }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={drop}
+    >
       <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -298,7 +365,7 @@ function ColunaEstagio({
       <div className="space-y-2">
         {prospects.length === 0 ? (
           <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
-            Vazio.
+            {dragOver ? "Solte aqui pra mover" : "Vazio."}
           </div>
         ) : (
           prospects.map(p => (
@@ -316,12 +383,26 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
   // Aging visual: mais velho na etapa = badge ambar (sinaliza follow-up).
   // Acima de 7d em qualquer etapa ativa fica amarelo.
   const stale = !terminal && dias >= 7;
+  const dragArm = useRef(false);
   return (
     <button
-      onClick={onClick}
-      className={`w-full text-left rounded-lg border p-3 transition-colors group ${
+      onClick={(e) => {
+        // Se o card acabou de ser arrastado, ignora o click "fantasma"
+        // que o browser dispara depois do dragend.
+        if (dragArm.current) { dragArm.current = false; e.preventDefault(); return; }
+        onClick();
+      }}
+      draggable={!terminal}
+      onDragStart={(e) => {
+        if (terminal) return;
+        e.dataTransfer.setData("prospect-id", prospect.id);
+        e.dataTransfer.effectAllowed = "move";
+        dragArm.current = true;
+      }}
+      onDragEnd={() => { setTimeout(() => { dragArm.current = false; }, 100); }}
+      className={`w-full text-left rounded-lg border p-3 transition-colors group cursor-grab active:cursor-grabbing ${
         terminal
-          ? "border-border/40 bg-card/20 hover:bg-card/40"
+          ? "border-border/40 bg-card/20 hover:bg-card/40 cursor-pointer"
           : stale
             ? "border-amber-400/40 bg-amber-400/5 hover:border-amber-400/70 hover:bg-amber-400/10"
             : "border-border bg-card/40 hover:border-primary/40 hover:bg-card/60"
@@ -981,6 +1062,74 @@ function ProspectDetalheDialog({
 // Botão de contato grande com ícone + label + sub. Usado no topo do
 // ProspectDetalheDialog. `big` é pros canais protagonistas (WA/Insta);
 // cor="muted" pros secundarios (cinza).
+// Botao + popover multi-select que filtra o kanban por responsavel.
+// 'aguardando_contato' sempre escapa do filtro (fila comum) — isso é
+// aplicado no filtrados() do Prospeccao(); aqui só controla a selecao.
+function FiltroResponsavelBtn({
+  filtroResp, setFiltroResp, userId,
+}: {
+  filtroResp: Set<string>;
+  setFiltroResp: (s: Set<string>) => void;
+  userId: string | null;
+}) {
+  const { profiles, isLoading } = useUserDisplayNames();
+  const ativos = filtroResp.size;
+  const toggle = (id: string) => {
+    const next = new Set(filtroResp);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setFiltroResp(next);
+  };
+  const limpar = () => setFiltroResp(new Set());
+  const soMeu = () => userId && setFiltroResp(new Set([userId]));
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant={ativos > 0 ? "default" : "outline"} size="default" className="h-10 gap-1.5 shrink-0">
+          <Filter className="h-4 w-4" />
+          {ativos === 0 ? "Filtrar" : `${ativos} responsável${ativos === 1 ? "" : "is"}`}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-0">
+        <div className="p-3 border-b border-border">
+          <div className="text-xs font-semibold mb-1">Filtrar por responsável</div>
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            Mostra só leads atribuídos aos selecionados. <strong className="text-foreground/80">Aguardando contato</strong> sempre aparece pra todos.
+          </p>
+        </div>
+        <div className="p-1.5 flex items-center gap-1 border-b border-border/60">
+          {userId && (
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] flex-1" onClick={soMeu}>
+              Só meus leads
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 text-[11px] flex-1" onClick={limpar} disabled={ativos === 0}>
+            Limpar
+          </Button>
+        </div>
+        <div className="max-h-72 overflow-y-auto py-1">
+          {isLoading ? (
+            <div className="px-3 py-2 text-[11px] text-muted-foreground">Carregando…</div>
+          ) : profiles.length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-muted-foreground">Sem usuários cadastrados.</div>
+          ) : profiles.map(p => {
+            const checked = filtroResp.has(p.id);
+            return (
+              <label
+                key={p.id}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/40 cursor-pointer"
+              >
+                <Checkbox checked={checked} onCheckedChange={() => toggle(p.id)} />
+                <span className="text-xs flex-1 truncate">{p.display}</span>
+                {p.id === userId && <span className="text-[9px] text-primary/70 uppercase tracking-wider">você</span>}
+              </label>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ContatoBtn({
   href, icon: Icon, label, sub, cor, big,
 }: {
