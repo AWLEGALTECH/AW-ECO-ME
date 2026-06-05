@@ -21,6 +21,7 @@ import {
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
+import { iconePorNicho, NICHOS_SUGERIDOS } from "@/lib/nichos";
 
 type Estagio = "aguardando_contato" | "em_cadencia" | "respondeu" | "diagnostico" | "proposta" | "follow_up" | "ganho" | "perdido";
 
@@ -50,11 +51,10 @@ interface Prospect {
   site: string | null;
   avaliacao: number | null;
   horario_funcionamento: string | null;
-  cidade: string | null;
   endereco: string | null;
   estagio: Estagio;
   status: "ativo" | "arquivado";
-  lista_origem: string | null;
+  nicho: string | null;
   observacoes: string | null;
   entrou_na_etapa_at: string;
   follow_up_at: string | null;
@@ -161,8 +161,7 @@ export default function Prospeccao() {
       normalizar(p.nome).includes(t) ||
       normalizar(p.telefone).includes(t) ||
       normalizar(p.instagram).includes(t) ||
-      normalizar(p.lista_origem).includes(t) ||
-      normalizar(p.cidade).includes(t)
+      normalizar(p.nicho).includes(t)
     );
   }, [q.data, busca, filtroResp]);
 
@@ -233,7 +232,7 @@ export default function Prospeccao() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nome, telefone, instagram, lista ou cidade..."
+                placeholder="Buscar por nome, telefone, instagram ou nicho..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 className="pl-9 h-10"
@@ -436,11 +435,14 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
           </span>
         )}
       </div>
-      {prospect.lista_origem && (
-        <div className="text-[10px] text-muted-foreground/70 truncate mb-1">
-          <span className="opacity-60">de</span> {prospect.lista_origem}
-        </div>
-      )}
+      {prospect.nicho && (() => {
+        const { Icon, cor } = iconePorNicho(prospect.nicho);
+        return (
+          <div className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/80 truncate mb-1">
+            <Icon className={`h-3 w-3 ${cor}`} /> {prospect.nicho}
+          </div>
+        );
+      })()}
       {prospect.responsavel_email && (
         <div className="inline-flex items-center gap-1 text-[10px] text-primary/90 mb-1">
           <User className="h-2.5 w-2.5" />
@@ -475,15 +477,13 @@ function InserirLeadsDialog({
   open, onClose, userId, onInserted,
 }: { open: boolean; onClose: () => void; userId: string | null; onInserted: () => void }) {
   const [texto, setTexto] = useState("");
-  const [listaOrigem, setListaOrigem] = useState("");
-  const [cidade, setCidade] = useState("");
+  const [nicho, setNicho] = useState("");
   const [parseados, setParseados] = useState<LeadParsed[] | null>(null);
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
     setTexto("");
-    setListaOrigem("");
-    setCidade("");
+    setNicho("");
     setParseados(null);
   };
 
@@ -528,8 +528,7 @@ function InserirLeadsDialog({
       avaliacao: p.avaliacao,
       horario_funcionamento: p.horario_funcionamento,
       endereco: p.endereco,
-      cidade: cidade.trim() || null,
-      lista_origem: listaOrigem.trim() || null,
+      nicho: nicho.trim() || null,
       estagio: "aguardando_contato",
       batch_id: batchId,
       created_by: userId,
@@ -580,23 +579,27 @@ Próximo lead...`}
                   Funciona com qualquer formato razoável. Blocos separados por linha em branco.
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Lista (origem) <span className="text-muted-foreground">opcional</span></Label>
-                  <Input
-                    value={listaOrigem}
-                    onChange={(e) => setListaOrigem(e.target.value)}
-                    placeholder="ex: Manaus HOF 2026-06"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Cidade <span className="text-muted-foreground">opcional</span></Label>
-                  <Input
-                    value={cidade}
-                    onChange={(e) => setCidade(e.target.value)}
-                    placeholder="ex: Manaus"
-                  />
-                </div>
+              <div>
+                <Label className="text-xs flex items-center gap-1.5">
+                  Nicho do lote
+                  {nicho && (() => {
+                    const { Icon, cor } = iconePorNicho(nicho);
+                    return <Icon className={`h-3.5 w-3.5 ${cor}`} />;
+                  })()}
+                  <span className="text-muted-foreground">opcional</span>
+                </Label>
+                <Input
+                  value={nicho}
+                  onChange={(e) => setNicho(e.target.value)}
+                  placeholder="ex: Clínica médica, Estética, Advocacia, Pet, Restaurante…"
+                  list="nichos-sugeridos"
+                />
+                <datalist id="nichos-sugeridos">
+                  {NICHOS_SUGERIDOS.map(n => <option key={n} value={n} />)}
+                </datalist>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  O ícone do nicho aparece no card, no histórico e nos filtros.
+                </p>
               </div>
             </div>
             <DialogFooter>
@@ -846,9 +849,14 @@ function ProspectDetalheDialog({
               </span>
             )}
             <span className="text-[11px]">há {tempoNaEtapa(prospect.entrou_na_etapa_at)} na etapa</span>
-            {prospect.lista_origem && (
-              <span className="text-[11px] text-muted-foreground">· {prospect.lista_origem}</span>
-            )}
+            {prospect.nicho && (() => {
+              const { Icon, cor } = iconePorNicho(prospect.nicho);
+              return (
+                <span className="text-[11px] inline-flex items-center gap-1 text-muted-foreground">
+                  <Icon className={`h-3 w-3 ${cor}`} /> {prospect.nicho}
+                </span>
+              );
+            })()}
             {prospect.responsavel_email && (
               <span className="text-[11px] inline-flex items-center gap-1 text-primary">
                 <User className="h-3 w-3" /> {displayName({ id: prospect.responsavel_id, email: prospect.responsavel_email })}
@@ -1309,8 +1317,7 @@ interface ProspectLite {
   id: string;
   nome: string;
   batch_id: string | null;
-  lista_origem: string | null;
-  cidade: string | null;
+  nicho: string | null;
   created_at: string;
   created_by: string | null;
   estagio: Estagio;
@@ -1324,8 +1331,7 @@ interface Lote {
   criadoEm: string;
   autorEmail: string | null;
   autorNome: string;
-  listaOrigem: string | null;
-  cidade: string | null;
+  nicho: string | null;
   qtd: number;
   leads: ProspectLite[];
 }
@@ -1359,7 +1365,7 @@ function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => 
       // 1) prospects mais recentes primeiro
       const { data: rows, error } = await supabase
         .from("prospects" as any)
-        .select("id, nome, batch_id, lista_origem, cidade, created_at, created_by, estagio, whatsapp, instagram, telefone")
+        .select("id, nome, batch_id, nicho, created_at, created_by, estagio, whatsapp, instagram, telefone")
         .order("created_at", { ascending: false })
         .limit(2000);
       if (error) throw error;
@@ -1397,8 +1403,7 @@ function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => 
           criadoEm: primeiro.created_at,
           autorEmail: email,
           autorNome: nomeAutor,
-          listaOrigem: primeiro.lista_origem,
-          cidade: primeiro.cidade,
+          nicho: primeiro.nicho,
           qtd: leads.length,
           leads,
         });
@@ -1474,8 +1479,12 @@ function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: 
   const { display: displayName } = useUserDisplayNames();
   const [expandido, setExpandido] = useState(false);
   const single = lote.qtd === 1;
-  const iconBg = single ? "bg-primary/15" : "bg-emerald-500/15";
-  const iconColor = single ? "text-primary" : "text-emerald-400";
+  const nichoIcone = iconePorNicho(lote.nicho);
+  // Quando ha nicho, usa o icone+cor do nicho como avatar do lote.
+  // Sem nicho, fallback pro icone padrao (Plus pra solo, Upload pra lote).
+  const avatarBg = lote.nicho ? nichoIcone.bgCor : (single ? "bg-primary/15" : "bg-emerald-500/15");
+  const AvatarIcon = lote.nicho ? nichoIcone.Icon : (single ? Plus : Upload);
+  const avatarColor = lote.nicho ? nichoIcone.cor : (single ? "text-primary" : "text-emerald-400");
   const autorDisplay = lote.autorEmail ? displayName({ email: lote.autorEmail }) : lote.autorNome;
 
   const abrirProspect = async (lite: ProspectLite) => {
@@ -1493,10 +1502,8 @@ function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: 
         onClick={() => setExpandido(v => !v)}
         className="w-full flex items-center gap-3 p-3 text-left"
       >
-        <div className={`h-10 w-10 rounded-full ${iconBg} flex items-center justify-center shrink-0`}>
-          {single
-            ? <Plus className={`h-4 w-4 ${iconColor}`} />
-            : <Upload className={`h-4 w-4 ${iconColor}`} />}
+        <div className={`h-10 w-10 rounded-full ${avatarBg} flex items-center justify-center shrink-0`}>
+          <AvatarIcon className={`h-4 w-4 ${avatarColor}`} />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -1504,16 +1511,10 @@ function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: 
             <span className="text-sm font-semibold">
               {single ? `1 lead inserido` : `${lote.qtd} leads importados`}
             </span>
-            {lote.listaOrigem && (
-              <span className="text-[11px] inline-flex items-center gap-1 text-primary/90 bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
-                <Target className="h-2.5 w-2.5" />
-                {lote.listaOrigem}
-              </span>
-            )}
-            {lote.cidade && (
-              <span className="text-[11px] inline-flex items-center gap-1 text-muted-foreground">
-                <MapPin className="h-2.5 w-2.5" />
-                {lote.cidade}
+            {lote.nicho && (
+              <span className={`text-[11px] inline-flex items-center gap-1 ${nichoIcone.cor} ${nichoIcone.bgCor} border border-current/20 px-1.5 py-0.5 rounded-full`}>
+                <nichoIcone.Icon className="h-2.5 w-2.5" />
+                {lote.nicho}
               </span>
             )}
           </div>
