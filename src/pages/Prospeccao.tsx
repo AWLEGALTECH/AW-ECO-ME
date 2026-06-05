@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
+import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 
 type Estagio = "aguardando_contato" | "em_cadencia" | "respondeu" | "diagnostico" | "proposta" | "follow_up" | "ganho" | "perdido";
 
@@ -310,6 +311,7 @@ function ColunaEstagio({
 }
 
 function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onClick: () => void; terminal: boolean }) {
+  const { display: displayName } = useUserDisplayNames();
   const dias = diasNaEtapa(prospect.entrou_na_etapa_at);
   // Aging visual: mais velho na etapa = badge ambar (sinaliza follow-up).
   // Acima de 7d em qualquer etapa ativa fica amarelo.
@@ -361,7 +363,7 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
       {prospect.responsavel_email && (
         <div className="inline-flex items-center gap-1 text-[10px] text-primary/90 mb-1">
           <User className="h-2.5 w-2.5" />
-          {prospect.responsavel_email.split("@")[0]}
+          {displayName({ id: prospect.responsavel_id, email: prospect.responsavel_email })}
         </div>
       )}
       {prospect.estagio === "follow_up" && prospect.follow_up_at && (
@@ -599,6 +601,7 @@ function ProspectDetalheDialog({
   const [followUpData, setFollowUpData] = useState("");
   const [followUpHora, setFollowUpHora] = useState("09:00");
   const [salvandoFollowUp, setSalvandoFollowUp] = useState(false);
+  const { display: displayName } = useUserDisplayNames();
 
   const eventosQ = useQuery({
     queryKey: ["prospect-eventos", prospect?.id],
@@ -767,7 +770,7 @@ function ProspectDetalheDialog({
             )}
             {prospect.responsavel_email && (
               <span className="text-[11px] inline-flex items-center gap-1 text-primary">
-                <User className="h-3 w-3" /> {prospect.responsavel_email.split("@")[0]}
+                <User className="h-3 w-3" /> {displayName({ id: prospect.responsavel_id, email: prospect.responsavel_email })}
               </span>
             )}
           </DialogDescription>
@@ -1070,11 +1073,12 @@ function ChatNotas({ eventos, currentEmail }: { eventos: Evento[]; currentEmail:
 }
 
 function BolhaNota({ ev, isMine }: { ev: Evento; isMine: boolean }) {
+  const { display: displayName } = useUserDisplayNames();
   const quando = new Date(ev.created_at);
   const fmt = new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   }).format(quando);
-  const handle = (ev.user_email || "Sistema").split("@")[0];
+  const handle = ev.user_email ? displayName({ email: ev.user_email }) : "Sistema";
   const inicial = handle.charAt(0).toUpperCase() || "?";
   return (
     <div className={`flex gap-2 ${isMine ? "flex-row-reverse" : ""}`}>
@@ -1102,11 +1106,12 @@ function BolhaNota({ ev, isMine }: { ev: Evento; isMine: boolean }) {
 }
 
 function LinhaSistema({ ev }: { ev: Evento }) {
+  const { display: displayName } = useUserDisplayNames();
   const quando = new Date(ev.created_at);
   const fmt = new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
   }).format(quando);
-  const who = (ev.user_email || "Sistema").split("@")[0];
+  const who = ev.user_email ? displayName({ email: ev.user_email }) : "Sistema";
   let conteudo: React.ReactNode = null;
   if (ev.tipo === "criado") {
     conteudo = <><strong className="text-foreground/70">{who}</strong> criou o lead</>;
@@ -1317,10 +1322,12 @@ function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => 
 }
 
 function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: Prospect) => void }) {
+  const { display: displayName } = useUserDisplayNames();
   const [expandido, setExpandido] = useState(false);
   const single = lote.qtd === 1;
   const iconBg = single ? "bg-primary/15" : "bg-emerald-500/15";
   const iconColor = single ? "text-primary" : "text-emerald-400";
+  const autorDisplay = lote.autorEmail ? displayName({ email: lote.autorEmail }) : lote.autorNome;
 
   const abrirProspect = async (lite: ProspectLite) => {
     const { data } = await supabase
@@ -1364,7 +1371,7 @@ function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: 
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1 flex-wrap">
             <span className="inline-flex items-center gap-1">
               <User className="h-2.5 w-2.5" />
-              <strong className="text-foreground/80 font-medium">{lote.autorNome}</strong>
+              <strong className="text-foreground/80 font-medium">{autorDisplay}</strong>
             </span>
             <span className="text-muted-foreground/50">·</span>
             <span className="inline-flex items-center gap-1 tabular-nums">
