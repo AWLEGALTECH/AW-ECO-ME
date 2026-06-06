@@ -17,6 +17,7 @@ import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
   Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
+  Calendar, UserCheck,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
@@ -32,9 +33,9 @@ const ESTAGIOS_ORDEM: Estagio[] = [
 const ESTAGIO_META: Record<Estagio, { label: string; cor: "primary" | "amber" | "emerald" | "red"; hint: string; acaoLabel: string }> = {
   aguardando_contato: { label: "Aguardando contato",  cor: "amber",   hint: "Leads frios — primeiro contato ainda nao feito.",        acaoLabel: "Iniciar cadencia" },
   em_cadencia:        { label: "Cadência iniciada",   cor: "primary", hint: "Mensagens (Insta/Zap/Call) enviadas, aguardando resposta.", acaoLabel: "Marcar como respondido" },
-  respondeu:          { label: "Respondeu",           cor: "primary", hint: "Lead engajou — agendar reunião de diagnóstico.",          acaoLabel: "Agendar diagnóstico" },
-  diagnostico:        { label: "Diagnóstico",         cor: "primary", hint: "Reunião de diagnóstico marcada/realizada.",                acaoLabel: "Enviar proposta" },
-  proposta:           { label: "Proposta",            cor: "primary", hint: "Proposta entregue, aguardando decisão.",                  acaoLabel: "Marcar ganho" },
+  respondeu:          { label: "Número do decisor adquirido", cor: "primary", hint: "Decisor identificado — registre o número direto de quem decide.", acaoLabel: "Agendar diagnóstico" },
+  diagnostico:        { label: "Call de diagnóstico agendada", cor: "primary", hint: "Defina data e hora da call de diagnóstico.",               acaoLabel: "Avançar pra proposta" },
+  proposta:           { label: "Call de proposta agendada",    cor: "primary", hint: "Defina data e hora da call de proposta.",                  acaoLabel: "Marcar ganho" },
   follow_up:          { label: "Follow-up",           cor: "amber",   hint: "Leads aguardando retorno em data agendada.",              acaoLabel: "" },
   ganho:              { label: "Ganho",               cor: "emerald", hint: "Conversao confirmada.",                                   acaoLabel: "" },
   perdido:            { label: "Perdido",             cor: "red",     hint: "Lead descartado / sem fit.",                              acaoLabel: "" },
@@ -56,6 +57,9 @@ interface Prospect {
   status: "ativo" | "arquivado";
   nicho: string | null;
   observacoes: string | null;
+  telefone_decisor: string | null;
+  diagnostico_call_at: string | null;
+  proposta_call_at: string | null;
   entrou_na_etapa_at: string;
   follow_up_at: string | null;
   responsavel_id: string | null;
@@ -72,6 +76,10 @@ const tempoNaEtapa = (iso: string): string => {
   if (d === 1) return "1 dia";
   return `${d} dias`;
 };
+
+// Formato curto pra exibir data+hora de call agendada no card.
+const fmtCallCurto = (iso: string): string =>
+  new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
 // Mostra "amanhã 14:00", "em 3d", "vencido há 2d" pra leads em follow-up.
 const fmtFollowUp = (iso: string): string => {
@@ -449,6 +457,24 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
           {displayName({ id: prospect.responsavel_id, email: prospect.responsavel_email })}
         </div>
       )}
+      {prospect.estagio === "respondeu" && prospect.telefone_decisor && (
+        <div className="inline-flex items-center gap-1 text-[10px] text-emerald-400 mb-1">
+          <UserCheck className="h-2.5 w-2.5" />
+          Decisor: {prospect.telefone_decisor}
+        </div>
+      )}
+      {prospect.estagio === "diagnostico" && prospect.diagnostico_call_at && (
+        <div className="inline-flex items-center gap-1 text-[10px] text-primary mb-1">
+          <Calendar className="h-2.5 w-2.5" />
+          Call {fmtCallCurto(prospect.diagnostico_call_at)}
+        </div>
+      )}
+      {prospect.estagio === "proposta" && prospect.proposta_call_at && (
+        <div className="inline-flex items-center gap-1 text-[10px] text-primary mb-1">
+          <Calendar className="h-2.5 w-2.5" />
+          Call {fmtCallCurto(prospect.proposta_call_at)}
+        </div>
+      )}
       {prospect.estagio === "follow_up" && prospect.follow_up_at && (
         <div className="text-[10px] inline-flex items-center gap-1 text-amber-400 mb-1">
           <Clock className="h-2.5 w-2.5" />
@@ -685,7 +711,36 @@ function ProspectDetalheDialog({
   const [followUpData, setFollowUpData] = useState("");
   const [followUpHora, setFollowUpHora] = useState("09:00");
   const [salvandoFollowUp, setSalvandoFollowUp] = useState(false);
+  // Número do decisor (etapa "respondeu") e agendamento de call (etapas
+  // "diagnostico"/"proposta"). overrides reflete localmente o que foi salvo
+  // sem fechar o popup — o prospect vem como prop e nao muda em tempo real.
+  const [decisorNum, setDecisorNum] = useState("");
+  const [salvandoDecisor, setSalvandoDecisor] = useState(false);
+  const [callData, setCallData] = useState("");
+  const [callHora, setCallHora] = useState("09:00");
+  const [salvandoCall, setSalvandoCall] = useState(false);
+  const [overrides, setOverrides] = useState<Partial<Prospect>>({});
   const { display: displayName } = useUserDisplayNames();
+
+  // Sincroniza os campos editáveis ao abrir/trocar de lead.
+  useEffect(() => {
+    setOverrides({});
+    if (!prospect) return;
+    setDecisorNum(prospect.telefone_decisor || "");
+    const callAt = prospect.estagio === "diagnostico" ? prospect.diagnostico_call_at
+                 : prospect.estagio === "proposta"   ? prospect.proposta_call_at
+                 : null;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    if (callAt) {
+      const d = new Date(callAt);
+      setCallData(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+      setCallHora(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    } else {
+      const h = new Date();
+      setCallData(`${h.getFullYear()}-${pad(h.getMonth() + 1)}-${pad(h.getDate())}`);
+      setCallHora("09:00");
+    }
+  }, [prospect?.id]);
 
   const eventosQ = useQuery({
     queryKey: ["prospect-eventos", prospect?.id],
@@ -796,6 +851,48 @@ function ProspectDetalheDialog({
     eventosQ.refetch();
   };
 
+  // Associa (ou atualiza/remove) o número do decisor ao lead. Mantém o
+  // popup aberto e registra no chat. overrides reflete o valor na hora.
+  const salvarDecisor = async () => {
+    if (!prospect) return;
+    const v = decisorNum.trim();
+    if (v === (prospect.telefone_decisor || "")) return;
+    setSalvandoDecisor(true);
+    const { error } = await supabase.from("prospects" as any)
+      .update({ telefone_decisor: v || null })
+      .eq("id", prospect.id);
+    setSalvandoDecisor(false);
+    if (error) { toast.error(error.message); return; }
+    setOverrides(o => ({ ...o, telefone_decisor: v || null }));
+    await logEvento("status", { texto: v ? `associou o número do decisor: ${v}` : "removeu o número do decisor" });
+    toast.success(v ? "Número do decisor salvo." : "Número do decisor removido.");
+    eventosQ.refetch();
+    onChanged();
+  };
+
+  // Agenda a data/hora da call da etapa atual (diagnóstico ou proposta).
+  // Não muda o estágio — só carimba o horário. Mantém o popup aberto.
+  const agendarCall = async () => {
+    if (!prospect || !callData) return;
+    const campo = prospect.estagio === "diagnostico" ? "diagnostico_call_at" : "proposta_call_at";
+    const rotulo = prospect.estagio === "diagnostico" ? "call de diagnóstico" : "call de proposta";
+    setSalvandoCall(true);
+    const isoLocal = `${callData}T${callHora || "09:00"}:00`;
+    const targetIso = new Date(isoLocal).toISOString();
+    const { error } = await supabase.from("prospects" as any)
+      .update({ [campo]: targetIso })
+      .eq("id", prospect.id);
+    setSalvandoCall(false);
+    if (error) { toast.error(error.message); return; }
+    setOverrides(o => ({ ...o, [campo]: targetIso }));
+    await logEvento("agenda", {
+      texto: `agendou ${rotulo} pra ${new Date(isoLocal).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    });
+    toast.success("Call agendada.");
+    eventosQ.refetch();
+    onChanged();
+  };
+
   if (!prospect) return null;
 
   const proximoEstagio: Estagio | null = (() => {
@@ -828,6 +925,16 @@ function ProspectDetalheDialog({
     : null;
   const igLink = prospect.instagram ? `https://instagram.com/${prospect.instagram}` : null;
   const telLink = prospect.telefone ? `tel:${prospect.telefone.replace(/\D/g, "")}` : null;
+
+  // Valores editáveis com override local (refletem o último save sem
+  // depender de um refetch chegar até a prop prospect).
+  const telefoneDecisor = "telefone_decisor" in overrides ? overrides.telefone_decisor ?? null : prospect.telefone_decisor;
+  const diagnosticoCallAt = "diagnostico_call_at" in overrides ? overrides.diagnostico_call_at ?? null : prospect.diagnostico_call_at;
+  const propostaCallAt = "proposta_call_at" in overrides ? overrides.proposta_call_at ?? null : prospect.proposta_call_at;
+  const decisorDigits = telefoneDecisor ? telefoneDecisor.replace(/\D/g, "") : "";
+  const decisorLink = telefoneDecisor
+    ? (telefoneDecisor.startsWith("http") ? telefoneDecisor : `https://wa.me/${decisorDigits}`)
+    : null;
 
   // Data minima do calendario de follow-up: hoje
   const hoje = new Date();
@@ -865,12 +972,16 @@ function ProspectDetalheDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* CANAIS PROTAGONISTAS — WhatsApp + Instagram (maiores, coloridos) */}
-        {(waLink || igLink) && (
+        {/* CANAIS PROTAGONISTAS — WhatsApp + Decisor + Instagram (maiores, coloridos) */}
+        {(waLink || igLink || decisorLink) && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pb-2">
             {waLink && (
               <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
                 cor="emerald" big sub={prospect.telefone || waDigits} />
+            )}
+            {decisorLink && (
+              <ContatoBtn href={decisorLink} icon={UserCheck} label="Decisor (WhatsApp)"
+                cor="primary" big sub={telefoneDecisor!} />
             )}
             {igLink && (
               <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
@@ -948,6 +1059,72 @@ function ProspectDetalheDialog({
             </div>
           </div>
         )}
+
+        {/* NÚMERO DO DECISOR — só na etapa "respondeu". Associa um número
+            direto ao lead, que vira contato clicável (WhatsApp) lá em cima. */}
+        {prospect.estagio === "respondeu" && (
+          <div className="rounded-lg border border-primary/25 bg-primary/5 p-2.5 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
+              <UserCheck className="h-3 w-3" /> Número do decisor
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Número direto de quem decide. Fica clicável (WhatsApp) junto ao contato principal.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                value={decisorNum}
+                onChange={(e) => setDecisorNum(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarDecisor(); } }}
+                placeholder="ex: +55 92 99999-9999"
+                className="h-8 text-xs flex-1"
+              />
+              <Button
+                size="sm"
+                onClick={salvarDecisor}
+                disabled={salvandoDecisor || decisorNum.trim() === (telefoneDecisor || "")}
+              >
+                {salvandoDecisor ? "..." : "Salvar"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* AGENDAR CALL — etapas "diagnostico" e "proposta". Carimba data/hora
+            (futuramente sincroniza com Google Calendar) sem mudar de estágio. */}
+        {(prospect.estagio === "diagnostico" || prospect.estagio === "proposta") && (() => {
+          const callLabel = prospect.estagio === "diagnostico" ? "Call de diagnóstico" : "Call de proposta";
+          const callAtual = prospect.estagio === "diagnostico" ? diagnosticoCallAt : propostaCallAt;
+          return (
+            <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2">
+              <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
+                <Calendar className="h-3 w-3" /> {callLabel}
+              </div>
+              {callAtual ? (
+                <div className="text-xs text-foreground inline-flex items-center gap-1.5">
+                  <Clock className="h-3 w-3 text-primary" />
+                  Agendada pra <strong>{fmtDataHora(callAtual)}</strong>
+                </div>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  Defina a data e a hora da call.
+                </p>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input type="date" min={minDate} value={callData}
+                  onChange={(e) => setCallData(e.target.value)} className="h-9 w-auto" />
+                <Input type="time" value={callHora}
+                  onChange={(e) => setCallHora(e.target.value)} className="h-9 w-auto" />
+                <div className="flex-1" />
+                <Button size="sm" onClick={agendarCall} disabled={!callData || salvandoCall}>
+                  {salvandoCall ? "Agendando…" : callAtual ? "Reagendar" : "Agendar"}
+                </Button>
+              </div>
+              <p className="text-[9px] text-muted-foreground/70 inline-flex items-center gap-1">
+                <Calendar className="h-2.5 w-2.5" /> Integração com Google Calendar em breve.
+              </p>
+            </div>
+          );
+        })()}
 
         {/* AÇÕES DE FUNIL — Voltar discreto no topo + Avançar/Follow/Arquivar
             do mesmo tamanho, distribuídos em 3 colunas iguais. */}
@@ -1278,6 +1455,8 @@ function LinhaSistema({ ev }: { ev: Evento }) {
     conteudo = <><strong className="text-foreground/70">{who}</strong> moveu {de} → <span className="text-foreground/80">{pa}</span></>;
   } else if (ev.tipo === "follow_up") {
     conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "agendou follow-up"}</>;
+  } else if (ev.tipo === "agenda") {
+    conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "agendou call"}</>;
   } else if (ev.tipo === "status") {
     conteudo = <><strong className="text-foreground/70">{who}</strong> {ev.texto || "atualizou status"}</>;
   } else if (ev.tipo === "contato") {
