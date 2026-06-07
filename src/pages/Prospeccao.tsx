@@ -1176,18 +1176,8 @@ function ProspectDetalheDialog({
                 Voltar
               </button>
             )}
-            <div className="grid grid-cols-3 gap-2">
-              {proximoEstagio ? (
-                <button
-                  onClick={() => mover(proximoEstagio)}
-                  className="inline-flex items-center justify-center gap-1.5 px-2 h-9 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors"
-                >
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  Avançar etapa
-                </button>
-              ) : (
-                <div />
-              )}
+            {/* Linha 1: Follow-up + Arquivar lado a lado, largura total. */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
                   if (prospect.estagio === "follow_up" && prospect.follow_up_at) {
@@ -1213,6 +1203,16 @@ function ProspectDetalheDialog({
                 Arquivar
               </button>
             </div>
+            {/* Linha 2: Avançar etapa — maior, ocupando a linha inteira. */}
+            {proximoEstagio && (
+              <button
+                onClick={() => mover(proximoEstagio)}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-2 h-11 rounded-md border border-primary/40 bg-primary/10 hover:bg-primary/20 text-sm text-primary font-medium transition-colors"
+              >
+                <ArrowRight className="h-4 w-4" />
+                Avançar etapa
+              </button>
+            )}
           </div>
         )}
 
