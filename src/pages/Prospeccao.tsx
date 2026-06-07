@@ -1400,26 +1400,23 @@ function ChecklistContatoBtn({
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const corCls =
-    cor === "emerald" ? "border-emerald-500/40 text-emerald-400" :
-    cor === "pink"    ? "border-pink-500/40 text-pink-400" :
-                        "border-primary/40 text-primary";
-  const feitoCls = feito
-    ? cor === "emerald" ? "bg-emerald-500/20" :
-      cor === "pink"    ? "bg-pink-500/20" :
-                          "bg-primary/20"
-    : "bg-card/40 hover:bg-card/60";
+  // Botão neutro (cinza) — só o ícone do app é colorido, pra não roubar
+  // o protagonismo dos botões reais de envio (WhatsApp/Instagram no topo).
+  const iconCor =
+    cor === "emerald" ? "text-emerald-400" :
+    cor === "pink"    ? "text-pink-400" :
+                        "text-muted-foreground";
   return (
     <button
       onClick={onClick}
       disabled={disabled || feito}
-      className={`flex items-center justify-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${disabled && !feito ? "opacity-40" : ""} ${corCls} ${feitoCls}`}
+      className={`flex items-center justify-center gap-1.5 px-2 h-8 rounded-md border border-border text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${disabled && !feito ? "opacity-40" : ""} ${feito ? "bg-muted/50 text-foreground" : "bg-card/40 text-muted-foreground hover:bg-card/60 hover:text-foreground"}`}
       title={feito ? "Já registrado" : disabled ? "Sem dado pra esse canal" : `Marcar ${label} como contatado`}
     >
       {feito
         ? <CheckSquare className="h-4 w-4 shrink-0" />
         : <Square className="h-4 w-4 shrink-0 opacity-70" />}
-      <Icon className="h-3 w-3 shrink-0" />
+      <Icon className={`h-3 w-3 shrink-0 ${iconCor}`} />
       <span className="truncate">{label}</span>
     </button>
   );
