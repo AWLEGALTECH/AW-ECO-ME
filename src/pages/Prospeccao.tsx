@@ -1480,6 +1480,14 @@ function BolhaNota({ ev, isMine }: { ev: Evento; isMine: boolean }) {
   );
 }
 
+// Pinta "WhatsApp" de verde e "Instagram" de roxo dentro do texto do chat.
+const colorizeCanais = (texto: string): React.ReactNode =>
+  texto.split(/(WhatsApp|Instagram)/gi).map((p, i) => {
+    if (/^whatsapp$/i.test(p)) return <span key={i} className="text-emerald-400 font-medium">{p}</span>;
+    if (/^instagram$/i.test(p)) return <span key={i} className="text-purple-400 font-medium">{p}</span>;
+    return p;
+  });
+
 function LinhaSistema({ ev }: { ev: Evento }) {
   const { display: displayName } = useUserDisplayNames();
   const quando = new Date(ev.created_at);
@@ -1504,7 +1512,7 @@ function LinhaSistema({ ev }: { ev: Evento }) {
     // Eventos de cadencia vem como "cadencia.wa|Mensagem enviada..."
     // — strip do prefixo na exibicao.
     const texto = (ev.texto || "").replace(/^cadencia\.(wa|insta|tel)\|/, "");
-    conteudo = <><strong className="text-foreground/70">{who}</strong> ✓ {texto || "registrou contato"}</>;
+    conteudo = <><strong className="text-foreground/70">{who}</strong> ✓ {texto ? colorizeCanais(texto) : "registrou contato"}</>;
   }
   return (
     <div className="flex items-center gap-2 py-0.5 text-[10px] text-muted-foreground">
