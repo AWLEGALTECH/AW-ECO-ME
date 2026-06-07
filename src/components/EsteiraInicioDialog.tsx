@@ -188,6 +188,16 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     const { error } = await supabase.from("demandas" as any).insert(rows);
     setSaving(false);
     if (error) { toast.error(error.message); return; }
+    // Cliente com pendência sai da fila de "Análise primária" e fica SÓ na
+    // fila de pendências — nunca coexiste nas duas. Volta pra análise
+    // primária automaticamente quando todas as pendências forem resolvidas.
+    await supabase
+      .from("clientes")
+      .update({
+        analise_primaria_finalizada_at: new Date().toISOString(),
+        analise_primaria_finalizada_by: userId,
+      } as any)
+      .eq("id", cliente.id);
     toast.success(rows.length === 1 ? "Pendência registrada" : `${rows.length} pendências registradas`);
     onCreated();
     setStage("pos_pendencia");
