@@ -17,11 +17,13 @@ import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
   Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
-  Calendar, UserCheck,
+  Calendar, UserCheck, Square, CheckSquare, MessageSquareText,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
+import { useMensagensProntas } from "@/hooks/useMensagensProntas";
+import { MinhasMensagensDialog } from "@/components/MinhasMensagensDialog";
 import { iconePorNicho, NICHOS_SUGERIDOS } from "@/lib/nichos";
 
 type Estagio = "aguardando_contato" | "em_cadencia" | "respondeu" | "diagnostico" | "proposta" | "follow_up" | "ganho" | "perdido";
@@ -99,6 +101,7 @@ export default function Prospeccao() {
   useEffect(() => { document.title = `Prospecção — ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const [inserirOpen, setInserirOpen] = useState(false);
+  const [mensagensOpen, setMensagensOpen] = useState(false);
   const [detalheOpen, setDetalheOpen] = useState<Prospect | null>(null);
   const [busca, setBusca] = useState("");
   // Filtro multi-select por responsavel. Set de user_ids. Set vazio = sem filtro.
@@ -218,6 +221,10 @@ export default function Prospeccao() {
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${q.isFetching ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setMensagensOpen(true)}>
+            <MessageSquareText className="h-3.5 w-3.5 mr-1.5" />
+            Minhas mensagens
+          </Button>
           <Button size="sm" onClick={() => setInserirOpen(true)}>
             <Plus className="h-4 w-4 mr-1.5" />
             Inserir leads
@@ -310,6 +317,12 @@ export default function Prospeccao() {
         onClose={() => setInserirOpen(false)}
         userId={user?.id || null}
         onInserted={() => { q.refetch(); setInserirOpen(false); }}
+      />
+
+      <MinhasMensagensDialog
+        open={mensagensOpen}
+        onClose={() => setMensagensOpen(false)}
+        userId={user?.id || null}
       />
 
       <ProspectDetalheDialog
@@ -721,6 +734,9 @@ function ProspectDetalheDialog({
   const [salvandoCall, setSalvandoCall] = useState(false);
   const [overrides, setOverrides] = useState<Partial<Prospect>>({});
   const { display: displayName } = useUserDisplayNames();
+  // Mensagens prontas do usuário atual: saudação que pré-preenche o
+  // WhatsApp e a que é copiada ao abrir o Direct do Instagram.
+  const { mensagens } = useMensagensProntas(userId);
 
   // Sincroniza os campos editáveis ao abrir/trocar de lead.
   useEffect(() => {
@@ -919,11 +935,30 @@ function ProspectDetalheDialog({
     return out;
   })();
 
+  // Saudações prontas. WhatsApp suporta ?text= nativo; Instagram não
+  // permite pré-preencher Direct, então copiamos pro clipboard ao abrir.
+  const waSaud = (mensagens["whatsapp_saudacao"] || "").trim();
+  const igSaud = (mensagens["instagram_saudacao"] || "").trim();
+  const comTexto = (url: string, texto: string) => {
+    if (!texto) return url;
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}text=${encodeURIComponent(texto)}`;
+  };
+
   const waDigits = prospect.whatsapp ? prospect.whatsapp.replace(/\D/g, "") : "";
-  const waLink = prospect.whatsapp
+  const waBase = prospect.whatsapp
     ? (prospect.whatsapp.startsWith("http") ? prospect.whatsapp : `https://wa.me/${waDigits}`)
     : null;
-  const igLink = prospect.instagram ? `https://instagram.com/${prospect.instagram}` : null;
+  const waLink = waBase ? comTexto(waBase, waSaud) : null;
+  // Direct do lead. Copia a saudação pro clipboard no clique (é só colar).
+  const igLink = prospect.instagram ? `https://ig.me/m/${prospect.instagram}` : null;
+  const copiarSaudacaoIg = () => {
+    if (!igSaud) return;
+    navigator.clipboard?.writeText(igSaud).then(
+      () => toast.success("Saudação copiada — é só colar (Ctrl+V) no Direct."),
+      () => toast.error("Não consegui copiar a saudação."),
+    );
+  };
   const telLink = prospect.telefone ? `tel:${prospect.telefone.replace(/\D/g, "")}` : null;
 
   // Valores editáveis com override local (refletem o último save sem
@@ -985,7 +1020,8 @@ function ProspectDetalheDialog({
             )}
             {igLink && (
               <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
-                cor="pink" big sub={`@${prospect.instagram}`} />
+                cor="pink" big onClick={copiarSaudacaoIg}
+                sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
             )}
           </div>
         )}
@@ -1316,7 +1352,7 @@ function FiltroResponsavelBtn({
 }
 
 function ContatoBtn({
-  href, icon: Icon, label, sub, cor, big,
+  href, icon: Icon, label, sub, cor, big, onClick,
 }: {
   href: string;
   icon: any;
@@ -1324,6 +1360,7 @@ function ContatoBtn({
   sub: string;
   cor: "emerald" | "primary" | "pink" | "muted";
   big?: boolean;
+  onClick?: () => void;
 }) {
   const cls =
     cor === "emerald" ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400" :
@@ -1339,6 +1376,7 @@ function ContatoBtn({
       href={href}
       target={href.startsWith("http") ? "_blank" : undefined}
       rel={href.startsWith("http") ? "noreferrer" : undefined}
+      onClick={onClick}
       className={`flex flex-col items-start rounded-lg border transition-colors min-w-0 ${sizing} ${cls}`}
     >
       <div className={`flex items-center gap-1.5 font-semibold ${labelSize}`}>
@@ -1375,11 +1413,14 @@ function ChecklistContatoBtn({
     <button
       onClick={onClick}
       disabled={disabled || feito}
-      className={`flex items-center justify-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${corCls} ${feitoCls}`}
+      className={`flex items-center justify-center gap-1.5 px-2 h-8 rounded-md border text-[11px] font-medium transition-colors disabled:cursor-not-allowed ${disabled && !feito ? "opacity-40" : ""} ${corCls} ${feitoCls}`}
       title={feito ? "Já registrado" : disabled ? "Sem dado pra esse canal" : `Marcar ${label} como contatado`}
     >
-      {feito ? <span className="font-bold">✓</span> : <Icon className="h-3.5 w-3.5" />}
-      {label}
+      {feito
+        ? <CheckSquare className="h-4 w-4 shrink-0" />
+        : <Square className="h-4 w-4 shrink-0 opacity-70" />}
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate">{label}</span>
     </button>
   );
 }

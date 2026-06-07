@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { MODULES, type ModuleKey } from "@/lib/modules";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
-import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2 } from "lucide-react";
+import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2, MessageSquareText, ChevronDown } from "lucide-react";
+import { SLOTS_MENSAGENS } from "@/lib/mensagensProntas";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -245,6 +246,8 @@ export default function AdminUsuarios() {
                     )}
                   </div>
                 )}
+
+                <UserMensagensSection userId={p.id} />
               </div>
             );
           })}
@@ -271,6 +274,59 @@ export default function AdminUsuarios() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// Visão (somente leitura) das mensagens prontas de um usuário. Lazy:
+// só busca quando o admin expande. RLS libera leitura pro admin.
+function UserMensagensSection({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const q = useQuery({
+    queryKey: ["admin-mensagens", userId],
+    enabled: open,
+    queryFn: async (): Promise<Record<string, string>> => {
+      const { data, error } = await supabase
+        .from("mensagens_prontas" as any)
+        .select("chave, conteudo")
+        .eq("user_id", userId);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const r of (data || []) as any[]) map[r.chave] = r.conteudo;
+      return map;
+    },
+  });
+  return (
+    <div className="border-t border-border/60 pt-3">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <MessageSquareText className="h-3.5 w-3.5" />
+        Mensagens prontas
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {q.isLoading ? (
+            <div className="text-[11px] text-muted-foreground">Carregando…</div>
+          ) : (
+            SLOTS_MENSAGENS.map(slot => {
+              const txt = (q.data?.[slot.chave] || "").trim();
+              return (
+                <div key={slot.chave} className="text-xs">
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/80">
+                    <slot.icon className="h-3 w-3 text-primary" /> {slot.label}
+                  </div>
+                  <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-md border border-border/60 bg-card/40 px-2 py-1.5 ${txt ? "" : "italic text-muted-foreground/60"}`}>
+                    {txt || "— vazio —"}
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
