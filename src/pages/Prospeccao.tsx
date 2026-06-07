@@ -17,7 +17,7 @@ import {
   Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
   Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
-  Calendar, UserCheck, Square, CheckSquare, MessageSquareText,
+  Calendar, UserCheck, Square, CheckSquare, MessageSquareText, Send, Workflow,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
@@ -699,6 +699,22 @@ Próximo lead...`}
 // Dialog de detalhe + ações
 // ============================================================================
 
+// Cabeçalho de seção padrão dos popups de lead. Mantém o MESMO esquema
+// visual em todas as colunas: título em caixa-alta acima do conteúdo, sem
+// moldura — só os elementos clicáveis (botões/inputs) ficam destacados.
+function SecaoPopup({ icon: Icon, titulo, children }: {
+  icon?: any; titulo: string; children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-1.5">
+        {Icon && <Icon className="h-3 w-3" />} {titulo}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 interface Evento {
   id: string;
   tipo: string;
@@ -1007,50 +1023,9 @@ function ProspectDetalheDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* CANAIS PROTAGONISTAS — WhatsApp + Decisor + Instagram (maiores, coloridos) */}
-        {(waLink || igLink || decisorLink) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pb-2">
-            {waLink && (
-              <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
-                cor="emerald" big sub={prospect.telefone || waDigits} />
-            )}
-            {decisorLink && (
-              <ContatoBtn href={decisorLink} icon={UserCheck} label="Decisor (WhatsApp)"
-                cor="primary" big sub={telefoneDecisor!} />
-            )}
-            {igLink && (
-              <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
-                cor="pink" big onClick={copiarSaudacaoIg}
-                sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
-            )}
-          </div>
-        )}
-        {/* Canais secundarios — cinza, menores */}
-        {(telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {telLink && !waLink && (
-              <ContatoBtn href={telLink} icon={Phone} label="Ligar"
-                cor="muted" sub={prospect.telefone || ""} />
-            )}
-            {prospect.google_maps_url && (
-              <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
-                cor="muted" sub="Abrir local" />
-            )}
-            {prospect.email && (
-              <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
-                cor="muted" sub={prospect.email} />
-            )}
-            {prospect.site && (
-              <ContatoBtn href={prospect.site} icon={Globe} label="Site"
-                cor="muted"
-                sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
-            )}
-          </div>
-        ) : null}
-
-        {/* Metainfo compacta (avaliacao, endereco, horario) */}
+        {/* Metainfo do lead (avaliação, endereço, horário) — só informativo, sem moldura */}
         {(prospect.avaliacao != null || prospect.endereco || prospect.horario_funcionamento) && (
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground border-y border-border/40 py-2 flex-wrap">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
             {prospect.avaliacao != null && (
               <span className="inline-flex items-center gap-1 text-amber-400">
                 <Star className="h-3 w-3 fill-amber-400" /> {prospect.avaliacao.toFixed(1)}
@@ -1069,40 +1044,53 @@ function ProspectDetalheDialog({
           </div>
         )}
 
-        {/* CHECKLIST DE CADENCIA — só aparece em em_cadencia. Cada clique
-            publica no chat como evento de contato (todos veem). */}
-        {prospect.estagio === "em_cadencia" && (
-          <div className="rounded-lg border border-primary/25 bg-primary/5 p-2.5 space-y-1.5">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" /> Registrar contato realizado
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              <ChecklistContatoBtn
-                icon={MessageCircle} label="WhatsApp" cor="emerald"
-                feito={cadenciaFeita.wa} disabled={!waLink}
-                onClick={() => marcarContatoCadencia("wa")}
-              />
-              <ChecklistContatoBtn
-                icon={Instagram} label="Instagram" cor="pink"
-                feito={cadenciaFeita.insta} disabled={!igLink}
-                onClick={() => marcarContatoCadencia("insta")}
-              />
-              <ChecklistContatoBtn
-                icon={Phone} label="Telefone" cor="primary"
-                feito={cadenciaFeita.tel} disabled={!telLink && !waLink}
-                onClick={() => marcarContatoCadencia("tel")}
-              />
-            </div>
-          </div>
+        {/* SEÇÃO: Envio de mensagem — canais de contato (clicáveis) */}
+        {(waLink || igLink || decisorLink || (telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site) && (
+          <SecaoPopup icon={Send} titulo="Envio de mensagem">
+            {(waLink || igLink || decisorLink) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {waLink && (
+                  <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
+                    cor="emerald" big sub={prospect.telefone || waDigits} />
+                )}
+                {decisorLink && (
+                  <ContatoBtn href={decisorLink} icon={UserCheck} label="Decisor (WhatsApp)"
+                    cor="primary" big sub={telefoneDecisor!} />
+                )}
+                {igLink && (
+                  <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
+                    cor="pink" big onClick={copiarSaudacaoIg}
+                    sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
+                )}
+              </div>
+            )}
+            {((telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site) && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {telLink && !waLink && (
+                  <ContatoBtn href={telLink} icon={Phone} label="Ligar"
+                    cor="muted" sub={prospect.telefone || ""} />
+                )}
+                {prospect.google_maps_url && (
+                  <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
+                    cor="muted" sub="Abrir local" />
+                )}
+                {prospect.email && (
+                  <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
+                    cor="muted" sub={prospect.email} />
+                )}
+                {prospect.site && (
+                  <ContatoBtn href={prospect.site} icon={Globe} label="Site"
+                    cor="muted"
+                    sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
+                )}
+              </div>
+            )}
+          </SecaoPopup>
         )}
 
-        {/* NÚMERO DO DECISOR — só na etapa "respondeu". Associa um número
-            direto ao lead, que vira contato clicável (WhatsApp) lá em cima. */}
+        {/* SEÇÃO: Número do decisor — só na etapa "respondeu" */}
         {prospect.estagio === "respondeu" && (
-          <div className="rounded-lg border border-primary/25 bg-primary/5 p-2.5 space-y-1.5">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
-              <UserCheck className="h-3 w-3" /> Número do decisor
-            </div>
+          <SecaoPopup icon={UserCheck} titulo="Número do decisor">
             <p className="text-[10px] text-muted-foreground">
               Número direto de quem decide. Fica clicável (WhatsApp) junto ao contato principal.
             </p>
@@ -1122,19 +1110,15 @@ function ProspectDetalheDialog({
                 {salvandoDecisor ? "..." : "Salvar"}
               </Button>
             </div>
-          </div>
+          </SecaoPopup>
         )}
 
-        {/* AGENDAR CALL — etapas "diagnostico" e "proposta". Carimba data/hora
-            (futuramente sincroniza com Google Calendar) sem mudar de estágio. */}
+        {/* SEÇÃO: Call agendada — etapas "diagnostico" e "proposta" */}
         {(prospect.estagio === "diagnostico" || prospect.estagio === "proposta") && (() => {
           const callLabel = prospect.estagio === "diagnostico" ? "Call de diagnóstico" : "Call de proposta";
           const callAtual = prospect.estagio === "diagnostico" ? diagnosticoCallAt : propostaCallAt;
           return (
-            <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2">
-              <div className="text-[10px] uppercase tracking-[0.15em] text-primary/90 font-semibold flex items-center gap-1">
-                <Calendar className="h-3 w-3" /> {callLabel}
-              </div>
+            <SecaoPopup icon={Calendar} titulo={callLabel}>
               {callAtual ? (
                 <div className="text-xs text-foreground inline-flex items-center gap-1.5">
                   <Clock className="h-3 w-3 text-primary" />
@@ -1158,14 +1142,36 @@ function ProspectDetalheDialog({
               <p className="text-[9px] text-muted-foreground/70 inline-flex items-center gap-1">
                 <Calendar className="h-2.5 w-2.5" /> Integração com Google Calendar em breve.
               </p>
-            </div>
+            </SecaoPopup>
           );
         })()}
 
-        {/* AÇÕES DE FUNIL — Voltar discreto no topo + Avançar/Follow/Arquivar
-            do mesmo tamanho, distribuídos em 3 colunas iguais. */}
+        {/* SEÇÃO: Registro de cadência — só em "em_cadencia" */}
+        {prospect.estagio === "em_cadencia" && (
+          <SecaoPopup icon={TrendingUp} titulo="Registro de cadência">
+            <div className="grid grid-cols-3 gap-1.5">
+              <ChecklistContatoBtn
+                icon={MessageCircle} label="WhatsApp" cor="emerald"
+                feito={cadenciaFeita.wa} disabled={!waLink}
+                onClick={() => marcarContatoCadencia("wa")}
+              />
+              <ChecklistContatoBtn
+                icon={Instagram} label="Instagram" cor="pink"
+                feito={cadenciaFeita.insta} disabled={!igLink}
+                onClick={() => marcarContatoCadencia("insta")}
+              />
+              <ChecklistContatoBtn
+                icon={Phone} label="Telefone" cor="primary"
+                feito={cadenciaFeita.tel} disabled={!telLink && !waLink}
+                onClick={() => marcarContatoCadencia("tel")}
+              />
+            </div>
+          </SecaoPopup>
+        )}
+
+        {/* SEÇÃO: Registro no CRM — mover o lead no funil */}
         {prospect.estagio !== "ganho" && prospect.estagio !== "perdido" && (
-          <div className="space-y-2">
+          <SecaoPopup icon={Workflow} titulo="Registro no CRM">
             {estagioAnterior && (
               <button
                 onClick={() => mover(estagioAnterior)}
@@ -1176,7 +1182,7 @@ function ProspectDetalheDialog({
                 Voltar
               </button>
             )}
-            {/* Linha 1: Follow-up + Arquivar lado a lado, largura total. */}
+            {/* Follow-up + Arquivar lado a lado, largura total */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
@@ -1203,7 +1209,7 @@ function ProspectDetalheDialog({
                 Arquivar
               </button>
             </div>
-            {/* Linha 2: Avançar etapa — maior, ocupando a linha inteira. */}
+            {/* Avançar etapa — maior, ocupando a linha inteira */}
             {proximoEstagio && (
               <button
                 onClick={() => mover(proximoEstagio)}
@@ -1213,45 +1219,32 @@ function ProspectDetalheDialog({
                 Avançar etapa
               </button>
             )}
-          </div>
+            {/* Mini-form de follow-up (expande ao clicar em Follow-up) */}
+            {followUpOpen && (
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] text-amber-400/90 font-medium flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Quando retomar este lead?
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Input type="date" min={minDate} value={followUpData}
+                    onChange={(e) => setFollowUpData(e.target.value)} className="h-9 w-auto" />
+                  <Input type="time" value={followUpHora}
+                    onChange={(e) => setFollowUpHora(e.target.value)} className="h-9 w-auto" />
+                  <div className="flex-1" />
+                  <Button variant="outline" size="sm" onClick={() => setFollowUpOpen(false)} disabled={salvandoFollowUp}>
+                    Cancelar
+                  </Button>
+                  <Button size="sm" onClick={agendarFollowUp} disabled={!followUpData || salvandoFollowUp}>
+                    {salvandoFollowUp ? "Agendando…" : "Agendar"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </SecaoPopup>
         )}
 
-        {/* Mini-form pra agendar follow-up (inline, expansivel) */}
-        {followUpOpen && (
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 space-y-2">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-amber-400/90 font-semibold flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Quando retomar este lead?
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Input
-                type="date"
-                min={minDate}
-                value={followUpData}
-                onChange={(e) => setFollowUpData(e.target.value)}
-                className="h-9 w-auto"
-              />
-              <Input
-                type="time"
-                value={followUpHora}
-                onChange={(e) => setFollowUpHora(e.target.value)}
-                className="h-9 w-auto"
-              />
-              <div className="flex-1" />
-              <Button variant="outline" size="sm" onClick={() => setFollowUpOpen(false)} disabled={salvandoFollowUp}>
-                Cancelar
-              </Button>
-              <Button size="sm" onClick={agendarFollowUp} disabled={!followUpData || salvandoFollowUp}>
-                {salvandoFollowUp ? "Agendando…" : "Agendar"}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* CHAT DE NOTAS */}
-        <div className="space-y-2 pt-2">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground flex items-center gap-1.5">
-            <History className="h-3 w-3" /> Histórico de notas
-          </div>
+        {/* SEÇÃO: Histórico de notas */}
+        <SecaoPopup icon={History} titulo="Histórico de notas">
           <ChatNotas
             eventos={eventosQ.data || []}
             currentEmail={userEmail}
@@ -1274,7 +1267,7 @@ function ProspectDetalheDialog({
               {salvandoNota ? "..." : "Enviar"}
             </Button>
           </div>
-        </div>
+        </SecaoPopup>
       </DialogContent>
     </Dialog>
   );
