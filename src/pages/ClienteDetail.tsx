@@ -1938,7 +1938,42 @@ function PrePipeline({
       .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: userId })
       .eq("id", id);
     if (error) { toast.error("Erro: " + error.message); return; }
-    toast.success("Pendência marcada como resolvida");
+
+    // Se essa era a última pendência aberta e o cliente não está em
+    // produção ativa, devolve pra fila de "Análise primária" (col 1).
+    let voltou = false;
+    const { data: abertas } = await supabase
+      .from("demandas" as any)
+      .select("id")
+      .eq("cliente_id", clienteId)
+      .eq("etapa", "pendencia_documental")
+      .eq("status", "pendente")
+      .limit(1);
+    if (!abertas || abertas.length === 0) {
+      const { data: ativas } = await supabase
+        .from("demandas" as any)
+        .select("id")
+        .eq("cliente_id", clienteId)
+        .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "confeccao_peca", "protocolada", "processual"])
+        .neq("status", "cancelada")
+        .limit(1);
+      if (!ativas || ativas.length === 0) {
+        const foraDaFila = !cliente.precisa_analise_extratos || !!cliente.analise_primaria_finalizada_at;
+        await supabase
+          .from("clientes")
+          .update({
+            precisa_analise_extratos: true,
+            analise_primaria_finalizada_at: null,
+            analise_primaria_finalizada_by: null,
+          } as any)
+          .eq("id", clienteId);
+        voltou = foraDaFila;
+      }
+    }
+
+    toast.success(voltou
+      ? "Pendências resolvidas — cliente voltou pra 'Análise primária'."
+      : "Pendência marcada como resolvida");
     onChange();
   };
 

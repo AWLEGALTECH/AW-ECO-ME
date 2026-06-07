@@ -371,14 +371,58 @@ export default function Esteira() {
     refetchAll();
   };
 
-  const marcarResolvida = async (id: string) => {
+  // Marca a pendência como resolvida. Se for a ÚLTIMA pendência aberta do
+  // cliente e ele não estiver em produção ativa, devolve pra fila de
+  // "Análise primária" (col 1) — garantindo que ninguém fique no limbo.
+  const marcarResolvida = async (d: DemandaEsteira) => {
     const { error } = await supabase.from("demandas" as any)
       .update({ status: "resolvida", completed_at: new Date().toISOString(), completed_by: user?.id || null })
-      .eq("id", id);
+      .eq("id", d.id);
     if (error) { toast.error(error.message); return; }
-    toast.success("Pendência marcada como resolvida");
+
+    const cliId = d.cliente?.id || null;
+    let voltou = false;
+    if (cliId) {
+      const { data: abertas } = await supabase
+        .from("demandas" as any)
+        .select("id")
+        .eq("cliente_id", cliId)
+        .eq("etapa", "pendencia_documental")
+        .eq("status", "pendente")
+        .limit(1);
+      if (!abertas || abertas.length === 0) {
+        const { data: ativas } = await supabase
+          .from("demandas" as any)
+          .select("id")
+          .eq("cliente_id", cliId)
+          .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "confeccao_peca", "protocolada", "processual"])
+          .neq("status", "cancelada")
+          .limit(1);
+        if (!ativas || ativas.length === 0) {
+          const { data: cli } = await supabase
+            .from("clientes")
+            .select("precisa_analise_extratos, analise_primaria_finalizada_at")
+            .eq("id", cliId)
+            .single();
+          const foraDaFila = !(cli as any)?.precisa_analise_extratos || !!(cli as any)?.analise_primaria_finalizada_at;
+          await supabase
+            .from("clientes")
+            .update({
+              precisa_analise_extratos: true,
+              analise_primaria_finalizada_at: null,
+              analise_primaria_finalizada_by: null,
+            } as any)
+            .eq("id", cliId);
+          voltou = foraDaFila;
+        }
+      }
+    }
+
     setConfirmandoResolver(false);
     setPendenciaOpen(null);
+    toast.success(voltou
+      ? "Pendências resolvidas — cliente voltou pra 'Análise primária'."
+      : "Pendência marcada como resolvida");
     refetchAll();
   };
 
@@ -664,7 +708,7 @@ export default function Esteira() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); if (pendenciaOpen) marcarResolvida(pendenciaOpen.id); }}
+              onClick={(e) => { e.preventDefault(); if (pendenciaOpen) marcarResolvida(pendenciaOpen); }}
             >
               <CheckCircle2 className="h-4 w-4 mr-1" /> Confirmar
             </AlertDialogAction>

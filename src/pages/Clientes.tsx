@@ -200,6 +200,9 @@ export default function Clientes() {
       parceiro: form.parceiro.trim() || null,
       origem: "manual",
       cadastrado_por: nomeSobrenome(profile),
+      // Todo cliente entra na fila de "Análise primária" (col 1 da esteira),
+      // inclusive os cadastrados manualmente — ninguém pode ficar de fora.
+      precisa_analise_extratos: true,
     } as any).select("id").single();
     setSaving(false);
     if (error || !inserted) {
