@@ -62,6 +62,7 @@ interface ClienteEsteira {
   origem: string | null;
   drive_folder_url: string | null;
   requerido: string | null;
+  cadastrado_por: string | null;
   observacoes: string | null;
   // Quantas demandas downstream o cliente ja tem (analise_vinculada,
   // fluxo_artesanal, pronta_para_protocolo) — mostra no card como dica.
@@ -155,7 +156,7 @@ export default function Esteira() {
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
-        .select("id, nome, created_at, origem, drive_folder_url, requerido, observacoes")
+        .select("id, nome, created_at, origem, drive_folder_url, requerido, cadastrado_por, observacoes")
         .eq("precisa_analise_extratos" as any, true)
         .is("analise_primaria_finalizada_at" as any, null)
         .order("created_at", { ascending: true });
@@ -531,17 +532,26 @@ export default function Esteira() {
                   onClick={() => setInicioCliente(c)}
                   titulo={c.nome}
                   sub={
-                    <div className="space-y-1">
-                      {c.requerido ? (
-                        <span className="inline-flex items-center gap-1.5 text-foreground/80">
-                          <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="truncate">{c.requerido}</span>
+                    <div className="space-y-1.5">
+                      {/* Requerido (réu) — primeira informação, em destaque. */}
+                      <span className="flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">Requerido:</span>
+                        <span className="truncate font-medium text-foreground">
+                          {c.requerido || "—"}
                         </span>
-                      ) : (
-                        <span className="text-foreground/80">
-                          {c.origem === "writer" ? "Cadastrado via procuração" : "Cadastro manual"}
+                      </span>
+                      {/* Quem cadastrou + por qual via. */}
+                      <span className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">Cadastrado por:</span>
+                        <span className="truncate text-foreground/90">
+                          {(c.cadastrado_por || "").trim() || "—"}
+                          <span className="text-muted-foreground/70">
+                            {" "}({c.origem === "writer" ? "via procuração" : "manual"})
+                          </span>
                         </span>
-                      )}
+                      </span>
                       {c.demandas_downstream > 0 && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/90">
                           <CheckCircle2 className="h-2.5 w-2.5" />
