@@ -375,17 +375,10 @@ function AguardandoNichoBoard({
 }) {
   const SEM = "__sem_nicho__";
   const norm = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-  const [filtros, setFiltros] = useState<Set<string>>(new Set());
-
-  const prospectsF = useMemo(() => {
-    if (filtros.size === 0) return prospects;
-    const ativos = FILTROS_LEAD.filter(f => filtros.has(f.key));
-    return prospects.filter(p => ativos.every(f => f.test(p)));
-  }, [prospects, filtros]);
 
   const colunas = useMemo(() => {
     const m = new Map<string, Prospect[]>();
-    for (const p of prospectsF) {
+    for (const p of prospects) {
       const key = p.nicho && p.nicho.trim() ? p.nicho.trim() : SEM;
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(p);
@@ -399,7 +392,7 @@ function AguardandoNichoBoard({
       .filter(lbl => !presentes.has(norm(lbl)))
       .map(lbl => [lbl, [] as Prospect[]]);
     return [...reais, ...(sem ? [sem] : []), ...vazios];
-  }, [prospectsF]);
+  }, [prospects]);
 
   return (
     <div className="space-y-3">
@@ -407,11 +400,9 @@ function AguardandoNichoBoard({
         <TrendingUp className="h-4 w-4 text-amber-400 shrink-0" />
         <h3 className="text-sm font-medium">Aguardando contato</h3>
         <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums text-amber-400 bg-amber-400/10 border-amber-400/30">
-          {prospectsF.length}{filtros.size > 0 && prospectsF.length !== prospects.length ? `/${prospects.length}` : ""}
+          {prospects.length}
         </span>
-        <span className="text-[11px] text-muted-foreground hidden sm:inline">· por nicho</span>
-        <div className="flex-1" />
-        <FiltroLeadsBtn filtros={filtros} setFiltros={setFiltros} />
+        <span className="text-[11px] text-muted-foreground hidden sm:inline">· por nicho · filtre dentro de cada coluna</span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {colunas.map(([key, leads]) => (
@@ -441,9 +432,9 @@ function FiltroLeadsBtn({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant={ativos > 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5 shrink-0">
-          <Filter className="h-3.5 w-3.5" />
-          {ativos === 0 ? "Filtrar" : `${ativos} filtro${ativos === 1 ? "" : "s"}`}
+        <Button variant={ativos > 0 ? "default" : "outline"} size="sm" className="h-6 px-1.5 gap-1 text-[11px] shrink-0" title="Filtrar leads desta coluna">
+          <Filter className="h-3 w-3" />
+          {ativos > 0 && <span className="tabular-nums">{ativos}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-60 p-0">
@@ -482,12 +473,21 @@ function ColunaNicho({
   onDropCard: (prospectId: string, paraEstagio: Estagio, paraNicho?: string | null) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  // Filtro próprio da coluna (intralista).
+  const [filtros, setFiltros] = useState<Set<string>>(new Set());
   const meta = nicho ? iconePorNicho(nicho) : null;
   const Icon = meta ? meta.Icon : Target;
   const cor = meta ? meta.cor : "text-muted-foreground";
   const LIMITE = 6;
-  const visiveis = leads.slice(0, LIMITE);
-  const restantes = leads.length - visiveis.length;
+
+  const filtrados = useMemo(() => {
+    if (filtros.size === 0) return leads;
+    const ativos = FILTROS_LEAD.filter(f => filtros.has(f.key));
+    return leads.filter(p => ativos.every(f => f.test(p)));
+  }, [leads, filtros]);
+
+  const visiveis = filtrados.slice(0, LIMITE);
+  const restantes = filtrados.length - visiveis.length;
 
   const drop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -508,14 +508,17 @@ function ColunaNicho({
           <Icon className={`h-4 w-4 shrink-0 ${cor}`} />
           <h4 className="text-sm font-medium truncate">{nicho || "Sem nicho"}</h4>
         </div>
-        <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums shrink-0 text-amber-400 bg-amber-400/10 border-amber-400/30">
-          {leads.length}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {leads.length > 0 && <FiltroLeadsBtn filtros={filtros} setFiltros={setFiltros} />}
+          <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums text-amber-400 bg-amber-400/10 border-amber-400/30">
+            {filtros.size > 0 && filtrados.length !== leads.length ? `${filtrados.length}/${leads.length}` : leads.length}
+          </span>
+        </div>
       </div>
       <div className="space-y-2">
         {visiveis.length === 0 ? (
           <div className="text-[12px] italic text-muted-foreground/50 px-3 py-6 text-center border border-dashed border-border/70 rounded-lg">
-            {dragOver ? "Solte aqui pra mover" : "Vazio."}
+            {dragOver ? "Solte aqui pra mover" : (leads.length > 0 ? "Nenhum lead com esse filtro." : "Vazio.")}
           </div>
         ) : (
           visiveis.map(p => (
@@ -1689,8 +1692,8 @@ function FiltroResponsavelBtn({
     <Popover>
       <PopoverTrigger asChild>
         <Button variant={ativos > 0 ? "default" : "outline"} size="default" className="h-10 gap-1.5 shrink-0">
-          <Filter className="h-4 w-4" />
-          {ativos === 0 ? "Filtrar" : `${ativos} responsável${ativos === 1 ? "" : "is"}`}
+          <User className="h-4 w-4" />
+          {ativos === 0 ? "Responsável" : `${ativos} responsável${ativos === 1 ? "" : "is"}`}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
