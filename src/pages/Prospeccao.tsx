@@ -1348,6 +1348,13 @@ function ProspectDetalheDialog({
     return out;
   })();
 
+  // Ao mandar mensagem por um canal, já marca o item do checklist de cadência
+  // desse canal (se ainda não foi marcado). Só faz sentido em aguardando/cadência.
+  const aoEnviarCanal = (canal: "wa" | "insta" | "tel") => {
+    if (prospect.estagio !== "aguardando_contato" && prospect.estagio !== "em_cadencia") return;
+    if (!cadenciaFeita[canal]) marcarContatoCadencia(canal);
+  };
+
   // Saudações prontas. WhatsApp suporta ?text= nativo; Instagram não
   // permite pré-preencher Direct, então copiamos pro clipboard ao abrir.
   const waSaud = (mensagens["whatsapp_saudacao"] || "").trim();
@@ -1462,15 +1469,17 @@ function ProspectDetalheDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {waLink && (
                   <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
-                    cor="emerald" big sub={prospect.telefone || waDigits} onClick={aoContatar} />
+                    cor="emerald" big sub={prospect.telefone || waDigits}
+                    onClick={() => { aoContatar(); aoEnviarCanal("wa"); }} />
                 )}
                 {decisorLink && (
                   <ContatoBtn href={decisorLink} icon={UserCheck} label="Decisor (WhatsApp)"
-                    cor="primary" big sub={telefoneDecisor!} onClick={aoContatar} />
+                    cor="primary" big sub={telefoneDecisor!}
+                    onClick={() => { aoContatar(); aoEnviarCanal("wa"); }} />
                 )}
                 {igLink && (
                   <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
-                    cor="pink" big onClick={() => { copiarSaudacaoIg(); aoContatar(); }}
+                    cor="pink" big onClick={() => { copiarSaudacaoIg(); aoContatar(); aoEnviarCanal("insta"); }}
                     sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
                 )}
               </div>
@@ -1479,7 +1488,8 @@ function ProspectDetalheDialog({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {telLink && !waLink && (
                   <ContatoBtn href={telLink} icon={Phone} label="Ligar"
-                    cor="muted" sub={prospect.telefone || ""} onClick={aoContatar} />
+                    cor="muted" sub={prospect.telefone || ""}
+                    onClick={() => { aoContatar(); aoEnviarCanal("tel"); }} />
                 )}
                 {prospect.google_maps_url && (
                   <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
