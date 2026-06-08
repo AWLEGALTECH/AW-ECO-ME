@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 
@@ -27,7 +27,16 @@ export type TipoPendencia = typeof TIPOS_PENDENCIA[number]["key"];
 interface Props {
   open: boolean;
   onClose: () => void;
-  cliente: { id: string; nome: string; drive_folder_url?: string | null; observacoes?: string | null } | null;
+  cliente: {
+    id: string;
+    nome: string;
+    drive_folder_url?: string | null;
+    observacoes?: string | null;
+    requerido?: string | null;
+    cadastrado_por?: string | null;
+    origem?: string | null;
+    demandas_downstream?: number;
+  } | null;
   userId: string | null;
   onCreated: () => void;
   // Sobrescreve o que acontece em "Seguir fluxo Bradesco".
@@ -232,6 +241,43 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
+              {/* Resumo do card — mesmas infos exibidas na coluna 1 da
+                  esteira (requerido, quem cadastrou, peças em produção),
+                  mas expandidas pra leitura sem cortar. */}
+              <div className="rounded-xl border border-border bg-card/40 px-4 py-3 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Requerido</p>
+                    <p className="text-sm font-medium text-foreground break-words">
+                      {(cliente?.requerido || "").trim() || "—"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Cadastrado por</p>
+                    <p className="text-sm text-foreground/90 break-words">
+                      {(cliente?.cadastrado_por || "").trim() || "—"}
+                      <span className="text-muted-foreground/70">
+                        {" "}({cliente?.origem === "writer" ? "via procuração" : "manual"})
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                {(cliente?.demandas_downstream ?? 0) > 0 && (
+                  <div className="flex items-center gap-2.5 pt-0.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <p className="text-sm text-emerald-400/90">
+                      {cliente!.demandas_downstream === 1
+                        ? "1 peça em produção"
+                        : `${cliente!.demandas_downstream} peças em produção`}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Observacoes deixadas por quem aprovou o pre-cliente */}
               {cliente?.observacoes && (
                 <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 flex items-start gap-2.5">

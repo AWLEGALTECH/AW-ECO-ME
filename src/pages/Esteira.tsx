@@ -536,18 +536,16 @@ export default function Esteira() {
                   titulo={c.nome}
                   sub={
                     <div className="space-y-1.5">
-                      {/* Requerido (réu) — primeira informação, em destaque. */}
+                      {/* Requerido (réu) — direto após o ícone, em destaque. */}
                       <span className="flex items-center gap-1.5">
                         <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">Requerido:</span>
                         <span className="truncate font-medium text-foreground">
                           {c.requerido || "—"}
                         </span>
                       </span>
-                      {/* Quem cadastrou + por qual via. */}
+                      {/* Quem cadastrou — direto após o ícone. */}
                       <span className="flex items-center gap-1.5">
                         <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">Cadastrado por:</span>
                         <span className="truncate text-foreground/90">
                           {(c.cadastrado_por || "").trim() || "—"}
                           <span className="text-muted-foreground/70">
@@ -697,7 +695,16 @@ export default function Esteira() {
       <EsteiraInicioDialog
         open={!!inicioCliente}
         onClose={() => setInicioCliente(null)}
-        cliente={inicioCliente ? { id: inicioCliente.id, nome: inicioCliente.nome, drive_folder_url: inicioCliente.drive_folder_url, observacoes: inicioCliente.observacoes } : null}
+        cliente={inicioCliente ? {
+          id: inicioCliente.id,
+          nome: inicioCliente.nome,
+          drive_folder_url: inicioCliente.drive_folder_url,
+          observacoes: inicioCliente.observacoes,
+          requerido: inicioCliente.requerido,
+          cadastrado_por: inicioCliente.cadastrado_por,
+          origem: inicioCliente.origem,
+          demandas_downstream: inicioCliente.demandas_downstream,
+        } : null}
         userId={user?.id || null}
         onCreated={refetchAll}
         permitirFinalizarPrimaria
