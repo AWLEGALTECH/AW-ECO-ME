@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { parseMoneyBR } from "@/lib/money";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { AcaoCard } from "@/components/AcaoCard";
@@ -1242,13 +1243,10 @@ export function EspelhoProtocoloDialog({
     { id: "valor", label: "Valor da causa", valor: valor > 0 ? fmtBRL(valor) : "—" },
   ];
 
-  // Parseia "1.500,00" / "1500" / "1500.00" pra numero. Retorna 0 se invalido.
-  const parseMoney = (s: string): number => {
-    if (!s) return 0;
-    const cleaned = String(s).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : 0;
-  };
+  // Parseia "1.500,00" / "1500" / "1500.00" pra numero. Usa o util robusto
+  // (lib/money) que detecta o separador decimal — evita o bug histórico de
+  // remover o ponto do valor pré-preenchido e inflar ×100.
+  const parseMoney = (s: string): number => parseMoneyBR(s);
 
   const finalizar = async () => {
     if (!numeroProcesso.trim()) {
