@@ -18,9 +18,12 @@ import {
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
   Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
   Calendar, UserCheck, Square, CheckSquare, MessageSquareText, Send, Workflow,
+  FileSpreadsheet, FileText, Loader2,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
+import { parsePlanilhaPadrao } from "@/lib/planilhaParser";
+import { statusHorario, resumoHoje, semanaFormatada, horarioLimpo } from "@/lib/horario";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useMensagensProntas } from "@/hooks/useMensagensProntas";
 import { MinhasMensagensDialog } from "@/components/MinhasMensagensDialog";
@@ -397,6 +400,31 @@ function ColunaEstagio({
   );
 }
 
+// Selo de horário de funcionamento: "Aberto agora / Fechado agora" quando
+// dá pra interpretar o horário; senão mostra o texto cru limpo. Usado no
+// card e no popup.
+function HorarioStatus({ raw, modo = "card" }: { raw: string | null; modo?: "card" | "popup" }) {
+  if (!raw) return null;
+  const st = statusHorario(raw);
+  const resumo = resumoHoje(raw);
+  if (!st) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground min-w-0 max-w-full">
+        <Clock className="h-2.5 w-2.5 shrink-0" />
+        <span className="truncate">{horarioLimpo(raw)}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      <Clock className="h-2.5 w-2.5 shrink-0" />
+      <span className={st.aberto ? "text-emerald-400 font-medium" : "text-red-400 font-medium"}>{st.label}</span>
+      {resumo && resumo !== "Fechado hoje" && <span className="text-muted-foreground">· {resumo}</span>}
+      {modo === "popup" && st.detalhe && <span className="text-muted-foreground">· {st.detalhe}</span>}
+    </span>
+  );
+}
+
 function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onClick: () => void; terminal: boolean }) {
   const { display: displayName } = useUserDisplayNames();
   const dias = diasNaEtapa(prospect.entrou_na_etapa_at);
@@ -464,6 +492,11 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
           </div>
         );
       })()}
+      {prospect.horario_funcionamento && (
+        <div className="text-[10px] mb-1 min-w-0">
+          <HorarioStatus raw={prospect.horario_funcionamento} />
+        </div>
+      )}
       {prospect.responsavel_email && (
         <div className="inline-flex items-center gap-1 text-[10px] text-primary/90 mb-1">
           <User className="h-2.5 w-2.5" />
@@ -515,12 +548,16 @@ function ProspectCard({ prospect, onClick, terminal }: { prospect: Prospect; onC
 function InserirLeadsDialog({
   open, onClose, userId, onInserted,
 }: { open: boolean; onClose: () => void; userId: string | null; onInserted: () => void }) {
+  // metodo: "menu" (escolha) | "livre" (texto interpretativo) | "planilha" (upload xlsx)
+  const [metodo, setMetodo] = useState<"menu" | "livre" | "planilha">("menu");
   const [texto, setTexto] = useState("");
   const [nicho, setNicho] = useState("");
   const [parseados, setParseados] = useState<LeadParsed[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [lendoPlanilha, setLendoPlanilha] = useState(false);
 
   const reset = () => {
+    setMetodo("menu");
     setTexto("");
     setNicho("");
     setParseados(null);
@@ -539,6 +576,25 @@ function InserirLeadsDialog({
       return;
     }
     setParseados(res);
+  };
+
+  const onArquivoPlanilha = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite re-selecionar o mesmo arquivo
+    if (!file) return;
+    setLendoPlanilha(true);
+    try {
+      const res = await parsePlanilhaPadrao(file);
+      if (res.length === 0) {
+        toast.error("Nenhum lead encontrado — confira se a planilha segue o modelo (nome, telefones, instagram, site, horario, url).");
+        return;
+      }
+      setParseados(res);
+    } catch (err: any) {
+      toast.error("Erro ao ler a planilha: " + (err?.message || String(err)));
+    } finally {
+      setLendoPlanilha(false);
+    }
   };
 
   const editarParsedoNome = (idx: number, v: string) => {
@@ -592,11 +648,41 @@ function InserirLeadsDialog({
             Inserir leads
           </DialogTitle>
           <DialogDescription>
-            Cole a lista bruta abaixo. O parser identifica nome, telefone, site e Instagram automaticamente.
+            {parseados
+              ? "Revise os leads antes de salvar."
+              : metodo === "menu"
+                ? "Escolha como inserir os leads."
+                : metodo === "livre"
+                  ? "Cole a lista bruta. O parser identifica nome, telefone, site e Instagram automaticamente."
+                  : "Suba a planilha padrão (.xlsx) — colunas: nome, telefones, instagram, site, horario, url."}
           </DialogDescription>
         </DialogHeader>
 
         {!parseados ? (
+          metodo === "menu" ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => setMetodo("livre")}
+                className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card/40 p-4 text-left hover:border-primary/40 hover:bg-card/60 transition-colors"
+              >
+                <FileText className="h-6 w-6 text-primary" />
+                <div>
+                  <p className="text-sm font-semibold">Campo livre</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Cole qualquer lista de texto — o parser interpreta automaticamente.</p>
+                </div>
+              </button>
+              <button
+                onClick={() => setMetodo("planilha")}
+                className="flex flex-col items-start gap-2 rounded-xl border border-border bg-card/40 p-4 text-left hover:border-primary/40 hover:bg-card/60 transition-colors"
+              >
+                <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                <div>
+                  <p className="text-sm font-semibold">Planilha padrão</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Suba um Excel (.xlsx) no modelo padrão de exportação.</p>
+                </div>
+              </button>
+            </div>
+          ) : metodo === "livre" ? (
           <>
             <div className="space-y-3 pt-1">
               <div>
@@ -642,10 +728,61 @@ Próximo lead...`}
               </div>
             </div>
             <DialogFooter>
+              <Button variant="ghost" onClick={() => setMetodo("menu")}>← Voltar</Button>
               <Button variant="outline" onClick={fechar}>Cancelar</Button>
               <Button onClick={fazerPreview}>Processar e revisar →</Button>
             </DialogFooter>
           </>
+          ) : (
+          <>
+            <div className="space-y-3 pt-1">
+              <div>
+                <Label className="text-xs flex items-center gap-1.5">
+                  Nicho do lote
+                  {nicho && (() => {
+                    const { Icon, cor } = iconePorNicho(nicho);
+                    return <Icon className={`h-3.5 w-3.5 ${cor}`} />;
+                  })()}
+                  <span className="text-muted-foreground">opcional</span>
+                </Label>
+                <Input
+                  value={nicho}
+                  onChange={(e) => setNicho(e.target.value)}
+                  placeholder="ex: Clínica médica, Estética, Advocacia, Pet, Restaurante…"
+                  list="nichos-sugeridos-planilha"
+                />
+                <datalist id="nichos-sugeridos-planilha">
+                  {NICHOS_SUGERIDOS.map(n => <option key={n} value={n} />)}
+                </datalist>
+              </div>
+              <label className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border p-8 text-center transition-colors cursor-pointer hover:border-primary/50 hover:bg-card/40 ${lendoPlanilha ? "opacity-60 pointer-events-none" : ""}`}>
+                {lendoPlanilha ? (
+                  <Loader2 className="h-7 w-7 text-primary animate-spin" />
+                ) : (
+                  <Upload className="h-7 w-7 text-muted-foreground" />
+                )}
+                <div>
+                  <p className="text-sm font-medium">{lendoPlanilha ? "Lendo planilha…" : "Clique pra escolher o arquivo .xlsx"}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Colunas: nome · telefones · instagram · site · horario · url</p>
+                </div>
+                <input
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={onArquivoPlanilha}
+                  disabled={lendoPlanilha}
+                />
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                A planilha precisa seguir o modelo exato (1ª linha = cabeçalho). Cada linha vira um lead na coluna "Aguardando contato".
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setMetodo("menu")} disabled={lendoPlanilha}>← Voltar</Button>
+              <Button variant="outline" onClick={fechar} disabled={lendoPlanilha}>Cancelar</Button>
+            </DialogFooter>
+          </>
+          )
         ) : (
           <>
             <div className="space-y-2 pt-1">
@@ -677,6 +814,7 @@ Próximo lead...`}
                       {p.google_maps_url && <span><MapPin className="inline h-2.5 w-2.5 mr-0.5 text-emerald-400" /> Maps</span>}
                       {p.endereco && <span className="truncate max-w-[200px]"><MapPin className="inline h-2.5 w-2.5 mr-0.5" /> {p.endereco}</span>}
                       {p.avaliacao != null && <span><Star className="inline h-2.5 w-2.5 mr-0.5 text-amber-400 fill-amber-400" /> {p.avaliacao.toFixed(1)}</span>}
+                      {p.horario_funcionamento && <span className="min-w-0"><HorarioStatus raw={p.horario_funcionamento} /></span>}
                     </div>
                   </div>
                 ))}
@@ -1025,22 +1163,36 @@ function ProspectDetalheDialog({
 
         {/* Metainfo do lead (avaliação, endereço, horário) — só informativo, sem moldura */}
         {(prospect.avaliacao != null || prospect.endereco || prospect.horario_funcionamento) && (
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
-            {prospect.avaliacao != null && (
-              <span className="inline-flex items-center gap-1 text-amber-400">
-                <Star className="h-3 w-3 fill-amber-400" /> {prospect.avaliacao.toFixed(1)}
-              </span>
-            )}
-            {prospect.endereco && (
-              <span className="inline-flex items-center gap-1 truncate max-w-[260px]">
-                <MapPin className="h-3 w-3" /> {prospect.endereco}
-              </span>
-            )}
-            {prospect.horario_funcionamento && (
-              <span className="inline-flex items-center gap-1 truncate max-w-[300px]">
-                <Clock className="h-3 w-3" /> {prospect.horario_funcionamento}
-              </span>
-            )}
+          <div className="space-y-1">
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+              {prospect.avaliacao != null && (
+                <span className="inline-flex items-center gap-1 text-amber-400">
+                  <Star className="h-3 w-3 fill-amber-400" /> {prospect.avaliacao.toFixed(1)}
+                </span>
+              )}
+              {prospect.endereco && (
+                <span className="inline-flex items-center gap-1 truncate max-w-[260px]">
+                  <MapPin className="h-3 w-3" /> {prospect.endereco}
+                </span>
+              )}
+              {prospect.horario_funcionamento && (
+                <span className="text-[11px]"><HorarioStatus raw={prospect.horario_funcionamento} modo="popup" /></span>
+              )}
+            </div>
+            {/* Grade da semana inteira (quando interpretável) */}
+            {(() => {
+              const semana = semanaFormatada(prospect.horario_funcionamento);
+              if (!semana) return null;
+              return (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                  {semana.map(d => (
+                    <span key={d.abrev} className={d.hoje ? "text-foreground font-medium" : ""}>
+                      {d.abrev} {d.horas}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 

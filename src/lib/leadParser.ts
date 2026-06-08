@@ -150,14 +150,14 @@ function extrairAvaliacaoSolta(linhas: string[]): number | null {
   return null;
 }
 
-function normalizarFone(s: string | null): string | null {
+export function normalizarFone(s: string | null): string | null {
   if (!s) return null;
   const digits = s.replace(/\D/g, "");
   if (digits.length < 10 || digits.length > 13) return null;
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
 
-function extrairInstagramDeUrl(url: string): string | null {
+export function extrairInstagramDeUrl(url: string): string | null {
   const m = url.match(/instagram\.com\/([A-Za-z0-9._-]+)/i);
   if (!m) return null;
   return m[1].replace(/\?.*$/, "");
