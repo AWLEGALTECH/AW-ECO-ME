@@ -129,31 +129,36 @@ export default function Prospeccao() {
   // Movimentacao por arrastar (drag-and-drop). Mesma logica do mover()
   // do popup, mas sem fechar dialog. Carimba responsavel quando lead
   // sai de 'aguardando_contato' pra 'em_cadencia' a primeira vez.
-  const moverPorDrag = async (prospectId: string, paraEstagio: Estagio) => {
+  const moverPorDrag = async (prospectId: string, paraEstagio: Estagio, paraNicho?: string | null) => {
     const p = (q.data || []).find(x => x.id === prospectId);
     if (!p) return;
-    if (p.estagio === paraEstagio) return;
+    const mudaEstagio = p.estagio !== paraEstagio;
+    const mudaNicho = paraNicho !== undefined && (p.nicho || "") !== (paraNicho || "");
+    if (!mudaEstagio && !mudaNicho) return;
     const carimbar =
       p.estagio === "aguardando_contato" && paraEstagio === "em_cadencia" && !p.responsavel_id && user?.id;
-    const patch: Record<string, unknown> = {
-      estagio: paraEstagio,
-      ultimo_contato_at: new Date().toISOString(),
-    };
+    const patch: Record<string, unknown> = {};
+    if (mudaEstagio) { patch.estagio = paraEstagio; patch.ultimo_contato_at = new Date().toISOString(); }
+    if (mudaNicho) patch.nicho = paraNicho || null;
     if (carimbar) {
       patch.responsavel_id = user!.id;
       patch.responsavel_email = user!.email || null;
     }
     const { error } = await supabase.from("prospects" as any).update(patch).eq("id", prospectId);
     if (error) { toast.error(error.message); return; }
-    await supabase.from("prospect_eventos" as any).insert({
-      prospect_id: prospectId,
-      tipo: "movido",
-      de_estagio: p.estagio,
-      para_estagio: paraEstagio,
-      user_id: user?.id || null,
-      user_email: user?.email || null,
-    });
-    toast.success(`Movido para "${ESTAGIO_META[paraEstagio].label}".`);
+    if (mudaEstagio) {
+      await supabase.from("prospect_eventos" as any).insert({
+        prospect_id: prospectId,
+        tipo: "movido",
+        de_estagio: p.estagio,
+        para_estagio: paraEstagio,
+        user_id: user?.id || null,
+        user_email: user?.email || null,
+      });
+      toast.success(`Movido para "${ESTAGIO_META[paraEstagio].label}".`);
+    } else {
+      toast.success(`Nicho atualizado para "${paraNicho || "—"}".`);
+    }
     q.refetch();
   };
 
@@ -276,9 +281,16 @@ export default function Prospeccao() {
             <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
           ) : (
             <div className="space-y-6">
-              {/* Pipeline ativo */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-                {ESTAGIOS_ORDEM.map((e) => (
+              {/* TOPO: Aguardando contato, dividido por nicho (máx 6 por coluna) */}
+              <AguardandoNichoBoard
+                prospects={porEstagio.aguardando_contato}
+                onCardClick={setDetalheOpen}
+                onDropCard={moverPorDrag}
+              />
+
+              {/* Demais etapas do funil */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 pt-4 border-t border-border/40">
+                {(["em_cadencia", "respondeu", "diagnostico", "proposta"] as Estagio[]).map((e) => (
                   <ColunaEstagio
                     key={e}
                     estagio={e}
@@ -336,6 +348,120 @@ export default function Prospeccao() {
         userEmail={user?.email || null}
         onChanged={() => q.refetch()}
       />
+    </div>
+  );
+}
+
+// Topo do pipeline: "Aguardando contato" dividido por nicho — uma coluna
+// por nicho, cada uma mostrando no máx. 6 leads + uma box com o excedente.
+function AguardandoNichoBoard({
+  prospects, onCardClick, onDropCard,
+}: {
+  prospects: Prospect[];
+  onCardClick: (p: Prospect) => void;
+  onDropCard: (prospectId: string, paraEstagio: Estagio, paraNicho?: string | null) => void;
+}) {
+  const SEM = "__sem_nicho__";
+  const grupos = useMemo(() => {
+    const m = new Map<string, Prospect[]>();
+    for (const p of prospects) {
+      const key = p.nicho && p.nicho.trim() ? p.nicho.trim() : SEM;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(p);
+    }
+    // mais leads primeiro; "sem nicho" sempre por último
+    return Array.from(m.entries()).sort((a, b) => {
+      if (a[0] === SEM) return 1;
+      if (b[0] === SEM) return -1;
+      return b[1].length - a[1].length;
+    });
+  }, [prospects]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 pb-2 border-b border-border">
+        <TrendingUp className="h-4 w-4 text-amber-400 shrink-0" />
+        <h3 className="text-sm font-medium">Aguardando contato</h3>
+        <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums text-amber-400 bg-amber-400/10 border-amber-400/30">
+          {prospects.length}
+        </span>
+        <span className="text-[11px] text-muted-foreground">· por nicho</span>
+      </div>
+      {grupos.length === 0 ? (
+        <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
+          Nenhum lead aguardando contato.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {grupos.map(([key, leads]) => (
+            <ColunaNicho
+              key={key}
+              nicho={key === SEM ? null : key}
+              leads={leads}
+              onCardClick={onCardClick}
+              onDropCard={onDropCard}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ColunaNicho({
+  nicho, leads, onCardClick, onDropCard,
+}: {
+  nicho: string | null;
+  leads: Prospect[];
+  onCardClick: (p: Prospect) => void;
+  onDropCard: (prospectId: string, paraEstagio: Estagio, paraNicho?: string | null) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const meta = nicho ? iconePorNicho(nicho) : null;
+  const Icon = meta ? meta.Icon : Target;
+  const cor = meta ? meta.cor : "text-muted-foreground";
+  const LIMITE = 6;
+  const visiveis = leads.slice(0, LIMITE);
+  const restantes = leads.length - visiveis.length;
+
+  const drop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const id = e.dataTransfer.getData("prospect-id");
+    if (id) onDropCard(id, "aguardando_contato", nicho);
+  };
+
+  return (
+    <div
+      className={`space-y-2 min-w-0 rounded-lg transition-colors ${dragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={drop}
+    >
+      <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={`h-4 w-4 shrink-0 ${cor}`} />
+          <h4 className="text-sm font-medium truncate">{nicho || "Sem nicho"}</h4>
+        </div>
+        <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums shrink-0 text-amber-400 bg-amber-400/10 border-amber-400/30">
+          {leads.length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {visiveis.map(p => (
+          <ProspectCard key={p.id} prospect={p} onClick={() => onCardClick(p)} terminal={false} />
+        ))}
+        {restantes > 0 && (
+          <div className="rounded-lg border border-dashed border-amber-400/40 bg-amber-400/5 px-3 py-2 text-center">
+            <span className="text-[11px] font-medium text-amber-400">
+              + {restantes} aguardando contato
+            </span>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              além dos {LIMITE} acima neste nicho
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1713,6 +1839,7 @@ interface ProspectLite {
 interface Lote {
   batchId: string;
   criadoEm: string;
+  autorId: string | null;
   autorEmail: string | null;
   autorNome: string;
   nicho: string | null;
@@ -1756,17 +1883,9 @@ function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => 
       const prospects = (rows || []) as unknown as ProspectLite[];
       if (prospects.length === 0) return [];
 
-      // 2) email do autor via prospect_eventos (trigger grava 'criado' com user_email)
-      const ids = prospects.map(p => p.id);
-      const { data: eventos } = await supabase
-        .from("prospect_eventos" as any)
-        .select("prospect_id, user_email")
-        .eq("tipo", "criado")
-        .in("prospect_id", ids);
-      const emailPorProspect: Record<string, string> = {};
-      for (const ev of (eventos || []) as any[]) {
-        if (ev.user_email) emailPorProspect[ev.prospect_id] = ev.user_email;
-      }
+      // 2) autor = created_by do lead (resolvido pra nome via useUserDisplayNames
+      //    no LoteCard). Evita o .in(ids) gigante que falhava com lotes grandes
+      //    e fazia o histórico mostrar "Sistema".
 
       // 3) agrupa por batch_id (sem batch_id -> lote individual)
       const mapa = new Map<string, ProspectLite[]>();
@@ -1780,13 +1899,12 @@ function HistoricoView({ onProspectClick }: { onProspectClick: (p: Prospect) => 
       const lotes: Lote[] = [];
       for (const [batchId, leads] of mapa) {
         const primeiro = leads[leads.length - 1]; // mais antigo do lote
-        const email = emailPorProspect[primeiro.id] || null;
-        const nomeAutor = email ? email.split("@")[0] : "Sistema";
         lotes.push({
           batchId,
           criadoEm: primeiro.created_at,
-          autorEmail: email,
-          autorNome: nomeAutor,
+          autorId: primeiro.created_by,
+          autorEmail: null,
+          autorNome: primeiro.created_by ? "" : "Sistema",
           nicho: primeiro.nicho,
           qtd: leads.length,
           leads,
@@ -1869,7 +1987,9 @@ function LoteCard({ lote, onProspectClick }: { lote: Lote; onProspectClick: (p: 
   const avatarBg = lote.nicho ? nichoIcone.bgCor : (single ? "bg-primary/15" : "bg-emerald-500/15");
   const AvatarIcon = lote.nicho ? nichoIcone.Icon : (single ? Plus : Upload);
   const avatarColor = lote.nicho ? nichoIcone.cor : (single ? "text-primary" : "text-emerald-400");
-  const autorDisplay = lote.autorEmail ? displayName({ email: lote.autorEmail }) : lote.autorNome;
+  const autorDisplay = lote.autorId
+    ? displayName({ id: lote.autorId, email: lote.autorEmail })
+    : (lote.autorEmail ? displayName({ email: lote.autorEmail }) : lote.autorNome);
 
   const abrirProspect = async (lite: ProspectLite) => {
     const { data } = await supabase
