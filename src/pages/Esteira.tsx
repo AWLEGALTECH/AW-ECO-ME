@@ -152,7 +152,10 @@ export default function Esteira() {
   // "Finalizar analise primaria" no dialog do cliente. Enquanto isso,
   // o cliente pode aparecer aqui E nas colunas seguintes em paralelo.
   const cliRes = useQuery({
-    queryKey: ["esteira-clientes-analise-primaria"],
+    // v2: bump da chave pra descartar cache persistida (localStorage) que
+    // foi salva antes de eu incluir cadastrado_por/requerido no select —
+    // senao o rehydrate serve dado antigo sem esses campos (aparece "—").
+    queryKey: ["esteira-clientes-analise-primaria", "v2"],
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")

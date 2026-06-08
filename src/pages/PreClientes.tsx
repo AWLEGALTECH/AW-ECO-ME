@@ -503,6 +503,9 @@ export default function PreClientes() {
         drive_folder_url: driveFolderUrl,
         origem: "writer",
         cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
+        // Réu(s) vindos do kit (causa_reus) ficam em pre.rubricas — grava
+        // tambem em clientes.requerido pra aparecer no card da esteira.
+        requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
         precisa_analise_extratos: true,
       } as any)
       .select()
