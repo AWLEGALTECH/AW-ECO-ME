@@ -352,6 +352,18 @@ export default function Prospeccao() {
   );
 }
 
+// Nichos exibidos vazios como ilustração (além dos que têm leads).
+const NICHOS_ILUSTRATIVOS = ["Restaurante", "Automotivo", "Educação"];
+
+// Filtros de "lead mais completo" pra fila de aguardando contato.
+const FILTROS_LEAD: { key: string; label: string; test: (p: Prospect) => boolean }[] = [
+  { key: "wa",     label: "Com WhatsApp",  test: p => !!p.whatsapp },
+  { key: "ig",     label: "Com Instagram", test: p => !!p.instagram },
+  { key: "site",   label: "Com site",      test: p => !!p.site },
+  { key: "aberto", label: "Aberto agora",  test: p => statusHorario(p.horario_funcionamento)?.aberto === true },
+  { key: "aval",   label: "Com avaliação", test: p => p.avaliacao != null },
+];
+
 // Topo do pipeline: "Aguardando contato" dividido por nicho — uma coluna
 // por nicho, cada uma mostrando no máx. 6 leads + uma box com o excedente.
 function AguardandoNichoBoard({
@@ -363,9 +375,17 @@ function AguardandoNichoBoard({
 }) {
   const SEM = "__sem_nicho__";
   const norm = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const [filtros, setFiltros] = useState<Set<string>>(new Set());
+
+  const prospectsF = useMemo(() => {
+    if (filtros.size === 0) return prospects;
+    const ativos = FILTROS_LEAD.filter(f => filtros.has(f.key));
+    return prospects.filter(p => ativos.every(f => f.test(p)));
+  }, [prospects, filtros]);
+
   const colunas = useMemo(() => {
     const m = new Map<string, Prospect[]>();
-    for (const p of prospects) {
+    for (const p of prospectsF) {
       const key = p.nicho && p.nicho.trim() ? p.nicho.trim() : SEM;
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(p);
@@ -373,14 +393,13 @@ function AguardandoNichoBoard({
     const comLeads = Array.from(m.entries());
     const reais = comLeads.filter(([k]) => k !== SEM).sort((a, b) => b[1].length - a[1].length);
     const sem = comLeads.find(([k]) => k === SEM);
-    // Colunas vazias dos demais nichos do catálogo (ilustração) — exceto os
-    // que já têm leads.
+    // Colunas vazias ilustrativas — só as escolhidas e que ainda não têm leads.
     const presentes = new Set(reais.map(([k]) => norm(k)));
-    const vazios: [string, Prospect[]][] = NICHOS_SUGERIDOS
+    const vazios: [string, Prospect[]][] = NICHOS_ILUSTRATIVOS
       .filter(lbl => !presentes.has(norm(lbl)))
       .map(lbl => [lbl, [] as Prospect[]]);
     return [...reais, ...(sem ? [sem] : []), ...vazios];
-  }, [prospects]);
+  }, [prospectsF]);
 
   return (
     <div className="space-y-3">
@@ -388,9 +407,11 @@ function AguardandoNichoBoard({
         <TrendingUp className="h-4 w-4 text-amber-400 shrink-0" />
         <h3 className="text-sm font-medium">Aguardando contato</h3>
         <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums text-amber-400 bg-amber-400/10 border-amber-400/30">
-          {prospects.length}
+          {prospectsF.length}{filtros.size > 0 && prospectsF.length !== prospects.length ? `/${prospects.length}` : ""}
         </span>
-        <span className="text-[11px] text-muted-foreground">· por nicho</span>
+        <span className="text-[11px] text-muted-foreground hidden sm:inline">· por nicho</span>
+        <div className="flex-1" />
+        <FiltroLeadsBtn filtros={filtros} setFiltros={setFiltros} />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {colunas.map(([key, leads]) => (
@@ -404,6 +425,51 @@ function AguardandoNichoBoard({
         ))}
       </div>
     </div>
+  );
+}
+
+// Popover de filtros pra fila de aguardando contato (multi-select AND).
+function FiltroLeadsBtn({
+  filtros, setFiltros,
+}: { filtros: Set<string>; setFiltros: (s: Set<string>) => void }) {
+  const ativos = filtros.size;
+  const toggle = (k: string) => {
+    const next = new Set(filtros);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setFiltros(next);
+  };
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant={ativos > 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5 shrink-0">
+          <Filter className="h-3.5 w-3.5" />
+          {ativos === 0 ? "Filtrar" : `${ativos} filtro${ativos === 1 ? "" : "s"}`}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-60 p-0">
+        <div className="p-3 border-b border-border">
+          <div className="text-xs font-semibold">Filtrar leads</div>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+            Mostra só quem atende a <strong className="text-foreground/80">todos</strong> os critérios marcados.
+          </p>
+        </div>
+        <div className="py-1">
+          {FILTROS_LEAD.map(f => (
+            <label key={f.key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/40 cursor-pointer">
+              <Checkbox checked={filtros.has(f.key)} onCheckedChange={() => toggle(f.key)} />
+              <span className="text-xs flex-1">{f.label}</span>
+            </label>
+          ))}
+        </div>
+        {ativos > 0 && (
+          <div className="p-1.5 border-t border-border/60">
+            <Button variant="ghost" size="sm" className="h-7 w-full text-[11px]" onClick={() => setFiltros(new Set())}>
+              Limpar filtros
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
