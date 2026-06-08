@@ -362,19 +362,24 @@ function AguardandoNichoBoard({
   onDropCard: (prospectId: string, paraEstagio: Estagio, paraNicho?: string | null) => void;
 }) {
   const SEM = "__sem_nicho__";
-  const grupos = useMemo(() => {
+  const norm = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const colunas = useMemo(() => {
     const m = new Map<string, Prospect[]>();
     for (const p of prospects) {
       const key = p.nicho && p.nicho.trim() ? p.nicho.trim() : SEM;
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(p);
     }
-    // mais leads primeiro; "sem nicho" sempre por último
-    return Array.from(m.entries()).sort((a, b) => {
-      if (a[0] === SEM) return 1;
-      if (b[0] === SEM) return -1;
-      return b[1].length - a[1].length;
-    });
+    const comLeads = Array.from(m.entries());
+    const reais = comLeads.filter(([k]) => k !== SEM).sort((a, b) => b[1].length - a[1].length);
+    const sem = comLeads.find(([k]) => k === SEM);
+    // Colunas vazias dos demais nichos do catálogo (ilustração) — exceto os
+    // que já têm leads.
+    const presentes = new Set(reais.map(([k]) => norm(k)));
+    const vazios: [string, Prospect[]][] = NICHOS_SUGERIDOS
+      .filter(lbl => !presentes.has(norm(lbl)))
+      .map(lbl => [lbl, [] as Prospect[]]);
+    return [...reais, ...(sem ? [sem] : []), ...vazios];
   }, [prospects]);
 
   return (
@@ -387,23 +392,17 @@ function AguardandoNichoBoard({
         </span>
         <span className="text-[11px] text-muted-foreground">· por nicho</span>
       </div>
-      {grupos.length === 0 ? (
-        <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
-          Nenhum lead aguardando contato.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {grupos.map(([key, leads]) => (
-            <ColunaNicho
-              key={key}
-              nicho={key === SEM ? null : key}
-              leads={leads}
-              onCardClick={onCardClick}
-              onDropCard={onDropCard}
-            />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {colunas.map(([key, leads]) => (
+          <ColunaNicho
+            key={key}
+            nicho={key === SEM ? null : key}
+            leads={leads}
+            onCardClick={onCardClick}
+            onDropCard={onDropCard}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -448,9 +447,15 @@ function ColunaNicho({
         </span>
       </div>
       <div className="space-y-2">
-        {visiveis.map(p => (
-          <ProspectCard key={p.id} prospect={p} onClick={() => onCardClick(p)} terminal={false} />
-        ))}
+        {visiveis.length === 0 ? (
+          <div className="text-[12px] italic text-muted-foreground/50 px-3 py-6 text-center border border-dashed border-border/70 rounded-lg">
+            {dragOver ? "Solte aqui pra mover" : "Vazio."}
+          </div>
+        ) : (
+          visiveis.map(p => (
+            <ProspectCard key={p.id} prospect={p} onClick={() => onCardClick(p)} terminal={false} />
+          ))
+        )}
         {restantes > 0 && (
           <div className="rounded-lg border border-dashed border-amber-400/40 bg-amber-400/5 px-3 py-2 text-center">
             <span className="text-[11px] font-medium text-amber-400">
@@ -1031,10 +1036,13 @@ function ProspectDetalheDialog({
   // Mensagens prontas do usuário atual: saudação que pré-preenche o
   // WhatsApp e a que é copiada ao abrir o Direct do Instagram.
   const { mensagens } = useMensagensProntas(userId);
+  // Evita avançar pra cadência mais de uma vez por abertura do popup.
+  const contatadoRef = useRef(false);
 
   // Sincroniza os campos editáveis ao abrir/trocar de lead.
   useEffect(() => {
     setOverrides({});
+    contatadoRef.current = false;
     if (!prospect) return;
     setDecisorNum(prospect.telefone_decisor || "");
     const callAt = prospect.estagio === "diagnostico" ? prospect.diagnostico_call_at
@@ -1203,6 +1211,30 @@ function ProspectDetalheDialog({
     onChanged();
   };
 
+  // Acionado ao clicar em QUALQUER botão de "Envio de mensagem". Se o lead
+  // ainda está em "aguardando contato", avança automaticamente pra cadência
+  // e carimba o usuário atual como responsável (sem precisar de "Avançar").
+  const aoContatar = async () => {
+    if (!prospect || contatadoRef.current) return;
+    if (prospect.estagio !== "aguardando_contato") return;
+    contatadoRef.current = true;
+    const patch: Record<string, unknown> = {
+      estagio: "em_cadencia",
+      ultimo_contato_at: new Date().toISOString(),
+    };
+    if (!prospect.responsavel_id && userId) {
+      patch.responsavel_id = userId;
+      patch.responsavel_email = userEmail;
+    }
+    const { error } = await supabase.from("prospects" as any).update(patch).eq("id", prospect.id);
+    if (error) { contatadoRef.current = false; toast.error(error.message); return; }
+    await logEvento("movido", { de_estagio: "aguardando_contato", para_estagio: "em_cadencia" });
+    setOverrides(o => ({ ...o, estagio: "em_cadencia" }));
+    toast.success("Lead movido pra Cadência e atribuído a você.");
+    eventosQ.refetch();
+    onChanged();
+  };
+
   if (!prospect) return null;
 
   const proximoEstagio: Estagio | null = (() => {
@@ -1343,15 +1375,15 @@ function ProspectDetalheDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {waLink && (
                   <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
-                    cor="emerald" big sub={prospect.telefone || waDigits} />
+                    cor="emerald" big sub={prospect.telefone || waDigits} onClick={aoContatar} />
                 )}
                 {decisorLink && (
                   <ContatoBtn href={decisorLink} icon={UserCheck} label="Decisor (WhatsApp)"
-                    cor="primary" big sub={telefoneDecisor!} />
+                    cor="primary" big sub={telefoneDecisor!} onClick={aoContatar} />
                 )}
                 {igLink && (
                   <ContatoBtn href={igLink} icon={Instagram} label="Instagram"
-                    cor="pink" big onClick={copiarSaudacaoIg}
+                    cor="pink" big onClick={() => { copiarSaudacaoIg(); aoContatar(); }}
                     sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
                 )}
               </div>
@@ -1360,19 +1392,19 @@ function ProspectDetalheDialog({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {telLink && !waLink && (
                   <ContatoBtn href={telLink} icon={Phone} label="Ligar"
-                    cor="muted" sub={prospect.telefone || ""} />
+                    cor="muted" sub={prospect.telefone || ""} onClick={aoContatar} />
                 )}
                 {prospect.google_maps_url && (
                   <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
-                    cor="muted" sub="Abrir local" />
+                    cor="muted" sub="Abrir local" onClick={aoContatar} />
                 )}
                 {prospect.email && (
                   <ContatoBtn href={`mailto:${prospect.email}`} icon={Mail} label="E-mail"
-                    cor="muted" sub={prospect.email} />
+                    cor="muted" sub={prospect.email} onClick={aoContatar} />
                 )}
                 {prospect.site && (
                   <ContatoBtn href={prospect.site} icon={Globe} label="Site"
-                    cor="muted"
+                    cor="muted" onClick={aoContatar}
                     sub={(() => { try { return new URL(prospect.site!).hostname.replace(/^www\./, ""); } catch { return prospect.site!; } })()} />
                 )}
               </div>
