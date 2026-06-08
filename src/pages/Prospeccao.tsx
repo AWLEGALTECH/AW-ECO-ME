@@ -652,7 +652,7 @@ function InserirLeadsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) fechar(); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-5 w-5 text-primary" />
@@ -796,45 +796,45 @@ Próximo lead...`}
           )
         ) : (
           <>
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2 pt-1 min-w-0">
               <div className="text-xs text-muted-foreground">
                 <strong className="text-foreground">{parseados.length}</strong> leads extraídos. Revise antes de salvar — você pode editar nome ou remover entradas.
                 {parseados.length > 100 && (
                   <> Mostrando os <strong className="text-foreground">100</strong> primeiros pra revisão; <strong className="text-foreground">todos os {parseados.length}</strong> serão salvos.</>
                 )}
               </div>
-              <div className="rounded-lg border border-border divide-y divide-border/60 max-h-[40vh] overflow-y-auto">
+              <div className="rounded-lg border border-border divide-y divide-border/60 max-h-[45vh] overflow-y-auto overflow-x-hidden">
                 {parseados.slice(0, 100).map((p, i) => (
-                  <div key={i} className="p-2.5 space-y-1.5 text-xs">
-                    <div className="flex items-center gap-2">
+                  <div key={i} className="p-2.5 space-y-1.5 text-xs min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       <Input
                         value={p.nome}
                         onChange={(e) => editarParsedoNome(i, e.target.value)}
-                        className="h-7 text-xs font-semibold flex-1"
+                        className="h-7 text-xs font-semibold flex-1 min-w-0"
                       />
                       <button
                         onClick={() => removerParseado(i)}
-                        className="text-muted-foreground hover:text-red-400 transition-colors"
+                        className="text-muted-foreground hover:text-red-400 transition-colors shrink-0"
                         title="Remover este lead"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground flex-wrap pl-1">
-                      {p.telefone && <span><Phone className="inline h-2.5 w-2.5 mr-0.5" /> {p.telefone}</span>}
+                    <div className="flex items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground flex-wrap pl-1 min-w-0">
+                      {p.telefone && <span className="shrink-0"><Phone className="inline h-2.5 w-2.5 mr-0.5" /> {p.telefone}</span>}
                       {p.email && <span className="truncate max-w-[160px]"><Mail className="inline h-2.5 w-2.5 mr-0.5" /> {p.email}</span>}
-                      {p.instagram && <span><Instagram className="inline h-2.5 w-2.5 mr-0.5 text-pink-400" /> @{p.instagram}</span>}
-                      {p.site && <span><Globe className="inline h-2.5 w-2.5 mr-0.5" /> {(() => { try { return new URL(p.site!).hostname.replace(/^www\./, ""); } catch { return p.site; } })()}</span>}
-                      {p.google_maps_url && <span><MapPin className="inline h-2.5 w-2.5 mr-0.5 text-emerald-400" /> Maps</span>}
+                      {p.instagram && <span className="truncate max-w-[160px]"><Instagram className="inline h-2.5 w-2.5 mr-0.5 text-pink-400" /> @{p.instagram}</span>}
+                      {p.site && <span className="truncate max-w-[160px]"><Globe className="inline h-2.5 w-2.5 mr-0.5" /> {(() => { try { return new URL(p.site!).hostname.replace(/^www\./, ""); } catch { return p.site; } })()}</span>}
+                      {p.google_maps_url && <span className="shrink-0"><MapPin className="inline h-2.5 w-2.5 mr-0.5 text-emerald-400" /> Maps</span>}
                       {p.endereco && <span className="truncate max-w-[200px]"><MapPin className="inline h-2.5 w-2.5 mr-0.5" /> {p.endereco}</span>}
-                      {p.avaliacao != null && <span><Star className="inline h-2.5 w-2.5 mr-0.5 text-amber-400 fill-amber-400" /> {p.avaliacao.toFixed(1)}</span>}
-                      {p.horario_funcionamento && <span className="min-w-0"><HorarioStatus raw={p.horario_funcionamento} /></span>}
+                      {p.avaliacao != null && <span className="shrink-0"><Star className="inline h-2.5 w-2.5 mr-0.5 text-amber-400 fill-amber-400" /> {p.avaliacao.toFixed(1)}</span>}
+                      {p.horario_funcionamento && <span className="truncate max-w-[220px]"><HorarioStatus raw={p.horario_funcionamento} /></span>}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-            <DialogFooter className="gap-2">
+            <DialogFooter className="gap-2 sticky bottom-0 -mx-6 -mb-6 px-6 py-3 bg-background border-t border-border">
               <Button variant="outline" onClick={() => setParseados(null)} disabled={saving}>← Voltar</Button>
               <Button onClick={inserir} disabled={saving}>
                 {saving ? "Salvando…" : `Salvar ${parseados.length} lead${parseados.length === 1 ? "" : "s"}`}
