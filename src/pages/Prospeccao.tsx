@@ -118,7 +118,8 @@ export default function Prospeccao() {
         .from("prospects" as any)
         .select("*")
         .eq("status", "ativo")
-        .order("entrou_na_etapa_at", { ascending: true });
+        .order("entrou_na_etapa_at", { ascending: true })
+        .limit(10000);
       if (error) throw error;
       return (data || []) as unknown as Prospect[];
     },
@@ -628,13 +629,23 @@ function InserirLeadsDialog({
       batch_id: batchId,
       created_by: userId,
     }));
-    const { error } = await supabase.from("prospects" as any).insert(rows);
-    setSaving(false);
-    if (error) {
-      toast.error("Erro ao inserir: " + error.message);
-      return;
+    // Insere em blocos pra suportar lotes grandes (centenas/milhares) sem
+    // estourar o limite de payload/linhas de uma única requisição.
+    const CHUNK = 200;
+    let inseridos = 0;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const fatia = rows.slice(i, i + CHUNK);
+      const { error } = await supabase.from("prospects" as any).insert(fatia);
+      if (error) {
+        setSaving(false);
+        toast.error(`Erro ao inserir (após ${inseridos} de ${rows.length}): ${error.message}`);
+        if (inseridos > 0) onInserted();
+        return;
+      }
+      inseridos += fatia.length;
     }
-    toast.success(`${rows.length} lead${rows.length === 1 ? "" : "s"} cadastrado${rows.length === 1 ? "" : "s"}.`);
+    setSaving(false);
+    toast.success(`${inseridos} lead${inseridos === 1 ? "" : "s"} cadastrado${inseridos === 1 ? "" : "s"}.`);
     onInserted();
     setTimeout(reset, 200);
   };
@@ -788,9 +799,12 @@ Próximo lead...`}
             <div className="space-y-2 pt-1">
               <div className="text-xs text-muted-foreground">
                 <strong className="text-foreground">{parseados.length}</strong> leads extraídos. Revise antes de salvar — você pode editar nome ou remover entradas.
+                {parseados.length > 100 && (
+                  <> Mostrando os <strong className="text-foreground">100</strong> primeiros pra revisão; <strong className="text-foreground">todos os {parseados.length}</strong> serão salvos.</>
+                )}
               </div>
               <div className="rounded-lg border border-border divide-y divide-border/60 max-h-[40vh] overflow-y-auto">
-                {parseados.map((p, i) => (
+                {parseados.slice(0, 100).map((p, i) => (
                   <div key={i} className="p-2.5 space-y-1.5 text-xs">
                     <div className="flex items-center gap-2">
                       <Input
