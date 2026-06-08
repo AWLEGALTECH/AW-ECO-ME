@@ -377,21 +377,39 @@ function AguardandoNichoBoard({
   const norm = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
   const colunas = useMemo(() => {
-    const m = new Map<string, Prospect[]>();
+    // Agrupa por nicho NORMALIZADO (caixa/acento) pra não criar coluna
+    // duplicada quando o mesmo nicho é digitado com grafia diferente
+    // (ex.: "Estética" vs "estética"). O rótulo exibido é a grafia mais
+    // frequente do grupo.
+    const grupos = new Map<string, { leads: Prospect[]; labels: Map<string, number> }>();
     for (const p of prospects) {
-      const key = p.nicho && p.nicho.trim() ? p.nicho.trim() : SEM;
-      if (!m.has(key)) m.set(key, []);
-      m.get(key)!.push(p);
+      const raw = p.nicho && p.nicho.trim() ? p.nicho.trim() : null;
+      const key = raw ? norm(raw) : SEM;
+      if (!grupos.has(key)) grupos.set(key, { leads: [], labels: new Map() });
+      const g = grupos.get(key)!;
+      g.leads.push(p);
+      if (raw) g.labels.set(raw, (g.labels.get(raw) || 0) + 1);
     }
-    const comLeads = Array.from(m.entries());
-    const reais = comLeads.filter(([k]) => k !== SEM).sort((a, b) => b[1].length - a[1].length);
-    const sem = comLeads.find(([k]) => k === SEM);
-    // Colunas vazias ilustrativas — só as escolhidas e que ainda não têm leads.
-    const presentes = new Set(reais.map(([k]) => norm(k)));
+    const labelDe = (g: { labels: Map<string, number> }) => {
+      let best = ""; let n = -1;
+      for (const [r, c] of g.labels) if (c > n) { n = c; best = r; }
+      return best;
+    };
+    const entries = Array.from(grupos.entries());
+    const reais = entries
+      .filter(([k]) => k !== SEM)
+      .sort((a, b) => b[1].leads.length - a[1].leads.length)
+      .map(([, g]) => [labelDe(g), g.leads] as [string, Prospect[]]);
+    const semG = entries.find(([k]) => k === SEM);
+    const presentes = new Set(reais.map(([lbl]) => norm(lbl)));
     const vazios: [string, Prospect[]][] = NICHOS_ILUSTRATIVOS
       .filter(lbl => !presentes.has(norm(lbl)))
       .map(lbl => [lbl, [] as Prospect[]]);
-    return [...reais, ...(sem ? [sem] : []), ...vazios];
+    return [
+      ...reais,
+      ...(semG ? [[SEM, semG[1].leads] as [string, Prospect[]]] : []),
+      ...vazios,
+    ];
   }, [prospects]);
 
   return (
