@@ -44,7 +44,7 @@ function _montarPayloadPreCliente() {
       estado_civil:      d.cliente_estado_civil || null,
       profissao:         d.cliente_profissao || null,
       nacionalidade:     d.cliente_nacionalidade || null,
-      telefone:          null,
+      telefone:          d.cliente_whatsapp || null,
       email:             null,
       endereco_completo: d.cliente_endereco_completo || null,
       produto:           modalidade.nome || modalidade.id || 'Kit Contrato + Procuração',

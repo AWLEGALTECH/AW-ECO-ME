@@ -37,6 +37,7 @@ function _dbToWriterShape(row) {
     orgao_expedidor:    row.orgao_expedidor || '',
     cpf:                row.cpf_cnpj || '',
     endereco_completo:  row.endereco || '',
+    telefone:           row.telefone || '',
     // pacote 2 (vindo do jsonb)
     idade:              ds.idade ?? '',
     escolaridade:       ds.escolaridade ?? '',
@@ -181,6 +182,7 @@ async function salvarDadosClienteDoKit(clienteId, dadosKit) {
   setIf(update, 'nacionalidade',   dadosKit.cliente_nacionalidade);
   setIf(update, 'estado_civil',    dadosKit.cliente_estado_civil);
   setIf(update, 'endereco',        dadosKit.cliente_endereco_completo);
+  setIf(update, 'telefone',        dadosKit.cliente_whatsapp);
 
   if (Object.keys(update).length === 0) return { ok: true, skipped: true };
 

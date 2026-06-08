@@ -111,6 +111,7 @@ function aplicarClienteNoKit(c) {
   setIf('cliente_orgao_expedidor',  c.orgao_expedidor);
   setIf('cliente_cpf',              c.cpf);
   setIf('cliente_endereco_completo', c.endereco_completo);
+  setIf('cliente_whatsapp',         c.telefone ? formatarWhatsapp(c.telefone) : '');
   state.dadosKit.cliente_aw_id = c.aw_id || '';
 }
 
@@ -141,6 +142,7 @@ function inicializarDadosKit() {
     cliente_orgao_expedidor: '',
     cliente_cpf: '',
     cliente_endereco_completo: '',
+    cliente_whatsapp: '',
     // Causa
     causa_tipo: 'ajuizamento',
     causa_reus: [''],
@@ -267,6 +269,13 @@ function renderKitForm(view) {
               <input type="text" value="${escapeAttr(d.cliente_endereco_completo)}"
                      onchange="onKitChange('cliente_endereco_completo', this.value)"
                      placeholder="Rua X, nº 123, Bairro Y, Cidade-UF, CEP 00000-000">
+            </label>
+            <label class="kit-field">
+              <span>WhatsApp do cliente</span>
+              <input type="text" value="${escapeAttr(d.cliente_whatsapp)}"
+                     oninput="this.value = formatarWhatsapp(this.value); onKitChange('cliente_whatsapp', this.value)"
+                     onchange="this.value = formatarWhatsapp(this.value); onKitChange('cliente_whatsapp', this.value)"
+                     placeholder="(92)99999-9999" inputmode="numeric">
             </label>
           </div>
         </section>
@@ -545,6 +554,7 @@ function validarDadosKit() {
     ['cliente_profissao', 'Profissão'],
     ['cliente_cpf', 'CPF'],
     ['cliente_endereco_completo', 'Endereço'],
+    ['cliente_whatsapp', 'WhatsApp do cliente'],
     ['contrato_cidade_assinatura', 'Cidade'],
     ['contrato_data_assinatura', 'Data da assinatura'],
   ];
@@ -554,6 +564,9 @@ function validarDadosKit() {
   // Validação leve de CPF: precisa ter 11 dígitos (com ou sem máscara).
   const cpfDigits = String(d.cliente_cpf).replace(/\D/g, '');
   if (cpfDigits.length !== 11) return 'CPF deve ter 11 dígitos.';
+  // WhatsApp: precisa ter 11 dígitos (DDD + 9 + 8) no formato (XX)XXXXX-XXXX.
+  const waDigits = String(d.cliente_whatsapp).replace(/\D/g, '');
+  if (waDigits.length !== 11) return 'WhatsApp deve ter 11 dígitos: (XX)XXXXX-XXXX.';
   if (d.causa_tipo === 'ajuizamento') {
     const reusValidos = d.causa_reus.filter(r => r && r.trim());
     if (reusValidos.length === 0) return 'Adicione pelo menos um réu.';
@@ -684,6 +697,16 @@ async function montarKitDocxNoNavegador(templateVarName, contexto) {
 /* =========================================================================
    HELPERS — formatação BRL, data por extenso, número por extenso
    ========================================================================= */
+function formatarWhatsapp(s) {
+  // Devolve no formato (XX)XXXXX-XXXX (celular BR, 11 dígitos). Máscara
+  // progressiva enquanto digita.
+  const digits = String(s || '').replace(/\D/g, '').slice(0, 11);
+  if (digits.length === 0) return '';
+  if (digits.length <= 2) return `(${digits}`;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
 function formatarCPF(s) {
   // Aceita qualquer string e devolve no formato 000.000.000-00.
   // Aplica máscara progressivamente enquanto o usuário digita.
