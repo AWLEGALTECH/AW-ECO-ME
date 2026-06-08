@@ -227,6 +227,9 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
+            {stage === "actions" && (
+              <ScanSearch className="h-5 w-5 text-primary shrink-0" />
+            )}
             {titulo || "Iniciar análise"} — {cliente?.nome || "cliente"}
           </DialogTitle>
           <DialogDescription>
