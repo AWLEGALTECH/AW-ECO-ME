@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -338,6 +338,8 @@ export default function Clientes() {
         </Dialog>
       </div>
 
+      <ClientesDashboard clientes={clientes} />
+
       <Card>
         <CardHeader>
           <div className="relative">
@@ -440,6 +442,129 @@ export default function Clientes() {
         onIrPerfil={irPerfilDoResumo}
       />
     </>
+  );
+}
+
+// Dashboard de dados voltados ao cliente — fica acima da tabela. Calcula
+// tudo do array `clientes` que a pagina ja carrega (sem queries novas).
+// Pensado pra abrigar metricas que nao fazem sentido no dash principal.
+function ClientesDashboard({ clientes }: { clientes: Cliente[] }) {
+  const s = useMemo(() => {
+    const agora = new Date();
+    const mes = agora.getMonth();
+    const ano = agora.getFullYear();
+    let novosMes = 0, emEsteira = 0, semProcesso = 0, totalAjuizado = 0, comProcesso = 0;
+    let socioOk = 0, socioResp = 0, socioGer = 0;
+    const reus = new Map<string, number>();
+    for (const c of clientes) {
+      const d = c.created_at ? new Date(c.created_at) : null;
+      if (d && d.getMonth() === mes && d.getFullYear() === ano) novosMes++;
+      if (c.em_esteira) emEsteira++;
+      if (c.processos_count === 0) semProcesso++; else comProcesso++;
+      totalAjuizado += c.total_ajuizado;
+      if (c.socio_status === "preenchido") socioOk++;
+      else if (c.socio_status === "aguardando_resposta") socioResp++;
+      else socioGer++;
+      const reu = (c.requerido || "").trim() || "Não informado";
+      reus.set(reu, (reus.get(reu) || 0) + 1);
+    }
+    const topReus = Array.from(reus.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return {
+      total: clientes.length, novosMes, emEsteira, semProcesso, comProcesso,
+      totalAjuizado, socioOk, socioResp, socioGer, topReus,
+    };
+  }, [clientes]);
+
+  const maxReu = s.topReus.length ? s.topReus[0][1] : 1;
+
+  return (
+    <div className="mb-4 space-y-3">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <KpiCard icon={User} label="Clientes" value={s.total} />
+        <KpiCard icon={Calendar} label="Novos no mês" value={s.novosMes} accent="primary" />
+        <KpiCard icon={Workflow} label="Em produção" value={s.emEsteira} accent="amber"
+          hint="com demanda ativa na esteira" />
+        <KpiCard icon={FileText} label="Sem processo" value={s.semProcesso}
+          hint="ainda sem nenhum protocolo" />
+        <KpiCard icon={DollarSign} label="Total ajuizado"
+          value={<MoneyValue value={s.totalAjuizado} />} />
+      </div>
+
+      {/* Paineis: socioeconomico + top reus */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <ClipboardList className="h-4 w-4 text-muted-foreground" /> Socioeconômico
+            </div>
+            <BarLinha label="Preenchido" value={s.socioOk} total={s.total} cor="bg-emerald-400" />
+            <BarLinha label="Aguardando resposta" value={s.socioResp} total={s.total} cor="bg-amber-400" />
+            <BarLinha label="Aguardando geração" value={s.socioGer} total={s.total} cor="bg-muted-foreground/40" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Requeridos mais comuns
+            </div>
+            {s.topReus.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground italic">Sem dados de requerido.</p>
+            ) : (
+              <div className="space-y-2">
+                {s.topReus.map(([reu, n]) => (
+                  <div key={reu} className="flex items-center gap-2">
+                    <span className="text-[12px] text-foreground/90 truncate flex-1" title={reu}>{reu}</span>
+                    <div className="h-1.5 w-24 rounded-full bg-muted/40 overflow-hidden shrink-0">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${(n / maxReu) * 100}%` }} />
+                    </div>
+                    <span className="text-[12px] tabular-nums text-muted-foreground w-6 text-right shrink-0">{n}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ icon: Icon, label, value, hint, accent = "neutral" }: {
+  icon: any;
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  accent?: "neutral" | "primary" | "amber";
+}) {
+  const iconCor = accent === "amber" ? "text-amber-400" : accent === "primary" ? "text-primary" : "text-muted-foreground";
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-1.5">
+          <Icon className={`h-4 w-4 ${iconCor}`} />
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+        </div>
+        <div className="text-2xl font-semibold tabular-nums leading-none">{value}</div>
+        {hint && <p className="text-[10px] text-muted-foreground/70 mt-1">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BarLinha({ label, value, total, cor }: { label: string; value: number; total: number; cor: string }) {
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[12px]">
+        <span className="text-foreground/90">{label}</span>
+        <span className="tabular-nums text-muted-foreground">{value} <span className="text-muted-foreground/50">({Math.round(pct)}%)</span></span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+        <div className={`h-full ${cor} rounded-full`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 
