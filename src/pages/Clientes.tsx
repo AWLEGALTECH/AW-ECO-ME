@@ -806,12 +806,12 @@ function ListaClientesDialog({ lista, onClose, onAbrirPerfil, onRefetch }: {
 
   return (
     <Dialog open={!!lista} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{lista.titulo}</DialogTitle>
           {lista.subtitulo && <DialogDescription>{lista.subtitulo}</DialogDescription>}
         </DialogHeader>
-        <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
+        <div className="max-h-[65vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
           {visiveis.length === 0 ? (
             <p className="text-center text-[12px] text-muted-foreground py-6">Tudo preenchido por aqui. 🎉</p>
           ) : visiveis.map((c) => {
@@ -873,7 +873,7 @@ function RowEditCampo({ cliente, edit, onSaved, onPerfil }: {
   };
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2">
-      <span className="text-[13px] font-medium truncate w-28 shrink-0" title={cliente.nome}>{cliente.nome}</span>
+      <span className="text-[13px] font-medium truncate w-52 shrink-0" title={cliente.nome}>{cliente.nome}</span>
       <Input
         value={val}
         type={edit.type}
