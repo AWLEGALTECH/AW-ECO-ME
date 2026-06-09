@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
-  Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, Instagram, ExternalLink,
+  Target, RefreshCw, Plus, Search, X, MessageCircle, Phone, PhoneCall, Instagram, ExternalLink,
   MapPin, Clock, Star, TrendingUp, ArrowRight, ArrowLeft, History,
   Globe, Trophy, Ban, Mail, Upload, Layers, ChevronDown, ChevronUp, User, Filter,
   Calendar, UserCheck, Square, CheckSquare, MessageSquareText, Send, Workflow,
@@ -1381,6 +1381,13 @@ function ProspectDetalheDialog({
   };
   const telLink = prospect.telefone ? `tel:${prospect.telefone.replace(/\D/g, "")}` : null;
 
+  // Link de discagem (tel:) — joga o número direto no discador do celular
+  // (ótimo no mobile/iOS). Usa o telefone; se não houver, cai pro número do
+  // WhatsApp (que também é um telefone). Fica disponível mesmo com WhatsApp.
+  const callDigits = (prospect.telefone ? prospect.telefone.replace(/\D/g, "") : "") || waDigits;
+  const callLink = callDigits ? `tel:${callDigits}` : null;
+  const callLabel = prospect.telefone || prospect.whatsapp || callDigits;
+
   // Valores editáveis com override local (refletem o último save sem
   // depender de um refetch chegar até a prop prospect).
   const telefoneDecisor = "telefone_decisor" in overrides ? overrides.telefone_decisor ?? null : prospect.telefone_decisor;
@@ -1463,9 +1470,9 @@ function ProspectDetalheDialog({
         )}
 
         {/* SEÇÃO: Envio de mensagem — canais de contato (clicáveis) */}
-        {(waLink || igLink || decisorLink || (telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site) && (
+        {(waLink || igLink || decisorLink || callLink || prospect.google_maps_url || prospect.email || prospect.site) && (
           <SecaoPopup icon={Send} titulo="Envio de mensagem">
-            {(waLink || igLink || decisorLink) && (
+            {(waLink || igLink || decisorLink || callLink) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {waLink && (
                   <ContatoBtn href={waLink} icon={MessageCircle} label="WhatsApp"
@@ -1482,15 +1489,15 @@ function ProspectDetalheDialog({
                     cor="pink" big onClick={() => { copiarSaudacaoIg(); aoContatar(); aoEnviarCanal("insta"); }}
                     sub={igSaud ? `@${prospect.instagram} · copia saudação` : `@${prospect.instagram}`} />
                 )}
-              </div>
-            )}
-            {((telLink && !waLink) || prospect.google_maps_url || prospect.email || prospect.site) && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {telLink && !waLink && (
-                  <ContatoBtn href={telLink} icon={Phone} label="Ligar"
-                    cor="muted" sub={prospect.telefone || ""}
+                {callLink && (
+                  <ContatoBtn href={callLink} icon={PhoneCall} label="Ligar"
+                    cor="sky" big sub={callLabel}
                     onClick={() => { aoContatar(); aoEnviarCanal("tel"); }} />
                 )}
+              </div>
+            )}
+            {(prospect.google_maps_url || prospect.email || prospect.site) && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {prospect.google_maps_url && (
                   <ContatoBtn href={prospect.google_maps_url} icon={MapPin} label="Maps"
                     cor="muted" sub="Abrir local" onClick={aoContatar} />
@@ -1772,13 +1779,14 @@ function ContatoBtn({
   icon: any;
   label: string;
   sub: string;
-  cor: "emerald" | "primary" | "pink" | "muted";
+  cor: "emerald" | "primary" | "pink" | "muted" | "sky";
   big?: boolean;
   onClick?: () => void;
 }) {
   const cls =
     cor === "emerald" ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400" :
     cor === "pink"    ? "border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-pink-400" :
+    cor === "sky"     ? "border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400" :
     cor === "muted"   ? "border-border bg-card/40 hover:bg-muted/40 text-muted-foreground" :
                         "border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary";
   const sizing = big ? "p-3.5 gap-1.5" : "p-2.5 gap-1";
