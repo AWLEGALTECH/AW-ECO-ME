@@ -873,14 +873,14 @@ function RowEditCampo({ cliente, edit, onSaved, onPerfil }: {
   };
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2">
-      <span className="text-[13px] font-medium truncate w-52 shrink-0" title={cliente.nome}>{cliente.nome}</span>
+      <span className="text-[13px] font-medium truncate flex-1 min-w-0" title={cliente.nome}>{cliente.nome}</span>
       <Input
         value={val}
         type={edit.type}
         onChange={(e) => setVal(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") salvar(val); }}
         placeholder={edit.placeholder}
-        className="h-8 text-xs flex-1 min-w-0"
+        className="h-8 text-xs w-40 shrink-0"
       />
       {edit.sugestoes?.map((sug) => (
         <button
