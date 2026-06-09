@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { parseMoneyBR } from "@/lib/money";
+import { LANDING_OPCOES, type AdvogadoKey, linkSocio, whatsappSocioUrl } from "@/lib/socioLanding";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { AcaoCard } from "@/components/AcaoCard";
@@ -152,32 +153,15 @@ const STATUS_META: Record<string, { label: string; color: string; Icon: any }> =
 
 type AbaKey = "resumo" | "demandas" | "processos";
 
-// Landings externas de coleta socioeconomica (uma por advogado). Cada
-// uma carrega o id do cliente em ?c=, sauda pelo nome e grava as
-// respostas de volta na tabela clientes. O ato de gerar link pergunta
-// qual advogado vai usar a landing antes de copiar/enviar.
-// Landings hospedadas DENTRO do app principal (public/socio/{matheus|diego}/)
-// — os projetos Vercel matheusenes.vercel.app/diegoismael.vercel.app ficaram
-// com auto-deploy quebrado, entao migramos pra ca pra garantir que toda
-// atualizacao do formulario reflete pro cliente sem depender deles. O id
-// do cliente vai no ?c=, e a edge function landing-socioeconomico salva.
-const LANDING_OPCOES = {
-  matheus: {
-    label: "Dr. Matheus Enes",
-    base: "https://aw-eco-me.vercel.app/socio/matheus/",
-  },
-  diego: {
-    label: "Dr. Diego Ismael",
-    base: "https://aw-eco-me.vercel.app/socio/diego/",
-  },
-} as const;
-type AdvogadoKey = keyof typeof LANDING_OPCOES;
-
+// Landings externas de coleta socioeconomica (uma por advogado). Config
+// agora vive em src/lib/socioLanding.ts (fonte única, reusada no dashboard
+// de completude da aba Clientes). O id do cliente vai no ?c=, e a edge
+// function landing-socioeconomico salva as respostas de volta.
 function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; telefone: string | null }) {
   const [open, setOpen] = useState(false);
   const [advogado, setAdvogado] = useState<AdvogadoKey | null>(null);
   const [copiado, setCopiado] = useState(false);
-  const link = clienteId && advogado ? `${LANDING_OPCOES[advogado].base}?c=${clienteId}` : "";
+  const link = advogado ? linkSocio(advogado, clienteId) : "";
 
   const reset = () => { setAdvogado(null); setCopiado(false); };
   const handleClose = (v: boolean) => { setOpen(v); if (!v) setTimeout(reset, 200); };
@@ -209,13 +193,7 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
 
   const enviarWhatsApp = () => {
     if (!link) return;
-    let fone = (telefone || "").replace(/\D/g, "");
-    if (fone && !fone.startsWith("55") && fone.length <= 11) fone = "55" + fone;
-    const msg = encodeURIComponent(
-      `Olá! Para darmos andamento ao seu caso, preencha este formulário rápido (leva 1 minuto): ${link}`
-    );
-    const base = fone ? `https://wa.me/${fone}` : `https://wa.me/`;
-    window.open(`${base}?text=${msg}`, "_blank", "noopener,noreferrer");
+    window.open(whatsappSocioUrl(telefone, link), "_blank", "noopener,noreferrer");
     carimbarEnvio();
   };
 

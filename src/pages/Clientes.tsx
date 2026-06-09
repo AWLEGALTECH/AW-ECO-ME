@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { LANDING_OPCOES, type AdvogadoKey, linkSocio, whatsappSocioUrl } from "@/lib/socioLanding";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus } from "lucide-react";
+import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus, Copy, ArrowRight, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
@@ -338,7 +339,7 @@ export default function Clientes() {
         </Dialog>
       </div>
 
-      <ClientesDashboard clientes={clientes} />
+      <ClientesDashboard clientes={clientes} onRefetch={fetchAll} />
 
       <Card>
         <CardHeader>
@@ -445,89 +446,347 @@ export default function Clientes() {
   );
 }
 
-// Dashboard de dados voltados ao cliente — fica acima da tabela. Calcula
-// tudo do array `clientes` que a pagina ja carrega (sem queries novas).
-// Pensado pra abrigar metricas que nao fazem sentido no dash principal.
-function ClientesDashboard({ clientes }: { clientes: Cliente[] }) {
+// Campos de cadastro acompanhados pela completude (fora o socioeconômico,
+// que tem fluxo próprio de envio). present(c) = dado preenchido.
+const CAMPOS_COMPLETUDE: { key: string; label: string; icon: any; present: (c: Cliente) => boolean }[] = [
+  { key: "telefone",  label: "Telefone",   icon: Phone,      present: (c) => !!(c.telefone || "").trim() },
+  { key: "cpf_cnpj",  label: "CPF / CNPJ", icon: CreditCard, present: (c) => !!(c.cpf_cnpj || "").trim() },
+  { key: "email",     label: "E-mail",     icon: Mail,       present: (c) => !!(c.email || "").trim() },
+  { key: "requerido", label: "Requerido",  icon: Building2,  present: (c) => !!(c.requerido || "").trim() },
+  { key: "drive",     label: "Pasta no Drive", icon: FolderOpen, present: (c) => !!(c.drive_folder_url || "").trim() },
+];
+
+const socioPreenchido = (c: Cliente) => c.socio_status === "preenchido";
+
+// Dashboard de COMPLETUDE de dados — fica acima da tabela. Mostra o que está
+// preenchido e o que falta, e oferece o caminho de preenchimento: envio do
+// formulário socioeconômico pra quem falta + atalho pro perfil pra completar
+// os demais campos. Tudo calculado do array `clientes` (sem queries novas).
+function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRefetch: () => void }) {
+  const navigate = useNavigate();
+  const [socioOpen, setSocioOpen] = useState(false);
+  const [faltaCampo, setFaltaCampo] = useState<typeof CAMPOS_COMPLETUDE[number] | null>(null);
+
   const s = useMemo(() => {
-    const agora = new Date();
-    const mes = agora.getMonth();
-    const ano = agora.getFullYear();
-    let novosMes = 0, emEsteira = 0, semProcesso = 0, totalAjuizado = 0, comProcesso = 0;
-    let socioOk = 0, socioResp = 0, socioGer = 0;
-    const reus = new Map<string, number>();
+    const total = clientes.length;
+    let socioOk = 0, socioResp = 0, socioGer = 0, completos = 0;
     for (const c of clientes) {
-      const d = c.created_at ? new Date(c.created_at) : null;
-      if (d && d.getMonth() === mes && d.getFullYear() === ano) novosMes++;
-      if (c.em_esteira) emEsteira++;
-      if (c.processos_count === 0) semProcesso++; else comProcesso++;
-      totalAjuizado += c.total_ajuizado;
       if (c.socio_status === "preenchido") socioOk++;
       else if (c.socio_status === "aguardando_resposta") socioResp++;
       else socioGer++;
-      const reu = (c.requerido || "").trim() || "Não informado";
-      reus.set(reu, (reus.get(reu) || 0) + 1);
+      const tudo = socioPreenchido(c) && CAMPOS_COMPLETUDE.every((f) => f.present(c));
+      if (tudo) completos++;
     }
-    const topReus = Array.from(reus.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    return {
-      total: clientes.length, novosMes, emEsteira, semProcesso, comProcesso,
-      totalAjuizado, socioOk, socioResp, socioGer, topReus,
-    };
+    const socioPend = socioResp + socioGer;
+    const completudeCampos = CAMPOS_COMPLETUDE.map((f) => ({
+      ...f, ok: clientes.filter(f.present).length,
+    }));
+    return { total, socioOk, socioResp, socioGer, socioPend, completos, completudeCampos };
   }, [clientes]);
 
-  const maxReu = s.topReus.length ? s.topReus[0][1] : 1;
+  const pct = (n: number) => (s.total > 0 ? Math.round((n / s.total) * 100) : 0);
 
   return (
     <div className="mb-4 space-y-3">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      {/* KPIs de completude */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={User} label="Clientes" value={s.total} />
-        <KpiCard icon={Calendar} label="Novos no mês" value={s.novosMes} accent="primary" />
-        <KpiCard icon={Workflow} label="Em produção" value={s.emEsteira} accent="amber"
-          hint="com demanda ativa na esteira" />
-        <KpiCard icon={FileText} label="Sem processo" value={s.semProcesso}
-          hint="ainda sem nenhum protocolo" />
-        <KpiCard icon={DollarSign} label="Total ajuizado"
-          value={<MoneyValue value={s.totalAjuizado} />} />
+        <KpiCard icon={CheckCircle2} label="Cadastro completo" value={s.completos}
+          accent={s.completos === s.total && s.total > 0 ? "emerald" : "neutral"}
+          hint={`${pct(s.completos)}% com todos os campos`} />
+        <KpiCard icon={ClipboardList} label="Socioeco. pendente" value={s.socioPend}
+          accent={s.socioPend > 0 ? "amber" : "emerald"}
+          hint="sem formulário preenchido" />
+        <KpiCard icon={Phone} label="Sem telefone"
+          value={s.total - s.completudeCampos.find((c) => c.key === "telefone")!.ok}
+          accent={s.total - s.completudeCampos.find((c) => c.key === "telefone")!.ok > 0 ? "amber" : "emerald"}
+          hint="bloqueia o envio por WhatsApp" />
       </div>
 
-      {/* Paineis: socioeconomico + top reus */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Formulário socioeconômico — coletar de quem falta */}
         <Card>
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <ClipboardList className="h-4 w-4 text-muted-foreground" /> Socioeconômico
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <ClipboardList className="h-4 w-4 text-muted-foreground" /> Formulário socioeconômico
+              </div>
+              <span className="text-[11px] text-muted-foreground tabular-nums">{s.socioOk}/{s.total} ok</span>
             </div>
-            <BarLinha label="Preenchido" value={s.socioOk} total={s.total} cor="bg-emerald-400" />
-            <BarLinha label="Aguardando resposta" value={s.socioResp} total={s.total} cor="bg-amber-400" />
-            <BarLinha label="Aguardando geração" value={s.socioGer} total={s.total} cor="bg-muted-foreground/40" />
+
+            <div className="flex h-2 rounded-full overflow-hidden bg-muted/40">
+              <div className="bg-emerald-400" style={{ width: `${pct(s.socioOk)}%` }} title="Preenchido" />
+              <div className="bg-amber-400" style={{ width: `${pct(s.socioResp)}%` }} title="Aguardando resposta" />
+              <div className="bg-muted-foreground/40" style={{ width: `${pct(s.socioGer)}%` }} title="Nunca enviado" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <LegendaSocio cor="bg-emerald-400" label="Preenchido" n={s.socioOk} />
+              <LegendaSocio cor="bg-amber-400" label="Aguard. resposta" n={s.socioResp} />
+              <LegendaSocio cor="bg-muted-foreground/40" label="Nunca enviado" n={s.socioGer} />
+            </div>
+
+            <Button
+              className="w-full"
+              size="sm"
+              disabled={s.socioPend === 0}
+              onClick={() => setSocioOpen(true)}
+            >
+              <Send className="h-3.5 w-3.5 mr-1.5" />
+              {s.socioPend === 0 ? "Todos preenchidos 🎉" : `Enviar formulário pra quem falta (${s.socioPend})`}
+            </Button>
           </CardContent>
         </Card>
 
+        {/* Completude dos demais campos de cadastro */}
         <Card>
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> Requeridos mais comuns
+              <ClipboardList className="h-4 w-4 text-muted-foreground" /> Completude do cadastro
             </div>
-            {s.topReus.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground italic">Sem dados de requerido.</p>
-            ) : (
-              <div className="space-y-2">
-                {s.topReus.map(([reu, n]) => (
-                  <div key={reu} className="flex items-center gap-2">
-                    <span className="text-[12px] text-foreground/90 truncate flex-1" title={reu}>{reu}</span>
-                    <div className="h-1.5 w-24 rounded-full bg-muted/40 overflow-hidden shrink-0">
-                      <div className="h-full bg-primary rounded-full" style={{ width: `${(n / maxReu) * 100}%` }} />
+            <div className="space-y-2">
+              {s.completudeCampos.map((f) => {
+                const faltam = s.total - f.ok;
+                return (
+                  <div key={f.key} className="flex items-center gap-2">
+                    <f.icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-[12px] text-foreground/90 w-24 shrink-0">{f.label}</span>
+                    <div className="h-1.5 flex-1 rounded-full bg-muted/40 overflow-hidden">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${pct(f.ok)}%` }} />
                     </div>
-                    <span className="text-[12px] tabular-nums text-muted-foreground w-6 text-right shrink-0">{n}</span>
+                    <span className="text-[11px] tabular-nums text-muted-foreground w-12 text-right shrink-0">{f.ok}/{s.total}</span>
+                    <button
+                      className="text-[11px] text-primary hover:underline disabled:opacity-30 disabled:no-underline w-16 text-right shrink-0"
+                      disabled={faltam === 0}
+                      onClick={() => setFaltaCampo(f)}
+                    >
+                      {faltam === 0 ? "completo" : `${faltam} falta${faltam > 1 ? "m" : ""}`}
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       </div>
+
+      <SocioEnvioDialog
+        open={socioOpen}
+        onClose={() => setSocioOpen(false)}
+        clientes={clientes.filter((c) => !socioPreenchido(c))}
+        onRefetch={onRefetch}
+      />
+
+      <FaltantesDialog
+        campo={faltaCampo}
+        clientes={faltaCampo ? clientes.filter((c) => !faltaCampo.present(c)) : []}
+        onClose={() => setFaltaCampo(null)}
+        onAbrirPerfil={(id) => { setFaltaCampo(null); navigate(`/clientes/${id}`); }}
+      />
     </div>
+  );
+}
+
+function LegendaSocio({ cor, label, n }: { cor: string; label: string; n: number }) {
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className={`h-2 w-2 rounded-full ${cor} shrink-0`} />
+      <span className="text-muted-foreground truncate">{label}</span>
+      <span className="tabular-nums text-foreground/80 ml-auto">{n}</span>
+    </div>
+  );
+}
+
+// Dialog que ajuda a ENVIAR o formulário socioeconômico pra cada cliente que
+// ainda não preencheu. Escolhe o advogado da landing, lista os pendentes
+// (nunca enviados primeiro) e dá ações por cliente: WhatsApp e copiar link.
+// Marca socio_link_enviado_at a cada envio (vira "aguardando resposta").
+function SocioEnvioDialog({ open, onClose, clientes, onRefetch }: {
+  open: boolean;
+  onClose: () => void;
+  clientes: Cliente[];
+  onRefetch: () => void;
+}) {
+  const navigate = useNavigate();
+  const [advogado, setAdvogado] = useState<AdvogadoKey | null>(null);
+  const [busca, setBusca] = useState("");
+  const [enviados, setEnviados] = useState<Set<string>>(new Set());
+
+  const reset = () => { setAdvogado(null); setBusca(""); setEnviados(new Set()); };
+  const handleClose = () => { onClose(); setTimeout(reset, 200); };
+
+  const carimbar = async (clienteId: string) => {
+    await supabase
+      .from("clientes")
+      .update({ socio_link_enviado_at: new Date().toISOString() } as any)
+      .eq("id", clienteId);
+    setEnviados((prev) => new Set(prev).add(clienteId));
+    onRefetch();
+  };
+
+  const enviarWa = (c: Cliente) => {
+    if (!advogado) return;
+    const link = linkSocio(advogado, c.id);
+    window.open(whatsappSocioUrl(c.telefone, link), "_blank", "noopener,noreferrer");
+    carimbar(c.id);
+  };
+
+  const copiar = async (c: Cliente) => {
+    if (!advogado) return;
+    const link = linkSocio(advogado, c.id);
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success(`Link de ${c.nome.split(" ")[0]} copiado.`);
+    } catch {
+      window.prompt("Copie o link:", link);
+    }
+    carimbar(c.id);
+  };
+
+  // nunca enviados (aguardando_geracao) primeiro, depois aguardando_resposta
+  const lista = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return [...clientes]
+      .filter((c) => !q || c.nome.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const ord = (c: Cliente) => (c.socio_status === "aguardando_geracao" ? 0 : 1);
+        return ord(a) - ord(b) || a.nome.localeCompare(b.nome, "pt-BR");
+      });
+  }, [clientes, busca]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Enviar formulário socioeconômico</DialogTitle>
+          <DialogDescription>
+            {advogado
+              ? "Mande o link pra cada cliente. As respostas aparecem na ficha automaticamente."
+              : "Para qual advogado o formulário vai ser preenchido?"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!advogado ? (
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            {(Object.keys(LANDING_OPCOES) as AdvogadoKey[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => setAdvogado(k)}
+                className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors text-left"
+              >
+                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                  <User className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">{LANDING_OPCOES[k].label}</p>
+                  <p className="text-[11px] text-muted-foreground break-all">{LANDING_OPCOES[k].base}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-primary opacity-70" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
+                Landing: <strong className="text-foreground">{LANDING_OPCOES[advogado].label}</strong>
+                <button onClick={() => setAdvogado(null)} className="text-primary hover:underline">trocar</button>
+              </div>
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Filtrar por nome…" className="pl-8 h-8 text-xs" />
+              </div>
+            </div>
+
+            <div className="max-h-[45vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
+              {lista.length === 0 ? (
+                <p className="text-center text-[12px] text-muted-foreground py-6">Ninguém pendente por aqui.</p>
+              ) : lista.map((c) => {
+                const semFone = !(c.telefone || "").trim();
+                const jaEnviado = enviados.has(c.id);
+                return (
+                  <div key={c.id} className="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-medium truncate">{c.nome}</span>
+                        {jaEnviado && <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        {semFone
+                          ? <span className="inline-flex items-center gap-1 text-amber-400/90"><AlertTriangle className="h-2.5 w-2.5" /> sem telefone</span>
+                          : <span className="inline-flex items-center gap-1"><Phone className="h-2.5 w-2.5" /> {c.telefone}</span>}
+                        <span className="text-muted-foreground/40">·</span>
+                        <span>{c.socio_status === "aguardando_resposta" ? "link já enviado" : "nunca enviado"}</span>
+                      </div>
+                    </div>
+                    {semFone ? (
+                      <Button size="sm" variant="ghost" className="h-7 text-[11px] shrink-0" onClick={() => navigate(`/clientes/${c.id}`)}>
+                        Add telefone
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px] shrink-0" onClick={() => enviarWa(c)}>
+                        <Send className="h-3 w-3" /> WhatsApp
+                      </Button>
+                    )}
+                    <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" title="Copiar link" onClick={() => copiar(c)}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Lista genérica dos clientes que estão SEM um determinado campo, com atalho
+// pro perfil pra completar.
+function FaltantesDialog({ campo, clientes, onClose, onAbrirPerfil }: {
+  campo: { key: string; label: string; icon: any } | null;
+  clientes: Cliente[];
+  onClose: () => void;
+  onAbrirPerfil: (id: string) => void;
+}) {
+  if (!campo) return null;
+  const Icon = campo.icon;
+  return (
+    <Dialog open={!!campo} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground" /> Sem {campo.label.toLowerCase()}
+          </DialogTitle>
+          <DialogDescription>
+            {clientes.length} cliente{clientes.length === 1 ? "" : "s"} sem esse dado. Abra o perfil pra completar.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
+          {clientes.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onAbrirPerfil(c.id)}
+              className="w-full flex items-center gap-2 rounded-lg border border-border bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors px-3 py-2 text-left"
+            >
+              <span className="h-7 w-7 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center shrink-0">
+                <User className="h-3.5 w-3.5 text-primary" />
+              </span>
+              <span className="text-[13px] font-medium truncate flex-1">{c.nome}</span>
+              <ExternalLink className="h-3.5 w-3.5 text-primary opacity-70 shrink-0" />
+            </button>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -536,9 +795,12 @@ function KpiCard({ icon: Icon, label, value, hint, accent = "neutral" }: {
   label: string;
   value: React.ReactNode;
   hint?: string;
-  accent?: "neutral" | "primary" | "amber";
+  accent?: "neutral" | "primary" | "amber" | "emerald";
 }) {
-  const iconCor = accent === "amber" ? "text-amber-400" : accent === "primary" ? "text-primary" : "text-muted-foreground";
+  const iconCor = accent === "amber" ? "text-amber-400"
+    : accent === "primary" ? "text-primary"
+    : accent === "emerald" ? "text-emerald-400"
+    : "text-muted-foreground";
   return (
     <Card>
       <CardContent className="p-4">
@@ -550,21 +812,6 @@ function KpiCard({ icon: Icon, label, value, hint, accent = "neutral" }: {
         {hint && <p className="text-[10px] text-muted-foreground/70 mt-1">{hint}</p>}
       </CardContent>
     </Card>
-  );
-}
-
-function BarLinha({ label, value, total, cor }: { label: string; value: number; total: number; cor: string }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-[12px]">
-        <span className="text-foreground/90">{label}</span>
-        <span className="tabular-nums text-muted-foreground">{value} <span className="text-muted-foreground/50">({Math.round(pct)}%)</span></span>
-      </div>
-      <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
-        <div className={`h-full ${cor} rounded-full`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
   );
 }
 
