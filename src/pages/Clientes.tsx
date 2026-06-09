@@ -466,7 +466,7 @@ const socioPreenchido = (c: Cliente) => c.socio_status === "preenchido";
 function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRefetch: () => void }) {
   const navigate = useNavigate();
   const [socioOpen, setSocioOpen] = useState(false);
-  const [lista, setLista] = useState<{ titulo: string; subtitulo?: string; clientes: Cliente[] } | null>(null);
+  const [lista, setLista] = useState<{ titulo: string; subtitulo?: string; campoKey?: string; clientes: Cliente[] } | null>(null);
 
   const s = useMemo(() => {
     const total = clientes.length;
@@ -488,8 +488,8 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
 
   const pct = (n: number) => (s.total > 0 ? Math.round((n / s.total) * 100) : 0);
   const semTelefone = s.total - s.completudeCampos.find((c) => c.key === "telefone")!.ok;
-  const abrirLista = (titulo: string, subtitulo: string, cl: Cliente[]) =>
-    setLista({ titulo, subtitulo, clientes: cl });
+  const abrirLista = (titulo: string, subtitulo: string, cl: Cliente[], campoKey?: string) =>
+    setLista({ titulo, subtitulo, clientes: cl, campoKey });
 
   return (
     <div className="mb-4 space-y-4">
@@ -521,7 +521,7 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
           hint="bloqueia o WhatsApp"
           accent={semTelefone > 0 ? "text-amber-400" : "text-emerald-400"}
           onClick={semTelefone
-            ? () => abrirLista("Sem telefone", `${semTelefone} cliente(s) sem telefone. Abra o perfil pra adicionar.`, clientes.filter((c) => !(c.telefone || "").trim()))
+            ? () => abrirLista("Sem telefone", `${semTelefone} cliente(s) sem telefone. Preencha aqui mesmo.`, clientes.filter((c) => !(c.telefone || "").trim()), "telefone")
             : undefined}
         />
       </div>
@@ -575,7 +575,7 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
                   <button
                     key={f.key}
                     disabled={faltam === 0}
-                    onClick={() => abrirLista(`Sem ${f.label.toLowerCase()}`, `${faltam} cliente(s) sem esse dado. Abra o perfil pra completar.`, clientes.filter((c) => !f.present(c)))}
+                    onClick={() => abrirLista(`Sem ${f.label.toLowerCase()}`, `${faltam} cliente(s) sem esse dado. Preencha aqui mesmo.`, clientes.filter((c) => !f.present(c)), f.key)}
                     className="w-full flex items-center gap-2 rounded-md px-1.5 py-1.5 -mx-1.5 text-left transition-colors enabled:hover:bg-white/[0.04] disabled:cursor-default"
                   >
                     <f.icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -606,6 +606,7 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
         lista={lista}
         onClose={() => setLista(null)}
         onAbrirPerfil={(id) => { setLista(null); navigate(`/clientes/${id}`); }}
+        onRefetch={onRefetch}
       />
     </div>
   );
@@ -770,43 +771,160 @@ function SocioEnvioDialog({ open, onClose, clientes, onRefetch }: {
   );
 }
 
-// Lista genérica dos clientes que estão SEM um determinado campo, com atalho
-// pro perfil pra completar.
-function ListaClientesDialog({ lista, onClose, onAbrirPerfil }: {
-  lista: { titulo: string; subtitulo?: string; clientes: Cliente[] } | null;
+// Config de edição inline por campo faltante: coluna no banco, placeholder e
+// sugestões de preenchimento rápido (ex.: requerido = Bradesco).
+const CAMPO_EDIT: Record<string, { col: string; placeholder: string; type?: string; sugestoes?: { label: string; value: string }[] }> = {
+  telefone:  { col: "telefone",  placeholder: "(92) 9XXXX-XXXX", type: "tel" },
+  cpf_cnpj:  { col: "cpf_cnpj",  placeholder: "CPF ou CNPJ" },
+  email:     { col: "email",     placeholder: "email@exemplo.com", type: "email" },
+  requerido: { col: "requerido", placeholder: "Ex.: BANCO BRADESCO S.A", sugestoes: [{ label: "Bradesco", value: "BANCO BRADESCO S.A" }] },
+};
+
+// Lista dos clientes que estão SEM um determinado dado. Quando o campo faltante
+// é único e editável (telefone/CPF/e-mail/requerido), cada linha traz o campo +
+// botão de salvar pra preencher ali mesmo. Pra "Pasta no Drive", um botão cria
+// a pasta. Pra listas mistas (cadastro incompleto), mostra o que falta + atalho
+// pro perfil.
+function ListaClientesDialog({ lista, onClose, onAbrirPerfil, onRefetch }: {
+  lista: { titulo: string; subtitulo?: string; campoKey?: string; clientes: Cliente[] } | null;
   onClose: () => void;
   onAbrirPerfil: (id: string) => void;
+  onRefetch: () => void;
 }) {
+  const [resolvidos, setResolvidos] = useState<Set<string>>(new Set());
+  // Zera a lista de resolvidos toda vez que abre uma lista nova.
+  useEffect(() => { setResolvidos(new Set()); }, [lista?.titulo, lista?.campoKey]);
+
   if (!lista) return null;
+  const edit = lista.campoKey ? CAMPO_EDIT[lista.campoKey] : undefined;
+  const ehDrive = lista.campoKey === "drive";
+  const visiveis = lista.clientes.filter((c) => !resolvidos.has(c.id));
+  const marcarResolvido = (id: string) => {
+    setResolvidos((prev) => new Set(prev).add(id));
+    onRefetch();
+  };
+
   return (
     <Dialog open={!!lista} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{lista.titulo}</DialogTitle>
           {lista.subtitulo && <DialogDescription>{lista.subtitulo}</DialogDescription>}
         </DialogHeader>
         <div className="max-h-[55vh] overflow-y-auto -mx-1 px-1 space-y-1.5">
-          {lista.clientes.length === 0 ? (
-            <p className="text-center text-[12px] text-muted-foreground py-6">Ninguém por aqui.</p>
-          ) : lista.clientes.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => onAbrirPerfil(c.id)}
-              className="w-full flex items-center gap-2 rounded-lg border border-border bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors px-3 py-2 text-left"
-            >
-              <span className="h-7 w-7 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center shrink-0">
-                <User className="h-3.5 w-3.5 text-primary" />
-              </span>
-              <span className="text-[13px] font-medium truncate flex-1">{c.nome}</span>
-              <ExternalLink className="h-3.5 w-3.5 text-primary opacity-70 shrink-0" />
-            </button>
-          ))}
+          {visiveis.length === 0 ? (
+            <p className="text-center text-[12px] text-muted-foreground py-6">Tudo preenchido por aqui. 🎉</p>
+          ) : visiveis.map((c) => {
+            if (edit) {
+              return <RowEditCampo key={c.id} cliente={c} edit={edit} onSaved={() => marcarResolvido(c.id)} onPerfil={() => onAbrirPerfil(c.id)} />;
+            }
+            if (ehDrive) {
+              return <RowCriarPasta key={c.id} cliente={c} onSaved={() => marcarResolvido(c.id)} onPerfil={() => onAbrirPerfil(c.id)} />;
+            }
+            // Lista mista (cadastro incompleto): mostra o que falta + perfil.
+            const faltas = [
+              ...CAMPOS_COMPLETUDE.filter((f) => !f.present(c)).map((f) => f.label),
+              ...(socioPreenchido(c) ? [] : ["Socioeconômico"]),
+            ];
+            return (
+              <button
+                key={c.id}
+                onClick={() => onAbrirPerfil(c.id)}
+                className="w-full flex items-center gap-2 rounded-lg border border-border bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors px-3 py-2 text-left"
+              >
+                <span className="h-7 w-7 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center shrink-0">
+                  <User className="h-3.5 w-3.5 text-primary" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium truncate">{c.nome}</span>
+                  <span className="block text-[10px] text-amber-400/90 truncate">falta: {faltas.join(", ")}</span>
+                </span>
+                <ExternalLink className="h-3.5 w-3.5 text-primary opacity-70 shrink-0" />
+              </button>
+            );
+          })}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Linha com input + salvar pra preencher um campo de texto direto no banco.
+function RowEditCampo({ cliente, edit, onSaved, onPerfil }: {
+  cliente: Cliente;
+  edit: { col: string; placeholder: string; type?: string; sugestoes?: { label: string; value: string }[] };
+  onSaved: () => void;
+  onPerfil: () => void;
+}) {
+  const [val, setVal] = useState("");
+  const [saving, setSaving] = useState(false);
+  const salvar = async (valor: string) => {
+    const v = valor.trim();
+    if (!v) { toast.error("Preencha o campo antes de salvar."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("clientes").update({ [edit.col]: v } as any).eq("id", cliente.id);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${cliente.nome.split(" ")[0]} atualizado.`);
+    onSaved();
+  };
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2">
+      <span className="text-[13px] font-medium truncate w-28 shrink-0" title={cliente.nome}>{cliente.nome}</span>
+      <Input
+        value={val}
+        type={edit.type}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") salvar(val); }}
+        placeholder={edit.placeholder}
+        className="h-8 text-xs flex-1 min-w-0"
+      />
+      {edit.sugestoes?.map((sug) => (
+        <button
+          key={sug.value}
+          onClick={() => salvar(sug.value)}
+          disabled={saving}
+          className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 shrink-0 disabled:opacity-40"
+          title={`Preencher com ${sug.value}`}
+        >
+          {sug.label}
+        </button>
+      ))}
+      <Button size="icon" className="h-8 w-8 shrink-0" disabled={saving || !val.trim()} onClick={() => salvar(val)} title="Salvar">
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+      </Button>
+      <button onClick={onPerfil} className="text-muted-foreground/60 hover:text-primary shrink-0" title="Abrir perfil">
+        <ExternalLink className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// Linha com botão pra criar a pasta do cliente no Drive (edge function).
+function RowCriarPasta({ cliente, onSaved, onPerfil }: { cliente: Cliente; onSaved: () => void; onPerfil: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const criar = async () => {
+    setSaving(true);
+    const { data, error } = await supabase.functions.invoke("create-cliente-drive-folder", { body: { cliente_id: cliente.id } });
+    setSaving(false);
+    if (error || !(data as any)?.ok) { toast.error((data as any)?.error || error?.message || "Falha ao criar pasta"); return; }
+    toast.success(`Pasta de ${cliente.nome.split(" ")[0]} criada.`);
+    onSaved();
+  };
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2">
+      <span className="text-[13px] font-medium truncate flex-1" title={cliente.nome}>{cliente.nome}</span>
+      <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[11px] shrink-0" disabled={saving} onClick={criar}>
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+        Criar pasta
+      </Button>
+      <button onClick={onPerfil} className="text-muted-foreground/60 hover:text-primary shrink-0" title="Abrir perfil">
+        <ExternalLink className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 
