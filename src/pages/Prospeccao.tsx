@@ -20,6 +20,7 @@ import {
   Calendar, UserCheck, Square, CheckSquare, MessageSquareText, Send, Workflow,
   FileSpreadsheet, FileText, Loader2,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { appConfig } from "@/config/app-config";
 import { parseLeads, type LeadParsed } from "@/lib/leadParser";
 import { parsePlanilhaPadrao } from "@/lib/planilhaParser";
@@ -249,6 +250,9 @@ export default function Prospeccao() {
           <TabsTrigger value="historico" className="gap-1.5">
             <History className="h-3.5 w-3.5" /> Histórico
           </TabsTrigger>
+          <TabsTrigger value="ranking" className="gap-1.5">
+            <Trophy className="h-3.5 w-3.5" /> Ranking
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="pipeline" className="space-y-4">
@@ -325,6 +329,10 @@ export default function Prospeccao() {
 
         <TabsContent value="historico" className="space-y-4">
           <HistoricoView onProspectClick={setDetalheOpen} />
+        </TabsContent>
+
+        <TabsContent value="ranking" className="space-y-4">
+          <RankingView />
         </TabsContent>
       </Tabs>
 
@@ -2212,5 +2220,198 @@ function EstagioMiniBadge({ estagio }: { estagio: Estagio }) {
     <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${cls} ml-1`}>
       {meta.label}
     </span>
+  );
+}
+
+// ====================== RANKING ======================
+// Aba de desempenho focada em VOLUME de prospecção. Mede, por pessoa:
+//  - Cadências iniciadas: leads que a pessoa moveu pra "em cadência"
+//    (evento 'movido' -> para_estagio = em_cadencia) — métrica principal.
+//  - Contatos: ações de outreach registradas (evento 'contato': wa/insta/tel).
+//  - Responderam / Ganhos: leads que a pessoa levou a esses estágios.
+// Tudo vem de prospect_eventos (carimba user_email + created_at), então dá
+// pra filtrar por período. Área gráfica com Recharts + leaderboard.
+type RankPeriodo = "hoje" | "7d" | "30d" | "tudo";
+
+const RANK_PERIODOS: { key: RankPeriodo; label: string }[] = [
+  { key: "hoje", label: "Hoje" },
+  { key: "7d", label: "7 dias" },
+  { key: "30d", label: "30 dias" },
+  { key: "tudo", label: "Tudo" },
+];
+
+function RankingView() {
+  const [periodo, setPeriodo] = useState<RankPeriodo>("30d");
+
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["prospect-ranking"],
+    queryFn: async () => {
+      const [evRes, profRes] = await Promise.all([
+        supabase
+          .from("prospect_eventos" as any)
+          .select("prospect_id, tipo, para_estagio, user_email, created_at")
+          .in("tipo", ["movido", "contato"])
+          .limit(50000),
+        supabase.from("profiles").select("email, nome"),
+      ]);
+      if (evRes.error) throw evRes.error;
+      const nomeByEmail = new Map<string, string>();
+      (profRes.data || []).forEach((p: any) => { if (p.email) nomeByEmail.set(p.email, p.nome || p.email); });
+      return { eventos: (evRes.data || []) as any[], nomeByEmail };
+    },
+    refetchInterval: 60_000,
+  });
+
+  const corte = useMemo(() => {
+    const now = Date.now();
+    if (periodo === "hoje") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+    if (periodo === "7d") return now - 7 * 86400000;
+    if (periodo === "30d") return now - 30 * 86400000;
+    return 0;
+  }, [periodo]);
+
+  const ranking = useMemo(() => {
+    const eventos = data?.eventos || [];
+    const nomeByEmail = data?.nomeByEmail || new Map<string, string>();
+    const map = new Map<string, { email: string; cadencias: Set<string>; contatos: number; responderam: Set<string>; ganhos: Set<string> }>();
+    for (const e of eventos) {
+      if (!e.user_email) continue;
+      if (corte && new Date(e.created_at).getTime() < corte) continue;
+      let r = map.get(e.user_email);
+      if (!r) { r = { email: e.user_email, cadencias: new Set(), contatos: 0, responderam: new Set(), ganhos: new Set() }; map.set(e.user_email, r); }
+      if (e.tipo === "contato") r.contatos++;
+      if (e.tipo === "movido" && e.para_estagio === "em_cadencia") r.cadencias.add(e.prospect_id);
+      if (e.tipo === "movido" && e.para_estagio === "respondeu") r.responderam.add(e.prospect_id);
+      if (e.tipo === "movido" && e.para_estagio === "ganho") r.ganhos.add(e.prospect_id);
+    }
+    return Array.from(map.values())
+      .map((r) => ({
+        email: r.email,
+        nome: nomeByEmail.get(r.email) || r.email.split("@")[0],
+        cadencias: r.cadencias.size,
+        contatos: r.contatos,
+        responderam: r.responderam.size,
+        ganhos: r.ganhos.size,
+      }))
+      .sort((a, b) => b.cadencias - a.cadencias || b.contatos - a.contatos || b.ganhos - a.ganhos);
+  }, [data, corte]);
+
+  const totais = useMemo(() => ({
+    cadencias: ranking.reduce((s, r) => s + r.cadencias, 0),
+    contatos: ranking.reduce((s, r) => s + r.contatos, 0),
+    pessoas: ranking.length,
+    ganhos: ranking.reduce((s, r) => s + r.ganhos, 0),
+  }), [ranking]);
+
+  const maxCad = ranking.length ? Math.max(1, ...ranking.map((r) => r.cadencias)) : 1;
+  const chartData = ranking.slice(0, 10).map((r) => ({ nome: r.nome, cadencias: r.cadencias }));
+  const CORES_TOPO = ["#fbbf24", "#cbd5e1", "#f59e0b"]; // ouro, prata, bronze
+  const medalha = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}º`);
+
+  return (
+    <div className="space-y-4">
+      {/* Cabeçalho + filtro de período */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-sm text-muted-foreground">
+          Desempenho de prospecção por pessoa — foco em volume de <strong className="text-foreground">cadências iniciadas</strong>.
+        </p>
+        <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+          {RANK_PERIODOS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriodo(p.key)}
+              className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                periodo === p.key ? "bg-primary/15 text-primary font-medium" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPIs do período */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <RankKpi icon={Send} label="Cadências iniciadas" value={totais.cadencias} accent="text-primary" />
+        <RankKpi icon={MessageCircle} label="Contatos feitos" value={totais.contatos} accent="text-emerald-400" />
+        <RankKpi icon={User} label="Pessoas ativas" value={totais.pessoas} accent="text-muted-foreground" />
+        <RankKpi icon={Trophy} label="Ganhos" value={totais.ganhos} accent="text-amber-400" />
+      </div>
+
+      {isLoading ? (
+        <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
+      ) : ranking.length === 0 ? (
+        <div className="text-center text-muted-foreground py-12 text-sm border border-dashed border-border rounded-lg">
+          Sem atividade de prospecção nesse período.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Gráfico de cadências por pessoa */}
+          <div className="rounded-xl border border-border bg-card/40 p-4">
+            <p className="text-sm font-medium mb-3">Cadências iniciadas por pessoa</p>
+            <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 38)}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16, top: 0, bottom: 0 }}>
+                <XAxis type="number" hide />
+                <YAxis type="category" dataKey="nome" width={110} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: "hsl(var(--muted) / 0.2)" }}
+                  contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                  formatter={(v: any) => [v, "Cadências"]}
+                />
+                <Bar dataKey="cadencias" radius={[0, 4, 4, 0]}>
+                  {chartData.map((_, i) => (
+                    <Cell key={i} fill={CORES_TOPO[i] || "hsl(var(--primary))"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Leaderboard detalhado */}
+          <div className="rounded-xl border border-border bg-card/40 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium">Ranking</p>
+              <button onClick={() => refetch()} disabled={isFetching} className="text-muted-foreground hover:text-foreground">
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {ranking.map((r, i) => (
+                <div key={r.email} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.03] transition-colors">
+                  <span className="w-7 text-center text-[13px] shrink-0">{medalha(i)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[13px] font-medium truncate">{r.nome}</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-primary shrink-0">{r.cadencias}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden mt-1">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${(r.cadencias / maxCad) * 100}%` }} />
+                    </div>
+                    <div className="flex items-center gap-2.5 mt-1 text-[10px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-1"><MessageCircle className="h-2.5 w-2.5" /> {r.contatos} contatos</span>
+                      <span className="inline-flex items-center gap-1"><ArrowRight className="h-2.5 w-2.5" /> {r.responderam} responderam</span>
+                      <span className="inline-flex items-center gap-1 text-amber-400/80"><Trophy className="h-2.5 w-2.5" /> {r.ganhos}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RankKpi({ icon: Icon, label, value, accent }: { icon: any; label: string; value: number; accent: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card/40 p-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Icon className={`h-4 w-4 ${accent}`} />
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      </div>
+      <div className="text-2xl font-semibold tabular-nums leading-none">{value}</div>
+    </div>
   );
 }
