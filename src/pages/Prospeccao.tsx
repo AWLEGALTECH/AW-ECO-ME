@@ -2249,7 +2249,7 @@ function RankingView() {
       const [evRes, profRes] = await Promise.all([
         supabase
           .from("prospect_eventos" as any)
-          .select("prospect_id, tipo, para_estagio, user_email, created_at")
+          .select("prospect_id, tipo, para_estagio, texto, user_email, created_at")
           .in("tipo", ["movido", "contato"])
           .limit(50000),
         supabase.from("profiles").select("email, nome"),
@@ -2273,13 +2273,20 @@ function RankingView() {
   const ranking = useMemo(() => {
     const eventos = data?.eventos || [];
     const nomeByEmail = data?.nomeByEmail || new Map<string, string>();
-    const map = new Map<string, { email: string; cadencias: Set<string>; contatos: number; responderam: Set<string>; ganhos: Set<string> }>();
+    const map = new Map<string, { email: string; cadencias: Set<string>; contatos: number; wa: number; insta: number; tel: number; responderam: Set<string>; ganhos: Set<string> }>();
     for (const e of eventos) {
       if (!e.user_email) continue;
       if (corte && new Date(e.created_at).getTime() < corte) continue;
       let r = map.get(e.user_email);
-      if (!r) { r = { email: e.user_email, cadencias: new Set(), contatos: 0, responderam: new Set(), ganhos: new Set() }; map.set(e.user_email, r); }
-      if (e.tipo === "contato") r.contatos++;
+      if (!r) { r = { email: e.user_email, cadencias: new Set(), contatos: 0, wa: 0, insta: 0, tel: 0, responderam: new Set(), ganhos: new Set() }; map.set(e.user_email, r); }
+      if (e.tipo === "contato") {
+        r.contatos++;
+        // canal vem no texto: "cadencia.{wa|insta|tel}|rótulo"
+        const canal = typeof e.texto === "string" && e.texto.startsWith("cadencia.") ? e.texto.split("|")[0].split(".")[1] : "";
+        if (canal === "wa") r.wa++;
+        else if (canal === "insta") r.insta++;
+        else if (canal === "tel") r.tel++;
+      }
       if (e.tipo === "movido" && e.para_estagio === "em_cadencia") r.cadencias.add(e.prospect_id);
       if (e.tipo === "movido" && e.para_estagio === "respondeu") r.responderam.add(e.prospect_id);
       if (e.tipo === "movido" && e.para_estagio === "ganho") r.ganhos.add(e.prospect_id);
@@ -2290,6 +2297,9 @@ function RankingView() {
         nome: nomeByEmail.get(r.email) || r.email.split("@")[0],
         cadencias: r.cadencias.size,
         contatos: r.contatos,
+        wa: r.wa,
+        insta: r.insta,
+        tel: r.tel,
         responderam: r.responderam.size,
         ganhos: r.ganhos.size,
       }))
@@ -2299,6 +2309,9 @@ function RankingView() {
   const totais = useMemo(() => ({
     cadencias: ranking.reduce((s, r) => s + r.cadencias, 0),
     contatos: ranking.reduce((s, r) => s + r.contatos, 0),
+    wa: ranking.reduce((s, r) => s + r.wa, 0),
+    insta: ranking.reduce((s, r) => s + r.insta, 0),
+    tel: ranking.reduce((s, r) => s + r.tel, 0),
     pessoas: ranking.length,
     ganhos: ranking.reduce((s, r) => s + r.ganhos, 0),
   }), [ranking]);
@@ -2333,7 +2346,19 @@ function RankingView() {
       {/* KPIs do período */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <RankKpi icon={Send} label="Cadências iniciadas" value={totais.cadencias} accent="text-primary" />
-        <RankKpi icon={MessageCircle} label="Contatos feitos" value={totais.contatos} accent="text-emerald-400" />
+        <RankKpi
+          icon={MessageCircle}
+          label="Contatos da equipe"
+          value={totais.contatos}
+          accent="text-emerald-400"
+          sub={
+            <div className="flex items-center gap-2.5 text-[11px] flex-wrap">
+              <span className="inline-flex items-center gap-1 text-emerald-400"><MessageCircle className="h-3 w-3" /> {totais.wa} zap</span>
+              <span className="inline-flex items-center gap-1 text-pink-400"><Instagram className="h-3 w-3" /> {totais.insta} insta</span>
+              <span className="inline-flex items-center gap-1 text-sky-400"><PhoneCall className="h-3 w-3" /> {totais.tel} liga</span>
+            </div>
+          }
+        />
         <RankKpi icon={User} label="Pessoas ativas" value={totais.pessoas} accent="text-muted-foreground" />
         <RankKpi icon={Trophy} label="Ganhos" value={totais.ganhos} accent="text-amber-400" />
       </div>
@@ -2388,9 +2413,13 @@ function RankingView() {
                     <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden mt-1">
                       <div className="h-full bg-primary rounded-full" style={{ width: `${(r.cadencias / maxCad) * 100}%` }} />
                     </div>
-                    <div className="flex items-center gap-2.5 mt-1 text-[10px] text-muted-foreground">
-                      <span className="inline-flex items-center gap-1"><MessageCircle className="h-2.5 w-2.5" /> {r.contatos} contatos</span>
-                      <span className="inline-flex items-center gap-1"><ArrowRight className="h-2.5 w-2.5" /> {r.responderam} responderam</span>
+                    <div className="flex items-center gap-2.5 mt-1 text-[10px] text-muted-foreground flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-emerald-400/90"><MessageCircle className="h-2.5 w-2.5" /> {r.wa}</span>
+                      <span className="inline-flex items-center gap-1 text-pink-400/90"><Instagram className="h-2.5 w-2.5" /> {r.insta}</span>
+                      <span className="inline-flex items-center gap-1 text-sky-400/90"><PhoneCall className="h-2.5 w-2.5" /> {r.tel}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="inline-flex items-center gap-1">{r.contatos} contatos</span>
+                      <span className="inline-flex items-center gap-1"><ArrowRight className="h-2.5 w-2.5" /> {r.responderam} resp.</span>
                       <span className="inline-flex items-center gap-1 text-amber-400/80"><Trophy className="h-2.5 w-2.5" /> {r.ganhos}</span>
                     </div>
                   </div>
@@ -2404,7 +2433,7 @@ function RankingView() {
   );
 }
 
-function RankKpi({ icon: Icon, label, value, accent }: { icon: any; label: string; value: number; accent: string }) {
+function RankKpi({ icon: Icon, label, value, accent, sub }: { icon: any; label: string; value: number; accent: string; sub?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-border bg-card/40 p-4">
       <div className="flex items-center gap-2 mb-1.5">
@@ -2412,6 +2441,7 @@ function RankKpi({ icon: Icon, label, value, accent }: { icon: any; label: strin
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
       </div>
       <div className="text-2xl font-semibold tabular-nums leading-none">{value}</div>
+      {sub && <div className="mt-1.5">{sub}</div>}
     </div>
   );
 }
