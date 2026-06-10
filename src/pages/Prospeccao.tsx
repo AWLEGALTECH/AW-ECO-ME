@@ -2255,9 +2255,12 @@ function RankingView() {
         supabase.from("profiles").select("email, nome"),
       ]);
       if (evRes.error) throw evRes.error;
-      const nomeByEmail = new Map<string, string>();
-      (profRes.data || []).forEach((p: any) => { if (p.email) nomeByEmail.set(p.email, p.nome || p.email); });
-      return { eventos: (evRes.data || []) as any[], nomeByEmail };
+      // IMPORTANTE: objeto simples (não Map) — o cache do React Query é
+      // persistido em localStorage como JSON; Map não serializa e vira {}
+      // no rehydrate, quebrando .get() ("x.get is not a function").
+      const nomes: Record<string, string> = {};
+      (profRes.data || []).forEach((p: any) => { if (p.email) nomes[p.email] = p.nome || p.email; });
+      return { eventos: (evRes.data || []) as any[], nomes };
     },
     refetchInterval: 60_000,
   });
@@ -2272,7 +2275,7 @@ function RankingView() {
 
   const ranking = useMemo(() => {
     const eventos = data?.eventos || [];
-    const nomeByEmail = data?.nomeByEmail || new Map<string, string>();
+    const nomes = data?.nomes || {};
     const map = new Map<string, { email: string; cadencias: Set<string>; contatos: number; wa: number; insta: number; tel: number; responderam: Set<string>; ganhos: Set<string> }>();
     for (const e of eventos) {
       if (!e.user_email) continue;
@@ -2294,7 +2297,7 @@ function RankingView() {
     return Array.from(map.values())
       .map((r) => ({
         email: r.email,
-        nome: nomeByEmail.get(r.email) || r.email.split("@")[0],
+        nome: nomes[r.email] || r.email.split("@")[0],
         cadencias: r.cadencias.size,
         contatos: r.contatos,
         wa: r.wa,
