@@ -10,7 +10,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle } from "lucide-react";
+import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -175,7 +176,7 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
 }
 
 // ─── Modal de progresso da confirmação ──────────────────────────────────────
-type StageKey = "cliente" | "contrato" | "demanda" | "pre_cliente" | "organize";
+type StageKey = "cliente" | "contrato" | "demanda" | "pre_cliente" | "whatsapp" | "organize";
 type StageStatus = "pending" | "running" | "done" | "error";
 interface StageState { status: StageStatus; detail?: string; }
 type StagesMap = Record<StageKey, StageState>;
@@ -185,6 +186,7 @@ const STAGE_META: Record<StageKey, { label: string; Icon: any }> = {
   contrato:    { label: "Vinculando contrato",            Icon: FileText },
   demanda:     { label: "Iniciando análise documental",   Icon: ClipboardList },
   pre_cliente: { label: "Finalizando pré-cadastro",       Icon: CheckCircle2 },
+  whatsapp:    { label: "Enviando boas-vindas no WhatsApp", Icon: MessageCircle },
   organize:    { label: "Organizando pasta no Drive",     Icon: FolderCheck },
 };
 
@@ -412,6 +414,7 @@ export default function PreClientes() {
     contrato:    { status: "pending" },
     demanda:     { status: "pending" },
     pre_cliente: { status: "pending" },
+    whatsapp:    { status: "pending" },
     organize:    { status: "pending" },
   };
   const [confirmandoPre, setConfirmandoPre] = useState<PreCliente | null>(null);
@@ -572,7 +575,40 @@ export default function PreClientes() {
     setStage("pre_cliente", errPre ? { status: "error", detail: errPre.message } : { status: "done" });
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
 
-    // 5. organize-client-folder (await pra mostrar progresso)
+    // 5. boas-vindas no WhatsApp corporativo (edge function -> n8n ->
+    // Evolution API). Falha aqui nao bloqueia a organizacao da pasta —
+    // marca a etapa com erro e segue.
+    setStage("whatsapp", { status: "running" });
+    if (!pre.telefone) {
+      setStage("whatsapp", { status: "error", detail: "Pré-cliente sem telefone — mensagem não enviada" });
+    } else {
+      const { data: tpl } = await supabase
+        .from("mensagens_prontas" as any)
+        .select("conteudo")
+        .eq("user_id", user.id)
+        .eq("chave", "whatsapp_boas_vindas")
+        .maybeSingle();
+      const template = ((tpl as any)?.conteudo as string | undefined)?.trim() || BOAS_VINDAS_PADRAO;
+      const mensagem = renderMensagem(template, {
+        nome: pre.nome.trim().split(/\s+/)[0] ?? pre.nome,
+        nome_completo: pre.nome,
+      });
+      const { data: waData, error: waErr } = await supabase.functions.invoke("send-whatsapp", {
+        body: {
+          telefone: pre.telefone,
+          mensagem,
+          cliente_id: novoCliente.id,
+          contexto: "boas_vindas_pre_cliente",
+          enviado_por: user.id,
+        },
+      });
+      const waOk = !waErr && (waData as any)?.ok;
+      setStage("whatsapp", waOk
+        ? { status: "done", detail: `Boas-vindas enviadas para ${pre.telefone}` }
+        : { status: "error", detail: (waData as any)?.error || waErr?.message || "Falha ao enviar mensagem" });
+    }
+
+    // 6. organize-client-folder (await pra mostrar progresso)
     if (!pre.drive_folder_id) {
       setStage("organize", { status: "error", detail: "Pre-cliente sem drive_folder_id" });
       return;
