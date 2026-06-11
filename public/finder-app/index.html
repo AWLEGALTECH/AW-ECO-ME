@@ -108,6 +108,15 @@
       [data-theme="space-gray"]    { --aw-primary: #8d9bb0; --aw-primary-rgb: 141,155,176; }
       [data-theme="sei"]           { --aw-primary: #289bc8; --aw-primary-rgb: 40,155,200; }
       :root { --aw-primary-soft: color-mix(in srgb, var(--aw-primary) 62%, white); }
+      /* REDE DE SEGURANÇA: o React seta a cor inline SEM !important e o navegador
+         normaliza hex→rgb. Uma regra de stylesheet com !important vence o inline
+         normal do React, garantindo que NENHUM texto fique roxo (mesmo nos
+         valores do relatório que usam color:#a78bfa → rgb(167,139,250)). */
+      [style*="#8b5cf6"], [style*="#a78bfa"], [style*="#6d28d9"],
+      [style*="139, 92, 246"], [style*="167, 139, 250"], [style*="109, 40, 217"],
+      [style*="139,92,246"], [style*="167,139,250"], [style*="109,40,217"] {
+        color: var(--aw-primary) !important;
+      }
     </style>
     <script>
       (function(){
@@ -135,24 +144,28 @@
       (function () {
         function temAlvo(s){
           if (!s) return false; s = s.toLowerCase();
-          return /#8b5cf6|#a78bfa|#6d28d9|139,\s?92,\s?246|109,\s?40,\s?217|12,\s?10,\s?18|14,\s?11,\s?22|8,\s?6,\s?14|2,\s?1,\s?5/.test(s);
+          return /#8b5cf6|#a78bfa|#6d28d9|139,\s?92,\s?246|167,\s?139,\s?250|109,\s?40,\s?217|12,\s?10,\s?18|14,\s?11,\s?22|8,\s?6,\s?14|2,\s?1,\s?5/.test(s);
         }
         // só os roxos de verdade (pra reescrever <style> injetado sem mexer no nosso)
-        var rePurpStyle = /#8b5cf6|#a78bfa|#6d28d9|139\s*,\s*92\s*,\s*246|109\s*,\s*40\s*,\s*217/i;
+        var rePurpStyle = /#8b5cf6|#a78bfa|#6d28d9|139\s*,\s*92\s*,\s*246|167\s*,\s*139\s*,\s*250|109\s*,\s*40\s*,\s*217/i;
+        // troca uma cor rgb()/rgba()/hex normalizada por um destino
+        function trocaCor(s, r, g, b, opaco, repAlpha){
+          var re = new RegExp('rgba?\\(\\s*' + r + '\\s*,\\s*' + g + '\\s*,\\s*' + b + '\\s*(?:,\\s*([0-9.]+))?\\s*\\)', 'gi');
+          return s.replace(re, function(_, a){ return a != null ? repAlpha.replace('$A', a) : opaco; });
+        }
         function recolor(s){
-          return s
-            // roxos → cor primária do tema
-            .replace(/#8b5cf6/gi, 'var(--aw-primary)')
-            .replace(/#6d28d9/gi, 'var(--aw-primary)')
-            .replace(/#a78bfa/gi, 'var(--aw-primary-soft)')
-            .replace(/rgba\(\s*139\s*,\s*92\s*,\s*246\s*,\s*([0-9.]+)\s*\)/gi, 'rgba(var(--aw-primary-rgb),$1)')
-            .replace(/rgba\(\s*109\s*,\s*40\s*,\s*217\s*,\s*([0-9.]+)\s*\)/gi, 'rgba(var(--aw-primary-rgb),$1)')
-            .replace(/rgb\(\s*139\s*,\s*92\s*,\s*246\s*\)/gi, 'rgb(var(--aw-primary-rgb))')
-            // "pretos" roxo-tingidos do Finder → preto neutro do eco
-            .replace(/rgba\(\s*12\s*,\s*10\s*,\s*18\s*,/gi, 'rgba(15,15,17,')
-            .replace(/rgba\(\s*14\s*,\s*11\s*,\s*22\s*,/gi, 'rgba(16,16,18,')
-            .replace(/rgba\(\s*8\s*,\s*6\s*,\s*14\s*,/gi, 'rgba(10,10,11,')
-            .replace(/rgba\(\s*2\s*,\s*1\s*,\s*5\s*,/gi, 'rgba(6,6,7,');
+          // hex (usado em <style> injetado / keyframes)
+          s = s.replace(/#8b5cf6/gi, 'var(--aw-primary)').replace(/#a78bfa/gi, 'var(--aw-primary)').replace(/#6d28d9/gi, 'var(--aw-primary)');
+          // formas rgb()/rgba() — o navegador normaliza hex→rgb no atributo inline
+          s = trocaCor(s, 139, 92, 246, 'var(--aw-primary)', 'rgba(var(--aw-primary-rgb),$A)');
+          s = trocaCor(s, 167, 139, 250, 'var(--aw-primary)', 'rgba(var(--aw-primary-rgb),$A)');
+          s = trocaCor(s, 109, 40, 217, 'var(--aw-primary)', 'rgba(var(--aw-primary-rgb),$A)');
+          // "pretos" roxo-tingidos → preto neutro
+          s = trocaCor(s, 12, 10, 18, 'rgb(15,15,17)', 'rgba(15,15,17,$A)');
+          s = trocaCor(s, 14, 11, 22, 'rgb(16,16,18)', 'rgba(16,16,18,$A)');
+          s = trocaCor(s, 8, 6, 14, 'rgb(10,10,11)', 'rgba(10,10,11,$A)');
+          s = trocaCor(s, 2, 1, 5, 'rgb(6,6,7)', 'rgba(6,6,7,$A)');
+          return s;
         }
         function processarCor(){
           var els = document.querySelectorAll('[style]');
