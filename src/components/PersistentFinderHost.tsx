@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2, FileStack } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
+import { FinderDrivePicker } from "@/components/FinderDrivePicker";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
 // esta em /finder, ele aparece sobre o Outlet com o header de contexto
@@ -17,6 +18,16 @@ export function PersistentFinderHost() {
   const location = useLocation();
   const navigate = useNavigate();
   const visivel = location.pathname.startsWith("/finder");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [pickerAberto, setPickerAberto] = useState(false);
+
+  // Acesso ao <input type="file"> de PDF dentro do iframe (mesma origem) pra
+  // o picker injetar os documentos da pasta do cliente.
+  const getFinderInput = () =>
+    (iframeRef.current?.contentDocument?.querySelector(
+      'input[type="file"][accept=".pdf"]',
+    ) as HTMLInputElement | null) ?? null;
+  const getFinderWindow = () => iframeRef.current?.contentWindow ?? null;
 
   const iframeSrc = useMemo(() => {
     if (!active) return null;
@@ -70,6 +81,16 @@ export function PersistentFinderHost() {
             </span>
           </div>
           <div className="shrink-0 flex items-center gap-2">
+            {active.driveFolderId && (
+              <button
+                onClick={() => setPickerAberto(true)}
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-primary/10 hover:bg-primary/15 border border-primary/40 hover:border-primary/60 text-primary text-xs font-medium transition-colors"
+                title="Escolher documentos da pasta do cliente no Drive pra analisar"
+              >
+                <FileStack className="h-3.5 w-3.5" />
+                Usar docs da pasta
+              </button>
+            )}
             {active.driveUrl && (
               <a
                 href={active.driveUrl}
@@ -103,11 +124,23 @@ export function PersistentFinderHost() {
       )}
 
       <iframe
+        ref={iframeRef}
         src={iframeSrc}
         title="AW Finder"
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
+
+      {active.driveFolderId && (
+        <FinderDrivePicker
+          open={pickerAberto}
+          onOpenChange={setPickerAberto}
+          folderId={active.driveFolderId}
+          clienteNome={active.nome}
+          getFinderInput={getFinderInput}
+          getFinderWindow={getFinderWindow}
+        />
+      )}
     </div>
   );
 }
