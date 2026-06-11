@@ -395,9 +395,13 @@ function selecionarProduto(id) {
   // [TEMP-MESMO-CLIENTE] END
 
   // Preserva pacote 1 + pacote 2 quando viemos de uma analise vinculada
-  // do aw-eco-me (ja foram pre-preenchidos com os dados do cliente do banco).
-  // Caso contrario, limpa pra comecar zerado.
-  if (!state.contextoAnaliseVinculada) {
+  // do aw-eco-me (ja foram pre-preenchidos com os dados do cliente do banco)
+  // OU quando um cliente foi puxado da base (clienteSelecionado). Sem essa
+  // segunda condicao, abrir o writer com ?cliente=ID e escolher o produto
+  // no lobby apagava a qualificacao ja carregada — os campos voltavam vazios
+  // mesmo com o cliente ainda selecionado no dropdown.
+  // Caso contrario (cliente novo, sem nada puxado), limpa pra comecar zerado.
+  if (!state.contextoAnaliseVinculada && !state.clienteSelecionado) {
     state.dadosPacote1 = {};
     state.dadosPacote2 = {};
   }
