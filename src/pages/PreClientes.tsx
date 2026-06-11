@@ -509,11 +509,6 @@ export default function PreClientes() {
         // Réu(s) vindos do kit (causa_reus) ficam em pre.rubricas — grava
         // tambem em clientes.requerido pra aparecer no card da esteira.
         requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
-        // Rubricas não ajuizáveis vindas da análise comercial (Finder) atrelada
-        // no Writer — princípio das rubricas não ajuizáveis.
-        rubricas_bloqueadas: Array.isArray((pre as any).dados_completos?.rubricas_bloqueadas)
-          ? (pre as any).dados_completos.rubricas_bloqueadas
-          : [],
         precisa_analise_extratos: true,
       } as any)
       .select()
@@ -523,15 +518,6 @@ export default function PreClientes() {
       return;
     }
     setStage("cliente", { status: "done" });
-
-    // Se veio de uma análise comercial, marca como usada e linka o cliente.
-    const analiseComercialId = (pre as any).dados_completos?.analise_comercial_id;
-    if (analiseComercialId) {
-      await supabase
-        .from("analises_comerciais" as any)
-        .update({ status: "usada", cliente_id: novoCliente.id } as any)
-        .eq("id", analiseComercialId);
-    }
 
     // 2. cria contrato
     setStage("contrato", { status: "running" });
