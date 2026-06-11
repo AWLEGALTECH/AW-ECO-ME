@@ -96,6 +96,16 @@
         -moz-osx-font-smoothing: grayscale;
       }
     </style>
+    <style>
+      /* Cor primária do eco por tema. O motor de re-tematização (abaixo)
+         reescreve o roxo fixo do Finder pra estas vars, então a cor passa a
+         ACOMPANHAR o tema selecionado pelo usuário automaticamente. */
+      :root            { --aw-primary: #9e3dff; --aw-primary-rgb: 158,61,255; }
+      [data-theme="midnight-blue"] { --aw-primary: #2b65ee; --aw-primary-rgb: 43,101,238; }
+      [data-theme="space-gray"]    { --aw-primary: #8d9bb0; --aw-primary-rgb: 141,155,176; }
+      [data-theme="sei"]           { --aw-primary: #289bc8; --aw-primary-rgb: 40,155,200; }
+      :root { --aw-primary-soft: color-mix(in srgb, var(--aw-primary) 62%, white); }
+    </style>
     <script>
       (function(){
         try {
@@ -112,34 +122,64 @@
       })();
     </script>
     <script>
-      /* Embute o Finder de forma NATIVA dentro do AW-ECO-ME: esconde a barra
-         do topo (logo "FINDER / AW LEGALTECH" + botão "Sair"). O "Sair" navega
-         pra /api/logout, que no eco cai no fallback SPA e carrega o app inteiro
-         dentro do iframe (bug das bonecas russas) — então tem que sumir. */
+      /* MOTOR DE INTEGRAÇÃO do Finder ao AW-ECO-ME (roda no doc do Finder):
+         1) reescreve o ROXO fixo (#8b5cf6 / #a78bfa / rgba(139,92,246,*)) das
+            inline styles pra var(--aw-primary*) → a cor acompanha o tema;
+         2) esconde a barra do topo (logo "FINDER" + "Sair") pra embutir nativo.
+         O "Sair" ia pra /api/logout (bug das bonecas russas) — fora. */
       (function () {
-        function esconderTopo() {
-          try {
-            // fallback: qualquer botão "Sair"
-            var bs = document.querySelectorAll('button');
-            for (var i = 0; i < bs.length; i++) {
-              if ((bs[i].textContent || '').trim() === 'Sair') bs[i].style.display = 'none';
-            }
-            // a barra do topo é o 1º filho do wrapper do app (contém a logo);
-            // some com ela inteira pra ficar embutido/nativo.
-            var r = document.getElementById('root');
-            var wrap = r && r.firstElementChild;
-            var bar = wrap && wrap.firstElementChild;
-            if (bar) {
-              var t = bar.textContent || '';
-              if ((/FINDER/.test(t) || /Auditoria de Cobran/.test(t)) && t.indexOf('Sair') >= 0) {
-                bar.style.display = 'none';
-              }
-            }
-          } catch (e) {}
+        var reHex  = /#8b5cf6/gi, reSoft = /#a78bfa/gi;
+        var reRgba = /rgba\(\s*139\s*,\s*92\s*,\s*246\s*,\s*([0-9.]+)\s*\)/gi;
+        var reRgb  = /rgb\(\s*139\s*,\s*92\s*,\s*246\s*\)/gi;
+        function temRoxo(s){
+          if (!s) return false; s = s.toLowerCase();
+          return s.indexOf('#8b5cf6') >= 0 || s.indexOf('#a78bfa') >= 0 || s.indexOf('139,92,246') >= 0 || s.indexOf('139, 92, 246') >= 0;
         }
-        function start() {
-          esconderTopo();
-          try { new MutationObserver(esconderTopo).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+        function recolor(s){
+          return s.replace(reHex, 'var(--aw-primary)')
+                  .replace(reSoft, 'var(--aw-primary-soft)')
+                  .replace(reRgba, 'rgba(var(--aw-primary-rgb),$1)')
+                  .replace(reRgb, 'rgb(var(--aw-primary-rgb))');
+        }
+        function processarCor(){
+          var els = document.querySelectorAll('[style]');
+          for (var i = 0; i < els.length; i++) {
+            var st = els[i].getAttribute('style');
+            if (temRoxo(st)) els[i].setAttribute('style', recolor(st));
+          }
+          // SVG fill/stroke como atributo (não aceita var) → manda pro style
+          var sv = document.querySelectorAll('[fill],[stroke]');
+          for (var j = 0; j < sv.length; j++) {
+            var f = (sv[j].getAttribute('fill') || '').toLowerCase();
+            if ((f === '#8b5cf6' || f === '#a78bfa') && sv[j].style.fill !== 'var(--aw-primary)') sv[j].style.fill = 'var(--aw-primary)';
+            var k = (sv[j].getAttribute('stroke') || '').toLowerCase();
+            if ((k === '#8b5cf6' || k === '#a78bfa') && sv[j].style.stroke !== 'var(--aw-primary)') sv[j].style.stroke = 'var(--aw-primary)';
+          }
+        }
+        function esconderTopo(){
+          // barra do topo = menor container com logo "FINDER" + subtítulo + "Sair"
+          var all = document.querySelectorAll('div,header,nav');
+          var best = null, len = Infinity;
+          for (var i = 0; i < all.length; i++) {
+            var t = all[i].textContent || '';
+            if (t.indexOf('FINDER') >= 0 && /Auditoria de Cobran/.test(t) && t.indexOf('Sair') >= 0 && t.length < 320 && t.length < len) { best = all[i]; len = t.length; }
+          }
+          if (best && best.style.display !== 'none') best.style.display = 'none';
+          // fallback: qualquer "Sair" solto
+          var nd = document.querySelectorAll('button,a,div,span');
+          for (var j = 0; j < nd.length; j++) {
+            if ((nd[j].textContent || '').trim() === 'Sair' && nd[j].children.length === 0) {
+              var p = nd[j].closest('button,a') || nd[j];
+              if (p.style.display !== 'none') p.style.display = 'none';
+            }
+          }
+        }
+        var raf = 0;
+        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); esconderTopo(); } catch (e) {} }); }
+        function start(){
+          sync();
+          try { new MutationObserver(sync).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+          setInterval(sync, 1000); // backup pra mudanças de estilo sem add/remove de nó
         }
         if (document.readyState !== 'loading') start();
         else document.addEventListener('DOMContentLoaded', start);
