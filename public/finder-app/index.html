@@ -111,6 +111,40 @@
         });
       })();
     </script>
+    <script>
+      /* Embute o Finder de forma NATIVA dentro do AW-ECO-ME: esconde a barra
+         do topo (logo "FINDER / AW LEGALTECH" + botão "Sair"). O "Sair" navega
+         pra /api/logout, que no eco cai no fallback SPA e carrega o app inteiro
+         dentro do iframe (bug das bonecas russas) — então tem que sumir. */
+      (function () {
+        function esconderTopo() {
+          try {
+            // fallback: qualquer botão "Sair"
+            var bs = document.querySelectorAll('button');
+            for (var i = 0; i < bs.length; i++) {
+              if ((bs[i].textContent || '').trim() === 'Sair') bs[i].style.display = 'none';
+            }
+            // a barra do topo é o 1º filho do wrapper do app (contém a logo);
+            // some com ela inteira pra ficar embutido/nativo.
+            var r = document.getElementById('root');
+            var wrap = r && r.firstElementChild;
+            var bar = wrap && wrap.firstElementChild;
+            if (bar) {
+              var t = bar.textContent || '';
+              if ((/FINDER/.test(t) || /Auditoria de Cobran/.test(t)) && t.indexOf('Sair') >= 0) {
+                bar.style.display = 'none';
+              }
+            }
+          } catch (e) {}
+        }
+        function start() {
+          esconderTopo();
+          try { new MutationObserver(esconderTopo).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+        }
+        if (document.readyState !== 'loading') start();
+        else document.addEventListener('DOMContentLoaded', start);
+      })();
+    </script>
     <script type="module" crossorigin src="/finder-app/assets/index-ZvnDeb4-.js"></script>
   </head>
   <body>
