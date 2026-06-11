@@ -54,8 +54,20 @@ export interface Cliente {
   cadastrado_por: string | null;
   requerido: string | null;
   parceiro: string | null;
+  rubricas_bloqueadas: RubricaBloqueada[] | null;
   created_at: string;
 }
+
+// Rubrica sinalizada como não ajuizável na análise comercial (Finder).
+export interface RubricaBloqueada {
+  rubrica: string;
+  motivo: "cliente_nao_quer" | "ja_ajuizada" | string | null;
+}
+
+export const MOTIVO_BLOQUEIO_LABEL: Record<string, string> = {
+  cliente_nao_quer: "Cliente não quer ajuizar",
+  ja_ajuizada: "Já ajuizada por outro advogado",
+};
 
 interface ProcessoLite {
   id: string;
@@ -601,6 +613,33 @@ export default function ClienteDetail() {
               <Slot icon={FolderOpen} label="Pasta no Drive" value={cliente.drive_folder_url} isLink className="sm:col-span-2" />
             </div>
           </section>
+
+          {/* Rubricas não ajuizáveis — vindas da análise comercial (Finder).
+              Princípio das rubricas não ajuizáveis: o advogado já vê, antes de
+              produzir, o que NÃO entra (cliente não quer / já ajuizada). */}
+          {Array.isArray(cliente.rubricas_bloqueadas) && cliente.rubricas_bloqueadas.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1 flex items-center gap-1.5">
+                <Lock className="h-3 w-3 text-amber-400" /> Rubricas não ajuizáveis (análise comercial)
+              </h2>
+              <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 space-y-1.5">
+                {cliente.rubricas_bloqueadas.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    <Lock className="h-3.5 w-3.5 text-amber-400/80 shrink-0" />
+                    <span className="text-[13px] text-foreground/80 line-through decoration-amber-400/40">{r.rubrica}</span>
+                    {r.motivo && (
+                      <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30 shrink-0">
+                        {MOTIVO_BLOQUEIO_LABEL[r.motivo as string] || r.motivo}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground/70 px-1">
+                Sinalizadas no comercial. Não devem ser ajuizadas a menos que o motivo seja revisto.
+              </p>
+            </section>
+          )}
 
           <section className="space-y-2">
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
