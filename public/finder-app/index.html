@@ -100,7 +100,10 @@
       /* Cor primária do eco por tema. O motor de re-tematização (abaixo)
          reescreve o roxo fixo do Finder pra estas vars, então a cor passa a
          ACOMPANHAR o tema selecionado pelo usuário automaticamente. */
-      :root            { --aw-primary: #9e3dff; --aw-primary-rgb: 158,61,255; }
+      /* Default = NEUTRO (cinza-ardósia), pra casar com o eco que é monocromático
+         no uso normal (ícones/realces cinza, sem roxo). Temas coloridos abaixo
+         mantêm a cor própria. */
+      :root            { --aw-primary: #9aa3b2; --aw-primary-rgb: 154,163,178; }
       [data-theme="midnight-blue"] { --aw-primary: #2b65ee; --aw-primary-rgb: 43,101,238; }
       [data-theme="space-gray"]    { --aw-primary: #8d9bb0; --aw-primary-rgb: 141,155,176; }
       [data-theme="sei"]           { --aw-primary: #289bc8; --aw-primary-rgb: 40,155,200; }
@@ -185,6 +188,23 @@
             }
           }
         }
+        function normFonte(){
+          // padroniza a tipografia exagerada do Finder pra escala do eco:
+          // títulos gigantes encolhem; pesos 700-900 viram 600 (semibold).
+          var els = document.querySelectorAll('[style*="font-"]');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i], st = el.getAttribute('style') || '';
+            var mw = st.match(/font-weight\s*:\s*(\d{3})/i);
+            if (mw && parseInt(mw[1], 10) >= 700 && el.style.fontWeight !== '600') {
+              el.style.setProperty('font-weight', '600', 'important');
+            }
+            var ms = st.match(/font-size\s*:\s*([0-9.]+)px/i);
+            if (ms) {
+              var px = parseFloat(ms[1]);
+              if (px > 34 && el.style.fontSize !== '30px') el.style.setProperty('font-size', '30px', 'important');
+            }
+          }
+        }
         function esconderBranding(){
           var all = document.querySelectorAll('div,header,nav,section,span');
           // 1) barra do topo = menor container com "FINDER" + "Auditoria de Cobran"
@@ -209,7 +229,7 @@
           }
         }
         var raf = 0;
-        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); flatBg(); neutralizarTitulos(); esconderBranding(); } catch (e) {} }); }
+        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); flatBg(); neutralizarTitulos(); normFonte(); esconderBranding(); } catch (e) {} }); }
         function start(){
           sync();
           try { new MutationObserver(sync).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
