@@ -22,6 +22,9 @@ export function PersistentFinderHost() {
     if (!active) return null;
     const qs = new URLSearchParams();
     qs.set("cliente", active.clienteId);
+    // O Finder novo lê `cliente_id` pro modo VINCULADO (carrega
+    // clientes.rubricas_bloqueadas e trava as rubricas não ajuizáveis).
+    qs.set("cliente_id", active.clienteId);
     qs.set("nome", active.nome);
     if (active.driveUrl) qs.set("drive", active.driveUrl);
     if (active.driveFolderId) qs.set("drive_folder_id", active.driveFolderId);

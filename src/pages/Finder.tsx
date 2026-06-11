@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
-import { FinderAnaliseComercial } from "@/components/FinderAnaliseComercial";
 
 // Pagina /finder tem dois modos:
 //
@@ -30,7 +29,6 @@ export default function Finder() {
   const nome = searchParams.get("nome");
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const { active, iniciar } = useFinderSession();
 
   useEffect(() => {
@@ -92,16 +90,12 @@ export default function Finder() {
         </div>
       )}
       <iframe
-        ref={iframeRef}
         src="/finder-app/index.html"
         title="AW Finder"
         onLoad={() => setCarregando(false)}
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
-      {/* Captura a análise emitida pelo Finder (evento aw-finder:analysis-ready)
-          e permite salvar a "análise comercial" marcando rubricas não ajuizáveis. */}
-      <FinderAnaliseComercial iframeRef={iframeRef} />
     </div>
   );
 }
