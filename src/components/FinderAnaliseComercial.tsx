@@ -154,23 +154,21 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
           }
         }
 
-        // 2) controle de bloqueio por card de rubrica
+        // 2) controle de bloqueio por card de rubrica — rodapé integrado
         const a = analiseRef.current;
         if (!a || a.rubricas.length === 0) return;
         for (const r of a.rubricas) {
           const card = acharCard(doc, r.rubrica);
           if (!card) continue;
-          if (getComputedStyle(card).position === "static") card.style.position = "relative";
-          // visual de bloqueio
-          card.style.transition = "opacity .15s, filter .15s";
-          card.style.opacity = r.bloqueada ? "0.5" : "";
-          card.style.filter = r.bloqueada ? "grayscale(0.7)" : "";
+          // sinaliza bloqueio com uma barra de acento à esquerda (não dimeriza
+          // o card inteiro, pra não atrapalhar a leitura).
+          card.style.flexWrap = "wrap";
+          card.style.boxShadow = r.bloqueada ? "inset 3px 0 0 #fbbf24" : "";
 
           let ctrl = card.querySelector(":scope > .aw-block-ctrl") as HTMLElement | null;
           if (!ctrl) {
             ctrl = doc.createElement("div");
             ctrl.className = "aw-block-ctrl";
-            ctrl.style.cssText = "position:absolute;top:8px;right:8px;z-index:5;display:flex;gap:6px;align-items:center;pointer-events:auto;";
             card.appendChild(ctrl);
           }
           desenharCtrl(doc, ctrl, r, { toggle: toggleBloqueioLabel, motivo: setMotivoLabel });
@@ -302,26 +300,47 @@ function acharCard(doc: Document, label: string): HTMLElement | null {
   return best;
 }
 
-// (Re)desenha o controle injetado: lock + (quando bloqueado) chips de motivo.
+// SVG de cadeado pequeno, herda a cor do texto (currentColor).
+const LOCK_SVG =
+  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
+// (Re)desenha o controle como um rodapé INTEGRADO ao card — usa as variáveis
+// de tema do próprio Finder (--aw-*) pra parecer nativo.
 function desenharCtrl(
   doc: Document,
   ctrl: HTMLElement,
   r: RubricaCaptada,
   on: { toggle: (l: string) => void; motivo: (l: string, m: Motivo) => void },
 ) {
-  const cor = r.bloqueada ? "#fbbf24" : "rgba(255,255,255,0.45)";
-  const chip = (m: Motivo, ativo: boolean) =>
-    `<button data-m="${m}" style="font:600 10px/1 Inter,sans-serif;padding:3px 6px;border-radius:6px;cursor:pointer;border:1px solid ${ativo ? "#fbbf24" : "rgba(251,191,36,0.4)"};background:${ativo ? "rgba(251,191,36,0.2)" : "transparent"};color:#fbbf24;">${MOTIVO_LABEL[m]}</button>`;
-  ctrl.innerHTML =
-    `<button data-act="toggle" title="${r.bloqueada ? "Liberar rubrica" : "Bloquear (não ajuizável)"}" style="display:inline-flex;align-items:center;gap:4px;font:600 11px/1 Inter,sans-serif;padding:5px 8px;border-radius:8px;cursor:pointer;border:1px solid ${cor};background:${r.bloqueada ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.04)"};color:${cor};">` +
-    `${r.bloqueada ? "🔒 Bloqueada" : "🔓 Bloquear"}</button>` +
-    (r.bloqueada ? chip("cliente_nao_quer", r.motivo === "cliente_nao_quer") + chip("ja_ajuizada", r.motivo === "ja_ajuizada") : "");
+  ctrl.style.cssText =
+    "flex:0 0 100%;width:100%;margin-top:12px;padding-top:10px;border-top:1px solid var(--aw-border,rgba(255,255,255,0.1));" +
+    "display:flex;align-items:center;gap:8px;font-family:Inter,system-ui,sans-serif;";
 
-  // Evita propagar o clique pro card do Finder (que abre o drill-down).
+  const corBtn = r.bloqueada ? "#fbbf24" : "var(--aw-text-muted,rgba(255,255,255,0.6))";
+  const bgBtn = r.bloqueada ? "rgba(251,191,36,0.12)" : "var(--aw-card-2,rgba(255,255,255,0.04))";
+  const brBtn = r.bloqueada ? "rgba(251,191,36,0.5)" : "var(--aw-border,rgba(255,255,255,0.12))";
+
+  const toggleBtn =
+    `<button data-act="toggle" title="${r.bloqueada ? "Liberar rubrica" : "Marcar como não ajuizável"}" ` +
+    `style="display:inline-flex;align-items:center;gap:6px;font:600 11px/1 Inter,sans-serif;padding:6px 10px;border-radius:8px;cursor:pointer;border:1px solid ${brBtn};background:${bgBtn};color:${corBtn};">` +
+    `${LOCK_SVG}${r.bloqueada ? "Não ajuizável" : "Bloquear rubrica"}</button>`;
+
+  const chip = (m: Motivo, ativo: boolean) =>
+    `<button data-m="${m}" style="font:600 10px/1 Inter,sans-serif;padding:5px 8px;border-radius:7px;cursor:pointer;` +
+    `border:1px solid ${ativo ? "#fbbf24" : "rgba(251,191,36,0.35)"};background:${ativo ? "rgba(251,191,36,0.18)" : "transparent"};color:#fbbf24;">${MOTIVO_LABEL[m]}</button>`;
+
+  const motivos = r.bloqueada
+    ? `<span style="font:500 10px/1 Inter,sans-serif;color:var(--aw-text-dim,rgba(255,255,255,0.4));margin-left:auto">Motivo:</span>` +
+      chip("cliente_nao_quer", r.motivo === "cliente_nao_quer") +
+      chip("ja_ajuizada", r.motivo === "ja_ajuizada")
+    : "";
+
+  ctrl.innerHTML = toggleBtn + motivos;
+
+  // Não propaga o clique pro card (que abriria o drill-down).
   ctrl.onclick = (ev) => {
     ev.stopPropagation();
-    const t = ev.target as HTMLElement;
-    const btn = t.closest("button") as HTMLButtonElement | null;
+    const btn = (ev.target as HTMLElement).closest("button") as HTMLButtonElement | null;
     if (!btn) return;
     ev.preventDefault();
     if (btn.dataset.act === "toggle") on.toggle(r.rubrica);
