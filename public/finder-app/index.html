@@ -100,21 +100,32 @@
       /* Cor primária do eco por tema. O motor de re-tematização (abaixo)
          reescreve o roxo fixo do Finder pra estas vars, então a cor passa a
          ACOMPANHAR o tema selecionado pelo usuário automaticamente. */
-      /* Default = NEUTRO (cinza-ardósia), pra casar com o eco que é monocromático
-         no uso normal (ícones/realces cinza, sem roxo). Temas coloridos abaixo
-         mantêm a cor própria. */
-      :root            { --aw-primary: #9aa3b2; --aw-primary-rgb: 154,163,178; }
+      /* Default (tema "roxo" do eco) = o MESMO roxo do eco: --primary 270 100% 62%
+         = rgb(158,61,255). Antes estava neutro/cinza, o que deixava o tema roxo
+         "branco/lavado" no Finder. Agora o Finder ACOMPANHA o roxo do eco. */
+      :root            { --aw-primary: hsl(270 100% 62%); --aw-primary-rgb: 158,61,255; }
       [data-theme="midnight-blue"] { --aw-primary: #2b65ee; --aw-primary-rgb: 43,101,238; }
       [data-theme="space-gray"]    { --aw-primary: #8d9bb0; --aw-primary-rgb: 141,155,176; }
       [data-theme="sei"]           { --aw-primary: #289bc8; --aw-primary-rgb: 40,155,200; }
       :root { --aw-primary-soft: color-mix(in srgb, var(--aw-primary) 62%, white); }
       /* REDE DE SEGURANÇA: o React seta a cor inline SEM !important e o navegador
          normaliza hex→rgb. Uma regra de stylesheet com !important vence o inline
-         normal do React, garantindo que NENHUM texto fique roxo (mesmo nos
-         valores do relatório que usam color:#a78bfa → rgb(167,139,250)). */
-      [style*="#8b5cf6"], [style*="#a78bfa"], [style*="#6d28d9"],
-      [style*="139, 92, 246"], [style*="167, 139, 250"], [style*="109, 40, 217"],
-      [style*="139,92,246"], [style*="167,139,250"], [style*="109,40,217"] {
+         normal do React, garantindo que valores de TEXTO roxos (ex.: os números
+         do relatório que usam color:#a78bfa → rgb(167,139,250)) sigam o tema.
+
+         IMPORTANTE: só aplicamos em elementos onde o roxo é a cor de TEXTO —
+         excluímos quem tem `background`/`box-shadow` no inline (botões), senão o
+         texto do botão era forçado pra mesma cor do fundo e sumia (botão cinza
+         sem letras). Botões são recoloridos pelo motor JS, mantendo texto branco. */
+      [style*="#8b5cf6"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="#a78bfa"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="#6d28d9"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="139, 92, 246"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="167, 139, 250"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="109, 40, 217"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="139,92,246"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="167,139,250"]:not([style*="background"]):not([style*="box-shadow"]),
+      [style*="109,40,217"]:not([style*="background"]):not([style*="box-shadow"]) {
         color: var(--aw-primary) !important;
       }
     </style>
