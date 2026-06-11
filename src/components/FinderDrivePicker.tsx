@@ -63,7 +63,8 @@ export function FinderDrivePicker({
     }
     const fs = ((data as any).files || []) as DriveFile[];
     setFiles(fs);
-    setSel(Object.fromEntries(fs.map((f) => [f.id, true]))); // pré-seleciona tudo
+    // Pré-seleciona só o que tem "extrato" no nome (o resto fica desmarcado).
+    setSel(Object.fromEntries(fs.map((f) => [f.id, /extrato/i.test(f.name)])));
   }, [folderId]);
 
   useEffect(() => {

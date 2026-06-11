@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
+import { FinderClientePicker, type ClienteEscolhido } from "@/components/FinderClientePicker";
+import { FinderDrivePicker } from "@/components/FinderDrivePicker";
 
 // Pagina /finder tem dois modos:
 //
@@ -30,6 +32,31 @@ export default function Finder() {
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const { active, iniciar } = useFinderSession();
+
+  // Modo standalone: seletor de cliente → seletor de documentos da pasta.
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [chooserAberto, setChooserAberto] = useState(false);
+  const [pickerAberto, setPickerAberto] = useState(false);
+  const [escolhido, setEscolhido] = useState<ClienteEscolhido | null>(null);
+
+  const getFinderInput = () =>
+    (iframeRef.current?.contentDocument?.querySelector(
+      'input[type="file"][accept=".pdf"]',
+    ) as HTMLInputElement | null) ?? null;
+  const getFinderWindow = () => iframeRef.current?.contentWindow ?? null;
+
+  // O botão "Puxar da pasta do Drive" injetado no Finder avisa por postMessage.
+  // Aqui (standalone) não há cliente vinculado → abre o seletor de cliente.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if ((e.data as any)?.type !== "aw-finder:abrir-drive-picker") return;
+      if (e.source !== iframeRef.current?.contentWindow) return; // só o iframe standalone
+      setChooserAberto(true);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
 
   useEffect(() => {
     document.title = nome
@@ -90,12 +117,33 @@ export default function Finder() {
         </div>
       )}
       <iframe
+        ref={iframeRef}
         src="/finder-app/index.html"
         title="AW Finder"
         onLoad={() => setCarregando(false)}
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
+
+      <FinderClientePicker
+        open={chooserAberto}
+        onOpenChange={setChooserAberto}
+        onPick={(c) => {
+          setEscolhido(c);
+          setChooserAberto(false);
+          setPickerAberto(true);
+        }}
+      />
+      {escolhido && (
+        <FinderDrivePicker
+          open={pickerAberto}
+          onOpenChange={setPickerAberto}
+          folderId={escolhido.folderId}
+          clienteNome={escolhido.nome}
+          getFinderInput={getFinderInput}
+          getFinderWindow={getFinderWindow}
+        />
+      )}
     </div>
   );
 }

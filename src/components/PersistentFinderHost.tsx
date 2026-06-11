@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2, FileStack } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
 import { FinderDrivePicker } from "@/components/FinderDrivePicker";
 
@@ -28,6 +28,19 @@ export function PersistentFinderHost() {
       'input[type="file"][accept=".pdf"]',
     ) as HTMLInputElement | null) ?? null;
   const getFinderWindow = () => iframeRef.current?.contentWindow ?? null;
+
+  // O botão "Puxar da pasta do Drive" injetado dentro do Finder avisa por
+  // postMessage. Modo vinculado: abre direto na pasta do cliente da sessão.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if ((e.data as any)?.type !== "aw-finder:abrir-drive-picker") return;
+      if (e.source !== iframeRef.current?.contentWindow) return; // só o nosso iframe
+      if (active?.driveFolderId) setPickerAberto(true);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [active]);
 
   const iframeSrc = useMemo(() => {
     if (!active) return null;
@@ -81,16 +94,6 @@ export function PersistentFinderHost() {
             </span>
           </div>
           <div className="shrink-0 flex items-center gap-2">
-            {active.driveFolderId && (
-              <button
-                onClick={() => setPickerAberto(true)}
-                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-primary/10 hover:bg-primary/15 border border-primary/40 hover:border-primary/60 text-primary text-xs font-medium transition-colors"
-                title="Escolher documentos da pasta do cliente no Drive pra analisar"
-              >
-                <FileStack className="h-3.5 w-3.5" />
-                Usar docs da pasta
-              </button>
-            )}
             {active.driveUrl && (
               <a
                 href={active.driveUrl}
