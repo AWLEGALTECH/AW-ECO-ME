@@ -1,8 +1,7 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
-import { FinderDrivePicker } from "@/components/FinderDrivePicker";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
 // esta em /finder, ele aparece sobre o Outlet com o header de contexto
@@ -18,37 +17,11 @@ export function PersistentFinderHost() {
   const location = useLocation();
   const navigate = useNavigate();
   const visivel = location.pathname.startsWith("/finder");
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [pickerAberto, setPickerAberto] = useState(false);
-
-  // Acesso ao <input type="file"> de PDF dentro do iframe (mesma origem) pra
-  // o picker injetar os documentos da pasta do cliente.
-  const getFinderInput = () =>
-    (iframeRef.current?.contentDocument?.querySelector(
-      'input[type="file"][accept=".pdf"]',
-    ) as HTMLInputElement | null) ?? null;
-  const getFinderWindow = () => iframeRef.current?.contentWindow ?? null;
-
-  // O botão "Puxar da pasta do Drive" injetado dentro do Finder avisa por
-  // postMessage. Modo vinculado: abre direto na pasta do cliente da sessão.
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-      if ((e.data as any)?.type !== "aw-finder:abrir-drive-picker") return;
-      if (e.source !== iframeRef.current?.contentWindow) return; // só o nosso iframe
-      if (active?.driveFolderId) setPickerAberto(true);
-    };
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [active]);
 
   const iframeSrc = useMemo(() => {
     if (!active) return null;
     const qs = new URLSearchParams();
     qs.set("cliente", active.clienteId);
-    // O Finder novo lê `cliente_id` pro modo VINCULADO (carrega
-    // clientes.rubricas_bloqueadas e trava as rubricas não ajuizáveis).
-    qs.set("cliente_id", active.clienteId);
     qs.set("nome", active.nome);
     if (active.driveUrl) qs.set("drive", active.driveUrl);
     if (active.driveFolderId) qs.set("drive_folder_id", active.driveFolderId);
@@ -127,23 +100,11 @@ export function PersistentFinderHost() {
       )}
 
       <iframe
-        ref={iframeRef}
         src={iframeSrc}
         title="AW Finder"
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
-
-      {active.driveFolderId && (
-        <FinderDrivePicker
-          open={pickerAberto}
-          onOpenChange={setPickerAberto}
-          folderId={active.driveFolderId}
-          clienteNome={active.nome}
-          getFinderInput={getFinderInput}
-          getFinderWindow={getFinderWindow}
-        />
-      )}
     </div>
   );
 }
