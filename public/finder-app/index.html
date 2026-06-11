@@ -123,10 +123,12 @@
     </script>
     <script>
       /* MOTOR DE INTEGRAÇÃO do Finder ao AW-ECO-ME (roda no doc do Finder):
-         1) reescreve o ROXO fixo (#8b5cf6 / #a78bfa / rgba(139,92,246,*)) das
-            inline styles pra var(--aw-primary*) → a cor acompanha o tema;
-         2) esconde a barra do topo (logo "FINDER" + "Sair") pra embutir nativo.
-         O "Sair" ia pra /api/logout (bug das bonecas russas) — fora. */
+         1) ROXO fixo (#8b5cf6 / #a78bfa / rgba(139,92,246,*)) das inline styles
+            → var(--aw-primary*) (acompanha o tema do eco);
+         2) títulos com gradiente roxo (background-clip:text) → texto BRANCO,
+            como os títulos do eco;
+         3) esconde a barra do topo (logo "FINDER"), o badge de marca e o "Sair"
+            (que ia pra /api/logout e causava as bonecas russas). */
       (function () {
         var reHex  = /#8b5cf6/gi, reSoft = /#a78bfa/gi;
         var reRgba = /rgba\(\s*139\s*,\s*92\s*,\s*246\s*,\s*([0-9.]+)\s*\)/gi;
@@ -145,9 +147,8 @@
           var els = document.querySelectorAll('[style]');
           for (var i = 0; i < els.length; i++) {
             var st = els[i].getAttribute('style');
-            if (temRoxo(st)) els[i].setAttribute('style', recolor(st));
+            if (st && temRoxo(st)) els[i].setAttribute('style', recolor(st));
           }
-          // SVG fill/stroke como atributo (não aceita var) → manda pro style
           var sv = document.querySelectorAll('[fill],[stroke]');
           for (var j = 0; j < sv.length; j++) {
             var f = (sv[j].getAttribute('fill') || '').toLowerCase();
@@ -156,30 +157,47 @@
             if ((k === '#8b5cf6' || k === '#a78bfa') && sv[j].style.stroke !== 'var(--aw-primary)') sv[j].style.stroke = 'var(--aw-primary)';
           }
         }
-        function esconderTopo(){
-          // barra do topo = menor container com logo "FINDER" + subtítulo + "Sair"
-          var all = document.querySelectorAll('div,header,nav');
-          var best = null, len = Infinity;
+        function neutralizarTitulos(){
+          // títulos com gradiente recortado no texto → branco (como o eco)
+          var els = document.querySelectorAll('[style*="clip"]');
+          for (var i = 0; i < els.length; i++) {
+            var st = els[i].getAttribute('style') || '';
+            if (/clip\s*:\s*text/i.test(st) && els[i].style.webkitTextFillColor !== 'var(--aw-text)') {
+              els[i].style.setProperty('-webkit-text-fill-color', 'var(--aw-text)', 'important');
+              els[i].style.setProperty('color', 'var(--aw-text)', 'important');
+              els[i].style.setProperty('background-image', 'none', 'important');
+            }
+          }
+        }
+        function esconderBranding(){
+          var all = document.querySelectorAll('div,header,nav,section,span');
+          // 1) barra do topo = menor container com "FINDER" + "Auditoria de Cobran"
+          var bar = null, blen = Infinity;
           for (var i = 0; i < all.length; i++) {
             var t = all[i].textContent || '';
-            if (t.indexOf('FINDER') >= 0 && /Auditoria de Cobran/.test(t) && t.indexOf('Sair') >= 0 && t.length < 320 && t.length < len) { best = all[i]; len = t.length; }
+            if (t.indexOf('FINDER') >= 0 && /Auditoria de Cobran/.test(t) && t.length < 400 && t.length < blen) { bar = all[i]; blen = t.length; }
           }
-          if (best && best.style.display !== 'none') best.style.display = 'none';
-          // fallback: qualquer "Sair" solto
+          if (bar && bar.style.display !== 'none') bar.style.display = 'none';
+          // 2) badge de marca "AW LEGALTECH · AUDITORIA BANCÁRIA"
+          for (var j = 0; j < all.length; j++) {
+            var tj = all[j].textContent || '';
+            if (/AUDITORIA BANC[AÁ]RIA/i.test(tj) && tj.length < 80 && all[j].style.display !== 'none') all[j].style.display = 'none';
+          }
+          // 3) "Sair" solto
           var nd = document.querySelectorAll('button,a,div,span');
-          for (var j = 0; j < nd.length; j++) {
-            if ((nd[j].textContent || '').trim() === 'Sair' && nd[j].children.length === 0) {
-              var p = nd[j].closest('button,a') || nd[j];
+          for (var k = 0; k < nd.length; k++) {
+            if ((nd[k].textContent || '').trim() === 'Sair' && nd[k].children.length === 0) {
+              var p = nd[k].closest('button,a') || nd[k];
               if (p.style.display !== 'none') p.style.display = 'none';
             }
           }
         }
         var raf = 0;
-        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); esconderTopo(); } catch (e) {} }); }
+        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); neutralizarTitulos(); esconderBranding(); } catch (e) {} }); }
         function start(){
           sync();
           try { new MutationObserver(sync).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
-          setInterval(sync, 1000); // backup pra mudanças de estilo sem add/remove de nó
+          setInterval(sync, 800);
         }
         if (document.readyState !== 'loading') start();
         else document.addEventListener('DOMContentLoaded', start);
