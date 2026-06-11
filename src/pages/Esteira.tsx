@@ -322,6 +322,49 @@ export default function Esteira() {
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
 
   // Avança uma peça artesanal direto pra "Peças prontas" (peça já no Drive).
+  // Abre o Writer pra confeccionar a peça de uma análise vinculada — mesma
+  // lógica do botão "Confeccionar peça" da ficha do cliente (ClienteDetail):
+  // garante a demanda confeccao_peca (idempotente) e passa o contexto completo
+  // (modo=peticao + desconto + análise) pro Writer pré-preencher a qualificação,
+  // sugerir o produto certo e registrar a peça no Espelho de Protocolo ao final.
+  const confeccionarPecaVinculada = async (av: DemandaEsteira) => {
+    const { data: existe } = await supabase
+      .from("demandas" as any)
+      .select("id")
+      .eq("cliente_id", av.cliente_id)
+      .eq("etapa", "confeccao_peca")
+      .eq("analise_pai_id", av.id)
+      .maybeSingle();
+    let demandaId: string | null = (existe as any)?.id ?? null;
+    if (!demandaId) {
+      const { data: nova, error } = await supabase.from("demandas" as any).insert({
+        cliente_id: av.cliente_id,
+        tipo: "pre_protocolo",
+        etapa: "confeccao_peca",
+        titulo: `Peça — ${av.desconto || "desconto"}`,
+        descricao: "Confecção da peça a partir da análise vinculada.",
+        desconto: av.desconto,
+        status: "em_andamento",
+        analise_pai_id: av.id,
+        created_by: user?.id || null,
+        ordem: 2,
+      }).select("id").single();
+      if (error) { toast.error("Erro ao criar demanda: " + error.message); return; }
+      demandaId = (nova as any).id;
+    }
+    if (!demandaId) return;
+    const params = new URLSearchParams({
+      cliente: av.cliente_id,
+      nome: av.cliente?.nome || "",
+      modo: "peticao",
+      desconto: av.desconto || "",
+      analise_id: av.id,
+      analise_url: av.peca_drive_url || "",
+      demanda_id: demandaId,
+    });
+    navigate(`/writer?${params.toString()}`);
+  };
+
   const avancarArtesanalParaPronta = async (d: DemandaEsteira) => {
     const nome = d.cliente?.nome || "cliente";
     const novoTitulo = `Pronto pra protocolo — ${d.desconto || nome}`;
@@ -793,9 +836,9 @@ export default function Esteira() {
               variant="primary"
               disabled={!vincAcoes?.cliente?.id}
               onClick={() => {
-                const cli = vincAcoes?.cliente;
+                const av = vincAcoes;
                 setVincAcoes(null);
-                if (cli?.id && cli.nome) navigate(`/writer?cliente=${cli.id}&nome=${encodeURIComponent(cli.nome)}`);
+                if (av?.cliente_id) confeccionarPecaVinculada(av);
               }}
             />
           </div>
