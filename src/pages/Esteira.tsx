@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -322,12 +322,10 @@ export default function Esteira() {
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
 
   // Avança uma peça artesanal direto pra "Peças prontas" (peça já no Drive).
-  // Abre o Writer pra confeccionar a peça de uma análise vinculada — mesma
-  // lógica do botão "Confeccionar peça" da ficha do cliente (ClienteDetail):
-  // garante a demanda confeccao_peca (idempotente) e passa o contexto completo
-  // (modo=peticao + desconto + análise) pro Writer pré-preencher a qualificação,
-  // sugerir o produto certo e registrar a peça no Espelho de Protocolo ao final.
-  const confeccionarPecaVinculada = async (av: DemandaEsteira) => {
+  // Garante a demanda confeccao_peca pra uma análise vinculada (idempotente:
+  // devolve o id existente se já houver). Espelha garantirConfeccaoDemanda do
+  // ClienteDetail pra reaproveitar o mesmo fluxo a partir da esteira.
+  const garantirConfeccaoDemanda = async (av: DemandaEsteira): Promise<string | null> => {
     const { data: existe } = await supabase
       .from("demandas" as any)
       .select("id")
@@ -335,23 +333,30 @@ export default function Esteira() {
       .eq("etapa", "confeccao_peca")
       .eq("analise_pai_id", av.id)
       .maybeSingle();
-    let demandaId: string | null = (existe as any)?.id ?? null;
-    if (!demandaId) {
-      const { data: nova, error } = await supabase.from("demandas" as any).insert({
-        cliente_id: av.cliente_id,
-        tipo: "pre_protocolo",
-        etapa: "confeccao_peca",
-        titulo: `Peça — ${av.desconto || "desconto"}`,
-        descricao: "Confecção da peça a partir da análise vinculada.",
-        desconto: av.desconto,
-        status: "em_andamento",
-        analise_pai_id: av.id,
-        created_by: user?.id || null,
-        ordem: 2,
-      }).select("id").single();
-      if (error) { toast.error("Erro ao criar demanda: " + error.message); return; }
-      demandaId = (nova as any).id;
-    }
+    if (existe) return (existe as any).id;
+    const { data: nova, error } = await supabase.from("demandas" as any).insert({
+      cliente_id: av.cliente_id,
+      tipo: "pre_protocolo",
+      etapa: "confeccao_peca",
+      titulo: `Peça — ${av.desconto || "desconto"}`,
+      descricao: "Confecção da peça a partir da análise vinculada.",
+      desconto: av.desconto,
+      status: "em_andamento",
+      analise_pai_id: av.id,
+      created_by: user?.id || null,
+      ordem: 2,
+    }).select("id").single();
+    if (error) { toast.error("Erro ao criar demanda: " + error.message); return null; }
+    return (nova as any).id;
+  };
+
+  // Abre o Writer pra confeccionar a peça de uma análise vinculada — mesma
+  // lógica do botão "Confeccionar peça" da ficha do cliente (ClienteDetail):
+  // garante a demanda confeccao_peca (idempotente) e passa o contexto completo
+  // (modo=peticao + desconto + análise) pro Writer pré-preencher a qualificação,
+  // sugerir o produto certo e registrar a peça no Espelho de Protocolo ao final.
+  const confeccionarPecaVinculada = async (av: DemandaEsteira) => {
+    const demandaId = await garantirConfeccaoDemanda(av);
     if (!demandaId) return;
     const params = new URLSearchParams({
       cliente: av.cliente_id,
@@ -364,6 +369,43 @@ export default function Esteira() {
     });
     navigate(`/writer?${params.toString()}`);
   };
+
+  // Produz todas as peças de um cliente em sequência (modo cadeia) — espelha o
+  // "Produzir em cadeia" da ficha do cliente. Pré-cria/recupera a demanda de
+  // cada análise pendente, monta a fila e abre o Writer no primeiro item.
+  const produzirCadeiaCliente = async (items: DemandaEsteira[]) => {
+    if (items.length < 2) {
+      toast.error("Cadeia precisa de pelo menos 2 análises pendentes.");
+      return;
+    }
+    const fila: Array<{ demanda_id: string; analise_id: string; analise_url: string; desconto: string }> = [];
+    for (const av of items) {
+      const did = await garantirConfeccaoDemanda(av);
+      if (!did) return;
+      fila.push({
+        demanda_id: did,
+        analise_id: av.id,
+        analise_url: av.peca_drive_url || "",
+        desconto: av.desconto || "",
+      });
+    }
+    const fila_b64 = btoa(unescape(encodeURIComponent(JSON.stringify(fila))));
+    const primeiro = fila[0];
+    const params = new URLSearchParams({
+      cliente: items[0].cliente_id,
+      nome: items[0].cliente?.nome || "",
+      modo: "peticao",
+      desconto: primeiro.desconto,
+      analise_id: primeiro.analise_id,
+      analise_url: primeiro.analise_url,
+      demanda_id: primeiro.demanda_id,
+      cadeia: "1",
+      cadeia_pos: "1",
+      cadeia_fila: fila_b64,
+    });
+    navigate(`/writer?${params.toString()}`);
+  };
+
 
   const avancarArtesanalParaPronta = async (d: DemandaEsteira) => {
     const nome = d.cliente?.nome || "cliente";
@@ -648,6 +690,19 @@ export default function Esteira() {
                         audit={lookupAudit(d.id)}
                       />
                     ))}
+                    {/* Produzir em cadeia — mesma ação da ficha do cliente:
+                        gera todas as peças pendentes do cliente em sequência. */}
+                    {g.items.length >= 2 && (
+                      <Button
+                        size="sm"
+                        onClick={() => produzirCadeiaCliente(g.items)}
+                        className="w-full mt-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                        title="Gera todas as peças pendentes deste cliente em sequência, sem voltar pra esteira entre uma e outra"
+                      >
+                        <Layers className="h-3.5 w-3.5 mr-1.5" />
+                        Produzir em cadeia ({g.items.length})
+                      </Button>
+                    )}
                   </ClienteAccordion>
                 );
               })
