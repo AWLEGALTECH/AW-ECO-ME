@@ -137,6 +137,8 @@
           if (!s) return false; s = s.toLowerCase();
           return /#8b5cf6|#a78bfa|#6d28d9|139,\s?92,\s?246|109,\s?40,\s?217|12,\s?10,\s?18|14,\s?11,\s?22|8,\s?6,\s?14|2,\s?1,\s?5/.test(s);
         }
+        // só os roxos de verdade (pra reescrever <style> injetado sem mexer no nosso)
+        var rePurpStyle = /#8b5cf6|#a78bfa|#6d28d9|139\s*,\s*92\s*,\s*246|109\s*,\s*40\s*,\s*217/i;
         function recolor(s){
           return s
             // roxos → cor primária do tema
@@ -158,12 +160,23 @@
             var st = els[i].getAttribute('style');
             if (st && temAlvo(st)) els[i].setAttribute('style', recolor(st));
           }
-          var sv = document.querySelectorAll('[fill],[stroke]');
+          var sv = document.querySelectorAll('[fill],[stroke],[stop-color]');
           for (var j = 0; j < sv.length; j++) {
             var f = (sv[j].getAttribute('fill') || '').toLowerCase();
             if ((f === '#8b5cf6' || f === '#a78bfa' || f === '#6d28d9') && sv[j].style.fill !== 'var(--aw-primary)') sv[j].style.fill = 'var(--aw-primary)';
             var k = (sv[j].getAttribute('stroke') || '').toLowerCase();
             if ((k === '#8b5cf6' || k === '#a78bfa' || k === '#6d28d9') && sv[j].style.stroke !== 'var(--aw-primary)') sv[j].style.stroke = 'var(--aw-primary)';
+            // gradientes SVG (<stop stop-color>) — via style (atributo não aceita var)
+            var sc = (sv[j].getAttribute('stop-color') || '').toLowerCase();
+            if ((sc === '#8b5cf6' || sc === '#a78bfa' || sc === '#6d28d9') && sv[j].style.stopColor !== 'var(--aw-primary)') sv[j].style.setProperty('stop-color', 'var(--aw-primary)', 'important');
+          }
+        }
+        function processarStyles(){
+          // reescreve o ROXO dentro de <style> injetados (keyframes :hover ::before)
+          var ss = document.querySelectorAll('style');
+          for (var i = 0; i < ss.length; i++) {
+            var tc = ss[i].textContent || '';
+            if (rePurpStyle.test(tc)) ss[i].textContent = recolor(tc);
           }
         }
         function flatBg(){
@@ -229,10 +242,11 @@
           }
         }
         var raf = 0;
-        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); flatBg(); neutralizarTitulos(); normFonte(); esconderBranding(); } catch (e) {} }); }
+        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarStyles(); processarCor(); flatBg(); neutralizarTitulos(); normFonte(); esconderBranding(); } catch (e) {} }); }
         function start(){
           sync();
-          try { new MutationObserver(sync).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+          // observa também ATRIBUTOS (style/fill/stroke) → recoloria o hover na hora
+          try { new MutationObserver(sync).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'fill', 'stroke', 'stop-color'] }); } catch (e) {}
           setInterval(sync, 800);
         }
         if (document.readyState !== 'loading') start();
