@@ -115,6 +115,27 @@ function aplicarClienteNoKit(c) {
   state.dadosKit.cliente_aw_id = c.aw_id || '';
 }
 
+// Handler do dropdown "Selecionar análise comercial". Puxa nome + CPF da
+// análise feita no Finder e atrela as rubricas não ajuizáveis ao kit (que
+// viram clientes.rubricas_bloqueadas na conversão do pré-cliente).
+function onKitSelectAnaliseComercial(id) {
+  if (!state.dadosKit) return;
+  if (!id) {
+    state.dadosKit.analise_comercial_id = '';
+    state.dadosKit.rubricas_bloqueadas = [];
+    if (typeof render === 'function') render();
+    return;
+  }
+  const a = (state.analisesComerciais || []).find(x => x.id === id);
+  if (!a) return;
+  const setIf = (k, v) => { if (v !== undefined && v !== null && String(v).trim() !== '') state.dadosKit[k] = v; };
+  setIf('cliente_nome_completo', a.nome);
+  setIf('cliente_cpf', a.cpf);
+  state.dadosKit.analise_comercial_id = a.id;
+  state.dadosKit.rubricas_bloqueadas = a.rubricas_bloqueadas || [];
+  if (typeof render === 'function') render();
+}
+
 // Handler do dropdown de seleção de cliente no kit form.
 async function onKitSelectCliente(awId) {
   if (!awId) return;
@@ -133,6 +154,10 @@ function inicializarDadosKit() {
   return {
     // Cliente
     cliente_aw_id: '',
+    // Análise comercial (Finder isolado) selecionada — carrega nome + rubricas
+    // não ajuizáveis pro perfil do cliente.
+    analise_comercial_id: '',
+    rubricas_bloqueadas: [],
     cliente_nome_completo: '',
     cliente_genero: 'masculino',
     cliente_nacionalidade: 'brasileiro',
@@ -189,6 +214,17 @@ function renderKitForm(view) {
     `<option value="${escapeAttr(c.aw_id)}" ${d.cliente_aw_id===c.aw_id?'selected':''}>${escapeHtml(c.nome_completo || '—')}</option>`
   ).join('');
 
+  // Análises comerciais (Finder isolado) pro dropdown de prefill.
+  const analises = (state.analisesComerciais || []);
+  const optionsAnalises = analises.map(a =>
+    `<option value="${escapeAttr(a.id)}" ${d.analise_comercial_id===a.id?'selected':''}>${escapeHtml(a.nome || '—')}${a.total_bloqueadas?` · ${a.total_bloqueadas} bloqueada(s)`:''}</option>`
+  ).join('');
+  const bloqueadas = Array.isArray(d.rubricas_bloqueadas) ? d.rubricas_bloqueadas : [];
+  const MOTIVO_LBL = { cliente_nao_quer: 'cliente não quer', ja_ajuizada: 'já ajuizada' };
+  const resumoBloqueadas = bloqueadas.length
+    ? `<div class="kit-hint" style="margin-top:6px;color:#fbbf24">🔒 ${bloqueadas.length} rubrica(s) não ajuizável(is) atrelada(s): ${bloqueadas.map(b => escapeHtml(b.rubrica) + (b.motivo?` (${MOTIVO_LBL[b.motivo]||b.motivo})`:'')).join(', ')}</div>`
+    : '';
+
   view.innerHTML = `
     <div class="kit-form-page">
       <div class="kit-form-header">
@@ -208,6 +244,14 @@ function renderKitForm(view) {
                 <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
                 ${optionsClientes}
               </select>
+            </label>
+            <label class="kit-field span-3">
+              <span>Ou selecionar análise comercial <em class="kit-hint">traz o nome e as rubricas não ajuizáveis do Finder</em></span>
+              <select onchange="onKitSelectAnaliseComercial(this.value)">
+                <option value="">${analises.length ? 'Selecione uma análise comercial…' : 'Nenhuma análise comercial aberta'}</option>
+                ${optionsAnalises}
+              </select>
+              ${resumoBloqueadas}
             </label>
             <label class="kit-field span-2">
               <span>Nome completo</span>

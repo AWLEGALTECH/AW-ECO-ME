@@ -68,6 +68,39 @@ async function fetchClientesAW() {
   }
 }
 
+// Lista as análises comerciais "abertas" (geradas no Finder isolado, ainda
+// não usadas). Cada uma traz nome + as rubricas marcadas como NÃO ajuizáveis
+// (princípio das rubricas não ajuizáveis) pra prefill no kit do Writer.
+async function fetchAnalisesComerciais() {
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/analises_comerciais?select=id,nome,cpf_cnpj,rubricas,planilha_url,created_at,created_by_email&status=eq.aberta&order=created_at.desc`,
+      { headers: _awHeaders() }
+    );
+    if (!resp.ok) { console.warn('[analises-com] fetch', resp.status); return []; }
+    const rows = await resp.json();
+    return (rows || []).map((r) => {
+      const rubricas = Array.isArray(r.rubricas) ? r.rubricas : [];
+      const bloqueadas = rubricas
+        .filter((x) => x && x.bloqueada)
+        .map((x) => ({ rubrica: x.rubrica, motivo: x.motivo || null }));
+      return {
+        id: r.id,
+        nome: r.nome || '',
+        cpf: r.cpf_cnpj || '',
+        rubricas_bloqueadas: bloqueadas,
+        total_rubricas: rubricas.length,
+        total_bloqueadas: bloqueadas.length,
+        planilha_url: r.planilha_url || '',
+        autor: r.created_by_email || '',
+      };
+    });
+  } catch (e) {
+    console.warn('[analises-com] erro lista', e);
+    return [];
+  }
+}
+
 // Puxa banco/agencia/conta de uma demanda analise_vinculada — usado pra
 // pre-preencher pacote 3 do writer quando vem de "Confeccionar peça".
 async function fetchAnaliseVinculadaMeta(demandaId) {

@@ -57,6 +57,10 @@ function _montarPayloadPreCliente() {
         modalidade: { id: modalidade.id, nome: modalidade.nome },
         gerado_em: new Date().toISOString(),
         cadastrado_por: _autor || 'Adria Mota',
+        // Análise comercial atrelada (princípio das rubricas não ajuizáveis):
+        // viram clientes.rubricas_bloqueadas na conversão do pré-cliente.
+        analise_comercial_id: d.analise_comercial_id || null,
+        rubricas_bloqueadas: Array.isArray(d.rubricas_bloqueadas) ? d.rubricas_bloqueadas : [],
       },
       status: 'aguardando_assinatura',
       origem: 'writer',
