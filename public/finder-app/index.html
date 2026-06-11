@@ -130,31 +130,47 @@
          3) esconde a barra do topo (logo "FINDER"), o badge de marca e o "Sair"
             (que ia pra /api/logout e causava as bonecas russas). */
       (function () {
-        var reHex  = /#8b5cf6/gi, reSoft = /#a78bfa/gi;
-        var reRgba = /rgba\(\s*139\s*,\s*92\s*,\s*246\s*,\s*([0-9.]+)\s*\)/gi;
-        var reRgb  = /rgb\(\s*139\s*,\s*92\s*,\s*246\s*\)/gi;
-        function temRoxo(s){
+        function temAlvo(s){
           if (!s) return false; s = s.toLowerCase();
-          return s.indexOf('#8b5cf6') >= 0 || s.indexOf('#a78bfa') >= 0 || s.indexOf('139,92,246') >= 0 || s.indexOf('139, 92, 246') >= 0;
+          return /#8b5cf6|#a78bfa|#6d28d9|139,\s?92,\s?246|109,\s?40,\s?217|12,\s?10,\s?18|14,\s?11,\s?22|8,\s?6,\s?14|2,\s?1,\s?5/.test(s);
         }
         function recolor(s){
-          return s.replace(reHex, 'var(--aw-primary)')
-                  .replace(reSoft, 'var(--aw-primary-soft)')
-                  .replace(reRgba, 'rgba(var(--aw-primary-rgb),$1)')
-                  .replace(reRgb, 'rgb(var(--aw-primary-rgb))');
+          return s
+            // roxos → cor primária do tema
+            .replace(/#8b5cf6/gi, 'var(--aw-primary)')
+            .replace(/#6d28d9/gi, 'var(--aw-primary)')
+            .replace(/#a78bfa/gi, 'var(--aw-primary-soft)')
+            .replace(/rgba\(\s*139\s*,\s*92\s*,\s*246\s*,\s*([0-9.]+)\s*\)/gi, 'rgba(var(--aw-primary-rgb),$1)')
+            .replace(/rgba\(\s*109\s*,\s*40\s*,\s*217\s*,\s*([0-9.]+)\s*\)/gi, 'rgba(var(--aw-primary-rgb),$1)')
+            .replace(/rgb\(\s*139\s*,\s*92\s*,\s*246\s*\)/gi, 'rgb(var(--aw-primary-rgb))')
+            // "pretos" roxo-tingidos do Finder → preto neutro do eco
+            .replace(/rgba\(\s*12\s*,\s*10\s*,\s*18\s*,/gi, 'rgba(15,15,17,')
+            .replace(/rgba\(\s*14\s*,\s*11\s*,\s*22\s*,/gi, 'rgba(16,16,18,')
+            .replace(/rgba\(\s*8\s*,\s*6\s*,\s*14\s*,/gi, 'rgba(10,10,11,')
+            .replace(/rgba\(\s*2\s*,\s*1\s*,\s*5\s*,/gi, 'rgba(6,6,7,');
         }
         function processarCor(){
           var els = document.querySelectorAll('[style]');
           for (var i = 0; i < els.length; i++) {
             var st = els[i].getAttribute('style');
-            if (st && temRoxo(st)) els[i].setAttribute('style', recolor(st));
+            if (st && temAlvo(st)) els[i].setAttribute('style', recolor(st));
           }
           var sv = document.querySelectorAll('[fill],[stroke]');
           for (var j = 0; j < sv.length; j++) {
             var f = (sv[j].getAttribute('fill') || '').toLowerCase();
-            if ((f === '#8b5cf6' || f === '#a78bfa') && sv[j].style.fill !== 'var(--aw-primary)') sv[j].style.fill = 'var(--aw-primary)';
+            if ((f === '#8b5cf6' || f === '#a78bfa' || f === '#6d28d9') && sv[j].style.fill !== 'var(--aw-primary)') sv[j].style.fill = 'var(--aw-primary)';
             var k = (sv[j].getAttribute('stroke') || '').toLowerCase();
-            if ((k === '#8b5cf6' || k === '#a78bfa') && sv[j].style.stroke !== 'var(--aw-primary)') sv[j].style.stroke = 'var(--aw-primary)';
+            if ((k === '#8b5cf6' || k === '#a78bfa' || k === '#6d28d9') && sv[j].style.stroke !== 'var(--aw-primary)') sv[j].style.stroke = 'var(--aw-primary)';
+          }
+        }
+        function flatBg(){
+          // achata o degradê radial de fundo (o "cenário") → preto chapado do eco
+          var els = document.querySelectorAll('[style*="radial-gradient"]');
+          for (var i = 0; i < els.length; i++) {
+            if (els[i].clientHeight > 280 || els[i].clientWidth > 500) {
+              els[i].style.setProperty('background-image', 'none', 'important');
+              els[i].style.setProperty('background-color', 'var(--aw-bg)', 'important');
+            }
           }
         }
         function neutralizarTitulos(){
@@ -193,7 +209,7 @@
           }
         }
         var raf = 0;
-        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); neutralizarTitulos(); esconderBranding(); } catch (e) {} }); }
+        function sync(){ cancelAnimationFrame(raf); raf = requestAnimationFrame(function(){ try { processarCor(); flatBg(); neutralizarTitulos(); esconderBranding(); } catch (e) {} }); }
         function start(){
           sync();
           try { new MutationObserver(sync).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
