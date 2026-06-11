@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock, Unlock, Save, ClipboardList, Loader2, Check } from "lucide-react";
 
-// Captura, do lado do eco, a análise que o Finder (iframe same-origin) emite
-// no evento `aw-finder:analysis-ready`, e deixa a atendente comercial marcar
-// rubricas como NÃO ajuizáveis (princípio das rubricas não ajuizáveis) e
-// salvar uma "análise comercial" (tabela analises_comerciais). Não toca no
-// bundle do Finder — só escuta o evento que ele já dispara.
+// Camada comercial DO LADO DO ECO sobre o Finder (iframe same-origin):
+//  - escuta o evento `aw-finder:analysis-ready` que o Finder já dispara e
+//    captura as rubricas detectadas;
+//  - INJETA, em cada card de rubrica, um controle de "bloquear" (rubrica não
+//    ajuizável) + motivo — sem tocar no bundle do Finder;
+//  - esconde o selo "Motor Ativo";
+//  - salva a "análise comercial" (tabela analises_comerciais) com as flags.
 
 type Motivo = "cliente_nao_quer" | "ja_ajuizada";
 
@@ -22,7 +24,6 @@ interface RubricaCaptada {
   bloqueada: boolean;
   motivo: Motivo | null;
 }
-
 interface AnaliseCaptada {
   nome: string;
   rubricas: RubricaCaptada[];
@@ -32,8 +33,11 @@ interface AnaliseCaptada {
 const fmtBRL = (v: number | null) =>
   v == null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
-// Extrai nome do cliente de candidatos no meta/arquivo (defensivo — o shape do
-// Finder é minificado e pode variar).
+const MOTIVO_LABEL: Record<Motivo, string> = {
+  cliente_nao_quer: "Cliente não quer",
+  ja_ajuizada: "Já ajuizada",
+};
+
 function extrairNome(meta: any, fileName: string | null): string {
   const cand = meta?.titular || meta?.nome || meta?.cliente || meta?.nomeCliente || meta?.holder;
   if (cand && String(cand).trim()) return String(cand).trim();
@@ -41,7 +45,6 @@ function extrairNome(meta: any, fileName: string | null): string {
   return "";
 }
 
-// Normaliza o detail do evento em uma lista de rubricas {rubrica, valor}.
 function extrairRubricas(detail: any): RubricaCaptada[] {
   const det = detail?.rubricasDetalhadas;
   const out: RubricaCaptada[] = [];
@@ -50,17 +53,12 @@ function extrairRubricas(detail: any): RubricaCaptada[] {
       const label = g?.cat?.label || g?.label || g?.rubrica || g?.nome;
       if (!label) continue;
       let valor: number | null = null;
-      if (Array.isArray(g?.items)) {
-        valor = g.items.reduce((s: number, it: any) => s + (Number(it?.valor) || 0), 0) || null;
-      } else if (g?.total != null) {
-        valor = Number(g.total) || null;
-      } else if (g?.valor != null) {
-        valor = Number(g.valor) || null;
-      }
+      if (Array.isArray(g?.items)) valor = g.items.reduce((s: number, it: any) => s + (Number(it?.valor) || 0), 0) || null;
+      else if (g?.total != null) valor = Number(g.total) || null;
+      else if (g?.valor != null) valor = Number(g.valor) || null;
       out.push({ rubrica: String(label), valor, bloqueada: false, motivo: null });
     }
   }
-  // Fallback: rubricas simples (array de strings ou {label})
   if (out.length === 0 && Array.isArray(detail?.rubricas)) {
     for (const r of detail.rubricas) {
       const label = typeof r === "string" ? r : (r?.label || r?.rubrica || r?.nome);
@@ -76,26 +74,27 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [salvouId, setSalvouId] = useState<string | null>(null);
-  // Listener atrelado à window atual do iframe; re-atrela se a window trocar.
+
+  // Ref sempre com a análise atual, pros handlers injetados no DOM do iframe.
+  const analiseRef = useRef<AnaliseCaptada | null>(null);
+  analiseRef.current = analise;
   const attachedWin = useRef<Window | null>(null);
 
+  // ---- captura do evento do Finder ----
   useEffect(() => {
     const onReady = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
-      const rubricas = extrairRubricas(detail);
       setAnalise({
         nome: extrairNome(detail?.meta, detail?.fileName || null),
-        rubricas,
+        rubricas: extrairRubricas(detail),
         fileName: detail?.fileName || null,
       });
       setSalvouId(null);
     };
     const onReset = () => { setAnalise(null); setSalvouId(null); };
-
     const attach = () => {
       const win = iframeRef.current?.contentWindow as Window | null;
       if (!win || win === attachedWin.current) return;
-      // limpa o anterior, se houver
       if (attachedWin.current) {
         attachedWin.current.removeEventListener("aw-finder:analysis-ready", onReady as EventListener);
         attachedWin.current.removeEventListener("aw-finder:reset", onReset as EventListener);
@@ -104,7 +103,6 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
       win.addEventListener("aw-finder:reset", onReset as EventListener);
       attachedWin.current = win;
     };
-
     attach();
     const iv = setInterval(attach, 1500);
     return () => {
@@ -117,20 +115,84 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     };
   }, [iframeRef]);
 
-  const setRubrica = (i: number, patch: Partial<RubricaCaptada>) => {
+  const toggleBloqueioLabel = (label: string) => {
     setAnalise((a) => {
       if (!a) return a;
-      const rubricas = a.rubricas.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+      const rubricas = a.rubricas.map((r) =>
+        r.rubrica === label
+          ? (r.bloqueada ? { ...r, bloqueada: false, motivo: null } : { ...r, bloqueada: true, motivo: r.motivo || "cliente_nao_quer" })
+          : r
+      );
       return { ...a, rubricas };
     });
   };
-
-  const toggleBloqueio = (i: number) => {
-    const r = analise?.rubricas[i];
-    if (!r) return;
-    if (r.bloqueada) setRubrica(i, { bloqueada: false, motivo: null });
-    else setRubrica(i, { bloqueada: true, motivo: r.motivo || "cliente_nao_quer" });
+  const setMotivoLabel = (label: string, motivo: Motivo) => {
+    setAnalise((a) => a && { ...a, rubricas: a.rubricas.map((r) => r.rubrica === label ? { ...r, bloqueada: true, motivo } : r) });
   };
+  const setRubrica = (i: number, patch: Partial<RubricaCaptada>) => {
+    setAnalise((a) => a && { ...a, rubricas: a.rubricas.map((r, idx) => idx === i ? { ...r, ...patch } : r) });
+  };
+
+  // ---- injeção no DOM do iframe: esconde "Motor Ativo" + controle por card ----
+  useEffect(() => {
+    let obs: MutationObserver | null = null;
+    let iv: ReturnType<typeof setInterval> | null = null;
+    let raf = 0;
+
+    const sync = () => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      try {
+        // 1) esconder "Motor Ativo"
+        const nodes = doc.querySelectorAll("span,div,button");
+        for (const el of Array.from(nodes)) {
+          if ((el as HTMLElement).dataset.awMotorHidden) continue;
+          if (el.children.length === 0 && (el.textContent || "").trim() === "Motor Ativo") {
+            const pill = (el.closest("div") as HTMLElement) || (el as HTMLElement);
+            pill.style.display = "none";
+            (el as HTMLElement).dataset.awMotorHidden = "1";
+          }
+        }
+
+        // 2) controle de bloqueio por card de rubrica
+        const a = analiseRef.current;
+        if (!a || a.rubricas.length === 0) return;
+        for (const r of a.rubricas) {
+          const card = acharCard(doc, r.rubrica);
+          if (!card) continue;
+          if (getComputedStyle(card).position === "static") card.style.position = "relative";
+          // visual de bloqueio
+          card.style.transition = "opacity .15s, filter .15s";
+          card.style.opacity = r.bloqueada ? "0.5" : "";
+          card.style.filter = r.bloqueada ? "grayscale(0.7)" : "";
+
+          let ctrl = card.querySelector(":scope > .aw-block-ctrl") as HTMLElement | null;
+          if (!ctrl) {
+            ctrl = doc.createElement("div");
+            ctrl.className = "aw-block-ctrl";
+            ctrl.style.cssText = "position:absolute;top:8px;right:8px;z-index:5;display:flex;gap:6px;align-items:center;pointer-events:auto;";
+            card.appendChild(ctrl);
+          }
+          desenharCtrl(doc, ctrl, r, { toggle: toggleBloqueioLabel, motivo: setMotivoLabel });
+        }
+      } catch { /* same-origin pode falhar em transições — ignora */ }
+    };
+
+    const agendar = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(sync); };
+
+    const setup = () => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc || !doc.body) return;
+      if (obs) obs.disconnect();
+      obs = new MutationObserver(agendar);
+      obs.observe(doc.body, { childList: true, subtree: true });
+      sync();
+    };
+
+    setup();
+    iv = setInterval(setup, 1500); // re-ata se o iframe recarregar
+    return () => { if (obs) obs.disconnect(); if (iv) clearInterval(iv); cancelAnimationFrame(raf); };
+  }, [iframeRef]);
 
   const salvar = async () => {
     if (!analise) return;
@@ -139,21 +201,11 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     const payload = {
       nome: analise.nome.trim(),
       origem: "finder",
-      planilha_url: null,
       created_by: user?.id || null,
       created_by_email: user?.email || null,
-      rubricas: analise.rubricas.map((r) => ({
-        rubrica: r.rubrica,
-        valor: r.valor,
-        bloqueada: r.bloqueada,
-        motivo: r.bloqueada ? r.motivo : null,
-      })),
+      rubricas: analise.rubricas.map((r) => ({ rubrica: r.rubrica, valor: r.valor, bloqueada: r.bloqueada, motivo: r.bloqueada ? r.motivo : null })),
     };
-    const { data, error } = await supabase
-      .from("analises_comerciais" as any)
-      .insert(payload as any)
-      .select("id")
-      .single();
+    const { data, error } = await supabase.from("analises_comerciais" as any).insert(payload as any).select("id").single();
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
@@ -165,7 +217,6 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
 
   return (
     <>
-      {/* Botão flutuante sobre o Finder, aparece quando há análise pronta */}
       <button
         onClick={() => setOpen(true)}
         className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium shadow-lg shadow-black/30 hover:brightness-110 transition"
@@ -186,8 +237,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
               <ClipboardList className="h-5 w-5 text-primary" /> Salvar análise comercial
             </DialogTitle>
             <DialogDescription>
-              Marque as rubricas que <strong>não podem ser ajuizadas</strong> (cliente não quer ou já ajuizada).
-              Fica salvo pro Writer e pra análise primária do advogado.
+              Bloqueie as rubricas <strong>não ajuizáveis</strong> aqui ou direto nos cards do Finder. Fica salvo pro Writer e pra análise primária.
             </DialogDescription>
           </DialogHeader>
 
@@ -207,25 +257,18 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
                 <p className="text-center text-[12px] text-muted-foreground py-6">Nenhuma rubrica capturada.</p>
               ) : analise.rubricas.map((r, i) => (
                 <div key={i} className={`flex items-center gap-2 px-3 py-2 ${r.bloqueada ? "bg-amber-400/5" : ""}`}>
-                  <button onClick={() => toggleBloqueio(i)} className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/50 hover:text-foreground"}`} title={r.bloqueada ? "Liberar" : "Marcar como não ajuizável"}>
+                  <button onClick={() => toggleBloqueioLabel(r.rubrica)} className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/50 hover:text-foreground"}`} title={r.bloqueada ? "Liberar" : "Marcar como não ajuizável"}>
                     {r.bloqueada ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                   </button>
-                  <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>
-                    {r.rubrica}
-                  </span>
+                  <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>{r.rubrica}</span>
                   <span className="text-[12px] tabular-nums text-muted-foreground shrink-0 w-24 text-right">{fmtBRL(r.valor)}</span>
                   {r.bloqueada ? (
-                    <select
-                      value={r.motivo || "cliente_nao_quer"}
-                      onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
-                      className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200"
-                    >
+                    <select value={r.motivo || "cliente_nao_quer"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
+                      className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200">
                       <option value="cliente_nao_quer">Cliente não quer</option>
                       <option value="ja_ajuizada">Já ajuizada</option>
                     </select>
-                  ) : (
-                    <span className="shrink-0 w-[104px]" />
-                  )}
+                  ) : <span className="shrink-0 w-[104px]" />}
                 </div>
               ))}
             </div>
@@ -242,4 +285,46 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
       </Dialog>
     </>
   );
+}
+
+// Acha o card de rubrica no doc do Finder: o menor container que contém o
+// label da rubrica E o texto "N ocorr." (evita pegar o título ou a página).
+function acharCard(doc: Document, label: string): HTMLElement | null {
+  const cands = doc.querySelectorAll("div,section,li,article");
+  let best: HTMLElement | null = null;
+  let bestLen = Infinity;
+  for (const el of Array.from(cands) as HTMLElement[]) {
+    const txt = el.textContent || "";
+    if (txt.includes(label) && /\d+\s*ocorr/i.test(txt) && txt.length < 400) {
+      if (txt.length < bestLen) { best = el; bestLen = txt.length; }
+    }
+  }
+  return best;
+}
+
+// (Re)desenha o controle injetado: lock + (quando bloqueado) chips de motivo.
+function desenharCtrl(
+  doc: Document,
+  ctrl: HTMLElement,
+  r: RubricaCaptada,
+  on: { toggle: (l: string) => void; motivo: (l: string, m: Motivo) => void },
+) {
+  const cor = r.bloqueada ? "#fbbf24" : "rgba(255,255,255,0.45)";
+  const chip = (m: Motivo, ativo: boolean) =>
+    `<button data-m="${m}" style="font:600 10px/1 Inter,sans-serif;padding:3px 6px;border-radius:6px;cursor:pointer;border:1px solid ${ativo ? "#fbbf24" : "rgba(251,191,36,0.4)"};background:${ativo ? "rgba(251,191,36,0.2)" : "transparent"};color:#fbbf24;">${MOTIVO_LABEL[m]}</button>`;
+  ctrl.innerHTML =
+    `<button data-act="toggle" title="${r.bloqueada ? "Liberar rubrica" : "Bloquear (não ajuizável)"}" style="display:inline-flex;align-items:center;gap:4px;font:600 11px/1 Inter,sans-serif;padding:5px 8px;border-radius:8px;cursor:pointer;border:1px solid ${cor};background:${r.bloqueada ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.04)"};color:${cor};">` +
+    `${r.bloqueada ? "🔒 Bloqueada" : "🔓 Bloquear"}</button>` +
+    (r.bloqueada ? chip("cliente_nao_quer", r.motivo === "cliente_nao_quer") + chip("ja_ajuizada", r.motivo === "ja_ajuizada") : "");
+
+  // Evita propagar o clique pro card do Finder (que abre o drill-down).
+  ctrl.onclick = (ev) => {
+    ev.stopPropagation();
+    const t = ev.target as HTMLElement;
+    const btn = t.closest("button") as HTMLButtonElement | null;
+    if (!btn) return;
+    ev.preventDefault();
+    if (btn.dataset.act === "toggle") on.toggle(r.rubrica);
+    else if (btn.dataset.m) on.motivo(r.rubrica, btn.dataset.m as Motivo);
+  };
 }
