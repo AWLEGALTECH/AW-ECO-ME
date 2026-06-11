@@ -110,25 +110,6 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, inspect: true, folder_id: folderId, name: meta.name, parents: parentsAtuais });
     }
 
-    // modo lixeira: manda a pasta pra Lixeira do Drive (reversível ~30 dias).
-    // Usado pra remover pastas de registros de teste sem apagar de vez.
-    if (body.trash) {
-      const trashResp = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${folderId}?supportsAllDrives=true&fields=id,name,trashed`,
-        {
-          method: "PATCH",
-          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ trashed: true }),
-        },
-      );
-      if (!trashResp.ok) {
-        const t = await trashResp.text();
-        return json({ error: `falha ao mandar pra lixeira: ${trashResp.status} ${t}`, folder_id: folderId }, 502);
-      }
-      const trashed = await trashResp.json();
-      return json({ ok: true, trashed: true, folder_id: folderId, name: trashed.name });
-    }
-
     // ja esta no destino e so nele? nada a fazer
     if (parentsAtuais.length === 1 && parentsAtuais[0] === destino) {
       return json({ ok: true, skipped: "ja_no_destino", folder_id: folderId, name: meta.name, parent: destino });

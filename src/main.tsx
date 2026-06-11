@@ -34,29 +34,15 @@ const showFallback = (err: any) => {
   `;
 };
 
-// Guard anti-nesting: o app do eco NUNCA deve rodar dentro de um iframe.
-// Isso só acontece no bug das "bonecas russas": o Finder (iframe) navega
-// pra um path do eco — ex.: o botão "Sair" do Finder vai pra /api/logout,
-// que cai no fallback SPA e carrega o eco INTEIRO dentro do iframe. Aqui a
-// gente detecta e devolve o controle pro topo (volta pro /finder limpo) em
-// vez de renderizar a árvore aninhada.
-const dentroDeIframe = (() => {
-  try { return window.top && window.top !== window.self; } catch { return true; }
-})();
-
-if (dentroDeIframe) {
-  try { window.top!.location.replace("/finder"); } catch { /* cross-origin: ignora */ }
-} else {
-  try {
-    if (!rootEl) throw new Error("#root nao encontrado no DOM");
-    createRoot(rootEl).render(
-      <RootErrorBoundary>
-        <App />
-      </RootErrorBoundary>
-    );
-  } catch (err) {
-    showFallback(err);
-  }
+try {
+  if (!rootEl) throw new Error("#root nao encontrado no DOM");
+  createRoot(rootEl).render(
+    <RootErrorBoundary>
+      <App />
+    </RootErrorBoundary>
+  );
+} catch (err) {
+  showFallback(err);
 }
 
 // Captura erros nao-tratados (promises rejeitadas, erros assincronos)
