@@ -1,8 +1,7 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
-import { FinderAnaliseVinculada } from "@/components/FinderAnaliseVinculada";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
 // esta em /finder, ele aparece sobre o Outlet com o header de contexto
@@ -18,7 +17,6 @@ export function PersistentFinderHost() {
   const location = useLocation();
   const navigate = useNavigate();
   const visivel = location.pathname.startsWith("/finder");
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = useMemo(() => {
     if (!active) return null;
@@ -102,19 +100,10 @@ export function PersistentFinderHost() {
       )}
 
       <iframe
-        ref={iframeRef}
         src={iframeSrc}
         title="AW Finder"
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
-      />
-
-      {/* Captura a análise do Finder e salva vinculada ao cliente da sessão. */}
-      <FinderAnaliseVinculada
-        iframeRef={iframeRef}
-        clienteId={active.clienteId}
-        clienteNome={active.nome}
-        visible={visivel}
       />
     </div>
   );

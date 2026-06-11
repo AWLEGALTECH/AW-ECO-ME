@@ -1,10 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
-import { FinderAnaliseVinculada } from "@/components/FinderAnaliseVinculada";
 
 // Pagina /finder tem dois modos:
 //
@@ -31,7 +30,6 @@ export default function Finder() {
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const { active, iniciar } = useFinderSession();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     document.title = nome
@@ -92,16 +90,12 @@ export default function Finder() {
         </div>
       )}
       <iframe
-        ref={iframeRef}
         src="/finder-app/index.html"
         title="AW Finder"
         onLoad={() => setCarregando(false)}
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
-      {/* Captura a análise emitida pelo Finder e permite salvá-la vinculada a
-          um cliente (escolhido na hora, já que aqui não há cliente da sessão). */}
-      <FinderAnaliseVinculada iframeRef={iframeRef} />
     </div>
   );
 }
