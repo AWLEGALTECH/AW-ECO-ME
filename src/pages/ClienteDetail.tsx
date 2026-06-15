@@ -1306,11 +1306,11 @@ export function EspelhoProtocoloDialog({
 
   return (
     <Dialog open={!!demanda} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto overflow-x-hidden">
-        <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300">
+      <DialogContent className="sm:max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+        <div key={stage} className="animate-in fade-in duration-300 flex flex-col min-h-0 flex-1 overflow-hidden">
         {stage === "actions" && (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0">
               <DialogTitle className="flex items-center gap-2">
                 <Send className="h-5 w-5 text-primary" />
                 {cliente.nome}
@@ -1319,7 +1319,7 @@ export function EspelhoProtocoloDialog({
                 Peça pronta — {demanda.desconto || demanda.titulo} · finalizada em {fmtDateTime(demanda.completed_at)}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
               {onVerPerfil && (
                 <AcaoCard
                   icon={User}
@@ -1360,13 +1360,13 @@ export function EspelhoProtocoloDialog({
 
         {stage === "tribunal" && (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0">
               <DialogTitle className="flex items-center gap-2">
                 <Gavel className="h-5 w-5 text-primary" /> Selecione o sistema do tribunal
               </DialogTitle>
               <DialogDescription>O espelho adapta a ordem dos campos pra cada sistema.</DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="grid grid-cols-2 gap-3 pt-3 flex-1 min-h-0 overflow-y-auto">
               <button
                 onClick={() => setStage("projudi")}
                 className="flex flex-col items-center justify-center gap-2 p-5 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all"
@@ -1387,7 +1387,7 @@ export function EspelhoProtocoloDialog({
                 </button>
               ))}
             </div>
-            <DialogFooter>
+            <DialogFooter className="shrink-0 pt-3">
               <Button variant="ghost" onClick={() => setStage("actions")}>Voltar</Button>
             </DialogFooter>
           </>
@@ -1395,7 +1395,7 @@ export function EspelhoProtocoloDialog({
 
         {stage === "projudi" && (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0">
               <DialogTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" /> Espelho Projudi
               </DialogTitle>
@@ -1403,7 +1403,7 @@ export function EspelhoProtocoloDialog({
                 Clique no ícone pra copiar cada campo. A ordem segue o formulário do Projudi.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-1.5 pt-2 max-h-[50vh] overflow-y-auto pr-1 -mr-1">
+            <div className="space-y-1.5 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
               {campos.map((c) => {
                 const copiado = copiados.has(c.id);
                 const vazio = !c.valor;
@@ -1455,7 +1455,7 @@ export function EspelhoProtocoloDialog({
                 );
               })}
             </div>
-            <DialogFooter className="gap-2 sm:gap-2">
+            <DialogFooter className="shrink-0 gap-2 pt-3 sm:gap-2">
               <Button variant="ghost" onClick={() => setStage("tribunal")}>Voltar</Button>
               <Button onClick={() => setStage("finalizar")} className="bg-emerald-600 hover:bg-emerald-500 text-white">
                 <CheckCircle2 className="h-4 w-4 mr-1.5" /> Finalizar protocolo
@@ -1466,7 +1466,7 @@ export function EspelhoProtocoloDialog({
 
         {stage === "finalizar" && (
           <>
-            <DialogHeader>
+            <DialogHeader className="shrink-0">
               <DialogTitle className="flex items-center gap-2">
                 <Trophy className="h-5 w-5 text-emerald-400" /> Quase lá!
               </DialogTitle>
@@ -1474,7 +1474,7 @@ export function EspelhoProtocoloDialog({
                 Cole o número do processo e confirme os dados antes de fechar a peça.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 pt-2 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
+            <div className="space-y-3 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
               <div className="space-y-1.5">
                 <Label className="text-xs">Número do processo</Label>
                 <Input
@@ -1551,7 +1551,7 @@ export function EspelhoProtocoloDialog({
                 </div>
               </div>
             </div>
-            <DialogFooter className="gap-2 sm:gap-2">
+            <DialogFooter className="shrink-0 gap-2 pt-3 sm:gap-2">
               <Button variant="ghost" onClick={() => setStage("projudi")} disabled={finalizando}>Voltar</Button>
               <Button
                 onClick={finalizar}
