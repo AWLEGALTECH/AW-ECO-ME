@@ -799,7 +799,7 @@ export default function Esteira() {
                     key={key}
                     nome={g.nome}
                     count={g.items.length}
-                    accent="amber"
+                    accent="primary"
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? firstTitle : `${g.items.length} peças prontas`}
@@ -814,7 +814,7 @@ export default function Esteira() {
                         data={d.completed_at || d.created_at}
                         acao="Abrir espelho"
                         acaoIcon={Send}
-                        accent="amber"
+                        accent="primary"
                         audit={lookupAudit(d.id)}
                         bloqueada={bloqueado}
                         motivoBloqueio={MOTIVO_BLOQUEIO}
