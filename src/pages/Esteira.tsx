@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -320,6 +320,28 @@ export default function Esteira() {
   }, [demRes.data, cliRes.data, busca]);
 
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
+
+  // REGRA DE BLOQUEIO POR PENDÊNCIA:
+  // Todo cliente que tem ao menos uma pendência documental EM ABERTO
+  // (etapa 'pendencia_documental' + status 'pendente') tem TODAS as suas
+  // outras demandas (vinculadas, artesanais, prontas) marcadas como
+  // bloqueadas — ficam visíveis, mas acinzentadas, com cadeado e ação
+  // desabilitada. Ao resolver a pendência (status vira 'resolvida'), ela
+  // some desta lista e as demandas voltam a ser liberadas automaticamente.
+  //
+  // Calculado a partir de demRes.data CRU (não do array filtrado por busca)
+  // pra que o bloqueio NUNCA dependa do filtro de pesquisa — assim nenhuma
+  // demanda some de vista nem fica liberada por engano quando há busca ativa.
+  const clientesComPendencia = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of (demRes.data || [])) {
+      if (d.etapa === "pendencia_documental" && d.status === "pendente" && d.cliente_id) {
+        s.add(d.cliente_id);
+      }
+    }
+    return s;
+  }, [demRes.data]);
+  const MOTIVO_BLOQUEIO = "Bloqueada — este cliente tem uma pendência documental em aberto. Resolva a pendência na coluna 0 pra liberar.";
 
   // Avança uma peça artesanal direto pra "Peças prontas" (peça já no Drive).
   // Garante a demanda confeccao_peca pra uma análise vinculada (idempotente:
@@ -669,6 +691,7 @@ export default function Esteira() {
               groupByCliente(vincs).map(g => {
                 const key = `vinc-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
+                const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
                   <ClienteAccordion
                     key={key}
@@ -678,6 +701,8 @@ export default function Esteira() {
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} análises vinculadas`}
+                    locked={bloqueado}
+                    lockedHint={MOTIVO_BLOQUEIO}
                   >
                     {g.items.map(d => (
                       <CardBotaoLinha
@@ -688,11 +713,14 @@ export default function Esteira() {
                         acao="Ver opções"
                         acaoIcon={PenSquare}
                         audit={lookupAudit(d.id)}
+                        bloqueada={bloqueado}
+                        motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
                     {/* Produzir em cadeia — mesma ação da ficha do cliente:
-                        gera todas as peças pendentes do cliente em sequência. */}
-                    {g.items.length >= 2 && (
+                        gera todas as peças pendentes do cliente em sequência.
+                        Some quando o cliente está bloqueado por pendência. */}
+                    {g.items.length >= 2 && !bloqueado && (
                       <Button
                         size="sm"
                         onClick={() => produzirCadeiaCliente(g.items)}
@@ -722,6 +750,7 @@ export default function Esteira() {
               groupByCliente(artesanais).map(g => {
                 const key = `art-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
+                const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
                   <ClienteAccordion
                     key={key}
@@ -731,6 +760,8 @@ export default function Esteira() {
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} peças artesanais`}
+                    locked={bloqueado}
+                    lockedHint={MOTIVO_BLOQUEIO}
                   >
                     {g.items.map(d => (
                       <CardArtesanal
@@ -739,6 +770,8 @@ export default function Esteira() {
                         onAvancar={() => avancarArtesanalParaPronta(d)}
                         onCancelar={() => cancelarArtesanal(d)}
                         audit={lookupAudit(d.id)}
+                        bloqueada={bloqueado}
+                        motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
                   </ClienteAccordion>
@@ -760,6 +793,7 @@ export default function Esteira() {
               groupByCliente(protos).map(g => {
                 const key = `proto-${g.items[0].cliente?.id || g.nome}`;
                 const firstTitle = g.items[0].desconto || g.items[0].titulo.replace(/^Pronto pra protocolo — /, "");
+                const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
                   <ClienteAccordion
                     key={key}
@@ -769,6 +803,8 @@ export default function Esteira() {
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? firstTitle : `${g.items.length} peças prontas`}
+                    locked={bloqueado}
+                    lockedHint={MOTIVO_BLOQUEIO}
                   >
                     {g.items.map(d => (
                       <CardBotaoLinha
@@ -780,6 +816,8 @@ export default function Esteira() {
                         acaoIcon={Send}
                         accent="amber"
                         audit={lookupAudit(d.id)}
+                        bloqueada={bloqueado}
+                        motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
                   </ClienteAccordion>
@@ -904,7 +942,7 @@ export default function Esteira() {
 }
 
 function ClienteAccordion({
-  nome, count, accent, expanded, onToggle, hint, children,
+  nome, count, accent, expanded, onToggle, hint, children, locked, lockedHint,
 }: {
   nome: string;
   count: number;
@@ -913,24 +951,42 @@ function ClienteAccordion({
   onToggle: () => void;
   hint?: string;
   children: React.ReactNode;
+  // locked = cliente com pendência: tinge o grupo de âmbar e mostra cadeado,
+  // pra ficar óbvio (mesmo colapsado) que essas demandas estão bloqueadas.
+  locked?: boolean;
+  lockedHint?: string;
 }) {
-  const accentBorder = accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-border hover:border-primary/40";
-  const accentBg = accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-card/40 hover:bg-card/60";
+  const accentBorder = locked
+    ? "border-amber-400/40"
+    : accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-border hover:border-primary/40";
+  const accentBg = locked ? "bg-amber-400/[0.04]" : accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-card/40 hover:bg-card/60";
   const accentBadge = accent === "amber" ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
-    <div className={`rounded-lg border transition-colors ${accentBorder} ${expanded ? "" : accentBg}`}>
+    <div
+      className={`rounded-lg border transition-colors ${accentBorder} ${expanded ? "" : accentBg} ${locked ? "opacity-80" : ""}`}
+      title={locked ? (lockedHint || "Bloqueado por pendência") : undefined}
+    >
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-2 p-3 text-left"
       >
-        <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        {locked
+          ? <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          : <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
         <span className="text-xs font-semibold truncate flex-1">{nome}</span>
         <span className={`inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full border text-[10px] font-bold tabular-nums shrink-0 ${accentBadge}`}>
           {count}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
-      {!expanded && hint && (
+      {locked && (
+        <div className="px-3 pb-2 -mt-1">
+          <p className="text-[11px] text-amber-400/90 line-clamp-1 inline-flex items-center gap-1">
+            <Lock className="h-2.5 w-2.5 shrink-0" /> Bloqueado por pendência
+          </p>
+        </div>
+      )}
+      {!expanded && hint && !locked && (
         <div className="px-3 pb-3 -mt-1">
           <p className="text-[11px] text-muted-foreground line-clamp-1">{hint}</p>
         </div>
@@ -1051,6 +1107,7 @@ function CardLinha({
 // um dialog (ex: espelho de protocolo na coluna "Pecas Prontas").
 function CardBotaoLinha({
   onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
+  bloqueada = false, motivoBloqueio,
 }: {
   onClick: () => void;
   titulo: string;
@@ -1059,8 +1116,38 @@ function CardBotaoLinha({
   acaoIcon?: any;
   accent?: "primary" | "amber";
   audit?: AuditInfo;
+  bloqueada?: boolean;
+  motivoBloqueio?: string;
 }) {
   const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
+  // Bloqueada: card permanece VISÍVEL (nada some), mas acinzentado, com
+  // cadeado e sem ação — só leitura. title mostra o motivo ao passar o mouse.
+  if (bloqueada) {
+    return (
+      <div
+        title={motivoBloqueio || "Bloqueada"}
+        aria-disabled="true"
+        className="block w-full text-left rounded-lg border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <Lock className="h-3 w-3 text-amber-400 shrink-0" />
+          <span className="text-xs font-semibold truncate">{titulo}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Clock className="h-2.5 w-2.5" />
+            <span>{tempoDecorrido(data)}</span>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="tabular-nums">{fmtData(data)}</span>
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-400/90">
+            <Lock className="h-3 w-3" /> Bloqueada
+          </span>
+        </div>
+        <AuditFooter audit={audit} />
+      </div>
+    );
+  }
   return (
     <button
       onClick={onClick}
@@ -1124,7 +1211,7 @@ function CardBotao({
 // Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre um
 // dialog com botao pra abrir a pasta do Drive (subir a peca) e so depois
 // permite confirmar a conclusao — evita conclusao acidental.
-function CardArtesanal({ demanda, onAvancar, onCancelar, audit }: { demanda: DemandaEsteira; onAvancar: () => void; onCancelar: () => void; audit?: AuditInfo }) {
+function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = false, motivoBloqueio }: { demanda: DemandaEsteira; onAvancar: () => void; onCancelar: () => void; audit?: AuditInfo; bloqueada?: boolean; motivoBloqueio?: string }) {
   const [open, setOpen] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const navigate = useNavigate();
@@ -1139,6 +1226,35 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit }: { demanda: Dem
     setConfirmCancel(false);
     onCancelar();
   };
+  // Bloqueada: card visível, acinzentado, com cadeado, sem abrir o dialog.
+  if (bloqueada) {
+    return (
+      <div
+        title={motivoBloqueio || "Bloqueada"}
+        aria-disabled="true"
+        className="w-full text-left rounded-lg border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <Lock className="h-3 w-3 text-amber-400 shrink-0" />
+          <span className="text-xs font-semibold truncate">
+            {demanda.desconto || demanda.titulo}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Clock className="h-2.5 w-2.5" />
+            <span>{tempoDecorrido(demanda.created_at)}</span>
+            <span className="text-muted-foreground/50">·</span>
+            <span className="tabular-nums">{fmtData(demanda.created_at)}</span>
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-400/90">
+            <Lock className="h-3 w-3" /> Bloqueada
+          </span>
+        </div>
+        <AuditFooter audit={audit} />
+      </div>
+    );
+  }
   return (
     <>
       <button
