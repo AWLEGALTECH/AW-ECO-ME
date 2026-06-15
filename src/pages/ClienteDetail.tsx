@@ -1387,7 +1387,7 @@ export function EspelhoProtocoloDialog({
                 </button>
               ))}
             </div>
-            <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-3 border-t border-border/60 bg-background px-6 pb-6 pt-3">
+            <DialogFooter>
               <Button variant="ghost" onClick={() => setStage("actions")}>Voltar</Button>
             </DialogFooter>
           </>
@@ -1403,7 +1403,7 @@ export function EspelhoProtocoloDialog({
                 Clique no ícone pra copiar cada campo. A ordem segue o formulário do Projudi.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-1.5 pt-2">
+            <div className="space-y-1.5 pt-2 max-h-[50vh] overflow-y-auto pr-1 -mr-1">
               {campos.map((c) => {
                 const copiado = copiados.has(c.id);
                 const vazio = !c.valor;
@@ -1455,7 +1455,7 @@ export function EspelhoProtocoloDialog({
                 );
               })}
             </div>
-            <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-3 gap-2 border-t border-border/60 bg-background px-6 pb-6 pt-3 sm:gap-2">
+            <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="ghost" onClick={() => setStage("tribunal")}>Voltar</Button>
               <Button onClick={() => setStage("finalizar")} className="bg-emerald-600 hover:bg-emerald-500 text-white">
                 <CheckCircle2 className="h-4 w-4 mr-1.5" /> Finalizar protocolo
@@ -1474,7 +1474,7 @@ export function EspelhoProtocoloDialog({
                 Cole o número do processo e confirme os dados antes de fechar a peça.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3 pt-2 max-h-[55vh] overflow-y-auto pr-1 -mr-1">
               <div className="space-y-1.5">
                 <Label className="text-xs">Número do processo</Label>
                 <Input
@@ -1551,7 +1551,7 @@ export function EspelhoProtocoloDialog({
                 </div>
               </div>
             </div>
-            <DialogFooter className="sticky bottom-0 z-10 -mx-6 -mb-6 mt-3 gap-2 border-t border-border/60 bg-background px-6 pb-6 pt-3 sm:gap-2">
+            <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="ghost" onClick={() => setStage("projudi")} disabled={finalizando}>Voltar</Button>
               <Button
                 onClick={finalizar}
