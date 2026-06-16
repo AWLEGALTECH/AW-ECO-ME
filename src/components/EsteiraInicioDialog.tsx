@@ -214,8 +214,8 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-      <DialogContent className="max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="max-w-lg max-h-[88dvh] overflow-y-auto overflow-x-hidden">
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {(stage === "pendencia" || stage === "artesanal_qtd") && (
               <button onClick={() => setStage("actions")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
@@ -241,7 +241,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
           </DialogDescription>
         </DialogHeader>
 
-        <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+        <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
               {/* Resumo do card — mesmas infos exibidas na coluna 1 da
