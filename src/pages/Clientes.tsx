@@ -95,7 +95,7 @@ export default function Clientes() {
       return { key, dir: numericKeys.includes(key) ? "desc" : "asc" };
     });
   };
-  const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "" });
+  const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "", comarca: "", uf: "" });
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<Stage>("form");
   const [createdName, setCreatedName] = useState("");
@@ -105,7 +105,7 @@ export default function Clientes() {
   const [creatingFolder, setCreatingFolder] = useState(false);
 
   const resetDialog = () => {
-    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "" });
+    setForm({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "", comarca: "", uf: "" });
     setStage("form");
     setCreatedName("");
     setCreatedId(null);
@@ -200,6 +200,8 @@ export default function Clientes() {
       telefone: form.telefone.trim() || null,
       email: form.email.trim() || null,
       parceiro: form.parceiro.trim() || null,
+      comarca: form.comarca.trim() || null,
+      uf: form.uf.trim().toUpperCase() || null,
       origem: "manual",
       cadastrado_por: nomeSobrenome(profile),
       // Todo cliente entra na fila de "Análise primária" (col 1 da esteira),
@@ -274,6 +276,10 @@ export default function Clientes() {
                   <div><Label>CPF/CNPJ</Label><Input value={form.cpf_cnpj} onChange={(e) => setForm({ ...form, cpf_cnpj: e.target.value })} /></div>
                   <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
                   <div><Label>E-mail</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div><Label>Comarca / foro</Label><Input value={form.comarca} onChange={(e) => setForm({ ...form, comarca: e.target.value })} placeholder="Ex.: Manaus" /></div>
+                    <div><Label>UF</Label><Input value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="AM" maxLength={2} className="w-16" /></div>
+                  </div>
                   <div className="col-span-2">
                     <Label className="flex items-center gap-1.5">
                       Parceiro

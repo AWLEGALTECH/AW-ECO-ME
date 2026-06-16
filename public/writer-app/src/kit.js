@@ -111,6 +111,8 @@ function aplicarClienteNoKit(c) {
   setIf('cliente_orgao_expedidor',  c.orgao_expedidor);
   setIf('cliente_cpf',              c.cpf);
   setIf('cliente_endereco_completo', c.endereco_completo);
+  setIf('cliente_comarca',          c.comarca);
+  setIf('cliente_uf',               c.uf);
   setIf('cliente_whatsapp',         c.telefone ? formatarWhatsapp(c.telefone) : '');
   state.dadosKit.cliente_aw_id = c.aw_id || '';
 }
@@ -142,6 +144,8 @@ function inicializarDadosKit() {
     cliente_orgao_expedidor: '',
     cliente_cpf: '',
     cliente_endereco_completo: '',
+    cliente_comarca: '',
+    cliente_uf: '',
     cliente_whatsapp: '',
     // Causa
     causa_tipo: 'ajuizamento',
@@ -269,6 +273,19 @@ function renderKitForm(view) {
               <input type="text" value="${escapeAttr(d.cliente_endereco_completo)}"
                      onchange="onKitChange('cliente_endereco_completo', this.value)"
                      placeholder="Rua X, nº 123, Bairro Y, Cidade-UF, CEP 00000-000">
+            </label>
+            <label class="kit-field span-2">
+              <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
+              <input type="text" value="${escapeAttr(d.cliente_comarca)}"
+                     onchange="onKitChange('cliente_comarca', this.value)"
+                     placeholder="Ex.: Manaus">
+            </label>
+            <label class="kit-field">
+              <span>Estado (UF)</span>
+              <input type="text" maxlength="2" value="${escapeAttr(d.cliente_uf)}"
+                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitChange('cliente_uf', this.value)"
+                     onchange="onKitChange('cliente_uf', this.value)"
+                     placeholder="AM">
             </label>
             <label class="kit-field">
               <span>WhatsApp do cliente</span>
@@ -554,6 +571,8 @@ function validarDadosKit() {
     ['cliente_profissao', 'Profissão'],
     ['cliente_cpf', 'CPF'],
     ['cliente_endereco_completo', 'Endereço'],
+    ['cliente_comarca', 'Comarca / foro'],
+    ['cliente_uf', 'Estado (UF)'],
     ['cliente_whatsapp', 'WhatsApp do cliente'],
     ['contrato_cidade_assinatura', 'Cidade'],
     ['contrato_data_assinatura', 'Data da assinatura'],
