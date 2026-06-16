@@ -889,8 +889,8 @@ export default function Esteira() {
           (3) Writer pra confeccionar a peca. Antes era um Link direto
           pro perfil, agora deixa o usuario escolher o destino. */}
       <Dialog open={!!vincAcoes} onOpenChange={(v) => !v && setVincAcoes(null)}>
-        <DialogContent className="sm:max-w-md max-h-[88dvh] flex flex-col overflow-hidden">
-          <DialogHeader className="shrink-0">
+        <DialogContent className="sm:max-w-md max-h-[88dvh] overflow-y-auto">
+          <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitBranch className="h-5 w-5 text-primary" />
               {vincAcoes?.cliente?.nome || "Análise vinculada"}
@@ -899,7 +899,7 @@ export default function Esteira() {
               {vincAcoes?.desconto || vincAcoes?.titulo}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 pt-1 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+          <div className="space-y-2 pt-1">
             <AcaoCard
               icon={User}
               titulo="Abrir ficha do cliente"
@@ -1282,8 +1282,8 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md max-h-[88dvh] flex flex-col overflow-hidden">
-          <DialogHeader className="shrink-0">
+        <DialogContent className="max-w-md max-h-[88dvh] overflow-y-auto">
+          <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Hammer className="h-5 w-5 text-primary" />
               {nomeCliente}
@@ -1291,7 +1291,6 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
             <DialogDescription>Peça artesanal</DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1 space-y-4">
           {/* Especificacao da peca (digitada por quem iniciou o fluxo).
               Aparece como um aviso pro advogado saber o que produzir. */}
           {demanda.descricao && (
@@ -1350,7 +1349,6 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
             >
               <X className="h-3 w-3" /> Cancelar esta peça
             </button>
-          </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1444,8 +1442,8 @@ function PendenciaDetalheDialog({
 
   return (
     <Dialog open={!!demanda} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md max-h-[88dvh] flex flex-col overflow-hidden">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="max-w-md max-h-[88dvh] overflow-y-auto">
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-400" />
             {demanda.cliente?.nome || "Cliente"}
@@ -1453,7 +1451,7 @@ function PendenciaDetalheDialog({
           <DialogDescription>Pendência documental — {tipoLabel}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+        <div className="space-y-3">
           {/* Box informativa: contexto da pendencia (especifico desse dialog) */}
           {(mostrarMateria || comarca || obsLimpa) && (
             <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-3 py-2.5 space-y-2">
