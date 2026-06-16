@@ -193,6 +193,13 @@ function renderKitForm(view) {
     `<option value="${escapeAttr(c.aw_id)}" ${d.cliente_aw_id===c.aw_id?'selected':''}>${escapeHtml(c.nome_completo || '—')}</option>`
   ).join('');
 
+  // Comarcas já cadastradas (datalist) — autocomplete: o advogado digita e,
+  // se outra ficha já tem aquela comarca, aparece pra clicar. Campo livre.
+  const optionsComarcas = [...new Set(
+    clientes.map(c => (c.comarca || '').toString().trim()).filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+   .map(c => `<option value="${escapeAttr(c)}"></option>`).join('');
+
   view.innerHTML = `
     <div class="kit-form-page">
       <div class="kit-form-header">
@@ -276,9 +283,10 @@ function renderKitForm(view) {
             </label>
             <label class="kit-field span-2">
               <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
-              <input type="text" value="${escapeAttr(d.cliente_comarca)}"
+              <input type="text" list="kit-comarcas" value="${escapeAttr(d.cliente_comarca)}"
                      onchange="onKitChange('cliente_comarca', this.value)"
                      placeholder="Ex.: Manaus">
+              <datalist id="kit-comarcas">${optionsComarcas}</datalist>
             </label>
             <label class="kit-field">
               <span>Estado (UF)</span>

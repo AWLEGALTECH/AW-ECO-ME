@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useComarcasSugeridas } from "@/hooks/useComarcasSugeridas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -302,6 +303,7 @@ export default function ClienteDetail() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Cliente | null>(null);
+  const comarcasSugeridas = useComarcasSugeridas();
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -746,7 +748,13 @@ export default function ClienteDetail() {
                   <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
                   <div><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
                   <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
-                  <div><Label>Comarca / foro</Label><Input value={draft.comarca ?? ""} onChange={(e) => setDraft({ ...draft, comarca: e.target.value })} placeholder="Ex.: Manaus" /></div>
+                  <div>
+                    <Label>Comarca / foro</Label>
+                    <Input list="comarcas-sugeridas-cd" value={draft.comarca ?? ""} onChange={(e) => setDraft({ ...draft, comarca: e.target.value })} placeholder="Ex.: Manaus" />
+                    <datalist id="comarcas-sugeridas-cd">
+                      {comarcasSugeridas.map((c) => <option key={c} value={c} />)}
+                    </datalist>
+                  </div>
                   <div><Label>Estado (UF)</Label><Input value={draft.uf ?? ""} onChange={(e) => setDraft({ ...draft, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="AM" maxLength={2} /></div>
                   <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={2} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
                 </div>
