@@ -16,6 +16,8 @@ export type Database = {
         Row: {
           cpf_cnpj: string | null
           created_at: string
+          comarca: string | null
+          uf: string | null
           dados_socioeconomicos: Json
           drive_folder_url: string | null
           email: string | null
@@ -37,6 +39,8 @@ export type Database = {
         Insert: {
           cpf_cnpj?: string | null
           created_at?: string
+          comarca?: string | null
+          uf?: string | null
           dados_socioeconomicos?: Json
           drive_folder_url?: string | null
           email?: string | null
@@ -58,6 +62,8 @@ export type Database = {
         Update: {
           cpf_cnpj?: string | null
           created_at?: string
+          comarca?: string | null
+          uf?: string | null
           dados_socioeconomicos?: Json
           drive_folder_url?: string | null
           email?: string | null

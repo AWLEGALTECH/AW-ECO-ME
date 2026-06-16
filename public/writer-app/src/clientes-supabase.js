@@ -37,6 +37,8 @@ function _dbToWriterShape(row) {
     orgao_expedidor:    row.orgao_expedidor || '',
     cpf:                row.cpf_cnpj || '',
     endereco_completo:  row.endereco || '',
+    comarca:            row.comarca || '',
+    uf:                 row.uf || '',
     telefone:           row.telefone || '',
     // pacote 2 (vindo do jsonb)
     idade:              ds.idade ?? '',
@@ -109,6 +111,7 @@ async function salvarDadosClienteAW(clienteId) {
   if (!clienteId) return { ok: false, reason: 'sem id' };
   const p1 = state.dadosPacote1 || {};
   const p2 = state.dadosPacote2 || {};
+  const p3 = state.dadosPacote3 || {};
 
   // Monta payload — somente campos com algum valor (evita sobrescrever
   // dado existente com vazio se o user nao mexeu)
@@ -125,6 +128,9 @@ async function salvarDadosClienteAW(clienteId) {
   setIf(update, 'nacionalidade',   p1.nacionalidade);
   setIf(update, 'estado_civil',    p1.estado_civil);
   setIf(update, 'endereco',        p1.endereco_completo);
+  // Comarca/UF do foro (pacote 3) voltam pro cadastro do cliente.
+  setIf(update, 'comarca',         p3.comarca);
+  setIf(update, 'uf',              p3.uf);
 
   // dados_socioeconomicos: pega o que tiver no pacote 2
   const camposP2 = [
@@ -182,6 +188,8 @@ async function salvarDadosClienteDoKit(clienteId, dadosKit) {
   setIf(update, 'nacionalidade',   dadosKit.cliente_nacionalidade);
   setIf(update, 'estado_civil',    dadosKit.cliente_estado_civil);
   setIf(update, 'endereco',        dadosKit.cliente_endereco_completo);
+  setIf(update, 'comarca',         dadosKit.cliente_comarca);
+  setIf(update, 'uf',              dadosKit.cliente_uf);
   setIf(update, 'telefone',        dadosKit.cliente_whatsapp);
 
   if (Object.keys(update).length === 0) return { ok: true, skipped: true };
@@ -223,4 +231,10 @@ function aplicarClienteNoState(c) {
     'renda_mensal','unico_provedor','tipo_moradia','outros_dependentes',
     'condicao_saude','observacoes_livres'
   ].forEach(k => { state.dadosPacote2[k] = c[k] ?? ''; });
+  // Comarca/UF do cliente auto-preenchem o foro da peça (pacote 3). Só
+  // define se ainda não houver valor — assim não sobrescreve o que foi
+  // herdado por cadeia (URL) ou já digitado pelo advogado.
+  state.dadosPacote3 = state.dadosPacote3 || {};
+  if (c.comarca && !state.dadosPacote3.comarca) state.dadosPacote3.comarca = c.comarca;
+  if (c.uf && !state.dadosPacote3.uf) state.dadosPacote3.uf = c.uf;
 }

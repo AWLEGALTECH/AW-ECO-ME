@@ -39,6 +39,8 @@ export interface Cliente {
   telefone: string | null;
   email: string | null;
   endereco: string | null;
+  comarca: string | null;
+  uf: string | null;
   rg: string | null;
   profissao: string | null;
   genero: string | null;
@@ -374,6 +376,8 @@ export default function ClienteDetail() {
         telefone: draft.telefone,
         email: draft.email,
         endereco: draft.endereco,
+        comarca: draft.comarca,
+        uf: draft.uf,
         observacoes: draft.observacoes,
         drive_folder_url: draft.drive_folder_url,
         cadastrado_por: draft.cadastrado_por,
@@ -525,6 +529,8 @@ export default function ClienteDetail() {
               <Slot icon={Phone}      label="Telefone"   value={cliente.telefone} />
               <Slot icon={Mail}       label="E-mail"     value={cliente.email} />
               <Slot icon={MapPin}     label="Endereço"   value={cliente.endereco} className="sm:col-span-2 lg:col-span-3" />
+              <Slot icon={Building2}  label="Comarca / foro" value={cliente.comarca} />
+              <Slot icon={MapPin}     label="Estado (UF)" value={cliente.uf} />
               {cliente.observacoes && (
                 <Slot icon={FileText} label="Observações" value={cliente.observacoes} className="sm:col-span-2 lg:col-span-3" />
               )}
@@ -740,6 +746,8 @@ export default function ClienteDetail() {
                   <div><Label>Telefone</Label><Input value={draft.telefone ?? ""} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></div>
                   <div><Label>E-mail</Label><Input type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
                   <div className="sm:col-span-2"><Label>Endereço</Label><Input value={draft.endereco ?? ""} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></div>
+                  <div><Label>Comarca / foro</Label><Input value={draft.comarca ?? ""} onChange={(e) => setDraft({ ...draft, comarca: e.target.value })} placeholder="Ex.: Manaus" /></div>
+                  <div><Label>Estado (UF)</Label><Input value={draft.uf ?? ""} onChange={(e) => setDraft({ ...draft, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="AM" maxLength={2} /></div>
                   <div className="sm:col-span-2"><Label>Observações</Label><Textarea rows={2} value={draft.observacoes ?? ""} onChange={(e) => setDraft({ ...draft, observacoes: e.target.value })} /></div>
                 </div>
               </div>
@@ -1160,7 +1168,7 @@ export function EspelhoProtocoloDialog({
       setNumeroProcesso("");
       setFinalizando(false);
       setValorCausaIn(demanda.valor_causa ? String(demanda.valor_causa) : "");
-      setComarcaIn(demanda.comarca || "");
+      setComarcaIn(demanda.comarca || cliente.comarca || "");
       setLocalTramiteIn(demanda.local_tramite || "");
       setProcedimentoIn(demanda.procedimento || "");
       // Inicializa competencia: prioriza valor gravado pelo Writer, senao
@@ -1209,13 +1217,13 @@ export function EspelhoProtocoloDialog({
 
   // Campos do espelho na ordem exata do Projudi
   const campos: Array<{ id: string; label: string; valor: string }> = [
-    { id: "comarca", label: "Comarca", valor: demanda.comarca || cliente.endereco || "" },
+    { id: "comarca", label: "Comarca", valor: demanda.comarca || cliente.comarca || "" },
     { id: "competencia", label: "Competência", valor: competencia },
     { id: "cpf1", label: "CPF / CNPJ", valor: cliente.cpf_cnpj || "" },
     { id: "endereco", label: "Endereço", valor: cliente.endereco || "" },
     { id: "bairro", label: "Bairro", valor: "" },
-    { id: "uf", label: "UF", valor: demanda.uf || "" },
-    { id: "cidade", label: "Cidade", valor: demanda.comarca || "" },
+    { id: "uf", label: "UF", valor: demanda.uf || cliente.uf || "" },
+    { id: "cidade", label: "Cidade", valor: demanda.comarca || cliente.comarca || "" },
     { id: "cep", label: "CEP", valor: "" },
     { id: "cpf2", label: "CPF", valor: cliente.cpf_cnpj || "" },
     { id: "valor", label: "Valor da causa", valor: valor > 0 ? fmtBRL(valor) : "—" },

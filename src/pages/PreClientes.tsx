@@ -496,6 +496,8 @@ export default function PreClientes() {
         telefone: pre.telefone,
         email: pre.email,
         endereco: pre.endereco_completo,
+        comarca: dkInicial?.cliente_comarca || null,
+        uf: dkInicial?.cliente_uf || null,
         rg: pre.rg,
         profissao: pre.profissao,
         nacionalidade: pre.nacionalidade || dkInicial?.cliente_nacionalidade || null,
