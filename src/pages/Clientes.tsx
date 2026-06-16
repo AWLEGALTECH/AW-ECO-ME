@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { useComarcasSugeridas } from "@/hooks/useComarcasSugeridas";
 import { nomeSobrenome } from "@/lib/audit";
 import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus, Copy, ArrowRight, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -96,6 +97,7 @@ export default function Clientes() {
     });
   };
   const [form, setForm] = useState({ nome: "", cpf_cnpj: "", telefone: "", email: "", parceiro: "", comarca: "", uf: "" });
+  const comarcasSugeridas = useComarcasSugeridas();
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState<Stage>("form");
   const [createdName, setCreatedName] = useState("");
@@ -277,7 +279,13 @@ export default function Clientes() {
                   <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
                   <div><Label>E-mail</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                   <div className="grid grid-cols-[1fr_auto] gap-2">
-                    <div><Label>Comarca / foro</Label><Input value={form.comarca} onChange={(e) => setForm({ ...form, comarca: e.target.value })} placeholder="Ex.: Manaus" /></div>
+                    <div>
+                      <Label>Comarca / foro</Label>
+                      <Input list="comarcas-sugeridas" value={form.comarca} onChange={(e) => setForm({ ...form, comarca: e.target.value })} placeholder="Ex.: Manaus" />
+                      <datalist id="comarcas-sugeridas">
+                        {comarcasSugeridas.map((c) => <option key={c} value={c} />)}
+                      </datalist>
+                    </div>
                     <div><Label>UF</Label><Input value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })} placeholder="AM" maxLength={2} className="w-16" /></div>
                   </div>
                   <div className="col-span-2">
