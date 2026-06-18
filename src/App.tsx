@@ -22,6 +22,7 @@ import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import Publicacoes from "./pages/Publicacoes";
 import Prospeccao from "./pages/Prospeccao";
+import Fechamentos from "./pages/Fechamentos";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import NotFound from "./pages/NotFound";
@@ -86,6 +87,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="prospeccao" />}>
                   <Route path="/prospeccao" element={<PageErrorBoundary pageName="Prospecção"><Prospeccao /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="fechamentos" />}>
+                  <Route path="/fechamentos" element={<PageErrorBoundary pageName="Fechamentos"><Fechamentos /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
