@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -32,6 +32,7 @@ const navItems: NavItem[] = [
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
   { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao" },
+  { title: "Fechamentos",   url: "/fechamentos",   icon: Coins,           module: "fechamentos" },
 ];
 
 export function AppSidebar() {
