@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module: ModuleKey }
+interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module: ModuleKey; beta?: boolean }
 
 const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
@@ -31,8 +31,8 @@ const navItems: NavItem[] = [
   { title: "Processos",     url: "/processos",     icon: Briefcase,       module: "processos" },
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
-  { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao" },
-  { title: "Fechamentos",   url: "/fechamentos",   icon: Coins,           module: "fechamentos" },
+  { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },
+  { title: "Fechamentos",   url: "/fechamentos",   icon: Coins,           module: "fechamentos",  beta: true },
 ];
 
 export function AppSidebar() {
@@ -183,8 +183,15 @@ export function AppSidebar() {
                       <NavLink to={item.url} end className="" activeClassName="">
                         <item.icon className="h-4 w-4 shrink-0" />
                         {!collapsed && (
-                          <span className="text-sm flex-1 flex items-center justify-between">
-                            {item.title}
+                          <span className="text-sm flex-1 flex items-center justify-between gap-1">
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate">{item.title}</span>
+                              {item.beta && (
+                                <span className="shrink-0 text-[8px] uppercase font-semibold tracking-wide leading-none px-1 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
+                                  beta
+                                </span>
+                              )}
+                            </span>
                             {item.badgeKey === "pendentes" && (pendentesCount ?? 0) > 0 && (
                               <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
                                 {pendentesCount}
