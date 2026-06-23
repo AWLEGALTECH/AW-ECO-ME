@@ -518,11 +518,10 @@ async function regenerarZona(tag, sugestaoUsuario) {
           ...regrasRegeneracao,
         ],
       };
-      const resp = await fetch(state.config.webhookTrechos, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await resp.json();
+      const json = await chamarWebhookTrechos(payload);
+      if (!json.trechos || json.trechos[tag] == null) {
+        throw new Error('O assistente de IA não retornou o trecho solicitado. Tente regenerar novamente.');
+      }
       const novo = sanitizarTextoIA(json.trechos[tag]);
       state.trechosIA[tag] = novo;
       state.trechosIAOriginais[tag] = novo;
