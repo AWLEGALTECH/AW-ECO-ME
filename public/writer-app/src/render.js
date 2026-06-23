@@ -1431,6 +1431,61 @@ function formatarMesAnoExtenso(d) {
   return `${meses[d.getMonth()]}/${d.getFullYear()}`;
 }
 
+/* =========================================================================
+   PRESCRIÇÃO DECENAL — detector automático (regra dos 5 anos)
+   ========================================================================= */
+/**
+ * Reúne as datas dos descontos a partir da planilha XLSX anexada (fonte
+ * primária) ou, na ausência dela, da "data de início dos descontos" digitada
+ * manualmente. Retorna o desconto mais antigo e se ele ultrapassa 5 anos
+ * contados de HOJE (dia em que a peça é confeccionada).
+ */
+function analisarDatasDescontos() {
+  let datas = [];
+  const tab = state.anexos && state.anexos.tabelaXlsx;
+  if (tab && Array.isArray(tab.linhasDataApenas)) {
+    datas = tab.linhasDataApenas.map(l => l.dataObj).filter(d => d instanceof Date && !isNaN(d));
+  }
+  // Fallback: data de início digitada à mão (sem planilha / "anexarei depois")
+  if (!datas.length && state.dadosPacote3 && state.dadosPacote3.data_inicio_descontos) {
+    const d = parseDataBR(state.dadosPacote3.data_inicio_descontos);
+    if (d) datas = [d];
+  }
+  if (!datas.length) return { temDatas: false, dataMaisAntiga: null, anos: 0, ultrapassa5: false };
+
+  const maisAntiga = new Date(Math.min(...datas.map(d => d.getTime())));
+  const hoje = new Date();
+  // limiar = hoje − 5 anos; "ultrapassa" = estritamente mais antigo que isso
+  const limiar = new Date(hoje.getFullYear() - 5, hoje.getMonth(), hoje.getDate());
+  const ultrapassa5 = maisAntiga < limiar;
+  // anos completos decorridos, só pra exibição
+  let anos = hoje.getFullYear() - maisAntiga.getFullYear();
+  const mdiff = hoje.getMonth() - maisAntiga.getMonth();
+  if (mdiff < 0 || (mdiff === 0 && hoje.getDate() < maisAntiga.getDate())) anos--;
+  return { temDatas: true, dataMaisAntiga: maisAntiga, anos, ultrapassa5 };
+}
+
+/**
+ * Decide se a peça leva o tópico DA PRESCRIÇÃO DECENAL.
+ *   - override 'SIM'/'NAO': prioridade absoluta (igual ao toggle da vara).
+ *   - automático: inclui se algum desconto for mais antigo que 5 anos.
+ *   - sem datas pra avaliar: inclui por precaução (decisão do escritório).
+ * Retorna { incluir, forcado, explicacao, dataMaisAntiga, anos, ultrapassa5, temDatas }.
+ */
+function calcularPrescricaoDecenal(override) {
+  override = override || null;
+  const info = analisarDatasDescontos();
+  const fmt = d => d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : '';
+  if (override === 'SIM') return { ...info, incluir: true,  forcado: true,  explicacao: 'Tópico forçado manualmente (sempre incluir).' };
+  if (override === 'NAO') return { ...info, incluir: false, forcado: true,  explicacao: 'Tópico removido manualmente (sempre omitir).' };
+  if (info.temDatas) {
+    return info.ultrapassa5
+      ? { ...info, incluir: true,  forcado: false, explicacao: `Desconto mais antigo em ${fmt(info.dataMaisAntiga)} (há ~${info.anos} ano(s)) ultrapassa 5 anos — tese decenal incluída.` }
+      : { ...info, incluir: false, forcado: false, explicacao: `Desconto mais antigo em ${fmt(info.dataMaisAntiga)} (há ~${info.anos} ano(s)) — dentro de 5 anos, tese dispensável.` };
+  }
+  return { ...info, incluir: true, forcado: false, explicacao: 'Sem datas de desconto pra avaliar — tópico incluído por precaução.' };
+}
+
 /**
  * Preenche valor_total_descontos, data_inicio_descontos e data_fim_descontos
  * a partir da planilha anexada.
@@ -2035,6 +2090,16 @@ function renderCalc() {
   // na peça (gerado por IA na Revisão com os números calculados). Pacote 3
   // não precisa mencionar nem oferecer opt-out.
 
+  // Prescrição decenal — detector automático + override manual (3 estados)
+  const decOverride = state.dadosPacote3.prescricao_decenal_override || null;
+  const dec = calcularPrescricaoDecenal(decOverride);
+  const labelPresc = decOverride === null ? 'Forçar presença do tópico'
+    : decOverride === 'SIM' ? 'Forçar ausência do tópico'
+    : 'Voltar ao automático';
+  const decBadge = dec.forcado
+    ? `<span class="vara-badge forcado">FORÇADO MANUALMENTE</span>`
+    : `<span class="vara-badge auto">AUTOMÁTICO</span>`;
+
   return `
     ${bloqueDivergencia}
     <div class="calc-card">
@@ -2055,6 +2120,17 @@ function renderCalc() {
       <div class="calc-vara-exp">${vara.explicacao}</div>
       <button class="vara-override-btn" onclick="toggleVaraOverride()">
         ${labelProximo}
+      </button>
+    </div>
+    <div class="calc-card calc-card-vara ${dec.forcado ? 'forcado' : ''}">
+      <div class="calc-vara-header">
+        <div class="calc-label">Prescrição decenal (10 anos)</div>
+        ${decBadge}
+      </div>
+      <div class="calc-vara-text">${dec.incluir ? '✔ Tópico INCLUÍDO na peça' : '✖ Tópico OMITIDO da peça'}</div>
+      <div class="calc-vara-exp">${dec.explicacao}</div>
+      <button class="vara-override-btn" onclick="togglePrescricaoDecenalOverride()">
+        ${labelPresc}
       </button>
     </div>
   `;
@@ -2105,6 +2181,18 @@ function toggleVaraOverride() {
   state.dadosPacote3.tipo_vara_override = proximo;
 
   // Re-renderiza só o painel de cálculo
+  const calcPanel = document.getElementById('calcPanel');
+  if (calcPanel) calcPanel.innerHTML = renderCalc();
+}
+
+/**
+ * Cicla o override da prescrição decenal: null (auto) → 'SIM' (forçar
+ * presença) → 'NAO' (forçar ausência) → null. Atualiza só o painel de cálculo.
+ */
+function togglePrescricaoDecenalOverride() {
+  const atual = state.dadosPacote3.prescricao_decenal_override || null;
+  const proximo = atual === null ? 'SIM' : atual === 'SIM' ? 'NAO' : null;
+  state.dadosPacote3.prescricao_decenal_override = proximo;
   const calcPanel = document.getElementById('calcPanel');
   if (calcPanel) calcPanel.innerHTML = renderCalc();
 }
