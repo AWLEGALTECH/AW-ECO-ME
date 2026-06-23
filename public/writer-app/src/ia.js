@@ -121,12 +121,7 @@ async function gerarTrechos() {
   try {
     if (state.config.webhookTrechos) {
       const payload = montarPayloadGeracao();
-      const resp = await fetch(state.config.webhookTrechos, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) throw new Error('Webhook retornou ' + resp.status);
-      const json = await resp.json();
+      const json = await chamarWebhookTrechos(payload);
       // Sanitiza ANTES de gravar — strip de travessão/en-dash e normalização
       state.trechosIA = sanitizarTrechosIA(json.trechos || {});
       // FALLBACK lastro técnico: a IA agora redige o lastro pra escapar das
@@ -154,6 +149,54 @@ async function gerarTrechos() {
     alert('Erro ao gerar trechos: ' + err.message);
     navegarPara('pacote3');
   }
+}
+
+/**
+ * Chama o webhook de trechos (n8n) de forma resiliente e devolve o JSON.
+ * Trata os modos de falha que apareciam como erro críptico pro usuário:
+ *   - timeout (IA lenta demais)            → mensagem clara + sugestão de retry
+ *   - corpo vazio com status 200 (n8n caiu  → "resposta vazia, tente de novo"
+ *     ou nó de IA estourou antes do Respond)
+ *   - resposta não-JSON                    → "resposta inválida"
+ * Antes, qualquer um desses caía em `resp.json()` e estourava
+ * "Failed to execute 'json' on 'Response': Unexpected end of JSON input".
+ */
+async function chamarWebhookTrechos(payload, { timeoutMs = 180000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let resp;
+  try {
+    resp = await fetch(state.config.webhookTrechos, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error('O assistente de IA demorou demais para responder (timeout). Aguarde alguns instantes e tente gerar novamente.');
+    }
+    throw new Error('Não foi possível contatar o assistente de IA (falha de rede). Verifique a conexão e tente novamente.');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!resp.ok) {
+    throw new Error('O assistente de IA respondeu com erro ' + resp.status + '. Aguarde alguns instantes e tente novamente.');
+  }
+
+  const texto = await resp.text();
+  if (!texto || !texto.trim()) {
+    throw new Error('O assistente de IA retornou uma resposta vazia (instabilidade momentânea do n8n). Aguarde alguns segundos e clique em gerar novamente.');
+  }
+
+  let json;
+  try {
+    json = JSON.parse(texto);
+  } catch (e) {
+    throw new Error('O assistente de IA retornou uma resposta em formato inválido. Tente novamente; se persistir, avise o suporte.');
+  }
+  return json;
 }
 
 function montarPayloadGeracao() {
@@ -194,8 +237,9 @@ function montarPayloadGeracao() {
   // Lista explícita de chaves de CONTROLE (sem prefixo _) que NÃO devem ir pra IA.
   // São flags de UI ou metadados de fluxo, não dados do caso.
   const CHAVES_CONTROLE_INTERNO = new Set([
-    'tipo_vara_override',           // override manual do tipo de vara (Cível/Juizado)
-    'gerar_lastro_dano_material',   // toggle do parágrafo opcional de lastro
+    'tipo_vara_override',              // override manual do tipo de vara (Cível/Juizado)
+    'prescricao_decenal_override',    // override manual do tópico de prescrição decenal
+    'gerar_lastro_dano_material',      // toggle do parágrafo opcional de lastro
   ]);
 
   Object.entries(todos).forEach(([k, v]) => {
