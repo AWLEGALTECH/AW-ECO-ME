@@ -1695,7 +1695,7 @@ function selecionarCliente(id) {
    ========================================================================= */
 function renderPacote2(view) {
   const campos = [
-    { key: 'idade', label: 'Idade', tipo: 'number' },
+    { key: 'idade', label: 'Idade', tipo: 'text', inputmode: 'numeric', placeholder: 'ex: 66 anos' },
     { key: 'escolaridade', label: 'Escolaridade', tipo: 'select', opcoes: [
       { value: '', label: '— selecione —' },
       { value: 'fundamental', label: 'Fundamental' },
@@ -1703,7 +1703,7 @@ function renderPacote2(view) {
       { value: 'superior', label: 'Superior' },
       { value: 'pós-graduação', label: 'Pós-graduação' },
     ] },
-    { key: 'numero_filhos', label: 'Número de filhos', tipo: 'number' },
+    { key: 'numero_filhos', label: 'Número de filhos', tipo: 'text', inputmode: 'numeric', placeholder: 'ex: 3' },
     { key: 'idades_filhos', label: 'Idades dos filhos', tipo: 'text', placeholder: 'ex: 5, 9 e 14 anos' },
     { key: 'conjuge_trabalha', label: 'Cônjuge trabalha?', tipo: 'select', opcoes: [
       { value: '', label: '— selecione —' },
@@ -1711,7 +1711,7 @@ function renderPacote2(view) {
       { value: 'nao', label: 'Não' },
       { value: 'nao_se_aplica', label: 'Não se aplica (sem cônjuge)' },
     ] },
-    { key: 'renda_mensal', label: 'Renda mensal (R$)', tipo: 'number', placeholder: 'ex: 1800' },
+    { key: 'renda_mensal', label: 'Renda mensal (R$)', tipo: 'text', inputmode: 'decimal', placeholder: 'ex: 1800' },
     { key: 'unico_provedor', label: 'Único provedor?', tipo: 'select', opcoes: [
       { value: '', label: '— selecione —' },
       { value: 'sim', label: 'Sim' },
@@ -2243,7 +2243,10 @@ function renderInput(campo, dados, pacote) {
   }
   const minAttr = campo.tipo === 'number' ? 'min="0"' : '';
   const stepAttr = campo.tipo === 'number' ? 'step="any"' : '';
-  return `<input type="${campo.tipo}" ${minAttr} ${stepAttr} data-campo="${campo.key}" data-pacote="${pacote}" value="${val === null ? '' : val}" placeholder="${campo.placeholder || ''}" ${disabled}>`;
+  // inputmode permite teclado numérico no mobile sem usar type="number" — este
+  // rejeita valores de texto livre (ex: "66 Anos") e zera o campo no load.
+  const imAttr = campo.inputmode ? `inputmode="${campo.inputmode}"` : '';
+  return `<input type="${campo.tipo}" ${minAttr} ${stepAttr} ${imAttr} data-campo="${campo.key}" data-pacote="${pacote}" value="${val === null ? '' : val}" placeholder="${campo.placeholder || ''}" ${disabled}>`;
 }
 
 function renderShieldBtn(campo) {
