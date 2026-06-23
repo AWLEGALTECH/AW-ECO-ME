@@ -369,6 +369,75 @@ function escXml(s) {
     .replace(/'/g, '&apos;');
 }
 
+/* =========================================================================
+   PRESCRIÇÃO DECENAL — insere/remove o tópico conforme a regra dos 5 anos
+   (detector em render.js: calcularPrescricaoDecenal) + override manual.
+   Universal a TODOS os produtos. Bloco verbatim extraído do template-padrao
+   (heading + corpo único com a tese e o precedente STJ REsp 1.631.903/SP).
+   ========================================================================= */
+const HEADING_DECENAL = 'DA PRESCRIÇÃO DECENAL APLICÁVEL À REPETIÇÃO DO INDÉBITO';
+
+const HEADING_DECENAL_XML = `<w:p><w:pPr><w:ind w:right="-430.8661417322827"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:b w:val="1"/><w:bCs w:val="1"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">DA PRESCRIÇÃO DECENAL APLICÁVEL À REPETIÇÃO DO INDÉBITO</w:t></w:r><w:r><w:rPr><w:rtl w:val="0"/></w:rPr></w:r></w:p>`;
+
+const CORPO_DECENAL_XML = `<w:p><w:pPr><w:ind w:right="-430.8661417322827"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:b w:val="1"/><w:bCs w:val="1"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">Preliminarmente, cumpre afastar qualquer alegação de prescrição que venha a ser suscitada pela instituição financeira ré, especialmente no que tange ao prazo aplicável à repetição do indébito.</w:t><w:br w:type="textWrapping"/><w:br w:type="textWrapping"/><w:tab/><w:t xml:space="preserve">O Banco Réu poderá alegar, em sua defesa, a aplicação do prazo trienal previsto no art. 206, §3º, IV, do Código Civil, que estabelece prescrição de três anos para a pretensão de ressarcimento de enriquecimento sem causa. Ocorre que tal dispositivo não se aplica ao caso concreto.</w:t><w:br w:type="textWrapping"/><w:br w:type="textWrapping"/><w:tab/><w:t xml:space="preserve">Com efeito, a pretensão de repetição de indébito decorrente de cobrança indevida em relação contratual não se confunde com o enriquecimento sem causa, mas sim com o inadimplemento contratual ou com a responsabilidade civil por ato ilícito, hipóteses em que se aplica o prazo prescricional decenal previsto no art. 205 do Código Civil.</w:t><w:br w:type="textWrapping"/><w:br w:type="textWrapping"/><w:tab/><w:t xml:space="preserve">Nesse sentido, o </w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:b w:val="1"/><w:bCs w:val="1"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve">Superior Tribunal de Justiça consolidou entendimento no sentido de que "a pretensão de restituição de quantias pagas indevidamente em decorrência de contrato eivado de nulidade ou anulabilidade sujeita-se ao prazo prescricional decenal previsto no art. 205 do Código Civil, e não ao prazo trienal do art. 206, §3º, IV, do mesmo diploma legal"</w:t></w:r><w:r><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/></w:rPr><w:t xml:space="preserve"> (STJ, REsp 1.631.903/SP, Rel. Ministra Nancy Andrighi, Terceira Turma, julgado em 27/02/2018).</w:t><w:br w:type="textWrapping"/><w:br w:type="textWrapping"/><w:tab/><w:t xml:space="preserve">Assim, considerando que os descontos impugnados decorrem de suposta relação contratual (cuja existência e validade o banco não comprovou), e não de enriquecimento sem causa, aplica-se o prazo prescricional de 10 (dez) anos, nos termos do art. 205 do Código Civil.</w:t><w:br w:type="textWrapping"/><w:br w:type="textWrapping"/><w:tab/><w:t xml:space="preserve">Portanto, todos os descontos realizados nos últimos 10 anos anteriores ao ajuizamento da presente ação devem ser objeto de repetição, afastando-se qualquer limitação temporal mais restritiva.</w:t></w:r><w:r><w:rPr><w:rtl w:val="0"/></w:rPr></w:r></w:p>`;
+
+/**
+ * Aplica a regra da prescrição decenal sobre o document.xml já renderizado:
+ *   - tópico existe + não precisa  → remove (heading + parágrafo de corpo)
+ *   - tópico ausente + precisa     → insere antes de "DO DIREITO"
+ *                                    (heading clona o estilo local do "DO DIREITO";
+ *                                     corpo é o bloco verbatim do padrão)
+ *   - existe+precisa / ausente+não → não mexe
+ * Decisão vem de calcularPrescricaoDecenal (detector + override). Defensivo:
+ * qualquer falha mantém o template intacto.
+ */
+function aplicarPrescricaoDecenal(documentXml) {
+  let dec;
+  try {
+    const ov = (state.dadosPacote3 && state.dadosPacote3.prescricao_decenal_override) || null;
+    dec = calcularPrescricaoDecenal(ov);
+  } catch (e) {
+    console.warn('[decenal] erro ao calcular decisão — template mantido:', e);
+    return documentXml;
+  }
+
+  const textOf = s => (s.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
+    .map(t => t.replace(/<[^>]+>/g, '')).join('');
+  const paras = [...documentXml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)];
+  const headIdx = paras.findIndex(m => textOf(m[0]).includes('PRESCRIÇÃO DECENAL APLICÁVEL'));
+  const existe = headIdx !== -1;
+
+  // existe e não precisa → remove heading + parágrafo de corpo seguinte
+  if (existe && !dec.incluir) {
+    const h = paras[headIdx];
+    const b = paras[headIdx + 1];
+    const fim = b ? (b.index + b[0].length) : (h.index + h[0].length);
+    console.log('[decenal] tópico removido (descontos dentro de 5 anos / forçado).');
+    return documentXml.slice(0, h.index) + documentXml.slice(fim);
+  }
+
+  // ausente e precisa → insere antes de "DO DIREITO"
+  if (!existe && dec.incluir) {
+    const anchorIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase() === 'DO DIREITO');
+    if (anchorIdx === -1) {
+      console.warn('[decenal] tópico necessário, mas âncora "DO DIREITO" não encontrada — peça segue sem o tópico.');
+      return documentXml;
+    }
+    const anchor = paras[anchorIdx];
+    // Heading: clona o parágrafo "DO DIREITO" local (mantém estilo do template)
+    // e troca o texto. Se o texto estiver fragmentado em runs, cai no verbatim.
+    let headingXml = anchor[0].replace(/(<w:t[^>]*>)\s*DO DIREITO\s*(<\/w:t>)/, '$1' + escXml(HEADING_DECENAL) + '$2');
+    if (headingXml === anchor[0]) headingXml = HEADING_DECENAL_XML;
+    // Remove IDs de parágrafo do clone pra não colidir com o "DO DIREITO" original.
+    headingXml = headingXml.replace(/\sw14:paraId="[^"]*"/g, '').replace(/\sw14:textId="[^"]*"/g, '');
+    const bloco = headingXml + CORPO_DECENAL_XML;
+    console.log('[decenal] tópico inserido antes de "DO DIREITO" (desconto > 5 anos / forçado).');
+    return documentXml.slice(0, anchor.index) + bloco + documentXml.slice(anchor.index);
+  }
+
+  return documentXml;
+}
+
 /**
  * Monta o XML OOXML completo da tabela de descontos, fiel à planilha:
  * preserva subtítulos mesclados, cabeçalho, linhas de dados, e linhas de
@@ -1206,6 +1275,16 @@ async function montarDocxNoNavegador() {
     zipFinal.file('word/document.xml', documentXml);
   } else {
     console.warn('Marcador ZZTABELADESCONTOSZZ não encontrado no template renderizado. Tabela não foi injetada.');
+  }
+
+  // 9a. PRESCRIÇÃO DECENAL — insere ou remove o tópico conforme a regra dos
+  // 5 anos (data dos descontos vs. hoje) e o override manual do advogado.
+  // Roda ANTES do revisor pra o parágrafo inserido também receber as
+  // correções de margem/concordância. Universal a todos os produtos.
+  {
+    const xmlAntesDec = zipFinal.file('word/document.xml').asText();
+    const xmlDepoisDec = aplicarPrescricaoDecenal(xmlAntesDec);
+    if (xmlDepoisDec !== xmlAntesDec) zipFinal.file('word/document.xml', xmlDepoisDec);
   }
 
   // 9b. SANITIZAÇÃO DE TWIPS FRACIONÁRIOS — Word recusa o arquivo se algum
