@@ -478,7 +478,14 @@ function gerarTrechosMock(tentativa = 0) {
   const d = { ...state.dadosPacote1, ...state.dadosPacote2 };
   const prof = d.profissao || 'trabalhador';
   const filhos = parseInt(d.numero_filhos) || 0;
-  const renda = d.renda_mensal ? `R$ ${parseFloat(d.renda_mensal).toLocaleString('pt-BR')}` : 'renda modesta';
+  // renda_mensal pode vir como texto livre ("R$ 1.800", "1800", "um salário").
+  // Tenta extrair número; se não der, usa o texto cru — nunca "R$ NaN".
+  let renda = 'renda modesta';
+  if (d.renda_mensal != null && String(d.renda_mensal).trim() !== '') {
+    const raw = String(d.renda_mensal).trim();
+    const n = parseFloat(raw.replace(/[^\d.,]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    renda = isNaN(n) ? raw : `R$ ${n.toLocaleString('pt-BR')}`;
+  }
   const nome = d.nome_completo || 'a parte autora';
   const ecCasado = d.estado_civil?.includes('cas');
   const ecMasc = ecCasado ? 'casado' : '';
