@@ -31,12 +31,14 @@ interface Fechamento {
 const brl = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const fmtData = (iso: string) => {
+const fmtData = (iso: string | null | undefined) => {
+  if (!iso) return "—";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 };
 
-const mesLabel = (mes: string) => {
+const mesLabel = (mes: string | null | undefined) => {
+  if (!mes) return "—";
   const [y, m] = mes.split("-").map(Number);
   const nomes = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
   return `${nomes[m - 1]}/${y}`;
@@ -87,18 +89,23 @@ export default function Fechamentos() {
   // Meses disponíveis (dos dados), mais novos primeiro
   const meses = useMemo(() => {
     const s = new Set<string>();
-    for (const f of fechamentos) s.add(f.data.slice(0, 7));
+    for (const f of fechamentos) if (f.data) s.add(f.data.slice(0, 7));
     return [...s].sort().reverse();
   }, [fechamentos]);
 
-  // Default: mês mais recente
+  // Mês efetivo: usa a seleção do usuário se válida, senão o mês mais recente.
+  // Derivado (não estado) pra evitar o render-com-null no primeiro frame após
+  // os dados chegarem — quando mesSel ainda não foi definido pelo effect abaixo.
+  const mesAtivo = (mesSel && meses.includes(mesSel)) ? mesSel : (meses[0] ?? null);
+
+  // Mantém o estado em sincronia (pro destaque do botão / cliques subsequentes)
   useEffect(() => {
     if (!mesSel && meses.length) setMesSel(meses[0]);
   }, [meses, mesSel]);
 
   const doMes = useMemo(
-    () => fechamentos.filter((f) => f.data.slice(0, 7) === mesSel),
-    [fechamentos, mesSel],
+    () => fechamentos.filter((f) => (f.data || "").slice(0, 7) === mesAtivo),
+    [fechamentos, mesAtivo],
   );
 
   const totalAcoes = useMemo(
@@ -106,7 +113,7 @@ export default function Fechamentos() {
     [doMes],
   );
   const base = totalAcoes * VALOR_ACAO_PADRAO;
-  const bonus = (mesSel && mesesRes.data?.[mesSel]) || 0;
+  const bonus = (mesAtivo && mesesRes.data?.[mesAtivo]) || 0;
   const total = base + bonus;
 
   // Quebra por rubrica (só as com contagem > 0), desc
@@ -122,10 +129,10 @@ export default function Fechamentos() {
   };
 
   const salvarBonus = async (valor: number) => {
-    if (!mesSel) return;
+    if (!mesAtivo) return;
     const { error } = await supabase
       .from("fechamentos_meses" as any)
-      .upsert({ mes: mesSel, bonus: valor, updated_at: new Date().toISOString() }, { onConflict: "mes" });
+      .upsert({ mes: mesAtivo, bonus: valor, updated_at: new Date().toISOString() }, { onConflict: "mes" });
     if (error) { toast.error("Erro ao salvar bônus: " + error.message); return; }
     toast.success("Bônus do mês atualizado");
     mesesRes.refetch();
@@ -162,7 +169,7 @@ export default function Fechamentos() {
               key={m}
               onClick={() => setMesSel(m)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                mesSel === m
+                mesAtivo === m
                   ? "bg-primary/15 text-primary border-primary/30"
                   : "border-border text-muted-foreground hover:border-primary/40"
               }`}
@@ -190,7 +197,7 @@ export default function Fechamentos() {
             <ResumoCard label={`Base (R$ ${VALOR_ACAO_PADRAO}/ação)`} valor={brl(base)} icon={Coins} />
             <div className="rounded-xl border border-border bg-card/40 p-3">
               <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-1">Bônus do mês</p>
-              <BonusInput key={mesSel || "x"} valor={bonus} onSave={salvarBonus} />
+              <BonusInput key={mesAtivo || "x"} valor={bonus} onSave={salvarBonus} />
             </div>
             <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 flex flex-col justify-center">
               <p className="text-[10px] uppercase tracking-[0.15em] text-primary/80 mb-1">Comissão total</p>
@@ -202,7 +209,7 @@ export default function Fechamentos() {
             {/* Lista de fechamentos */}
             <div className="lg:col-span-2 space-y-2">
               <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
-                Fechamentos de {mesLabel(mesSel!)} ({doMes.length})
+                Fechamentos de {mesLabel(mesAtivo)} ({doMes.length})
               </h2>
               {doMes.map((f) => (
                 <div key={f.id} className="rounded-xl border border-border bg-card/40 p-3 group">
