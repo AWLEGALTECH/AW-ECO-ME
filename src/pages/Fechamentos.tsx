@@ -32,10 +32,10 @@ interface Fechamento {
 }
 interface Regra {
   mes: string;
-  valor_base: number;
-  mult_base: number;
-  mult_especial: number;
-  mult_especial_min: number | null;
+  valor_base: number;               // R$ por ação (faixa base)
+  valor_especial: number;           // R$ por ação depois do limite (faixa especial)
+  especial_ativo: boolean;          // admin liga/desliga a faixa especial no mês
+  especial_limite: number | null;   // base vale ATÉ X ações; acima disso vale o especial
   meta_geral: number;
   bonus: number;
 }
@@ -44,7 +44,6 @@ interface Membro { id: string; nome: string | null; email: string | null }
 /* ─────────────────────────── helpers ─────────────────────────── */
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const intBR = (n: number) => Math.round(n).toLocaleString("pt-BR");
-const fmtMult = (n: number) => `×${Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`;
 
 const hojeMes = () => new Date().toISOString().slice(0, 7);
 function addMes(mes: string, delta: number) {
@@ -65,27 +64,35 @@ const fmtData = (iso: string | null | undefined) => {
 };
 const primeiroNome = (n: string | null | undefined) => (n || "").trim().split(/\s+/)[0] || "—";
 
-const REGRA_DEFAULT = { valor_base: 5, mult_base: 1, mult_especial: 1, mult_especial_min: null as number | null, meta_geral: 0, bonus: 0 };
 function toRegra(mes: string, row: any): Regra {
   const r = row || {};
   return {
     mes,
-    valor_base: Number(r.valor_base ?? REGRA_DEFAULT.valor_base),
-    mult_base: Number(r.mult_base ?? REGRA_DEFAULT.mult_base),
-    mult_especial: Number(r.mult_especial ?? REGRA_DEFAULT.mult_especial),
-    mult_especial_min: r.mult_especial_min == null ? null : Number(r.mult_especial_min),
-    meta_geral: Number(r.meta_geral ?? REGRA_DEFAULT.meta_geral),
-    bonus: Number(r.bonus ?? REGRA_DEFAULT.bonus),
+    valor_base: Number(r.valor_base ?? 5),
+    valor_especial: Number(r.valor_especial ?? 0),
+    especial_ativo: !!r.especial_ativo,
+    especial_limite: r.mult_especial_min == null ? null : Number(r.mult_especial_min),
+    meta_geral: Number(r.meta_geral ?? 0),
+    bonus: Number(r.bonus ?? 0),
   };
 }
-/** Multiplicador vigente é INDIVIDUAL: cada pessoa ativa o especial pela própria contagem. */
-function multVigente(acoes: number, r: Regra) {
-  if (r.mult_especial_min != null && r.mult_especial_min > 0 && acoes >= r.mult_especial_min) return r.mult_especial;
-  return r.mult_base;
+/**
+ * Faixa especial vigente é INDIVIDUAL: cada pessoa passa pra faixa especial
+ * quando as PRÓPRIAS ações do mês ultrapassam o limite (e o admin ativou a
+ * faixa naquele mês). Ex.: base R$5/ação até 20; da 21ª em diante vale R$6.
+ */
+function especialAtivoPara(acoes: number, r: Regra) {
+  if (!r.especial_ativo || r.valor_especial <= 0) return false;
+  const lim = r.especial_limite ?? 0;
+  return acoes > lim;
 }
-/** Comissão = ações × valor_base × multiplicador_vigente + bônus individual. */
+/** Valor por ação vigente (R$): base ou especial, conforme a faixa. */
+function valorAcaoVigente(acoes: number, r: Regra) {
+  return especialAtivoPara(acoes, r) ? r.valor_especial : r.valor_base;
+}
+/** Comissão = ações × valor_por_ação_vigente + bônus individual. */
 function comissaoDe(acoes: number, r: Regra, bonusIndiv: number) {
-  return acoes * r.valor_base * multVigente(acoes, r) + bonusIndiv;
+  return acoes * valorAcaoVigente(acoes, r) + bonusIndiv;
 }
 
 /* ─────────────────────── mini-componentes ─────────────────────── */
@@ -217,8 +224,8 @@ export default function Fechamentos() {
   const focoAcoes = focoId ? acoesDe[focoId] || 0 : 0;
   const focoMeta = focoId ? metasMap[focoId]?.meta || 0 : 0;
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
-  const focoMult = multVigente(focoAcoes, regra);
-  const focoEspecialAtivo = regra.mult_especial_min != null && regra.mult_especial_min > 0 && focoAcoes >= regra.mult_especial_min;
+  const focoEspecialAtivo = especialAtivoPara(focoAcoes, regra);
+  const focoValorAcao = valorAcaoVigente(focoAcoes, regra);
   const focoComissao = comissaoDe(focoAcoes, regra, focoBonus);
 
   const ranking = useMemo(() => {
@@ -226,7 +233,7 @@ export default function Fechamentos() {
       .map((m) => {
         const a = acoesDe[m.id] || 0;
         const mt = metasMap[m.id] || { meta: 0, bonus: 0 };
-        return { membro: m, acoes: a, meta: mt.meta, bonus: mt.bonus, mult: multVigente(a, regra), comissao: comissaoDe(a, regra, mt.bonus) };
+        return { membro: m, acoes: a, meta: mt.meta, bonus: mt.bonus, especial: especialAtivoPara(a, regra), valorAcao: valorAcaoVigente(a, regra), comissao: comissaoDe(a, regra, mt.bonus) };
       })
       .sort((x, y) => y.acoes - x.acoes);
   }, [equipe, acoesDe, metasMap, regra]);
@@ -324,12 +331,12 @@ export default function Fechamentos() {
             /* Quadro individual (user comum sempre; admin quando escolhe pessoa) */
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
-              <CardMultiplicador regra={regra} acoes={focoAcoes} vigente={focoMult} especialAtivo={focoEspecialAtivo} />
-              <CardComissao acoes={focoAcoes} regra={regra} bonus={focoBonus} vigente={focoMult} total={focoComissao} />
+              <CardValorAcao regra={regra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
+              <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
             </div>
           ) : (
             /* Placar geral (admin, visão time) */
-            <Leaderboard ranking={ranking} regra={regra} />
+            <Leaderboard ranking={ranking} />
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -512,37 +519,39 @@ function CardIndividual({ nome, acoes, meta }: { nome: string | null; acoes: num
   );
 }
 
-function CardMultiplicador({ regra, acoes, vigente, especialAtivo }: { regra: Regra; acoes: number; vigente: number; especialAtivo: boolean }) {
-  const temEspecial = regra.mult_especial_min != null && regra.mult_especial_min > 0 && regra.mult_especial > regra.mult_base;
-  const faltam = temEspecial && !especialAtivo ? Math.max(0, (regra.mult_especial_min || 0) - acoes) : 0;
+function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra; acoes: number; vigente: number; especialAtivo: boolean }) {
+  const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
+  const lim = regra.especial_limite ?? 0;
+  const faltam = temEspecial && !especialAtivo ? Math.max(0, lim + 1 - acoes) : 0;
   return (
     <div className={`rounded-2xl border p-4 ${especialAtivo ? "border-amber-400/50 bg-amber-400/10 fech-glow" : "border-border bg-card/50"}`}>
       <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold flex items-center gap-1.5">
-        {especialAtivo ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Zap className="h-3.5 w-3.5" />} Multiplicador vigente
+        {especialAtivo ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Zap className="h-3.5 w-3.5" />} Valor por ação
       </p>
       <div className="mt-1 flex items-center gap-2">
-        <span className={`text-4xl font-black tabular-nums leading-none ${especialAtivo ? "text-amber-400" : ""}`}>{fmtMult(vigente)}</span>
+        <span className={`text-4xl font-black tabular-nums leading-none ${especialAtivo ? "text-amber-400" : ""}`}>{brl(vigente)}</span>
+        <span className="text-sm text-muted-foreground mb-0.5">/ ação</span>
         {especialAtivo && <Sparkles className="h-5 w-5 text-amber-400" />}
       </div>
       <div className="mt-3 space-y-1 text-[11px]">
         <div className={`flex items-center justify-between ${!especialAtivo ? "text-foreground font-medium" : "text-muted-foreground"}`}>
-          <span>Base</span><span className="tabular-nums">{fmtMult(regra.mult_base)}</span>
+          <span>Base{temEspecial ? ` (até ${intBR(lim)} ações)` : ""}</span><span className="tabular-nums">{brl(regra.valor_base)}</span>
         </div>
         {temEspecial && (
           <div className={`flex items-center justify-between ${especialAtivo ? "text-amber-400 font-semibold" : "text-muted-foreground"}`}>
-            <span>Especial (≥ {intBR(regra.mult_especial_min || 0)} ações)</span><span className="tabular-nums">{fmtMult(regra.mult_especial)}</span>
+            <span>Especial (acima de {intBR(lim)})</span><span className="tabular-nums">{brl(regra.valor_especial)}</span>
           </div>
         )}
         {temEspecial && !especialAtivo && (
-          <p className="text-[11px] text-amber-400/90 pt-1">🔥 Faltam <strong>{intBR(faltam)}</strong> ações pra destravar {fmtMult(regra.mult_especial)}</p>
+          <p className="text-[11px] text-amber-400/90 pt-1">🔥 Faltam <strong>{intBR(faltam)}</strong> ações pra cada ação valer {brl(regra.valor_especial)}</p>
         )}
-        {!temEspecial && <p className="text-[11px] text-muted-foreground pt-1">Sem multiplicador especial neste mês.</p>}
+        {!temEspecial && <p className="text-[11px] text-muted-foreground pt-1">Sem faixa especial neste mês.</p>}
       </div>
     </div>
   );
 }
 
-function CardComissao({ acoes, regra, bonus, vigente, total }: { acoes: number; regra: Regra; bonus: number; vigente: number; total: number }) {
+function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valorAcao: number; bonus: number; total: number }) {
   return (
     <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 to-emerald-500/5 p-4">
       <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400/90 font-semibold flex items-center gap-1.5">
@@ -552,14 +561,14 @@ function CardComissao({ acoes, regra, bonus, vigente, total }: { acoes: number; 
         <CountUp value={total} format={(n) => brl(n)} className="text-3xl font-black tabular-nums leading-none text-emerald-400" />
       </div>
       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-        {intBR(acoes)} ações × {brl(regra.valor_base)} × {fmtMult(vigente)}
+        {intBR(acoes)} ações × {brl(valorAcao)}/ação
         {bonus > 0 && <> + {brl(bonus)} bônus</>}
       </p>
     </div>
   );
 }
 
-function Leaderboard({ ranking, regra }: { ranking: { membro: Membro; acoes: number; meta: number; mult: number; comissao: number }[]; regra: Regra }) {
+function Leaderboard({ ranking }: { ranking: { membro: Membro; acoes: number; meta: number; especial: boolean; valorAcao: number; comissao: number }[] }) {
   const medalhas = ["🥇", "🥈", "🥉"];
   return (
     <div className="rounded-2xl border border-border bg-card/40 overflow-hidden">
@@ -572,7 +581,6 @@ function Leaderboard({ ranking, regra }: { ranking: { membro: Membro; acoes: num
       ) : (
         <div className="divide-y divide-border/50">
           {ranking.map((r, i) => {
-            const especial = regra.mult_especial_min != null && regra.mult_especial_min > 0 && r.acoes >= regra.mult_especial_min;
             const pct = r.meta > 0 ? Math.min(100, Math.round((r.acoes / r.meta) * 100)) : 0;
             return (
               <div key={r.membro.id} className={`px-4 py-3 flex items-center gap-3 ${i === 0 && r.acoes > 0 ? "bg-amber-400/5" : ""}`}>
@@ -580,7 +588,7 @@ function Leaderboard({ ranking, regra }: { ranking: { membro: Membro; acoes: num
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold truncate">{primeiroNome(r.membro.nome)}</span>
-                    {especial && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30 inline-flex items-center gap-1"><Flame className="h-2.5 w-2.5" />{fmtMult(r.mult)}</span>}
+                    {r.especial && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30 inline-flex items-center gap-1"><Flame className="h-2.5 w-2.5" />{brl(r.valorAcao)}/ação</span>}
                   </div>
                   {r.meta > 0 && (
                     <div className="mt-1.5 max-w-[240px]">
@@ -740,9 +748,9 @@ function RegrasDialog({
   onSaved: () => void;
 }) {
   const [valorBase, setValorBase] = useState("");
-  const [multBase, setMultBase] = useState("");
-  const [multEsp, setMultEsp] = useState("");
-  const [multEspMin, setMultEspMin] = useState("");
+  const [especialAtivo, setEspecialAtivo] = useState(false);
+  const [valorEsp, setValorEsp] = useState("");
+  const [espLimite, setEspLimite] = useState("");
   const [metaGeral, setMetaGeral] = useState("");
   const [bonus, setBonus] = useState("");
   const [metas, setMetas] = useState<Record<string, { meta: string; bonus: string }>>({});
@@ -752,9 +760,9 @@ function RegrasDialog({
   useEffect(() => {
     if (!open) return;
     setValorBase(String(regra.valor_base));
-    setMultBase(String(regra.mult_base));
-    setMultEsp(String(regra.mult_especial));
-    setMultEspMin(regra.mult_especial_min == null ? "" : String(regra.mult_especial_min));
+    setEspecialAtivo(regra.especial_ativo);
+    setValorEsp(regra.valor_especial ? String(regra.valor_especial) : "");
+    setEspLimite(regra.especial_limite == null ? "" : String(regra.especial_limite));
     setMetaGeral(regra.meta_geral ? String(regra.meta_geral) : "");
     setBonus(regra.bonus ? String(regra.bonus) : "");
     const m: Record<string, { meta: string; bonus: string }> = {};
@@ -770,13 +778,13 @@ function RegrasDialog({
 
   const salvar = async () => {
     setSaving(true);
-    const espMin = multEspMin.trim() === "" ? null : int(multEspMin);
+    const espLim = espLimite.trim() === "" ? null : int(espLimite);
     const { error: e1 } = await supabase.from("fechamentos_meses" as any).upsert({
       mes,
       valor_base: num(valorBase) || 0,
-      mult_base: num(multBase) || 1,
-      mult_especial: num(multEsp) || 1,
-      mult_especial_min: espMin,
+      valor_especial: especialAtivo ? num(valorEsp) : 0,
+      especial_ativo: especialAtivo,
+      mult_especial_min: especialAtivo ? espLim : null,
       meta_geral: int(metaGeral),
       bonus: num(bonus),
       updated_at: new Date().toISOString(),
@@ -810,15 +818,30 @@ function RegrasDialog({
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <CampoNum label="Valor base (R$/ação)" value={valorBase} onChange={setValorBase} />
-            <CampoNum label="Multiplicador base" value={multBase} onChange={setMultBase} />
             <CampoNum label="Meta geral (ações)" value={metaGeral} onChange={setMetaGeral} />
-            <CampoNum label="Mult. especial" value={multEsp} onChange={setMultEsp} />
-            <CampoNum label="Ativa a partir de (ações)" value={multEspMin} onChange={setMultEspMin} placeholder="ex: 30" />
             <CampoNum label="Bônus geral (R$)" value={bonus} onChange={setBonus} />
           </div>
-          <p className="text-[11px] text-muted-foreground -mt-1">
-            Deixe <strong>"ativa a partir de"</strong> em branco para não usar multiplicador especial neste mês.
-          </p>
+
+          {/* Faixa especial — liga/desliga por mês */}
+          <div className={`rounded-lg border p-3 ${especialAtivo ? "border-amber-400/40 bg-amber-400/5" : "border-border"}`}>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <Checkbox checked={especialAtivo} onCheckedChange={() => setEspecialAtivo((v) => !v)} />
+              <Flame className={`h-4 w-4 ${especialAtivo ? "text-amber-400" : "text-muted-foreground"}`} />
+              Ativar faixa especial neste mês
+            </label>
+            {especialAtivo && (
+              <>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <CampoNum label="Base vale até (ações)" value={espLimite} onChange={setEspLimite} placeholder="ex: 20" />
+                  <CampoNum label="Valor especial (R$/ação)" value={valorEsp} onChange={setValorEsp} placeholder="ex: 6" />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Cada ação vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(espLimite) || 0}</strong> ações. Da{" "}
+                  <strong>{(int(espLimite) || 0) + 1}ª</strong> em diante, cada ação passa a valer <strong>{brl(num(valorEsp))}</strong>.
+                </p>
+              </>
+            )}
+          </div>
 
           <div>
             <Label className="flex items-center gap-1.5 mb-2"><Target className="h-4 w-4" /> Metas e bônus por pessoa</Label>
