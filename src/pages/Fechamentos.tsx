@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
-  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Crown, Sparkles, Settings2, Coins,
+  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Crown, Sparkles, Settings2, Coins, Check,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -477,9 +477,11 @@ function CardGeral({ acoes, meta, pessoas, mes }: { acoes: number; meta: number;
           </p>
         </div>
         {bateu ? (
-          <div className="text-right animate-salt-bounce">
-            <div className="text-2xl">🎉</div>
-            <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Meta batida!</span>
+          <div className="text-right">
+            <div className="inline-flex items-center gap-1.5 text-emerald-400">
+              <Check className="h-5 w-5" strokeWidth={3} />
+              <span className="text-xs font-bold uppercase tracking-wide">Meta batida</span>
+            </div>
           </div>
         ) : meta > 0 ? (
           <div className="text-right">
@@ -512,7 +514,7 @@ function CardIndividual({ nome, acoes, meta }: { nome: string | null; acoes: num
       {meta > 0 && (
         <div className="mt-3 space-y-1">
           <Barra value={acoes} max={meta} className={bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-violet-500 to-fuchsia-500"} />
-          <p className="text-[11px] text-right text-muted-foreground">{bateu ? "🎉 meta batida" : `${pct}% · faltam ${intBR(Math.max(0, meta - acoes))}`}</p>
+          <p className="text-[11px] text-right text-muted-foreground">{bateu ? "meta batida" : `${pct}% · faltam ${intBR(Math.max(0, meta - acoes))}`}</p>
         </div>
       )}
     </div>
@@ -543,7 +545,7 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra;
           </div>
         )}
         {temEspecial && !especialAtivo && (
-          <p className="text-[11px] text-amber-400/90 pt-1">🔥 Faltam <strong>{intBR(faltam)}</strong> ações pra cada ação valer {brl(regra.valor_especial)}</p>
+          <p className="text-[11px] text-amber-400/90 pt-1">Faltam <strong>{intBR(faltam)}</strong> ações pra cada ação valer {brl(regra.valor_especial)}</p>
         )}
         {!temEspecial && <p className="text-[11px] text-muted-foreground pt-1">Sem faixa especial neste mês.</p>}
       </div>
@@ -569,7 +571,6 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
 }
 
 function Leaderboard({ ranking }: { ranking: { membro: Membro; acoes: number; meta: number; especial: boolean; valorAcao: number; comissao: number }[] }) {
-  const medalhas = ["🥇", "🥈", "🥉"];
   return (
     <div className="rounded-2xl border border-border bg-card/40 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
@@ -584,7 +585,9 @@ function Leaderboard({ ranking }: { ranking: { membro: Membro; acoes: number; me
             const pct = r.meta > 0 ? Math.min(100, Math.round((r.acoes / r.meta) * 100)) : 0;
             return (
               <div key={r.membro.id} className={`px-4 py-3 flex items-center gap-3 ${i === 0 && r.acoes > 0 ? "bg-amber-400/5" : ""}`}>
-                <div className="w-7 text-center text-lg shrink-0">{r.acoes > 0 && medalhas[i] ? medalhas[i] : <span className="text-sm text-muted-foreground">{i + 1}</span>}</div>
+                <div className="w-7 shrink-0 flex justify-center">
+                  <span className={`h-6 w-6 rounded-full inline-flex items-center justify-center text-xs font-bold ${i === 0 && r.acoes > 0 ? "bg-amber-400/20 text-amber-400 border border-amber-400/40" : "bg-muted/40 text-muted-foreground"}`}>{i + 1}</span>
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold truncate">{primeiroNome(r.membro.nome)}</span>
@@ -659,7 +662,7 @@ function NovoFechamentoDialog({
     });
     setSaving(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
-    toast.success("Fechamento registrado 🎯");
+    toast.success("Fechamento registrado");
     reset();
     onSaved();
   };
@@ -803,7 +806,7 @@ function RegrasDialog({
       if (e2) { setSaving(false); toast.error("Erro ao salvar metas: " + e2.message); return; }
     }
     setSaving(false);
-    toast.success("Regras do mês salvas ⚙️");
+    toast.success("Regras do mês salvas");
     onSaved();
   };
 
