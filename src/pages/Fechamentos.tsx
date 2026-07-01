@@ -139,7 +139,10 @@ export default function Fechamentos() {
   });
 
   const regrasRes = useQuery({
-    queryKey: ["fechamentos_meses"],
+    // v2: descarta o cache persistido (localStorage) da versão antiga, que
+    // guardava esta chave como objeto Record<string,number> — a nova query
+    // devolve um array e `.find` quebraria no formato antigo reidratado.
+    queryKey: ["fechamentos_regras_v2"],
     queryFn: async (): Promise<any[]> => {
       const { data, error } = await supabase.from("fechamentos_meses" as any).select("*");
       if (error) throw error;
@@ -179,12 +182,18 @@ export default function Fechamentos() {
     },
   });
 
-  const fechamentos = fechRes.data || [];
-  const equipe = equipeRes.data || [];
-  const regra = useMemo(() => toRegra(mesAtivo, (regrasRes.data || []).find((r) => r.mes === mesAtivo)), [regrasRes.data, mesAtivo]);
+  // Array.isArray em tudo: o cache reidratado do localStorage pode trazer
+  // formatos antigos (ex.: objeto no lugar de array) e não pode derrubar a tela.
+  const fechamentos = Array.isArray(fechRes.data) ? fechRes.data : [];
+  const equipe = Array.isArray(equipeRes.data) ? equipeRes.data : [];
+  const regra = useMemo(() => {
+    const rows = Array.isArray(regrasRes.data) ? regrasRes.data : [];
+    return toRegra(mesAtivo, rows.find((r) => r.mes === mesAtivo));
+  }, [regrasRes.data, mesAtivo]);
   const metasMap = useMemo(() => {
     const m: Record<string, { meta: number; bonus: number }> = {};
-    for (const r of metasRes.data || []) if (r.mes === mesAtivo) m[r.user_id] = { meta: Number(r.meta) || 0, bonus: Number(r.bonus) || 0 };
+    const rows = Array.isArray(metasRes.data) ? metasRes.data : [];
+    for (const r of rows) if (r.mes === mesAtivo) m[r.user_id] = { meta: Number(r.meta) || 0, bonus: Number(r.bonus) || 0 };
     return m;
   }, [metasRes.data, mesAtivo]);
 
@@ -405,7 +414,7 @@ export default function Fechamentos() {
       <NovoFechamentoDialog
         open={novoOpen}
         onClose={() => setNovoOpen(false)}
-        clientes={clientesRes.data || []}
+        clientes={Array.isArray(clientesRes.data) ? clientesRes.data : []}
         equipe={equipe}
         defaultUserId={focoId || user?.id || equipe[0]?.id || null}
         onSaved={() => { setNovoOpen(false); refetchAll(); }}
