@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users, Coins } from "lucide-react";
 import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
 import { Input } from "@/components/ui/input";
 import {
@@ -49,6 +49,52 @@ const fmtBRL = (v: number | null) =>
 
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
+
+// Voluntário que cadastrou o pré-cliente (fica no JSONB dados_completos).
+const voluntarioDe = (p: any): string | null => {
+  const v = p?.dados_completos?.cadastrado_por;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+};
+
+// Data de referência pro histórico: quando FECHOU (confirmado) ou foi cancelado;
+// senão, quando foi criado. É por ela que período e agrupamento funcionam.
+const refDate = (p: any): string => {
+  if (p.status === "confirmado" && p.confirmed_at) return p.confirmed_at;
+  if (p.status === "cancelado" && p.cancelled_at) return p.cancelled_at;
+  return p.created_at;
+};
+
+const MESES_LONG = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const mesLabelLong = (ym: string) => {
+  const [y, m] = ym.split("-").map(Number);
+  return `${MESES_LONG[m - 1]} de ${y}`;
+};
+
+type PeriodoKey = "tudo" | "mes_atual" | "mes_passado" | "30d" | "90d" | "ano" | "custom";
+const PERIODO_LABEL: Record<PeriodoKey, string> = {
+  tudo: "Todo o histórico",
+  mes_atual: "Este mês",
+  mes_passado: "Mês passado",
+  "30d": "Últimos 30 dias",
+  "90d": "Últimos 90 dias",
+  ano: "Este ano",
+  custom: "Intervalo personalizado",
+};
+function rangeDoPeriodo(key: PeriodoKey, ini?: string, fim?: string): [Date | null, Date | null] {
+  const now = new Date();
+  const startDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const endDay = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+  const DIA = 86400000;
+  switch (key) {
+    case "mes_atual":   return [new Date(now.getFullYear(), now.getMonth(), 1), endDay(now)];
+    case "mes_passado": return [new Date(now.getFullYear(), now.getMonth() - 1, 1), new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)];
+    case "30d":         return [startDay(new Date(now.getTime() - 29 * DIA)), endDay(now)];
+    case "90d":         return [startDay(new Date(now.getTime() - 89 * DIA)), endDay(now)];
+    case "ano":         return [new Date(now.getFullYear(), 0, 1), endDay(now)];
+    case "custom":      return [ini ? startDay(new Date(ini + "T00:00:00")) : null, fim ? endDay(new Date(fim + "T00:00:00")) : null];
+    default:            return [null, null];
+  }
+}
 
 function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (driveUrl: string, observacoes: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -394,6 +440,10 @@ export default function PreClientes() {
   const qc = useQueryClient();
   const [filtroStatus, setFiltroStatus] = useState<PreCliente["status"] | "todos">("aguardando_assinatura");
   const [busca, setBusca] = useState("");
+  const [periodo, setPeriodo] = useState<PeriodoKey>("tudo");
+  const [customIni, setCustomIni] = useState("");
+  const [customFim, setCustomFim] = useState("");
+  const [voluntario, setVoluntario] = useState("todos");
 
   const { data: preClientes, isLoading } = useQuery({
     queryKey: ["pre_clientes", filtroStatus],
@@ -656,19 +706,59 @@ export default function PreClientes() {
     setLiveProgress(null);
   };
 
-  const preClientesFiltrados = (preClientes ?? []).filter(p => {
-    if (!busca.trim()) return true;
+  // Voluntários presentes no conjunto atual (pro dropdown de filtro)
+  const voluntarios = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of preClientes ?? []) { const v = voluntarioDe(p); if (v) s.add(v); }
+    return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [preClientes]);
+
+  const preClientesFiltrados = useMemo(() => {
+    const [ini, fim] = rangeDoPeriodo(periodo, customIni, customFim);
     const q = busca.trim().toLowerCase();
-    const haystack = [
-      p.nome,
-      p.cpf_cnpj,
-      p.produto,
-      p.telefone,
-      p.email,
-      ...(p.rubricas ?? []),
-    ].filter(Boolean).join(" ").toLowerCase();
-    return haystack.includes(q);
-  });
+    return (preClientes ?? []).filter((p) => {
+      // voluntário
+      if (voluntario !== "todos" && voluntarioDe(p) !== voluntario) return false;
+      // período (pela data de referência: fechamento/cancelamento/criação)
+      if (ini || fim) {
+        const d = new Date(refDate(p));
+        if (ini && d < ini) return false;
+        if (fim && d > fim) return false;
+      }
+      // busca textual
+      if (q) {
+        const haystack = [p.nome, p.cpf_cnpj, p.produto, p.telefone, p.email, voluntarioDe(p), ...(p.rubricas ?? [])]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [preClientes, periodo, customIni, customFim, voluntario, busca]);
+
+  // Resumo do período filtrado
+  const resumo = useMemo(() => {
+    const total = preClientesFiltrados.reduce((a, p) => a + (p.valor_causa || 0), 0);
+    const porVol: Record<string, number> = {};
+    for (const p of preClientesFiltrados) { const v = voluntarioDe(p) || "sem voluntário"; porVol[v] = (porVol[v] || 0) + 1; }
+    return { n: preClientesFiltrados.length, total, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
+  }, [preClientesFiltrados]);
+
+  // Histórico agrupado por mês (mais recente primeiro)
+  const grupos = useMemo(() => {
+    const map = new Map<string, PreCliente[]>();
+    for (const p of preClientesFiltrados) {
+      const ym = refDate(p).slice(0, 7);
+      if (!map.has(ym)) map.set(ym, []);
+      map.get(ym)!.push(p);
+    }
+    return [...map.entries()]
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+      .map(([ym, items]) => ({
+        ym,
+        items: items.sort((x, y) => (refDate(x) < refDate(y) ? 1 : -1)),
+        total: items.reduce((a, p) => a + (p.valor_causa || 0), 0),
+      }));
+  }, [preClientesFiltrados]);
 
   const cancelar = async (pre: PreCliente) => {
     if (!user) return;
@@ -683,6 +773,106 @@ export default function PreClientes() {
     if (error) { toast.error("Erro ao cancelar: " + error.message); return; }
     toast.success("Pré-cliente cancelado");
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
+  };
+
+  const renderCard = (pre: PreCliente) => {
+    const meta = STATUS_META[pre.status];
+    const podeAgir = pre.status === "aguardando_assinatura";
+    const vol = voluntarioDe(pre);
+    const dataLabel = pre.status === "confirmado" && pre.confirmed_at
+      ? `fechado em ${fmtDate(pre.confirmed_at)}`
+      : pre.status === "cancelado" && (pre as any).cancelled_at
+        ? `cancelado em ${fmtDate((pre as any).cancelled_at)}`
+        : fmtDate(pre.created_at);
+    return (
+      <SpotlightCard key={pre.id} className="p-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-medium truncate">{pre.nome}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {pre.cpf_cnpj || "Sem CPF"} · {dataLabel}
+            </p>
+            {vol && (
+              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
+                <User className="h-2.5 w-2.5" /> {vol}
+              </span>
+            )}
+          </div>
+          <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
+            <meta.Icon className="h-3 w-3" />
+            {meta.label}
+          </span>
+        </div>
+
+        <dl className="space-y-1.5 text-xs">
+          {pre.produto && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground w-20 shrink-0 flex items-center gap-1"><Briefcase className="h-3 w-3" />Produto</dt>
+              <dd className="text-foreground truncate">{pre.produto}</dd>
+            </div>
+          )}
+          {pre.rubricas && pre.rubricas.length > 0 && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground w-20 shrink-0 flex items-center gap-1"><Scale className="h-3 w-3" />Réu</dt>
+              <dd className="text-foreground truncate">{pre.rubricas.join(", ")}</dd>
+            </div>
+          )}
+          {pre.valor_causa != null && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground w-20 shrink-0">Valor</dt>
+              <dd className="text-primary tabular-nums">{fmtBRL(pre.valor_causa)}</dd>
+            </div>
+          )}
+          {(pre.telefone || pre.email) && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground w-20 shrink-0">Contato</dt>
+              <dd className="text-foreground truncate">
+                {[pre.telefone, pre.email].filter(Boolean).join(" · ")}
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {podeAgir && (
+          <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
+            <ConfirmarDialog pre={pre} onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" className="bg-red-600 hover:bg-red-500 text-white">
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Cancelar
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancelar pré-cliente?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    O pré-cliente será marcado como cancelado e sai da fila de pendentes. Use isso quando o contrato não for assinado.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Voltar</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => cancelar(pre)}>Cancelar pré-cliente</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
+
+        {pre.status === "confirmado" && pre.cliente_id && (
+          <div className="mt-4 pt-3 border-t border-border">
+            <a
+              href={`/clientes/${pre.cliente_id}`}
+              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+            >
+              <User className="h-3 w-3" />
+              Ver cliente cadastrado
+            </a>
+          </div>
+        )}
+      </SpotlightCard>
+    );
   };
 
   return (
@@ -716,10 +906,96 @@ export default function PreClientes() {
         <Input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar por nome, CPF, produto ou réu…"
+          placeholder="Buscar por nome, CPF, produto, réu ou voluntário…"
           className="pl-9 h-11 bg-card/40 border-border"
         />
       </div>
+
+      {/* Filtros de período e voluntário */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[190px]">
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+            <CalendarDays className="h-3.5 w-3.5" /> Período
+          </label>
+          <select
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value as PeriodoKey)}
+            className="flex h-10 w-full rounded-md border border-border bg-card/40 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {(Object.keys(PERIODO_LABEL) as PeriodoKey[]).map((k) => (
+              <option key={k} value={k}>{PERIODO_LABEL[k]}</option>
+            ))}
+          </select>
+        </div>
+
+        {periodo === "custom" && (
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">De</label>
+              <Input type="date" value={customIni} onChange={(e) => setCustomIni(e.target.value)} className="h-10 bg-card/40 border-border" />
+            </div>
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">Até</label>
+              <Input type="date" value={customFim} onChange={(e) => setCustomFim(e.target.value)} className="h-10 bg-card/40 border-border" />
+            </div>
+          </div>
+        )}
+
+        <div className="min-w-[190px]">
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+            <User className="h-3.5 w-3.5" /> Voluntário
+          </label>
+          <select
+            value={voluntario}
+            onChange={(e) => setVoluntario(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-border bg-card/40 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="todos">Todos os voluntários</option>
+            {voluntarios.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Régua de resumo do período filtrado */}
+      {!isLoading && preClientesFiltrados.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/40 p-3">
+          <div className="flex items-center gap-2 pr-3 border-r border-border">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <FileSignature className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <div className="text-lg font-bold tabular-nums leading-none">{resumo.n}</div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {filtroStatus === "confirmado" ? "fechados" : filtroStatus === "cancelado" ? "cancelados" : "no período"}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pr-3 border-r border-border">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
+              <Coins className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div>
+              <div className="text-lg font-bold tabular-nums leading-none text-emerald-400">{fmtBRL(resumo.total)}</div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">valor somado</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            {resumo.porVol.map(([v, n]) => (
+              <button
+                key={v}
+                onClick={() => setVoluntario(voluntario === v ? "todos" : v)}
+                className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  voluntario === v ? "bg-primary/15 text-primary border-primary/30" : "border-border text-muted-foreground hover:border-primary/40"
+                }`}
+                title="Filtrar por este voluntário"
+              >
+                {v} <span className="tabular-nums font-semibold">{n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -738,95 +1014,24 @@ export default function PreClientes() {
           )}
         </SpotlightCard>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {preClientesFiltrados.map(pre => {
-            const meta = STATUS_META[pre.status];
-            const podeAgir = pre.status === "aguardando_assinatura";
-            return (
-              <SpotlightCard key={pre.id} className="p-5">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base font-medium truncate">{pre.nome}</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {pre.cpf_cnpj || "Sem CPF"} · {fmtDate(pre.created_at)}
-                    </p>
-                  </div>
-                  <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
-                    <meta.Icon className="h-3 w-3" />
-                    {meta.label}
-                  </span>
-                </div>
-
-                <dl className="space-y-1.5 text-xs">
-                  {pre.produto && (
-                    <div className="flex gap-2">
-                      <dt className="text-muted-foreground w-20 shrink-0 flex items-center gap-1"><Briefcase className="h-3 w-3" />Produto</dt>
-                      <dd className="text-foreground truncate">{pre.produto}</dd>
-                    </div>
-                  )}
-                  {pre.rubricas && pre.rubricas.length > 0 && (
-                    <div className="flex gap-2">
-                      <dt className="text-muted-foreground w-20 shrink-0 flex items-center gap-1"><Scale className="h-3 w-3" />Réu</dt>
-                      <dd className="text-foreground truncate">{pre.rubricas.join(", ")}</dd>
-                    </div>
-                  )}
-                  {pre.valor_causa != null && (
-                    <div className="flex gap-2">
-                      <dt className="text-muted-foreground w-20 shrink-0">Valor</dt>
-                      <dd className="text-primary tabular-nums">{fmtBRL(pre.valor_causa)}</dd>
-                    </div>
-                  )}
-                  {(pre.telefone || pre.email) && (
-                    <div className="flex gap-2">
-                      <dt className="text-muted-foreground w-20 shrink-0">Contato</dt>
-                      <dd className="text-foreground truncate">
-                        {[pre.telefone, pre.email].filter(Boolean).join(" · ")}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-
-                {podeAgir && (
-                  <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-                    <ConfirmarDialog pre={pre} onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
-
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="sm" className="bg-red-600 hover:bg-red-500 text-white">
-                          <XCircle className="h-4 w-4 mr-1.5" />
-                          Cancelar
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Cancelar pré-cliente?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            O pré-cliente será marcado como cancelado e sai da fila de pendentes. Use isso quando o contrato não for assinado.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Voltar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => cancelar(pre)}>Cancelar pré-cliente</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                )}
-
-                {pre.status === "confirmado" && pre.cliente_id && (
-                  <div className="mt-4 pt-3 border-t border-border">
-                    <a
-                      href={`/clientes/${pre.cliente_id}`}
-                      className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-                    >
-                      <User className="h-3 w-3" />
-                      Ver cliente cadastrado
-                    </a>
-                  </div>
-                )}
-              </SpotlightCard>
-            );
-          })}
+        <div className="space-y-6">
+          {grupos.map((g) => (
+            <section key={g.ym} className="space-y-3">
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-semibold capitalize flex items-center gap-1.5">
+                  <CalendarDays className="h-4 w-4 text-primary" /> {mesLabelLong(g.ym)}
+                </h3>
+                <span className="text-[11px] text-muted-foreground">
+                  {g.items.length} {g.items.length === 1 ? "registro" : "registros"}
+                  {g.total > 0 && <> · {fmtBRL(g.total)}</>}
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {g.items.map(renderCard)}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
