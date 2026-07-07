@@ -10,7 +10,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users, Coins } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users, Timer } from "lucide-react";
+// (Coins removido — métrica de valor somado substituída por tempo médio)
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
 import { Input } from "@/components/ui/input";
 import {
@@ -68,6 +70,22 @@ const MESES_LONG = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", 
 const mesLabelLong = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
   return `${MESES_LONG[m - 1]} de ${y}`;
+};
+
+// Tempo entre criação e confirmação (ms) formatado amigável.
+const fmtDuracao = (ms: number): string => {
+  if (ms < 0) ms = 0;
+  const h = ms / 3_600_000;
+  if (h < 1) return `${Math.max(1, Math.round(ms / 60_000))} min`;
+  if (h < 24) return `${Math.round(h)} h`;
+  const d = h / 24;
+  return d < 10 ? `${d.toFixed(1).replace(".", ",")} dias` : `${Math.round(d)} dias`;
+};
+// Duração da confirmação de um pré-cliente (null se não confirmado).
+const tempoConfirmacao = (p: any): number | null => {
+  if (p.status !== "confirmado" || !p.confirmed_at || !p.created_at) return null;
+  const ms = new Date(p.confirmed_at).getTime() - new Date(p.created_at).getTime();
+  return Number.isFinite(ms) && ms >= 0 ? ms : null;
 };
 
 type PeriodoKey = "tudo" | "mes_atual" | "mes_passado" | "30d" | "90d" | "ano" | "custom";
@@ -737,10 +755,16 @@ export default function PreClientes() {
 
   // Resumo do período filtrado
   const resumo = useMemo(() => {
-    const total = preClientesFiltrados.reduce((a, p) => a + (p.valor_causa || 0), 0);
     const porVol: Record<string, number> = {};
-    for (const p of preClientesFiltrados) { const v = voluntarioDe(p) || "sem voluntário"; porVol[v] = (porVol[v] || 0) + 1; }
-    return { n: preClientesFiltrados.length, total, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
+    const tempos: number[] = [];
+    for (const p of preClientesFiltrados) {
+      const v = voluntarioDe(p) || "sem voluntário";
+      porVol[v] = (porVol[v] || 0) + 1;
+      const t = tempoConfirmacao(p);
+      if (t != null) tempos.push(t);
+    }
+    const tempoMedio = tempos.length ? tempos.reduce((a, b) => a + b, 0) / tempos.length : null;
+    return { n: preClientesFiltrados.length, tempoMedio, tempoN: tempos.length, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
   }, [preClientesFiltrados]);
 
   // Histórico agrupado por mês (mais recente primeiro)
@@ -779,6 +803,7 @@ export default function PreClientes() {
     const meta = STATUS_META[pre.status];
     const podeAgir = pre.status === "aguardando_assinatura";
     const vol = voluntarioDe(pre);
+    const tConf = tempoConfirmacao(pre);
     const dataLabel = pre.status === "confirmado" && pre.confirmed_at
       ? `fechado em ${fmtDate(pre.confirmed_at)}`
       : pre.status === "cancelado" && (pre as any).cancelled_at
@@ -792,11 +817,21 @@ export default function PreClientes() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {pre.cpf_cnpj || "Sem CPF"} · {dataLabel}
             </p>
-            {vol && (
-              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
-                <User className="h-2.5 w-2.5" /> {vol}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+              {vol && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
+                  <User className="h-2.5 w-2.5" /> {vol}
+                </span>
+              )}
+              {tConf != null && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded-full px-2 py-0.5"
+                  title="Tempo entre o cadastro e a confirmação"
+                >
+                  <Timer className="h-2.5 w-2.5" /> confirmado em {fmtDuracao(tConf)}
+                </span>
+              )}
+            </div>
           </div>
           <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
             <meta.Icon className="h-3 w-3" />
@@ -917,15 +952,16 @@ export default function PreClientes() {
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
             <CalendarDays className="h-3.5 w-3.5" /> Período
           </label>
-          <select
-            value={periodo}
-            onChange={(e) => setPeriodo(e.target.value as PeriodoKey)}
-            className="flex h-10 w-full rounded-md border border-border bg-card/40 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {(Object.keys(PERIODO_LABEL) as PeriodoKey[]).map((k) => (
-              <option key={k} value={k}>{PERIODO_LABEL[k]}</option>
-            ))}
-          </select>
+          <Select value={periodo} onValueChange={(v) => setPeriodo(v as PeriodoKey)}>
+            <SelectTrigger className="h-10 bg-card/40 border-border">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERIODO_LABEL) as PeriodoKey[]).map((k) => (
+                <SelectItem key={k} value={k}>{PERIODO_LABEL[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {periodo === "custom" && (
@@ -945,14 +981,15 @@ export default function PreClientes() {
           <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
             <User className="h-3.5 w-3.5" /> Voluntário
           </label>
-          <select
-            value={voluntario}
-            onChange={(e) => setVoluntario(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-border bg-card/40 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="todos">Todos os voluntários</option>
-            {voluntarios.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <Select value={voluntario} onValueChange={setVoluntario}>
+            <SelectTrigger className="h-10 bg-card/40 border-border">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os voluntários</SelectItem>
+              {voluntarios.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -971,12 +1008,16 @@ export default function PreClientes() {
             </div>
           </div>
           <div className="flex items-center gap-2 pr-3 border-r border-border">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10">
-              <Coins className="h-4 w-4 text-emerald-400" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10">
+              <Timer className="h-4 w-4 text-sky-400" />
             </div>
             <div>
-              <div className="text-lg font-bold tabular-nums leading-none text-emerald-400">{fmtBRL(resumo.total)}</div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">valor somado</div>
+              <div className="text-lg font-bold tabular-nums leading-none text-sky-400">
+                {resumo.tempoMedio != null ? fmtDuracao(resumo.tempoMedio) : "—"}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                tempo médio {resumo.tempoN > 0 ? `· ${resumo.tempoN} conf.` : "de confirmação"}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
