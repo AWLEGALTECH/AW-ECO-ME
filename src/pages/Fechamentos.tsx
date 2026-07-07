@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
-  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Crown, Sparkles, Settings2, Coins, Check,
+  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -228,15 +228,11 @@ export default function Fechamentos() {
   const focoValorAcao = valorAcaoVigente(focoAcoes, regra);
   const focoComissao = comissaoDe(focoAcoes, regra, focoBonus);
 
-  const ranking = useMemo(() => {
-    return equipe
-      .map((m) => {
-        const a = acoesDe[m.id] || 0;
-        const mt = metasMap[m.id] || { meta: 0, bonus: 0 };
-        return { membro: m, acoes: a, meta: mt.meta, bonus: mt.bonus, especial: especialAtivoPara(a, regra), valorAcao: valorAcaoVigente(a, regra), comissao: comissaoDe(a, regra, mt.bonus) };
-      })
-      .sort((x, y) => y.acoes - x.acoes);
-  }, [equipe, acoesDe, metasMap, regra]);
+  // Nº de pessoas da equipe com ao menos 1 ação no mês
+  const pessoasContribuindo = useMemo(
+    () => equipe.filter((m) => (acoesDe[m.id] || 0) > 0).length,
+    [equipe, acoesDe],
+  );
 
   // Lista/rubricas conforme o foco (individual filtra, geral mostra tudo)
   const listaMes = focoId ? doMes.filter((f) => f.user_id === focoId) : doMes;
@@ -323,20 +319,17 @@ export default function Fechamentos() {
           <CardGeral
             acoes={teamAcoes}
             meta={regra.meta_geral}
-            pessoas={ranking.filter((r) => r.acoes > 0).length}
+            pessoas={pessoasContribuindo}
             mes={mesAtivo}
           />
 
-          {focoId ? (
-            /* Quadro individual (user comum sempre; admin quando escolhe pessoa) */
+          {/* Quadro individual (user comum sempre; admin quando escolhe pessoa) */}
+          {focoId && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
               <CardValorAcao regra={regra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
               <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
             </div>
-          ) : (
-            /* Placar geral (admin, visão time) */
-            <Leaderboard ranking={ranking} />
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -566,48 +559,6 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
         {intBR(acoes)} ações × {brl(valorAcao)}/ação
         {bonus > 0 && <> + {brl(bonus)} bônus</>}
       </p>
-    </div>
-  );
-}
-
-function Leaderboard({ ranking }: { ranking: { membro: Membro; acoes: number; meta: number; especial: boolean; valorAcao: number; comissao: number }[] }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card/40 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
-        <Crown className="h-4 w-4 text-amber-400" />
-        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-semibold">Ranking do time</span>
-      </div>
-      {ranking.length === 0 ? (
-        <p className="text-xs text-muted-foreground/60 italic p-4">Nenhum membro na equipe ainda.</p>
-      ) : (
-        <div className="divide-y divide-border/50">
-          {ranking.map((r, i) => {
-            const pct = r.meta > 0 ? Math.min(100, Math.round((r.acoes / r.meta) * 100)) : 0;
-            return (
-              <div key={r.membro.id} className={`px-4 py-3 flex items-center gap-3 ${i === 0 && r.acoes > 0 ? "bg-amber-400/5" : ""}`}>
-                <div className="w-7 shrink-0 flex justify-center">
-                  <span className={`h-6 w-6 rounded-full inline-flex items-center justify-center text-xs font-bold ${i === 0 && r.acoes > 0 ? "bg-amber-400/20 text-amber-400 border border-amber-400/40" : "bg-muted/40 text-muted-foreground"}`}>{i + 1}</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold truncate">{primeiroNome(r.membro.nome)}</span>
-                    {r.especial && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30 inline-flex items-center gap-1"><Flame className="h-2.5 w-2.5" />{brl(r.valorAcao)}/ação</span>}
-                  </div>
-                  {r.meta > 0 && (
-                    <div className="mt-1.5 max-w-[240px]">
-                      <Barra value={r.acoes} max={r.meta} className="bg-gradient-to-r from-violet-500 to-fuchsia-500" />
-                    </div>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-bold tabular-nums">{intBR(r.acoes)} <span className="text-[11px] text-muted-foreground font-normal">ações{r.meta > 0 ? ` · ${pct}%` : ""}</span></div>
-                  <div className="text-[11px] text-emerald-400 tabular-nums font-semibold">{brl(r.comissao)}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
