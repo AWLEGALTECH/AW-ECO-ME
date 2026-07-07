@@ -10,8 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users, Timer } from "lucide-react";
-// (Coins removido — métrica de valor somado substituída por tempo médio)
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
 import { Input } from "@/components/ui/input";
@@ -70,22 +69,6 @@ const MESES_LONG = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", 
 const mesLabelLong = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
   return `${MESES_LONG[m - 1]} de ${y}`;
-};
-
-// Tempo entre criação e confirmação (ms) formatado amigável.
-const fmtDuracao = (ms: number): string => {
-  if (ms < 0) ms = 0;
-  const h = ms / 3_600_000;
-  if (h < 1) return `${Math.max(1, Math.round(ms / 60_000))} min`;
-  if (h < 24) return `${Math.round(h)} h`;
-  const d = h / 24;
-  return d < 10 ? `${d.toFixed(1).replace(".", ",")} dias` : `${Math.round(d)} dias`;
-};
-// Duração da confirmação de um pré-cliente (null se não confirmado).
-const tempoConfirmacao = (p: any): number | null => {
-  if (p.status !== "confirmado" || !p.confirmed_at || !p.created_at) return null;
-  const ms = new Date(p.confirmed_at).getTime() - new Date(p.created_at).getTime();
-  return Number.isFinite(ms) && ms >= 0 ? ms : null;
 };
 
 type PeriodoKey = "tudo" | "mes_atual" | "mes_passado" | "30d" | "90d" | "ano" | "custom";
@@ -756,15 +739,11 @@ export default function PreClientes() {
   // Resumo do período filtrado
   const resumo = useMemo(() => {
     const porVol: Record<string, number> = {};
-    const tempos: number[] = [];
     for (const p of preClientesFiltrados) {
       const v = voluntarioDe(p) || "sem voluntário";
       porVol[v] = (porVol[v] || 0) + 1;
-      const t = tempoConfirmacao(p);
-      if (t != null) tempos.push(t);
     }
-    const tempoMedio = tempos.length ? tempos.reduce((a, b) => a + b, 0) / tempos.length : null;
-    return { n: preClientesFiltrados.length, tempoMedio, tempoN: tempos.length, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
+    return { n: preClientesFiltrados.length, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
   }, [preClientesFiltrados]);
 
   // Histórico agrupado por mês (mais recente primeiro)
@@ -803,7 +782,6 @@ export default function PreClientes() {
     const meta = STATUS_META[pre.status];
     const podeAgir = pre.status === "aguardando_assinatura";
     const vol = voluntarioDe(pre);
-    const tConf = tempoConfirmacao(pre);
     const dataLabel = pre.status === "confirmado" && pre.confirmed_at
       ? `fechado em ${fmtDate(pre.confirmed_at)}`
       : pre.status === "cancelado" && (pre as any).cancelled_at
@@ -817,21 +795,11 @@ export default function PreClientes() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {pre.cpf_cnpj || "Sem CPF"} · {dataLabel}
             </p>
-            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-              {vol && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
-                  <User className="h-2.5 w-2.5" /> {vol}
-                </span>
-              )}
-              {tConf != null && (
-                <span
-                  className="inline-flex items-center gap-1 text-[10px] text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded-full px-2 py-0.5"
-                  title="Tempo entre o cadastro e a confirmação"
-                >
-                  <Timer className="h-2.5 w-2.5" /> confirmado em {fmtDuracao(tConf)}
-                </span>
-              )}
-            </div>
+            {vol && (
+              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
+                <User className="h-2.5 w-2.5" /> {vol}
+              </span>
+            )}
           </div>
           <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
             <meta.Icon className="h-3 w-3" />
@@ -1004,19 +972,6 @@ export default function PreClientes() {
               <div className="text-lg font-bold tabular-nums leading-none">{resumo.n}</div>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 {filtroStatus === "confirmado" ? "fechados" : filtroStatus === "cancelado" ? "cancelados" : "no período"}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 pr-3 border-r border-border">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10">
-              <Timer className="h-4 w-4 text-sky-400" />
-            </div>
-            <div>
-              <div className="text-lg font-bold tabular-nums leading-none text-sky-400">
-                {resumo.tempoMedio != null ? fmtDuracao(resumo.tempoMedio) : "—"}
-              </div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                tempo médio {resumo.tempoN > 0 ? `· ${resumo.tempoN} conf.` : "de confirmação"}
               </div>
             </div>
           </div>
