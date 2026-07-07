@@ -42,8 +42,15 @@ export function SidebarLayout() {
   return (
     <FinderSessionProvider>
       <SidebarProvider>
-        {/* Full-screen deep space canvas */}
-        <div className="flex flex-col h-dvh w-full overflow-hidden bg-background">
+        {/* Full-screen deep space canvas.
+            iOS PWA (adicionado à tela inicial) usa status bar translúcida que
+            sobrepõe o topo — o botão da sidebar ficava embaixo do relógio.
+            Respeitamos a safe area no topo/base (com border-box a altura segue
+            100dvh, só a área útil encolhe, sem overflow). */}
+        <div
+          className="flex flex-col h-dvh w-full overflow-hidden bg-background"
+          style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
           {/* Faixa do topo no SEI — azul escuro #155f9b com texto branco
               (replica o "CONSELHO FEDERAL DE MEDICINA" do SEI real). */}
           {isSei && (
