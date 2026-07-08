@@ -13,6 +13,7 @@ import {
 import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
+import { nomeSobrenome } from "@/lib/audit";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -645,6 +646,43 @@ export default function PreClientes() {
       .eq("id", pre.id);
     setStage("pre_cliente", errPre ? { status: "error", detail: errPre.message } : { status: "done" });
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
+
+    // 4b. Comissionamento — lança um fechamento atribuído a QUEM CRIOU o
+    // pré-cliente (voluntário), somando os descontos ajuizáveis (rubricas não
+    // bloqueadas) ao placar de Fechamentos. Falha aqui não bloqueia o fluxo.
+    try {
+      const descontos = rubricasNaoBloqueadas(pre).map((r) => r.rubrica);
+      if (descontos.length > 0) {
+        const autorNome = voluntarioDe(pre);
+        // Resolve o user_id do criador pelo nome (cadastrado_por = "Primeiro Último").
+        let autorId: string | null = null;
+        if (autorNome) {
+          const { data: profs } = await supabase.from("profiles").select("id, nome, email");
+          const alvo = autorNome.trim().toLowerCase();
+          autorId = (profs || []).find((p: any) => nomeSobrenome(p).toLowerCase() === alvo)?.id || null;
+        }
+        const { error: errFech } = await supabase.from("fechamentos" as any).insert({
+          data: new Date().toISOString().slice(0, 10),
+          cliente_nome: pre.nome,
+          cliente_id: novoCliente.id,
+          rubricas: descontos,
+          pendencia: false,
+          pasta_drive: true,
+          user_id: autorId,
+          responsavel: autorNome,
+          created_by: autorId || user.id,
+          pre_cliente_id: pre.id,
+        } as any);
+        if (errFech && !/duplicate key|23505/i.test(errFech.message)) {
+          console.warn("[fechamento] falha ao lançar:", errFech.message);
+        } else if (!errFech) {
+          qc.invalidateQueries({ queryKey: ["fechamentos"] });
+          toast.success(`${descontos.length} ${descontos.length === 1 ? "ação lançada" : "ações lançadas"} no fechamento${autorNome ? ` de ${autorNome}` : ""}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[fechamento] erro inesperado:", e);
+    }
 
     // 5. boas-vindas no WhatsApp corporativo (edge function -> n8n ->
     // Evolution API). Falha aqui nao bloqueia a organizacao da pasta —
