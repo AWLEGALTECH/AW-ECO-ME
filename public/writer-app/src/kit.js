@@ -184,8 +184,17 @@ function inicializarDadosKit() {
     honorarios_primeira_parcela_data: '',
     // Assinatura
     contrato_cidade_assinatura: 'Manaus',
-    contrato_data_assinatura: '',
+    // Data da assinatura já vem com HOJE (data local, formato YYYY-MM-DD do
+    // input type=date). O advogado pode trocar se assinar em outro dia.
+    contrato_data_assinatura: kitHojeISO(),
   };
+}
+
+// Data de hoje em YYYY-MM-DD pela hora LOCAL (não usa toISOString pra não
+// pular um dia perto da meia-noite no fuso do Brasil).
+function kitHojeISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // Bloco de origem do cliente no formulário — resumo da escolha feita nas telas
