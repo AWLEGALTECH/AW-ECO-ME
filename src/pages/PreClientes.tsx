@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +55,23 @@ const fmtDate = (iso: string) =>
 const voluntarioDe = (p: any): string | null => {
   const v = p?.dados_completos?.cadastrado_por;
   return typeof v === "string" && v.trim() ? v.trim() : null;
+};
+
+// Rubricas da análise comercial vinculada ao pré-cliente que NÃO foram
+// bloqueadas (as ajuizáveis). Fica no próprio registro
+// (dados_completos.dadosKit._analise_comercial.rubricas) — sem casar por nome.
+interface RubricaPre { rubrica: string; valor: number | null }
+const rubricasNaoBloqueadas = (p: any): RubricaPre[] => {
+  const arr = p?.dados_completos?.dadosKit?._analise_comercial?.rubricas;
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((r: any) => r && !r.bloqueada)
+    .map((r: any) => ({ rubrica: String(r.rubrica || "").trim(), valor: r.valor ?? null }))
+    .filter((r: RubricaPre) => r.rubrica);
+};
+const rubricasBloqueadasCount = (p: any): number => {
+  const arr = p?.dados_completos?.dadosKit?._analise_comercial?.rubricas;
+  return Array.isArray(arr) ? arr.filter((r: any) => r && r.bloqueada).length : 0;
 };
 
 // Data de referência pro histórico: quando FECHOU (confirmado) ou foi cancelado;
@@ -445,6 +462,7 @@ export default function PreClientes() {
   const [customIni, setCustomIni] = useState("");
   const [customFim, setCustomFim] = useState("");
   const [voluntario, setVoluntario] = useState("todos");
+  const [expandido, setExpandido] = useState<PreCliente | null>(null);
 
   const { data: preClientes, isLoading } = useQuery({
     queryKey: ["pre_clientes", filtroStatus],
@@ -787,8 +805,10 @@ export default function PreClientes() {
       : pre.status === "cancelado" && (pre as any).cancelled_at
         ? `cancelado em ${fmtDate((pre as any).cancelled_at)}`
         : fmtDate(pre.created_at);
+    const rubricas = rubricasNaoBloqueadas(pre);
+    const nBloq = rubricasBloqueadasCount(pre);
     return (
-      <SpotlightCard key={pre.id} className="p-5">
+      <SpotlightCard key={pre.id} className="p-5" onClick={() => setExpandido(pre)}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-medium truncate">{pre.nome}</h3>
@@ -836,8 +856,23 @@ export default function PreClientes() {
           )}
         </dl>
 
+        {rubricas.length > 0 && (
+          <div className="mt-3">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {rubricas.map((r, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2 py-0.5">
+                  <CheckCircle2 className="h-2.5 w-2.5" /> {r.rubrica}
+                </span>
+              ))}
+            </div>
+            {nBloq > 0 && (
+              <p className="text-[10px] text-muted-foreground/70 mt-1">{nBloq} desconto(s) descartado(s) no comercial</p>
+            )}
+          </div>
+        )}
+
         {podeAgir && (
-          <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
+          <div className="mt-4 flex items-center gap-2 border-t border-border pt-3" onClick={(e) => e.stopPropagation()}>
             <ConfirmarDialog pre={pre} onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
 
             <AlertDialog>
@@ -864,7 +899,7 @@ export default function PreClientes() {
         )}
 
         {pre.status === "confirmado" && pre.cliente_id && (
-          <div className="mt-4 pt-3 border-t border-border">
+          <div className="mt-4 pt-3 border-t border-border" onClick={(e) => e.stopPropagation()}>
             <a
               href={`/clientes/${pre.cliente_id}`}
               className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -874,6 +909,8 @@ export default function PreClientes() {
             </a>
           </div>
         )}
+
+        <p className="mt-3 text-[10px] text-muted-foreground/60 text-right">clique pra ver detalhes e a pasta do Drive</p>
       </SpotlightCard>
     );
   };
@@ -1040,6 +1077,97 @@ export default function PreClientes() {
         onClose={fecharProgresso}
         onMinimize={() => setModalMinimizado(true)}
       />
+
+      <PreClienteExpandido pre={expandido} onClose={() => setExpandido(null)} />
     </div>
+  );
+}
+
+// Painel expandido do pré-cliente: dados completos, rubricas não bloqueadas e
+// acesso à pasta do Drive. Abre ao clicar no card.
+function PreClienteExpandido({ pre, onClose }: { pre: PreCliente | null; onClose: () => void }) {
+  if (!pre) return null;
+  const meta = STATUS_META[pre.status];
+  const vol = voluntarioDe(pre);
+  const rubricas = rubricasNaoBloqueadas(pre);
+  const nBloq = rubricasBloqueadasCount(pre);
+  const driveUrl = pre.drive_folder_url || "";
+  const driveOk = /^https?:\/\/(drive|docs)\.google\.com\//i.test(driveUrl);
+
+  const linha = (label: string, valor: ReactNode) => (
+    <div className="flex gap-3 py-1.5 border-b border-border/50 last:border-0">
+      <span className="text-xs text-muted-foreground w-28 shrink-0">{label}</span>
+      <span className="text-sm text-foreground min-w-0 break-words">{valor}</span>
+    </div>
+  );
+
+  return (
+    <Dialog open={!!pre} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            {pre.nome}
+            <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
+              <meta.Icon className="h-3 w-3" /> {meta.label}
+            </span>
+          </DialogTitle>
+          <DialogDescription>
+            {pre.cpf_cnpj || "Sem CPF"} · {fmtDate(pre.created_at)}{vol ? ` · ${vol}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          {/* Pasta do Drive em destaque */}
+          <div className="rounded-lg border border-border bg-card/40 p-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <FolderOpen className="h-4 w-4 text-primary shrink-0" />
+              <span className="text-sm truncate">{driveOk ? "Pasta do cliente no Google Drive" : "Sem pasta do Drive vinculada"}</span>
+            </div>
+            {driveOk && (
+              <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <Button size="sm" className="gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5" /> Abrir pasta
+                </Button>
+              </a>
+            )}
+          </div>
+
+          {/* Rubricas não bloqueadas */}
+          {rubricas.length > 0 ? (
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Descontos ajuizáveis ({rubricas.length})</p>
+              <div className="flex flex-wrap gap-1.5">
+                {rubricas.map((r, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">
+                    <CheckCircle2 className="h-3 w-3" /> {r.rubrica}
+                    {r.valor != null && <span className="text-emerald-400/70 tabular-nums">· {fmtBRL(r.valor)}</span>}
+                  </span>
+                ))}
+              </div>
+              {nBloq > 0 && (
+                <p className="text-[11px] text-muted-foreground/70 mt-1.5">{nBloq} desconto(s) descartado(s) no comercial (não ajuizáveis).</p>
+              )}
+            </div>
+          ) : nBloq > 0 ? (
+            <p className="text-xs text-muted-foreground italic">Todos os descontos foram descartados no comercial.</p>
+          ) : null}
+
+          {/* Dados */}
+          <div className="rounded-lg border border-border bg-card/40 px-3 py-1">
+            {pre.produto && linha("Produto", pre.produto)}
+            {pre.rubricas && pre.rubricas.length > 0 && linha("Réu", pre.rubricas.join(", "))}
+            {pre.valor_causa != null && linha("Valor da causa", <span className="text-primary tabular-nums">{fmtBRL(pre.valor_causa)}</span>)}
+            {(pre.telefone || pre.email) && linha("Contato", [pre.telefone, pre.email].filter(Boolean).join(" · "))}
+            {pre.endereco_completo && linha("Endereço", pre.endereco_completo)}
+          </div>
+
+          {pre.status === "confirmado" && pre.cliente_id && (
+            <a href={`/clientes/${pre.cliente_id}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+              <User className="h-3.5 w-3.5" /> Ver cliente cadastrado
+            </a>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
