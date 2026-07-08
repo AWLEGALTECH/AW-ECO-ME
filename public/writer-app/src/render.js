@@ -15,7 +15,7 @@ function navegarPara(tela) {
       .catch(e => console.warn('[writer] falha salvando cliente:', e));
   }
   state.tela = tela;
-  const semStepper = ['lobby', 'done', 'modalidade', 'pacoteKit', 'kitDone'];
+  const semStepper = ['lobby', 'done', 'modalidade', 'pacoteKit', 'kitDescontos', 'kitDone'];
   document.getElementById('stepper').classList.toggle('hidden', semStepper.includes(tela));
   atualizarStepper(tela);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -31,6 +31,7 @@ function voltarTela(telaAtual) {
     lobby: null,                // já no lobby; back não faz nada
     modalidade: 'lobby',
     pacoteKit: 'modalidade',
+    kitDescontos: 'pacoteKit',
     kitDone: 'lobby',
     pacote1: 'lobby',
     pacote2: 'pacote1',
@@ -60,6 +61,7 @@ function render() {
     case 'origemCliente': renderOrigemCliente(view); break;
     case 'selecaoCliente': renderSelecaoCliente(view); break;
     case 'pacoteKit': renderKitForm(view); break;
+    case 'kitDescontos': renderKitDescontos(view); break;
     case 'kitDone': renderKitDone(view); break;
     case 'pacote1': renderPacote1(view); break;
     case 'pacote2': renderPacote2(view); break;
@@ -631,6 +633,12 @@ function renderOrigemCard(o, idx) {
 function selecionarOrigemCliente(tipo) {
   if (!state.dadosKit) state.dadosKit = inicializarDadosKit();
   state.dadosKit.origem_cliente = tipo;
+  // Trocar pra zero/base descarta uma análise do Finder escolhida antes, pra
+  // não pular a sinalização de descontos por engano.
+  if (tipo !== 'analise') {
+    state.dadosKit._analise_comercial = null;
+    state.dadosKit.analise_comercial_id = '';
+  }
   // 'zero' vai direto pro formulário; base/análise passam pela lista de seleção.
   if (tipo === 'zero') { navegarPara('pacoteKit'); return; }
   navegarPara('selecaoCliente');

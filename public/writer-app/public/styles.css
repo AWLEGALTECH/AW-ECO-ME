@@ -3064,3 +3064,100 @@ select:has(option[value=""]:checked) {
   color: black !important;
   border-color: hsl(0 0% 80%) !important;
 }
+
+/* ============================================================
+   SINALIZAÇÃO DE DESCONTOS AJUIZÁVEIS (tela kitDescontos)
+   ============================================================ */
+.kit-desc-counter { color: var(--text-mute); font-weight: 500; }
+
+.kit-desc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.5rem;
+}
+
+.kit-desc-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+.kit-desc-chip:hover { border-color: var(--line-bright); color: var(--text); }
+.kit-desc-chip.sel {
+  border-color: var(--violet-border);
+  background: var(--violet-bg);
+  color: var(--text);
+}
+
+.kit-desc-box {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--line-bright);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.kit-desc-box svg { width: 12px; height: 12px; }
+.kit-desc-chip.sel .kit-desc-box {
+  background: var(--violet);
+  border-color: var(--violet);
+  color: white;
+}
+.kit-desc-label { min-width: 0; }
+
+.kit-desc-outro-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.kit-desc-outro-input {
+  flex: 1;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.kit-desc-outro-input:focus { outline: none; border-color: var(--violet-border); }
+
+.kit-desc-outros-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.kit-desc-outro-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.7rem;
+  border: 1px solid var(--violet-border);
+  background: var(--violet-bg);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+.kit-desc-outro-chip button {
+  border: none;
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+.kit-desc-outro-chip button:hover { color: var(--red); }
