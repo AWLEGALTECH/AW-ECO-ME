@@ -451,7 +451,7 @@ function renderKitForm(view) {
 
       <div class="kit-form-actions">
         <button class="btn btn-ghost" onclick="navegarPara('modalidade')">← Trocar modalidade</button>
-        <button class="btn btn-primary" onclick="gerarKitPecas()">Gerar 2 peças →</button>
+        <button class="btn btn-primary" onclick="prosseguirDoKitForm()">Continuar →</button>
       </div>
     </div>
   `;
@@ -592,6 +592,176 @@ function onKitReuRemove(idx) {
 /* =========================================================================
    GERAÇÃO — monta contrato + procuração e vai pra tela final
    ========================================================================= */
+/* =========================================================================
+   SINALIZAÇÃO DE DESCONTOS AJUIZÁVEIS — tela após o formulário, nos caminhos
+   "cadastro do zero" e "cliente da base" (que não vêm de análise comercial do
+   Finder). O usuário marca quais descontos aquele instrumento procuratório
+   contesta. Assim TODO pré-cliente tem seus descontos apontados, mesmo sem
+   pré-análise Bradesco. Grava em state.dadosKit._analise_comercial no MESMO
+   formato do Finder ({rubrica, valor, bloqueada}), de modo que o eco (card do
+   pré-cliente + lançamento automático em Fechamentos) já entende sem mudanças.
+   ========================================================================= */
+const DESCONTOS_KIT = [
+  'RMC — Reserva de Margem Consignável',
+  'RCC — Reserva de Cartão de Crédito',
+  'Cesta de tarifas',
+  'Mora',
+  'Juros abusivos',
+  'SVA',
+  'Título de capitalização',
+  'Gasto com cartão de crédito',
+  'Cobrança indevida',
+  'Vida / Previdência',
+  'Seguro',
+  'Anuidade',
+  'Baixa antecipada de financiamento',
+  'Parcela de crédito pessoal',
+  'Emissão de extrato',
+  'Saque em terminal',
+  'Adicional do depositante',
+  'Refinanciamento indevido',
+  'Reorganização financeira',
+  'Encargos por descoberto',
+  'Encargos em excesso',
+];
+
+// Rota do botão "Continuar" do formulário do kit. Valida e decide o caminho:
+// quem veio de análise comercial do Finder já tem rubricas → gera direto;
+// os demais (zero/base) passam pela sinalização de descontos.
+function prosseguirDoKitForm() {
+  const erro = validarDadosKit();
+  if (erro) { alert(erro); return; }
+  const d = state.dadosKit || {};
+  const ac = d._analise_comercial;
+  const temFinder = ac && ac.origem !== 'writer_manual'
+    && Array.isArray(ac.rubricas) && ac.rubricas.length > 0;
+  if (temFinder) { gerarKitPecas(); return; }
+  navegarPara('kitDescontos');
+}
+
+function renderKitDescontos(view) {
+  const produto = state.produtoSelecionado;
+  const modalidade = state.modalidadeSelecionada;
+  if (!produto || !modalidade || !state.dadosKit) { navegarPara('pacoteKit'); return; }
+  const d = state.dadosKit;
+  if (!d._descontos_sel) d._descontos_sel = {};
+  if (!d._descontos_outros) d._descontos_outros = [];
+
+  const chips = DESCONTOS_KIT.map(label => {
+    const sel = !!d._descontos_sel[label];
+    return `
+      <button type="button" class="kit-desc-chip ${sel ? 'sel' : ''}"
+              data-label="${escapeAttr(label)}" onclick="toggleKitDesconto(this)">
+        <span class="kit-desc-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        </span>
+        <span class="kit-desc-label">${escapeHtml(label)}</span>
+      </button>`;
+  }).join('');
+
+  view.innerHTML = `
+    <div class="kit-form-page kit-desc-page">
+      <div class="kit-form-header">
+        <div class="kit-form-eyebrow">${escapeHtml(produto.nome)} · ${escapeHtml(modalidade.nome)}</div>
+        <h1>Descontos <span class="accent">ajuizáveis</span></h1>
+        <div class="kit-form-sub">Marque quais descontos este instrumento procuratório contesta. Some os que faltarem em <strong>Outros</strong>.</div>
+      </div>
+
+      <section class="kit-section">
+        <div class="kit-section-title">Selecione os descontos <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
+        <div class="kit-desc-grid">
+          ${chips}
+        </div>
+      </section>
+
+      <section class="kit-section">
+        <div class="kit-section-title">Outros</div>
+        <div class="kit-desc-outro-row">
+          <input type="text" id="kitDescOutroInput" class="kit-desc-outro-input"
+                 placeholder="Digite um desconto que não está na lista e tecle Enter"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarDescontoOutro();}">
+          <button type="button" class="btn btn-ghost" onclick="adicionarDescontoOutro()">Adicionar</button>
+        </div>
+        <div class="kit-desc-outros-list" id="kitDescOutrosList"></div>
+      </section>
+
+      <div class="kit-form-actions">
+        <button class="btn btn-ghost" onclick="navegarPara('pacoteKit')">← Voltar aos dados</button>
+        <button class="btn btn-primary" id="kitDescGerarBtn" onclick="confirmarDescontosEGerar()">Gerar 2 peças →</button>
+      </div>
+    </div>
+  `;
+  renderKitDescontosOutrosChips();
+  atualizarContadorDescontos();
+}
+
+function toggleKitDesconto(el) {
+  const label = el.getAttribute('data-label');
+  if (!label || !state.dadosKit) return;
+  if (!state.dadosKit._descontos_sel) state.dadosKit._descontos_sel = {};
+  const novo = !state.dadosKit._descontos_sel[label];
+  if (novo) state.dadosKit._descontos_sel[label] = true;
+  else delete state.dadosKit._descontos_sel[label];
+  el.classList.toggle('sel', novo);
+  atualizarContadorDescontos();
+}
+
+function adicionarDescontoOutro() {
+  const inp = document.getElementById('kitDescOutroInput');
+  if (!inp || !state.dadosKit) return;
+  const v = (inp.value || '').trim();
+  if (!v) return;
+  if (!state.dadosKit._descontos_outros) state.dadosKit._descontos_outros = [];
+  const jaTem = state.dadosKit._descontos_outros.some(x => x.toLowerCase() === v.toLowerCase())
+    || DESCONTOS_KIT.some(x => x.toLowerCase() === v.toLowerCase());
+  if (!jaTem) state.dadosKit._descontos_outros.push(v);
+  inp.value = '';
+  inp.focus();
+  renderKitDescontosOutrosChips();
+  atualizarContadorDescontos();
+}
+
+function removerDescontoOutro(idx) {
+  if (!state.dadosKit || !state.dadosKit._descontos_outros) return;
+  state.dadosKit._descontos_outros.splice(idx, 1);
+  renderKitDescontosOutrosChips();
+  atualizarContadorDescontos();
+}
+
+function renderKitDescontosOutrosChips() {
+  const box = document.getElementById('kitDescOutrosList');
+  if (!box || !state.dadosKit) return;
+  const arr = state.dadosKit._descontos_outros || [];
+  box.innerHTML = arr.map((x, i) => `
+    <span class="kit-desc-outro-chip">${escapeHtml(x)}
+      <button type="button" onclick="removerDescontoOutro(${i})" aria-label="remover">×</button>
+    </span>`).join('');
+}
+
+function atualizarContadorDescontos() {
+  if (!state.dadosKit) return;
+  const n = Object.keys(state.dadosKit._descontos_sel || {}).length
+    + (state.dadosKit._descontos_outros || []).length;
+  const el = document.getElementById('kitDescCount');
+  if (el) el.textContent = n;
+}
+
+function confirmarDescontosEGerar() {
+  if (!state.dadosKit) { navegarPara('pacoteKit'); return; }
+  const sel = Object.keys(state.dadosKit._descontos_sel || {});
+  const outros = (state.dadosKit._descontos_outros || []).filter(Boolean);
+  const labels = sel.concat(outros);
+  if (labels.length === 0) {
+    if (!confirm('Nenhum desconto ajuizável selecionado. Continuar mesmo assim?')) return;
+  }
+  state.dadosKit._analise_comercial = {
+    origem: 'writer_manual',
+    rubricas: labels.map(l => ({ rubrica: l, valor: null, bloqueada: false, motivo: null })),
+  };
+  gerarKitPecas();
+}
+
 async function gerarKitPecas() {
   const erro = validarDadosKit();
   if (erro) {
