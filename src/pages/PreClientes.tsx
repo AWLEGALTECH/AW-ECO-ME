@@ -693,7 +693,7 @@ export default function PreClientes() {
           console.warn("[fechamento] falha ao lançar:", errFech.message);
         } else if (!errFech) {
           qc.invalidateQueries({ queryKey: ["fechamentos"] });
-          toast.success(`${descontos.length} ${descontos.length === 1 ? "ação lançada" : "ações lançadas"} no fechamento${autorNome ? ` de ${autorNome}` : ""}`);
+          toast.success(`${descontos.length} ${descontos.length === 1 ? "desconto ajuizável lançado" : "descontos ajuizáveis lançados"} no fechamento${autorNome ? ` de ${autorNome}` : ""}`);
         }
       }
     } catch (e) {
