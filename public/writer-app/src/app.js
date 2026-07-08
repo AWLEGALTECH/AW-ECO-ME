@@ -166,6 +166,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(e => console.warn('[clientes-aw]', e));
   }
 
+  // Carrega análises comerciais (pré-análise do Finder) em background pro
+  // dropdown do kit "puxar de uma análise comercial".
+  if (typeof fetchAnalisesComerciaisAW === 'function') {
+    fetchAnalisesComerciaisAW().then(list => {
+      state.analisesComerciais = Array.isArray(list) ? list : [];
+      if (typeof render === 'function') render();
+    }).catch(e => console.warn('[analises-com]', e));
+  }
+
   // Intercepta o "Voltar" do navegador pra NAO sair do app.
   try {
     history.replaceState({ tela: state.tela || 'lobby' }, '', '#' + (state.tela || 'lobby'));
