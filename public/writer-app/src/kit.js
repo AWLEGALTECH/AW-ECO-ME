@@ -150,6 +150,7 @@ function onKitSelectAnaliseComercial(id) {
 function inicializarDadosKit() {
   return {
     // Cliente
+    origem_cliente: '',
     cliente_aw_id: '',
     analise_comercial_id: '',
     cliente_nome_completo: '',
@@ -181,6 +182,69 @@ function inicializarDadosKit() {
     contrato_cidade_assinatura: 'Manaus',
     contrato_data_assinatura: '',
   };
+}
+
+// Bloco de origem do cliente no formulário — condicional à escolha feita na
+// tela de cards 'origemCliente'. Mostra só o seletor relevante (base OU
+// análise comercial), ou nada no 'cadastro do zero'. Fallback: os dois.
+function renderKitBlocoOrigem(d, clientes, optionsClientes, analises, optionsAnalises) {
+  const origem = d.origem_cliente || '';
+  const trocar = `<button type="button" class="btn-link kit-fonte-trocar" onclick="navegarPara('origemCliente')">trocar origem</button>`;
+
+  if (origem === 'zero') {
+    return `
+      <div class="kit-fonte-cliente kit-fonte-zero">
+        <div class="kit-fonte-title"><span>Cadastro do zero</span>${trocar}</div>
+        <div class="kit-fonte-hint">Preencha os dados do cliente abaixo.</div>
+      </div>`;
+  }
+  if (origem === 'analise') {
+    return `
+      <div class="kit-fonte-cliente">
+        <div class="kit-fonte-title"><span>Análise comercial (Finder)</span>${trocar}</div>
+        <label class="kit-field">
+          <span>Selecione a análise</span>
+          <select onchange="onKitSelectAnaliseComercial(this.value)">
+            <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
+            ${optionsAnalises}
+          </select>
+        </label>
+      </div>`;
+  }
+  if (origem === 'base') {
+    return `
+      <div class="kit-fonte-cliente">
+        <div class="kit-fonte-title"><span>Cliente da base</span>${trocar}</div>
+        <label class="kit-field">
+          <span>Selecione o cliente</span>
+          <select onchange="onKitSelectCliente(this.value)">
+            <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
+            ${optionsClientes}
+          </select>
+        </label>
+      </div>`;
+  }
+  // Fallback (sessão antiga sem origem definida): mostra os dois seletores.
+  return `
+    <div class="kit-fonte-cliente">
+      <div class="kit-fonte-title"><span>De onde puxar o cliente?</span></div>
+      <div class="kit-fonte-grid">
+        <label class="kit-field">
+          <span>Da base de clientes</span>
+          <select onchange="onKitSelectCliente(this.value)">
+            <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
+            ${optionsClientes}
+          </select>
+        </label>
+        <label class="kit-field">
+          <span>De uma análise comercial <em class="kit-hint">(Finder)</em></span>
+          <select onchange="onKitSelectAnaliseComercial(this.value)">
+            <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
+            ${optionsAnalises}
+          </select>
+        </label>
+      </div>
+    </div>`;
 }
 
 /* =========================================================================
@@ -234,26 +298,8 @@ function renderKitForm(view) {
         <div class="kit-form-sub">Preencha em uma tela só. Gera <strong>contrato + procuração</strong> ao final.</div>
       </div>
 
-      <!-- ===== BLOCO SEPARADO: de onde puxar o cliente ===== -->
-      <div class="kit-fonte-cliente">
-        <div class="kit-fonte-title">De onde puxar o cliente?</div>
-        <div class="kit-fonte-grid">
-          <label class="kit-field">
-            <span>Da base de clientes</span>
-            <select onchange="onKitSelectCliente(this.value)">
-              <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
-              ${optionsClientes}
-            </select>
-          </label>
-          <label class="kit-field">
-            <span>De uma análise comercial <em class="kit-hint">(Finder)</em></span>
-            <select onchange="onKitSelectAnaliseComercial(this.value)">
-              <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
-              ${optionsAnalises}
-            </select>
-          </label>
-        </div>
-      </div>
+      <!-- ===== BLOCO SEPARADO: origem do cliente (escolhida na tela anterior) ===== -->
+      ${renderKitBlocoOrigem(d, clientes, optionsClientes, analises, optionsAnalises)}
 
       <div class="kit-form-grid">
         <!-- ============== CLIENTE ============== -->
