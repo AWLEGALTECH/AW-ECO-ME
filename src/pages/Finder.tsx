@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
+import { FinderAnaliseComercial } from "@/components/FinderAnaliseComercial";
 
 // Pagina /finder tem dois modos:
 //
@@ -30,6 +31,7 @@ export default function Finder() {
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const { active, iniciar } = useFinderSession();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     document.title = nome
@@ -90,12 +92,18 @@ export default function Finder() {
         </div>
       )}
       <iframe
+        ref={iframeRef}
         src="/finder-app/index.html"
         title="AW Finder"
         onLoad={() => setCarregando(false)}
         className="flex-1 w-full border-0"
         allow="clipboard-read; clipboard-write; downloads"
       />
+      {/* Ponte comercial — SÓ no modo standalone (fora da esteira): captura a
+          análise do Finder e deixa salvar a pré-análise (rubricas não ajuizáveis).
+          No modo cliente-linked (esteira) o iframe vem do PersistentFinderHost e
+          este componente nem é montado. */}
+      <FinderAnaliseComercial iframeRef={iframeRef} />
     </div>
   );
 }
