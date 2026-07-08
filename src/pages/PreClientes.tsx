@@ -556,40 +556,56 @@ export default function PreClientes() {
     const dkInicial: any = (pre as any).dados_completos?.dadosKit ?? null;
     const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
 
-    // 1. cria cliente
+    // 1. cria cliente — com desambiguação de homônimos.
+    // A tabela clientes tem índice único em UPPER(TRIM(nome)). Homônimos
+    // legítimos (ex.: dois "Bruno da Costa Paz" com CPFs diferentes) quebrariam
+    // a criação. Em vez de falhar, tenta o nome real e, se colidir, adiciona um
+    // sufixo incremental — mantendo as pessoas separadas (nunca mistura CPFs).
     setStage("cliente", { status: "running" });
-    const { data: novoCliente, error: errCli } = await supabase
-      .from("clientes")
-      .insert({
-        nome: pre.nome,
-        cpf_cnpj: pre.cpf_cnpj,
-        telefone: pre.telefone,
-        email: pre.email,
-        endereco: pre.endereco_completo,
-        comarca: dkInicial?.cliente_comarca || null,
-        uf: dkInicial?.cliente_uf || null,
-        rg: pre.rg,
-        profissao: pre.profissao,
-        nacionalidade: pre.nacionalidade || dkInicial?.cliente_nacionalidade || null,
-        estado_civil: pre.estado_civil || dkInicial?.cliente_estado_civil || null,
-        orgao_expedidor: pre.orgao_expedidor || dkInicial?.cliente_orgao_expedidor || null,
-        genero: dkInicial?.cliente_genero || null,
-        observacoes: observacoes?.trim() || null,
-        drive_folder_url: driveFolderUrl,
-        origem: "writer",
-        cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
-        // Réu(s) vindos do kit (causa_reus) ficam em pre.rubricas — grava
-        // tambem em clientes.requerido pra aparecer no card da esteira.
-        requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
-        precisa_analise_extratos: true,
-      } as any)
-      .select()
-      .single();
-    if (errCli) {
-      setStage("cliente", { status: "error", detail: errCli.message });
+    const clientePayloadBase: any = {
+      cpf_cnpj: pre.cpf_cnpj,
+      telefone: pre.telefone,
+      email: pre.email,
+      endereco: pre.endereco_completo,
+      comarca: dkInicial?.cliente_comarca || null,
+      uf: dkInicial?.cliente_uf || null,
+      rg: pre.rg,
+      profissao: pre.profissao,
+      nacionalidade: (pre as any).nacionalidade || dkInicial?.cliente_nacionalidade || null,
+      estado_civil: pre.estado_civil || dkInicial?.cliente_estado_civil || null,
+      orgao_expedidor: (pre as any).orgao_expedidor || dkInicial?.cliente_orgao_expedidor || null,
+      genero: dkInicial?.cliente_genero || null,
+      observacoes: observacoes?.trim() || null,
+      drive_folder_url: driveFolderUrl,
+      origem: "writer",
+      cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
+      // Réu(s) vindos do kit (causa_reus) ficam em pre.rubricas — grava
+      // tambem em clientes.requerido pra aparecer no card da esteira.
+      requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
+      precisa_analise_extratos: true,
+    };
+    let novoCliente: any = null;
+    let errCli: any = null;
+    let nomeFinal = pre.nome;
+    for (let tentativa = 0; tentativa < 6; tentativa++) {
+      nomeFinal = tentativa === 0 ? pre.nome : `${pre.nome} (${tentativa + 1})`;
+      const res = await supabase
+        .from("clientes")
+        .insert({ ...clientePayloadBase, nome: nomeFinal } as any)
+        .select()
+        .single();
+      if (!res.error) { novoCliente = res.data; errCli = null; break; }
+      errCli = res.error;
+      const homonimo = /duplicate key|clientes_nome_unique_idx|23505/i.test(res.error.message || "");
+      if (!homonimo) break;
+    }
+    if (errCli || !novoCliente) {
+      setStage("cliente", { status: "error", detail: errCli?.message || "Falha ao cadastrar cliente" });
       return;
     }
-    setStage("cliente", { status: "done" });
+    setStage("cliente", nomeFinal !== pre.nome
+      ? { status: "done", detail: `Homônimo — cadastrado como "${nomeFinal}"` }
+      : { status: "done" });
 
     // 2. cria contrato
     setStage("contrato", { status: "running" });
@@ -663,7 +679,7 @@ export default function PreClientes() {
         }
         const { error: errFech } = await supabase.from("fechamentos" as any).insert({
           data: new Date().toISOString().slice(0, 10),
-          cliente_nome: pre.nome,
+          cliente_nome: nomeFinal,
           cliente_id: novoCliente.id,
           rubricas: descontos,
           pendencia: false,
