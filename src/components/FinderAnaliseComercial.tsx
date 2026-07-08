@@ -23,7 +23,7 @@ interface RubricaCaptada { rubrica: string; valor: number | null; bloqueada: boo
 interface AnaliseCaptada { nome: string; rubricas: RubricaCaptada[]; fileName: string | null; }
 
 const fmtBRL = (v: number | null) =>
-  v == null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+  v == null ? "-" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
 function extrairNome(meta: any, fileName: string | null): string {
   // O bundle atual do Finder expõe o titular em `meta.clientName`; mantemos os
@@ -122,7 +122,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
-    toast.success("Análise comercial salva — disponível no Writer.");
+    toast.success("Análise comercial salva. Disponível no Writer.");
   };
 
   if (!analise) return null;

@@ -215,7 +215,7 @@ function renderKitForm(view) {
   const optionsAnalises = analises.map(a => {
     const n = Array.isArray(a.rubricas) ? a.rubricas.length : 0;
     const bloq = Array.isArray(a.rubricas) ? a.rubricas.filter(r => r && r.bloqueada).length : 0;
-    const label = `${a.nome || 'sem nome'} — ${n} rubrica(s)${bloq ? ` · ${bloq} não ajuizável(is)` : ''}`;
+    const label = `${a.nome || 'sem nome'} · ${n} rubrica(s)${bloq ? ` · ${bloq} não ajuizável(is)` : ''}`;
     return `<option value="${escapeAttr(a.id)}" ${d.analise_comercial_id===a.id?'selected':''}>${escapeHtml(label)}</option>`;
   }).join('');
 
@@ -236,7 +236,7 @@ function renderKitForm(view) {
 
       <!-- ===== BLOCO SEPARADO: de onde puxar o cliente ===== -->
       <div class="kit-fonte-cliente">
-        <div class="kit-fonte-title">De onde puxar o cliente? <em class="kit-hint">opcional — preenche os campos abaixo automaticamente</em></div>
+        <div class="kit-fonte-title">De onde puxar o cliente?</div>
         <div class="kit-fonte-grid">
           <label class="kit-field">
             <span>Da base de clientes</span>
