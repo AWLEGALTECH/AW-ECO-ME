@@ -555,20 +555,20 @@ function selecionarModalidade(id) {
    ========================================================================= */
 const ORIGENS_CLIENTE = [
   {
-    id: 'base',
-    nome: 'Cliente da base',
-    tagline: 'Já cadastrado no sistema.',
-    descricao: 'Puxa um cliente que já existe na base — preenche nome, CPF, qualificação e endereço automaticamente.',
-    badge: 'Base',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
-  },
-  {
     id: 'analise',
     nome: 'Análise comercial',
     tagline: 'Vinda do Finder.',
     descricao: 'Puxa um cliente de uma pré-análise comercial do Finder, já com as rubricas não ajuizáveis marcadas.',
     badge: 'Finder',
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><path d="M9 12h6M9 16h4"/></svg>`,
+  },
+  {
+    id: 'base',
+    nome: 'Cliente da base',
+    tagline: 'Já cadastrado no sistema.',
+    descricao: 'Puxa um cliente que já existe na base. Preenche nome, CPF, qualificação e endereço automaticamente.',
+    badge: 'Base',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   },
   {
     id: 'zero',
