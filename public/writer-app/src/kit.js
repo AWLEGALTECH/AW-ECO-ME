@@ -184,66 +184,33 @@ function inicializarDadosKit() {
   };
 }
 
-// Bloco de origem do cliente no formulário — condicional à escolha feita na
-// tela de cards 'origemCliente'. Mostra só o seletor relevante (base OU
-// análise comercial), ou nada no 'cadastro do zero'. Fallback: os dois.
-function renderKitBlocoOrigem(d, clientes, optionsClientes, analises, optionsAnalises) {
+// Bloco de origem do cliente no formulário — resumo da escolha feita nas telas
+// anteriores (cards de origem + lista de seleção). A seleção em si acontece na
+// página 'selecaoCliente'; aqui só confirmamos e oferecemos 'trocar origem'.
+function renderKitBlocoOrigem(d) {
   const origem = d.origem_cliente || '';
   const trocar = `<button type="button" class="btn-link kit-fonte-trocar" onclick="navegarPara('origemCliente')">trocar origem</button>`;
+  const nome = (d.cliente_nome_completo || '').trim();
 
-  if (origem === 'zero') {
-    return `
-      <div class="kit-fonte-cliente kit-fonte-zero">
-        <div class="kit-fonte-title"><span>Cadastro do zero</span>${trocar}</div>
-        <div class="kit-fonte-hint">Preencha os dados do cliente abaixo.</div>
-      </div>`;
-  }
+  let titulo = 'Origem do cliente';
+  let hint = '';
   if (origem === 'analise') {
-    return `
-      <div class="kit-fonte-cliente">
-        <div class="kit-fonte-title"><span>Análise comercial (Finder)</span>${trocar}</div>
-        <label class="kit-field">
-          <span>Selecione a análise</span>
-          <select onchange="onKitSelectAnaliseComercial(this.value)">
-            <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
-            ${optionsAnalises}
-          </select>
-        </label>
-      </div>`;
+    titulo = 'Análise comercial (Finder)';
+    hint = nome ? `Selecionada: <strong>${escapeHtml(nome)}</strong>` : 'Nenhuma análise selecionada. Use “trocar origem”.';
+  } else if (origem === 'base') {
+    titulo = 'Cliente da base';
+    hint = nome ? `Selecionado: <strong>${escapeHtml(nome)}</strong>` : 'Nenhum cliente selecionado. Use “trocar origem”.';
+  } else if (origem === 'zero') {
+    titulo = 'Cadastro do zero';
+    hint = 'Preencha os dados do cliente abaixo.';
+  } else {
+    hint = 'Escolha de onde vem o cliente.';
   }
-  if (origem === 'base') {
-    return `
-      <div class="kit-fonte-cliente">
-        <div class="kit-fonte-title"><span>Cliente da base</span>${trocar}</div>
-        <label class="kit-field">
-          <span>Selecione o cliente</span>
-          <select onchange="onKitSelectCliente(this.value)">
-            <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
-            ${optionsClientes}
-          </select>
-        </label>
-      </div>`;
-  }
-  // Fallback (sessão antiga sem origem definida): mostra os dois seletores.
+
   return `
     <div class="kit-fonte-cliente">
-      <div class="kit-fonte-title"><span>De onde puxar o cliente?</span></div>
-      <div class="kit-fonte-grid">
-        <label class="kit-field">
-          <span>Da base de clientes</span>
-          <select onchange="onKitSelectCliente(this.value)">
-            <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
-            ${optionsClientes}
-          </select>
-        </label>
-        <label class="kit-field">
-          <span>De uma análise comercial <em class="kit-hint">(Finder)</em></span>
-          <select onchange="onKitSelectAnaliseComercial(this.value)">
-            <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
-            ${optionsAnalises}
-          </select>
-        </label>
-      </div>
+      <div class="kit-fonte-title"><span>${titulo}</span>${trocar}</div>
+      <div class="kit-fonte-hint">${hint}</div>
     </div>`;
 }
 
@@ -298,8 +265,8 @@ function renderKitForm(view) {
         <div class="kit-form-sub">Preencha em uma tela só. Gera <strong>contrato + procuração</strong> ao final.</div>
       </div>
 
-      <!-- ===== BLOCO SEPARADO: origem do cliente (escolhida na tela anterior) ===== -->
-      ${renderKitBlocoOrigem(d, clientes, optionsClientes, analises, optionsAnalises)}
+      <!-- ===== BLOCO: resumo da origem do cliente (escolhida nas telas anteriores) ===== -->
+      ${renderKitBlocoOrigem(d)}
 
       <div class="kit-form-grid">
         <!-- ============== CLIENTE ============== -->

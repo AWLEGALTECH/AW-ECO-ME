@@ -58,6 +58,7 @@ function render() {
     case 'lobby': renderLobby(view); break;
     case 'modalidade': renderModalidade(view); break;
     case 'origemCliente': renderOrigemCliente(view); break;
+    case 'selecaoCliente': renderSelecaoCliente(view); break;
     case 'pacoteKit': renderKitForm(view); break;
     case 'kitDone': renderKitDone(view); break;
     case 'pacote1': renderPacote1(view); break;
@@ -630,6 +631,105 @@ function renderOrigemCard(o, idx) {
 function selecionarOrigemCliente(tipo) {
   if (!state.dadosKit) state.dadosKit = inicializarDadosKit();
   state.dadosKit.origem_cliente = tipo;
+  // 'zero' vai direto pro formulário; base/análise passam pela lista de seleção.
+  if (tipo === 'zero') { navegarPara('pacoteKit'); return; }
+  navegarPara('selecaoCliente');
+}
+
+/* =========================================================================
+   SELEÇÃO DE CLIENTE — página de lista pesquisável (base OU análise comercial),
+   aberta ao escolher a origem. Clicar numa linha preenche o kit e vai pro form.
+   ========================================================================= */
+function _selcNorm(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function renderSelecaoCliente(view) {
+  const origem = (state.dadosKit && state.dadosKit.origem_cliente) || 'base';
+  const isAnalise = origem === 'analise';
+  const itens = isAnalise ? (state.analisesComerciais || []) : (state.clientesAW || []);
+  const rows = itens.map(it => renderSelcRow(it, isAnalise)).join('');
+  view.innerHTML = `
+    <div class="lobby">
+      <div class="lobby-hero">
+        <div class="lobby-hero-left">
+          <div class="modalidade-breadcrumb">
+            <button class="btn-link" onclick="navegarPara('origemCliente')">← Voltar</button>
+          </div>
+          <h1>Selecione ${isAnalise ? 'a <span class="accent">análise</span>' : 'o <span class="accent">cliente</span>'}</h1>
+          <div class="modalidade-sub">${isAnalise ? 'Pré-análises comerciais salvas no Finder.' : 'Clientes já cadastrados na base.'}</div>
+        </div>
+        <div class="lobby-hero-right">
+          <div class="stat-label">${isAnalise ? 'Análises' : 'Clientes'}</div>
+          <div class="stat-value"><span class="tabular" id="selcCount">${itens.length}</span></div>
+        </div>
+      </div>
+
+      <div class="selc-search">
+        <input type="text" id="selcBusca" autofocus
+               placeholder="${isAnalise ? 'Buscar por nome…' : 'Buscar por nome ou CPF…'}"
+               oninput="filtrarSelecaoCliente(this.value)">
+      </div>
+
+      <div class="selc-list" id="selcList">
+        ${itens.length ? rows : `<div class="selc-empty">${isAnalise ? 'Nenhuma análise comercial salva ainda.' : 'Nenhum cliente na base ainda.'}</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderSelcRow(it, isAnalise) {
+  if (isAnalise) {
+    const nome = it.nome || 'sem nome';
+    const n = Array.isArray(it.rubricas) ? it.rubricas.length : 0;
+    const bloq = Array.isArray(it.rubricas) ? it.rubricas.filter(r => r && r.bloqueada).length : 0;
+    const meta = `${n} rubrica(s)${bloq ? ` · ${bloq} não ajuizável(is)` : ''}`;
+    return `
+      <button type="button" class="selc-row" data-search="${escapeAttr(_selcNorm(nome))}"
+              onclick="escolherAnaliseComercialLista('${escapeAttr(it.id)}')">
+        <span class="selc-nome">${escapeHtml(nome)}</span>
+        <span class="selc-meta">${escapeHtml(meta)}</span>
+      </button>`;
+  }
+  const nome = it.nome_completo || 'sem nome';
+  const cpf = it.cpf || '';
+  const meta = cpf ? `CPF ${cpf}` : '';
+  return `
+    <button type="button" class="selc-row" data-search="${escapeAttr(_selcNorm(nome + ' ' + cpf))}"
+            onclick="escolherClienteBase('${escapeAttr(it.aw_id)}')">
+      <span class="selc-nome">${escapeHtml(nome)}</span>
+      <span class="selc-meta">${escapeHtml(meta)}</span>
+    </button>`;
+}
+
+function filtrarSelecaoCliente(q) {
+  const nq = _selcNorm(q);
+  const list = document.getElementById('selcList');
+  if (!list) return;
+  let vis = 0;
+  list.querySelectorAll('.selc-row').forEach(row => {
+    const match = !nq || (row.getAttribute('data-search') || '').includes(nq);
+    row.style.display = match ? '' : 'none';
+    if (match) vis++;
+  });
+  const c = document.getElementById('selcCount');
+  if (c) c.textContent = vis;
+}
+
+async function escolherClienteBase(awId) {
+  if (!awId || !state.dadosKit) return;
+  let c = (state.clientesAW || []).find(x => x.aw_id === awId);
+  if (!c && typeof fetchClienteAW === 'function') c = await fetchClienteAW(awId);
+  if (c && typeof aplicarClienteNoKit === 'function') aplicarClienteNoKit(c);
+  navegarPara('pacoteKit');
+}
+
+function escolherAnaliseComercialLista(id) {
+  if (!id || !state.dadosKit) return;
+  if (typeof onKitSelectAnaliseComercial === 'function') {
+    // reaproveita o preenchimento (nome + CPF + guarda a análise), depois navega
+    onKitSelectAnaliseComercial(id);
+  }
   navegarPara('pacoteKit');
 }
 
