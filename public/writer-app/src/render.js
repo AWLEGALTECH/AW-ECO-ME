@@ -57,6 +57,7 @@ function render() {
   switch (state.tela) {
     case 'lobby': renderLobby(view); break;
     case 'modalidade': renderModalidade(view); break;
+    case 'origemCliente': renderOrigemCliente(view); break;
     case 'pacoteKit': renderKitForm(view); break;
     case 'kitDone': renderKitDone(view); break;
     case 'pacote1': renderPacote1(view); break;
@@ -543,6 +544,92 @@ function selecionarModalidade(id) {
   state.dadosKit = inicializarDadosKit();
   state.arquivoKitContrato = null;
   state.arquivoKitProcuracao = null;
+  // Antes do formulário, o usuário escolhe DE ONDE vem o cliente.
+  navegarPara('origemCliente');
+}
+
+/* =========================================================================
+   ORIGEM DO CLIENTE — tela de cards (mesmo design da modalidade) antes do
+   formulário do kit. Escolhe começar de: cliente da base, análise comercial
+   (Finder) ou cadastro do zero. Cada card tem um ícone.
+   ========================================================================= */
+const ORIGENS_CLIENTE = [
+  {
+    id: 'base',
+    nome: 'Cliente da base',
+    tagline: 'Já cadastrado no sistema.',
+    descricao: 'Puxa um cliente que já existe na base — preenche nome, CPF, qualificação e endereço automaticamente.',
+    badge: 'Base',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  },
+  {
+    id: 'analise',
+    nome: 'Análise comercial',
+    tagline: 'Vinda do Finder.',
+    descricao: 'Puxa um cliente de uma pré-análise comercial do Finder, já com as rubricas não ajuizáveis marcadas.',
+    badge: 'Finder',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><path d="M9 12h6M9 16h4"/></svg>`,
+  },
+  {
+    id: 'zero',
+    nome: 'Cadastro do zero',
+    tagline: 'Cliente novo.',
+    descricao: 'Começa com o formulário em branco e preenche os dados do cliente manualmente.',
+    badge: 'Novo',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>`,
+  },
+];
+
+function renderOrigemCliente(view) {
+  const produto = state.produtoSelecionado;
+  const nomeProduto = produto ? produto.nome : 'Kit';
+  view.innerHTML = `
+    <div class="lobby">
+      <div class="lobby-hero">
+        <div class="lobby-hero-left">
+          <div class="modalidade-breadcrumb">
+            <button class="btn-link" onclick="navegarPara('modalidade')">← Voltar às modalidades</button>
+          </div>
+          <h1>De onde vem o <span class="accent">cliente</span>?</h1>
+          <div class="modalidade-sub">${escapeHtml(nomeProduto)} · escolha como começar o cadastro do contrato.</div>
+        </div>
+        <div class="lobby-hero-right">
+          <div class="stat-label">Origem</div>
+          <div class="stat-value"><span class="tabular">${ORIGENS_CLIENTE.length}</span> opções</div>
+        </div>
+      </div>
+
+      <div class="modalidade-grid">
+        ${ORIGENS_CLIENTE.map((o, i) => renderOrigemCard(o, i)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderOrigemCard(o, idx) {
+  return `
+    <div class="modalidade-card origem-card"
+         style="animation-delay: ${idx * 0.08}s"
+         onclick="selecionarOrigemCliente('${o.id}')">
+      <div class="modalidade-card-top">
+        <div class="origem-card-icon">${o.icon}</div>
+        <div class="modalidade-badge">${o.badge}</div>
+      </div>
+      <div class="modalidade-card-body">
+        <div class="modalidade-nome">${o.nome}</div>
+        <div class="modalidade-tagline">${o.tagline}</div>
+        <div class="modalidade-desc">${o.descricao}</div>
+      </div>
+      <div class="modalidade-card-foot">
+        <span class="modalidade-cta">Selecionar →</span>
+      </div>
+    </div>
+  `;
+}
+
+function selecionarOrigemCliente(tipo) {
+  if (!state.dadosKit) state.dadosKit = inicializarDadosKit();
+  state.dadosKit.origem_cliente = tipo;
   navegarPara('pacoteKit');
 }
 
