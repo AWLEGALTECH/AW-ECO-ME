@@ -70,6 +70,23 @@ async function fetchClientesAW() {
   }
 }
 
+// Lista as análises comerciais (pré-análise do Finder, tabela analises_comerciais)
+// pra o dropdown do kit "puxar de uma análise comercial". Mesmo banco/anon key.
+async function fetchAnalisesComerciaisAW() {
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/analises_comerciais?select=id,nome,cpf_cnpj,rubricas,created_at&order=created_at.desc`,
+      { headers: _awHeaders() }
+    );
+    if (!resp.ok) { console.warn('[analises-com] fetch lista', resp.status); return []; }
+    const rows = await resp.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    console.warn('[analises-com] erro lista', e);
+    return [];
+  }
+}
+
 // Puxa banco/agencia/conta de uma demanda analise_vinculada — usado pra
 // pre-preencher pacote 3 do writer quando vem de "Confeccionar peça".
 async function fetchAnaliseVinculadaMeta(demandaId) {

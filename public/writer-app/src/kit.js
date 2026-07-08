@@ -131,10 +131,27 @@ async function onKitSelectCliente(awId) {
   }
 }
 
+// Handler do dropdown de análise comercial (pré-análise do Finder).
+// Preenche nome + CPF e guarda a análise escolhida (com as rubricas marcadas
+// como não ajuizáveis) pra referência posterior na peça.
+function onKitSelectAnaliseComercial(id) {
+  if (!id || !state.dadosKit) return;
+  const a = (state.analisesComerciais || []).find(x => String(x.id) === String(id));
+  if (!a) return;
+  const setIf = (k, v) => { if (v !== undefined && v !== null && String(v).trim() !== '') state.dadosKit[k] = v; };
+  setIf('cliente_nome_completo', a.nome);
+  if (a.cpf_cnpj && typeof formatarCPF === 'function') setIf('cliente_cpf', formatarCPF(a.cpf_cnpj));
+  else setIf('cliente_cpf', a.cpf_cnpj);
+  state.dadosKit.analise_comercial_id = a.id;
+  state.dadosKit._analise_comercial = a; // rubricas {rubrica, valor, bloqueada, motivo}
+  if (typeof render === 'function') render();
+}
+
 function inicializarDadosKit() {
   return {
     // Cliente
     cliente_aw_id: '',
+    analise_comercial_id: '',
     cliente_nome_completo: '',
     cliente_genero: 'masculino',
     cliente_nacionalidade: 'brasileiro',
@@ -193,6 +210,15 @@ function renderKitForm(view) {
     `<option value="${escapeAttr(c.aw_id)}" ${d.cliente_aw_id===c.aw_id?'selected':''}>${escapeHtml(c.nome_completo || '—')}</option>`
   ).join('');
 
+  // Opções de análise comercial (pré-análise do Finder)
+  const analises = (state.analisesComerciais || []);
+  const optionsAnalises = analises.map(a => {
+    const n = Array.isArray(a.rubricas) ? a.rubricas.length : 0;
+    const bloq = Array.isArray(a.rubricas) ? a.rubricas.filter(r => r && r.bloqueada).length : 0;
+    const label = `${a.nome || 'sem nome'} — ${n} rubrica(s)${bloq ? ` · ${bloq} não ajuizável(is)` : ''}`;
+    return `<option value="${escapeAttr(a.id)}" ${d.analise_comercial_id===a.id?'selected':''}>${escapeHtml(label)}</option>`;
+  }).join('');
+
   // Comarcas já cadastradas (datalist) — autocomplete: o advogado digita e,
   // se outra ficha já tem aquela comarca, aparece pra clicar. Campo livre.
   const optionsComarcas = [...new Set(
@@ -208,19 +234,33 @@ function renderKitForm(view) {
         <div class="kit-form-sub">Preencha em uma tela só. Gera <strong>contrato + procuração</strong> ao final.</div>
       </div>
 
+      <!-- ===== BLOCO SEPARADO: de onde puxar o cliente ===== -->
+      <div class="kit-fonte-cliente">
+        <div class="kit-fonte-title">De onde puxar o cliente? <em class="kit-hint">opcional — preenche os campos abaixo automaticamente</em></div>
+        <div class="kit-fonte-grid">
+          <label class="kit-field">
+            <span>Da base de clientes</span>
+            <select onchange="onKitSelectCliente(this.value)">
+              <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
+              ${optionsClientes}
+            </select>
+          </label>
+          <label class="kit-field">
+            <span>De uma análise comercial <em class="kit-hint">(Finder)</em></span>
+            <select onchange="onKitSelectAnaliseComercial(this.value)">
+              <option value="">${analises.length ? 'Selecione uma análise…' : 'Nenhuma análise comercial ainda'}</option>
+              ${optionsAnalises}
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div class="kit-form-grid">
         <!-- ============== CLIENTE ============== -->
         <section class="kit-section">
           <div class="kit-section-title">Cliente</div>
           <div class="kit-fields kit-fields-cliente">
             <label class="kit-field span-3">
-              <span>Puxar da base de clientes <em class="kit-hint">preenche os campos abaixo automaticamente</em></span>
-              <select onchange="onKitSelectCliente(this.value)">
-                <option value="">${clientes.length ? 'Selecione um cliente…' : 'Carregando clientes…'}</option>
-                ${optionsClientes}
-              </select>
-            </label>
-            <label class="kit-field span-2">
               <span>Nome completo</span>
               <input type="text" value="${escapeAttr(d.cliente_nome_completo)}"
                      onchange="onKitChange('cliente_nome_completo', this.value)"

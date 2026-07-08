@@ -2517,6 +2517,33 @@ input, select, textarea {
   font-size: 13px;
   color: var(--text-dim);
 }
+/* Bloco separado "de onde puxar o cliente" — destacado do formulário
+   principal (borda roxa suave + fundo tênue), como um bloco de perguntas
+   distinto acima do formulário. */
+.kit-fonte-cliente {
+  border: 1px solid var(--violet-border);
+  border-radius: 10px;
+  background: var(--violet-bg);
+  padding: 14px 16px 16px;
+  margin-bottom: 18px;
+  animation: cIn 0.4s ease both;
+}
+.kit-fonte-title {
+  font-size: 11px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--violet-soft);
+  margin-bottom: 12px;
+}
+.kit-fonte-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+@media (max-width: 720px) {
+  .kit-fonte-grid { grid-template-columns: 1fr; }
+}
+
 .kit-form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
