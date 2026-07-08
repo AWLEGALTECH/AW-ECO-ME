@@ -144,6 +144,10 @@ function onKitSelectAnaliseComercial(id) {
   else setIf('cliente_cpf', a.cpf_cnpj);
   state.dadosKit.analise_comercial_id = a.id;
   state.dadosKit._analise_comercial = a; // rubricas {rubrica, valor, bloqueada, motivo}
+  // Passou pela análise comercial => veio do Finder, que é exclusivo Bradesco.
+  // Já preenche o réu (só se ainda não houver um réu digitado).
+  const reusAtuais = (state.dadosKit.causa_reus || []).map(r => (r || '').trim()).filter(Boolean);
+  if (reusAtuais.length === 0) state.dadosKit.causa_reus = ['BANCO BRADESCO S.A.'];
   if (typeof render === 'function') render();
 }
 
