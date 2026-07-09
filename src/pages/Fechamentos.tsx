@@ -255,7 +255,7 @@ export default function Fechamentos() {
   const focoMeta = focoId ? metasMap[focoId]?.meta || 0 : 0;
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
   // Regra vigente pro foco: faixa especial individual sobrepõe a geral do mês.
-  const { regra: focoRegra, individual: focoEspecialIndividual } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
+  const { regra: focoRegra } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
   const focoEspecialAtivo = especialAtivoPara(focoAcoes, focoRegra);
   const focoValorAcao = valorAcaoVigente(focoAcoes, focoRegra);
   const focoComissao = comissaoDe(focoAcoes, focoRegra, focoBonus);
@@ -358,12 +358,7 @@ export default function Fechamentos() {
           {/* Quadro individual (user comum sempre; admin quando escolhe pessoa) */}
           {focoId && (
             <>
-              <RegraDinamicaBanner
-                regra={focoRegra}
-                acoes={focoAcoes}
-                individual={focoEspecialIndividual}
-                nome={focoNome}
-              />
+              <RegraDinamicaBanner regra={focoRegra} acoes={focoAcoes} />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
                 <CardValorAcao regra={focoRegra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
@@ -497,7 +492,7 @@ function CardGeral({ acoes, meta, pessoas, mes }: { acoes: number; meta: number;
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
-            <Users className="h-3.5 w-3.5" /> Placar geral · {mesExtenso(mes)}
+            <Users className="h-3.5 w-3.5" /> Quadro geral de {mesExtenso(mes)}
           </p>
           <div className="mt-1 flex items-end gap-2">
             <CountUp value={acoes} className="text-5xl font-black tabular-nums leading-none" />
@@ -603,10 +598,29 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
   );
 }
 
-/* Banner gamificado: expõe a REGRA & DINÂMICA do mês pro funcionário — base,
-   gatilho da faixa especial e progresso até desbloquear, sinalizando se a
-   faixa em vigor é individual ou geral. */
-function RegraDinamicaBanner({ regra, acoes, individual, nome }: { regra: Regra; acoes: number; individual: boolean; nome: string | null }) {
+/* Banner gamificado: expõe a DINÂMICA do mês pro funcionário como uma frase
+   corrida (base + faixa especial), com barra de progresso viva pra motivar. */
+function BarraViva({ value, max, desbloqueado }: { value: number; max: number; desbloqueado: boolean }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : value > 0 ? 100 : 0;
+  const grad = desbloqueado
+    ? "from-amber-400 via-yellow-300 to-amber-500"
+    : "from-violet-500 via-fuchsia-500 to-violet-500";
+  const glow = desbloqueado
+    ? ["0 0 6px 0 hsla(38,92%,55%,0.5)", "0 0 22px 3px hsla(45,95%,60%,0.95)", "0 0 6px 0 hsla(38,92%,55%,0.5)"]
+    : ["0 0 6px 0 hsla(280,70%,60%,0.5)", "0 0 24px 4px hsla(295,85%,65%,0.95)", "0 0 6px 0 hsla(280,70%,60%,0.5)"];
+  return (
+    <div className="relative h-3.5 rounded-full bg-black/30 overflow-hidden">
+      <motion.div
+        className={`fech-shimmer relative h-full rounded-full bg-gradient-to-r ${grad} overflow-hidden`}
+        initial={{ width: 0 }}
+        animate={{ width: `${pct}%`, boxShadow: glow }}
+        transition={{ width: { duration: 1, ease: "easeOut" }, boxShadow: { duration: 1.5, repeat: Infinity, ease: "easeInOut" } }}
+      />
+    </div>
+  );
+}
+
+function RegraDinamicaBanner({ regra, acoes }: { regra: Regra; acoes: number }) {
   const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
   const lim = regra.especial_limite ?? 0;
   const alvo = lim + 1;
@@ -615,47 +629,35 @@ function RegraDinamicaBanner({ regra, acoes, individual, nome }: { regra: Regra;
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border p-5 ${desbloqueado ? "border-amber-400/50 bg-gradient-to-br from-amber-400/15 to-amber-400/5 fech-glow" : "border-primary/25 bg-gradient-to-br from-primary/10 to-transparent"}`}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${desbloqueado ? "bg-amber-400/20" : "bg-primary/15"}`}>
-            {desbloqueado ? <Flame className="h-5 w-5 text-amber-400" /> : <Sparkles className="h-5 w-5 text-primary" />}
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold">Regra &amp; dinâmica do mês</p>
-            {nome && <p className="text-xs text-muted-foreground">Placar de {primeiroNome(nome)}</p>}
-          </div>
+      <div className="flex items-center gap-2.5">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${desbloqueado ? "bg-amber-400/20" : "bg-primary/15"}`}>
+          {desbloqueado ? <Flame className="h-5 w-5 text-amber-400" /> : <Sparkles className="h-5 w-5 text-primary" />}
         </div>
-        {temEspecial && (
-          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${individual ? "border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-300" : "border-primary/30 bg-primary/10 text-primary"}`}>
-            {individual ? <><User className="h-3 w-3" /> Faixa individual</> : <><Users className="h-3 w-3" /> Faixa geral do mês</>}
-          </span>
-        )}
+        <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold">Dinâmica do mês</p>
       </div>
 
-      {/* Narrativa da regra */}
-      <div className="mt-4 space-y-1 text-sm leading-relaxed">
-        <p>
-          Base: cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>
-          {temEspecial ? <> — até o <strong className="text-foreground">{intBR(lim)}º</strong>.</> : "."}
-        </p>
-        {temEspecial && (
-          <p className={desbloqueado ? "text-amber-300" : "text-foreground/90"}>
-            Do <strong>{intBR(alvo)}º desconto</strong> em diante, cada um passa a valer <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
-          </p>
+      {/* Regra como uma frase corrida (citação direta), sem truncar */}
+      <p className="mt-4 text-base leading-relaxed">
+        {temEspecial ? (
+          <>
+            Cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>, e a partir do{" "}
+            <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{intBR(alvo)}º</strong>, cada um passa a valer{" "}
+            <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
+          </>
+        ) : (
+          <>Cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
         )}
-      </div>
+      </p>
 
-      {temEspecial ? (
-        <div className="mt-3 space-y-1.5">
-          <Barra value={acoes} max={alvo} className={desbloqueado ? "bg-gradient-to-r from-amber-400 to-amber-500" : "bg-gradient-to-r from-primary/70 to-primary"} />
+      {temEspecial && (
+        <div className="mt-3.5 space-y-1.5">
+          <BarraViva value={acoes} max={alvo} desbloqueado={desbloqueado} />
           <p className={`text-[12px] font-medium ${desbloqueado ? "text-amber-300" : "text-muted-foreground"}`}>
             {desbloqueado
               ? `Faixa especial ATIVA — cada desconto agora vale ${brl(regra.valor_especial)}.`
               : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> {faltam === 1 ? "desconto" : "descontos"} pra desbloquear {brl(regra.valor_especial)}/desconto.</>}
           </p>
         </div>
-      ) : (
-        <p className="mt-3 text-[12px] text-muted-foreground">Sem faixa especial neste mês — cada desconto vale {brl(regra.valor_base)} do início ao fim.</p>
       )}
     </div>
   );
