@@ -26,7 +26,7 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   const [open, setOpen] = useState(false);
   const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
   const [criador, setCriador] = useState<string | null>(null);
-  const [travados, setTravados] = useState<number | null>(null);
+  const [dbg, setDbg] = useState<string>("");
 
   useEffect(() => {
     let cancel = false;
@@ -64,10 +64,16 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   // Bloqueio REAL no drill-down do Finder (mesma origem). Clicar no cadeado
   // pede desbloqueio (setDesbloqueandoKey).
   useEffect(() => {
-    if (!iframeRef?.current || bloqueadas.length === 0) return;
+    if (bloqueadas.length === 0) { setDbg(""); return; }
+    if (!iframeRef?.current) { setDbg("sem-iframe"); return; }
     const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
-    setTravados(null);
-    return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k), (n) => setTravados(n));
+    setDbg("iniciando");
+    return instalarBloqueioFinder(
+      iframeRef.current,
+      set,
+      (k) => setDesbloqueandoKey(k),
+      (info) => setDbg(`doc=${info.docOk ? "ok" : "X"} cards=${info.cards} trav=${info.travados}`),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analise, iframeRef?.current]);
 
@@ -102,9 +108,9 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
               </span>
             ))}
           </div>
-          {travados != null && (
-            <span className="shrink-0 text-[10px] text-amber-200/70 tabular-nums" title="descontos travados no drill-down">
-              {travados}/{bloqueadas.length} travado{travados === 1 ? "" : "s"}
+          {dbg && (
+            <span className="shrink-0 text-[10px] text-amber-200/70 font-mono" title="diagnóstico do bloqueio">
+              [{dbg}]
             </span>
           )}
           <button
