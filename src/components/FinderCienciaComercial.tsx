@@ -26,7 +26,6 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   const [open, setOpen] = useState(false);
   const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
   const [criador, setCriador] = useState<string | null>(null);
-  const [dbg, setDbg] = useState<string>("");
 
   useEffect(() => {
     let cancel = false;
@@ -64,16 +63,9 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   // Bloqueio REAL no drill-down do Finder (mesma origem). Clicar no cadeado
   // pede desbloqueio (setDesbloqueandoKey).
   useEffect(() => {
-    if (bloqueadas.length === 0) { setDbg(""); return; }
-    if (!iframeRef?.current) { setDbg("sem-iframe"); return; }
+    if (!iframeRef?.current || bloqueadas.length === 0) return;
     const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
-    setDbg("iniciando");
-    return instalarBloqueioFinder(
-      iframeRef.current,
-      set,
-      (k) => setDesbloqueandoKey(k),
-      (info) => setDbg(`doc=${info.docOk ? "ok" : "X"} cards=${info.cards} trav=${info.travados}`),
-    );
+    return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analise, iframeRef?.current]);
 
@@ -108,11 +100,6 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
               </span>
             ))}
           </div>
-          {dbg && (
-            <span className="shrink-0 text-[10px] text-amber-200/70 font-mono" title="diagnóstico do bloqueio">
-              [{dbg}]
-            </span>
-          )}
           <button
             onClick={() => setOpen(true)}
             className="ml-auto shrink-0 inline-flex items-center gap-1 rounded-md border border-amber-400/40 px-2 py-1 hover:bg-amber-400/15 transition-colors font-medium"
