@@ -6,6 +6,7 @@ import { useComarcasSugeridas } from "@/hooks/useComarcasSugeridas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -51,6 +52,7 @@ export interface Cliente {
   dados_socioeconomicos: Record<string, any> | null;
   observacoes: string | null;
   precisa_analise_extratos: boolean | null;
+  analise_comercial: any | null;
   analise_primaria_finalizada_at: string | null;
   drive_folder_url: string | null;
   origem: string | null;
@@ -609,6 +611,12 @@ export default function ClienteDetail() {
               <Slot icon={FolderOpen} label="Pasta no Drive" value={cliente.drive_folder_url} isLink className="sm:col-span-2" />
             </div>
           </section>
+
+          {cliente.analise_comercial && (
+            <section className="space-y-2">
+              <DescontosAnaliseComercial analise={cliente.analise_comercial} />
+            </section>
+          )}
 
           <section className="space-y-2">
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">

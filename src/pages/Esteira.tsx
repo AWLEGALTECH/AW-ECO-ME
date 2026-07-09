@@ -64,6 +64,7 @@ interface ClienteEsteira {
   requerido: string | null;
   cadastrado_por: string | null;
   observacoes: string | null;
+  analise_comercial: any | null;
   // Quantas demandas downstream o cliente ja tem (analise_vinculada,
   // fluxo_artesanal, pronta_para_protocolo) — mostra no card como dica.
   // Como agora o cliente NAO sai da col 1 automaticamente, ele pode estar
@@ -155,11 +156,11 @@ export default function Esteira() {
     // v2: bump da chave pra descartar cache persistida (localStorage) que
     // foi salva antes de eu incluir cadastrado_por/requerido no select —
     // senao o rehydrate serve dado antigo sem esses campos (aparece "—").
-    queryKey: ["esteira-clientes-analise-primaria", "v2"],
+    queryKey: ["esteira-clientes-analise-primaria", "v3"],
     queryFn: async (): Promise<ClienteEsteira[]> => {
       const { data: tagged, error: e1 } = await supabase
         .from("clientes")
-        .select("id, nome, created_at, origem, drive_folder_url, requerido, cadastrado_por, observacoes")
+        .select("id, nome, created_at, origem, drive_folder_url, requerido, cadastrado_por, observacoes, analise_comercial")
         .eq("precisa_analise_extratos" as any, true)
         .is("analise_primaria_finalizada_at" as any, null)
         .order("created_at", { ascending: true });
@@ -840,6 +841,7 @@ export default function Esteira() {
           cadastrado_por: inicioCliente.cadastrado_por,
           origem: inicioCliente.origem,
           demandas_downstream: inicioCliente.demandas_downstream,
+          analise_comercial: inicioCliente.analise_comercial,
         } : null}
         userId={user?.id || null}
         onCreated={refetchAll}

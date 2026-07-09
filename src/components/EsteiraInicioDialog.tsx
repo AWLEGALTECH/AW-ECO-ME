@@ -11,6 +11,7 @@ import {
   ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
+import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
 
 // Catálogo de tipos de pendência. A chave bate com demandas.pendencia_tipo.
 export const TIPOS_PENDENCIA = [
@@ -36,6 +37,7 @@ interface Props {
     cadastrado_por?: string | null;
     origem?: string | null;
     demandas_downstream?: number;
+    analise_comercial?: any | null;
   } | null;
   userId: string | null;
   onCreated: () => void;
@@ -322,6 +324,12 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                   clienteNome={cliente.nome}
                   driveFolderUrl={cliente.drive_folder_url}
                 />
+              )}
+
+              {/* Descontos da análise comercial — bloqueados aparecem travados,
+                  impedindo que a análise primária reconsidere algo já descartado. */}
+              {cliente?.analise_comercial && (
+                <DescontosAnaliseComercial analise={cliente.analise_comercial} />
               )}
 
               <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-2">Decisão</div>
