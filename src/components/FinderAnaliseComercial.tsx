@@ -132,9 +132,11 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium shadow-lg shadow-black/30 hover:brightness-110 transition"
+        className={`fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium shadow-lg shadow-black/30 hover:brightness-110 transition ${
+          salvouId ? "bg-emerald-600 text-white" : "bg-primary text-primary-foreground"
+        }`}
       >
-        <ClipboardList className="h-4 w-4" />
+        {salvouId ? <Check className="h-4 w-4" strokeWidth={3} /> : <ClipboardList className="h-4 w-4" />}
         {salvouId ? "Análise comercial gerada" : "Gerar análise comercial"}
         {!salvouId && nBloq > 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] bg-amber-400/20 text-amber-200 rounded-full px-1.5">
