@@ -89,29 +89,31 @@ const mesLabelLong = (ym: string) => {
   return `${MESES_LONG[m - 1]} de ${y}`;
 };
 
-type PeriodoKey = "tudo" | "mes_atual" | "mes_passado" | "30d" | "90d" | "ano" | "custom";
-const PERIODO_LABEL: Record<PeriodoKey, string> = {
-  tudo: "Todo o histórico",
-  mes_atual: "Este mês",
-  mes_passado: "Mês passado",
-  "30d": "Últimos 30 dias",
-  "90d": "Últimos 90 dias",
-  ano: "Este ano",
-  custom: "Intervalo personalizado",
-};
+type PeriodoKey = "tudo" | "hoje" | "semana" | "mes_atual" | "ano" | "custom";
+const PERIODOS: { key: PeriodoKey; label: string }[] = [
+  { key: "tudo", label: "Tudo" },
+  { key: "hoje", label: "Hoje" },
+  { key: "semana", label: "Esta semana" },
+  { key: "mes_atual", label: "Este mês" },
+  { key: "ano", label: "Este ano" },
+  { key: "custom", label: "Personalizado" },
+];
 function rangeDoPeriodo(key: PeriodoKey, ini?: string, fim?: string): [Date | null, Date | null] {
   const now = new Date();
   const startDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
   const endDay = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
-  const DIA = 86400000;
   switch (key) {
-    case "mes_atual":   return [new Date(now.getFullYear(), now.getMonth(), 1), endDay(now)];
-    case "mes_passado": return [new Date(now.getFullYear(), now.getMonth() - 1, 1), new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)];
-    case "30d":         return [startDay(new Date(now.getTime() - 29 * DIA)), endDay(now)];
-    case "90d":         return [startDay(new Date(now.getTime() - 89 * DIA)), endDay(now)];
-    case "ano":         return [new Date(now.getFullYear(), 0, 1), endDay(now)];
-    case "custom":      return [ini ? startDay(new Date(ini + "T00:00:00")) : null, fim ? endDay(new Date(fim + "T00:00:00")) : null];
-    default:            return [null, null];
+    case "hoje":      return [startDay(now), endDay(now)];
+    case "semana": {
+      // Semana corrente começando na segunda-feira.
+      const diaSemana = (now.getDay() + 6) % 7; // 0 = segunda
+      const inicio = startDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - diaSemana));
+      return [inicio, endDay(now)];
+    }
+    case "mes_atual": return [new Date(now.getFullYear(), now.getMonth(), 1), endDay(now)];
+    case "ano":       return [new Date(now.getFullYear(), 0, 1), endDay(now)];
+    case "custom":    return [ini ? startDay(new Date(ini + "T00:00:00")) : null, fim ? endDay(new Date(fim + "T00:00:00")) : null];
+    default:          return [null, null];
   }
 }
 
@@ -1006,49 +1008,57 @@ export default function PreClientes() {
       </div>
 
       {/* Filtros de período e voluntário */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[190px]">
-          <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+      <div className="space-y-3">
+        {/* Botões de período */}
+        <div>
+          <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1.5">
             <CalendarDays className="h-3.5 w-3.5" /> Período
           </label>
-          <Select value={periodo} onValueChange={(v) => setPeriodo(v as PeriodoKey)}>
-            <SelectTrigger className="h-10 bg-card/40 border-border">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PERIODO_LABEL) as PeriodoKey[]).map((k) => (
-                <SelectItem key={k} value={k}>{PERIODO_LABEL[k]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {PERIODOS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setPeriodo(key)}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  periodo === key
+                    ? "bg-primary/15 text-primary border-primary/30"
+                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {periodo === "custom" && (
-          <div className="flex items-end gap-2">
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">De</label>
-              <Input type="date" value={customIni} onChange={(e) => setCustomIni(e.target.value)} className="h-10 bg-card/40 border-border" />
+        <div className="flex flex-wrap items-end gap-3">
+          {periodo === "custom" && (
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">De</label>
+                <Input type="date" value={customIni} onChange={(e) => setCustomIni(e.target.value)} className="h-10 bg-card/40 border-border" />
+              </div>
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">Até</label>
+                <Input type="date" value={customFim} onChange={(e) => setCustomFim(e.target.value)} className="h-10 bg-card/40 border-border" />
+              </div>
             </div>
-            <div>
-              <label className="text-[11px] uppercase tracking-wider text-muted-foreground block mb-1">Até</label>
-              <Input type="date" value={customFim} onChange={(e) => setCustomFim(e.target.value)} className="h-10 bg-card/40 border-border" />
-            </div>
-          </div>
-        )}
+          )}
 
-        <div className="min-w-[190px]">
-          <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
-            <User className="h-3.5 w-3.5" /> Voluntário
-          </label>
-          <Select value={voluntario} onValueChange={setVoluntario}>
-            <SelectTrigger className="h-10 bg-card/40 border-border">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os voluntários</SelectItem>
-              {voluntarios.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="min-w-[190px]">
+            <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1">
+              <User className="h-3.5 w-3.5" /> Voluntário
+            </label>
+            <Select value={voluntario} onValueChange={setVoluntario}>
+              <SelectTrigger className="h-10 bg-card/40 border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos os voluntários</SelectItem>
+                {voluntarios.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
