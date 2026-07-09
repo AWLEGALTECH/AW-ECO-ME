@@ -122,7 +122,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
-    toast.success("Análise comercial salva. Disponível no Writer.");
+    toast.success("Análise comercial gerada. Disponível no Writer.");
   };
 
   if (!analise) return null;
@@ -135,7 +135,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
         className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium shadow-lg shadow-black/30 hover:brightness-110 transition"
       >
         <ClipboardList className="h-4 w-4" />
-        {salvouId ? "Análise comercial salva" : "Salvar análise comercial"}
+        {salvouId ? "Análise comercial gerada" : "Gerar análise comercial"}
         {!salvouId && nBloq > 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] bg-amber-400/20 text-amber-200 rounded-full px-1.5">
             <Lock className="h-3 w-3" /> {nBloq}
@@ -147,7 +147,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" /> Salvar análise comercial
+              <ClipboardList className="h-5 w-5 text-primary" /> Gerar análise comercial
             </DialogTitle>
             <DialogDescription>
               Marque as rubricas <strong>não ajuizáveis</strong> (cliente não quer ou já ajuizada). Fica salvo pro Writer e pra análise primária.
@@ -191,7 +191,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
             <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
             <Button onClick={salvar} disabled={salvando || !!salvouId}>
               {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : salvouId ? <Check className="h-4 w-4 mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
-              {salvouId ? "Salva" : "Salvar análise comercial"}
+              {salvouId ? "Gerada" : "Gerar análise comercial"}
             </Button>
           </DialogFooter>
         </DialogContent>
