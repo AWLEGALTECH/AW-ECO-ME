@@ -1,7 +1,12 @@
 import { useEffect, useState, type RefObject } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Lock, ClipboardList } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { DescontosAnaliseComercial, rubricasDaAnalise } from "@/components/DescontosAnaliseComercial";
 import { instalarBloqueioFinder } from "@/lib/finderBloqueio";
 
@@ -13,12 +18,14 @@ const MOTIVO_LABEL: Record<string, string> = {
   cliente_nao_quer: "cliente não quer",
 };
 
-// Dá CIÊNCIA, dentro do Finder da análise primária (modo cliente-vinculado),
-// do que foi decidido na análise comercial daquele cliente. Faixa fixa com os
-// descontos BLOQUEADOS (não reconsiderar) + painel completo ao clicar.
+// Dá CIÊNCIA + BLOQUEIO REAL, dentro do Finder da análise primária, das rubricas
+// bloqueadas na análise comercial. Cadeado clicável abre confirmação de
+// desbloqueio (com motivo e quem fez a comercial).
 export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { clienteId: string; nome: string; iframeRef?: RefObject<HTMLIFrameElement> }) {
   const [analise, setAnalise] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
+  const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
+  const [criador, setCriador] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -33,16 +40,48 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
     return () => { cancel = true; };
   }, [clienteId]);
 
+  // Quem fez a análise comercial (pra citar no diálogo de desbloqueio).
+  useEffect(() => {
+    const id = analise?.id;
+    if (!id) { setCriador(null); return; }
+    let cancel = false;
+    (async () => {
+      const { data } = await supabase
+        .from("analises_comerciais" as any)
+        .select("created_by_email")
+        .eq("id", id)
+        .maybeSingle();
+      if (!cancel) setCriador((data as any)?.created_by_email ?? null);
+    })();
+    return () => { cancel = true; };
+  }, [analise?.id]);
+
   const rubricas = rubricasDaAnalise(analise);
   const bloqueadas = rubricas.filter((r) => r.bloqueada);
+  const desbRub = desbloqueandoKey ? rubricas.find((r) => normRub(r.rubrica) === desbloqueandoKey) || null : null;
 
-  // Bloqueio REAL das linhas bloqueadas no drill-down do Finder (mesma origem).
+  // Bloqueio REAL no drill-down do Finder (mesma origem). Clicar no cadeado
+  // pede desbloqueio (setDesbloqueandoKey).
   useEffect(() => {
     if (!iframeRef?.current || bloqueadas.length === 0) return;
     const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
-    return instalarBloqueioFinder(iframeRef.current, set);
+    return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analise, iframeRef?.current]);
+
+  const confirmarDesbloqueio = async () => {
+    if (!desbloqueandoKey) return;
+    const rawArr: any[] = Array.isArray(analise) ? analise : (analise?.rubricas || []);
+    const novasRubricas = rawArr.map((r: any) =>
+      normRub(r?.rubrica) === desbloqueandoKey ? { ...r, bloqueada: false, motivo: null } : r,
+    );
+    const nova = Array.isArray(analise) ? novasRubricas : { ...analise, rubricas: novasRubricas };
+    const { error } = await supabase.from("clientes").update({ analise_comercial: nova } as any).eq("id", clienteId);
+    if (error) { toast.error("Erro ao desbloquear: " + error.message); return; }
+    setAnalise(nova);
+    setDesbloqueandoKey(null);
+    toast.success("Desconto desbloqueado — agora pode ser considerado na análise primária.");
+  };
 
   if (rubricas.length === 0) return null;
 
@@ -69,7 +108,6 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
           </button>
         </div>
       ) : (
-        // Só ajuizáveis (nenhum bloqueio) — botão discreto pra consultar.
         <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 border-b border-border/60 bg-card/40 text-[11px] text-muted-foreground">
           <ClipboardList className="h-3.5 w-3.5 text-primary" />
           Este cliente tem análise comercial.
@@ -90,6 +128,29 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
           <DescontosAnaliseComercial analise={analise} />
         </DialogContent>
       </Dialog>
+
+      {/* Confirmação de desbloqueio — disparada ao clicar no cadeado do card. */}
+      <AlertDialog open={!!desbRub} onOpenChange={(o) => { if (!o) setDesbloqueandoKey(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-amber-400" /> Desbloquear “{desbRub?.rubrica}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta rubrica foi <strong>bloqueada na análise comercial</strong>
+              {criador ? <> de <strong>{criador}</strong></> : null}
+              {desbRub?.motivo ? <>, com o motivo <strong>“{MOTIVO_LABEL[desbRub.motivo] || desbRub.motivo}”</strong></> : null}.
+              {" "}Desbloquear vai permitir que ela seja considerada na análise primária.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmarDesbloqueio} className="bg-amber-600 hover:bg-amber-500 text-white">
+              Desbloquear mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
