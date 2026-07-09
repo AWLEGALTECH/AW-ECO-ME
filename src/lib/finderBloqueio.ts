@@ -1,17 +1,21 @@
 // Bloqueio REAL, do lado do ECO, das linhas do drill-down do Finder que foram
 // bloqueadas na análise comercial. O iframe do Finder é MESMA ORIGEM, então dá
-// pra ler o DOM dele e sobrepor um cadeado — sem editar o bundle compilado.
+// pra ler o DOM dele e bloquear — sem editar o bundle compilado.
 //
-// Como mesmo cliente + mesmos extratos = análise determinística, o `cat.label`
-// que o Finder renderiza é idêntico à `rubrica` salva na análise comercial —
-// o casamento por nome (normalizado, exato) é confiável.
+// Mesmo cliente + mesmos extratos = análise determinística, então o `cat.label`
+// que o Finder renderiza é idêntico à `rubrica` salva na análise comercial — o
+// casamento por nome (normalizado, exato) é confiável.
 //
-// Estratégia: em vez de estilizar o card do Finder (o React re-renderiza no
-// hover e apaga qualquer alteração), coloca um OVERLAY de cadeado no <body> do
-// iframe (fora da árvore React) e o mantém em cima do card via
-// requestAnimationFrame. O overlay engole o clique (pointer-events), então o
-// checkbox/detalhe daquele desconto nunca é acionado. Defensivo: se não achar a
-// estrutura, não faz nada (degrada pro aviso; nunca quebra o Finder).
+// Duas camadas:
+//  1. ENFORCEMENT (garantido): delegação de clique em fase de captura no
+//     document do iframe. A cada clique, sobe do alvo até o card; se o card for
+//     de um desconto bloqueado, cancela o evento. Independe de achar o card
+//     antes e sobrevive a qualquer re-render do React.
+//  2. VISUAL: cadeado como FILHO do card (position:absolute; inset:0 — sem
+//     `fixed`, imune a ancestral com transform). Se o React tirar no re-render,
+//     o MutationObserver recoloca.
+//
+// Defensivo: se a estrutura não bater, não faz nada — nunca quebra o Finder.
 
 const norm = (s: string) =>
   (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
@@ -23,27 +27,41 @@ function primeiroTextoDireto(el: Element): string {
   return "";
 }
 
-// Sobe do título até o card da categoria. Âncora robusta: os cards têm a
-// animação de entrada `cIn` no style inline (exclusiva deles no drill-down).
-function acharCard(el: Element): HTMLElement | null {
-  let cur: HTMLElement | null = el as HTMLElement;
-  for (let i = 0; i < 10 && cur; i++) {
-    const anim = cur.style && cur.style.animation;
-    if (anim && anim.indexOf("cIn") !== -1) return cur;
+// Sobe até o card da categoria. Âncora: animação de entrada `cIn` (exclusiva dos
+// cards); com fallback pra cursor:pointer + borderRadius 12px.
+function acharCard(el: Element | null): HTMLElement | null {
+  let cur = el as HTMLElement | null;
+  for (let i = 0; i < 14 && cur; i++) {
+    const st = cur.style;
+    if (st) {
+      if ((st.animation || "").indexOf("cIn") !== -1) return cur;
+      if (st.cursor === "pointer" && st.borderRadius === "12px") return cur;
+    }
     cur = cur.parentElement;
   }
   return null;
 }
 
+// O card tem, entre seus descendentes, um título cujo texto direto é o label da
+// categoria. Casa contra o conjunto de bloqueadas.
+function cardBloqueado(card: Element, bloqueadas: Set<string>): boolean {
+  const els = card.querySelectorAll("div,span");
+  for (const el of Array.from(els)) {
+    const t = norm(primeiroTextoDireto(el));
+    if (t && bloqueadas.has(t)) return true;
+  }
+  return false;
+}
+
+const EVTS = ["click", "mousedown", "pointerdown", "mouseup", "pointerup", "dblclick"] as const;
+
 export function instalarBloqueioFinder(iframe: HTMLIFrameElement | null, bloqueadas: Set<string>): () => void {
   if (!iframe || bloqueadas.size === 0) return () => {};
 
-  const pares: Array<{ card: HTMLElement; ov: HTMLElement }> = [];
+  let doc: Document | null = null;
   let obs: MutationObserver | null = null;
   let iv: ReturnType<typeof setInterval> | null = null;
-  let raf = 0;
   let tries = 0;
-  let parado = false;
 
   const swallow = (e: Event) => {
     e.preventDefault();
@@ -51,81 +69,61 @@ export function instalarBloqueioFinder(iframe: HTMLIFrameElement | null, bloquea
     (e as any).stopImmediatePropagation?.();
   };
 
-  const criarOverlay = (doc: Document): HTMLElement => {
-    const ov = doc.createElement("div");
-    ov.setAttribute("data-aw-lock", "1");
-    ov.style.cssText =
-      "position:fixed;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;background:rgba(8,8,10,0.62);border:1px solid rgba(251,191,36,0.55);cursor:not-allowed;color:#fbbf24;font:700 10px Inter,sans-serif;letter-spacing:.09em;pointer-events:auto;user-select:none";
-    ov.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>BLOQUEADO NO COMERCIAL</span>';
-    (["click", "mousedown", "pointerdown", "mouseup", "pointerup", "dblclick"] as const).forEach((ev) =>
-      ov.addEventListener(ev, swallow, true),
-    );
-    return ov;
+  // Camada 1 — enforcement por delegação.
+  const onEvt = (e: Event) => {
+    const card = acharCard(e.target as Element);
+    if (card && cardBloqueado(card, bloqueadas)) swallow(e);
   };
 
-  const scan = () => {
-    let doc: Document | null = null;
-    try { doc = iframe.contentDocument; } catch { return; }
-    if (!doc || !doc.body) return;
-    const els = doc.querySelectorAll("div,span");
-    els.forEach((el) => {
-      const t = norm(primeiroTextoDireto(el));
-      if (!t || !bloqueadas.has(t)) return;
-      const card = acharCard(el);
-      if (!card || card.dataset.awLocked === "1") return;
-      card.dataset.awLocked = "1";
-      const ov = criarOverlay(doc!);
-      doc!.body.appendChild(ov);
-      pares.push({ card, ov });
+  // Camada 2 — overlay visual filho do card.
+  const marcar = () => {
+    if (!doc) return;
+    const cards = doc.querySelectorAll<HTMLElement>("div");
+    cards.forEach((card) => {
+      const st = card.style;
+      if (!st || (st.animation || "").indexOf("cIn") === -1) return;
+      if (!cardBloqueado(card, bloqueadas)) return;
+      if (card.querySelector(':scope > [data-aw-lock="1"]')) return;
+      if (!st.position || st.position === "static") card.style.position = "relative";
+      const ov = doc!.createElement("div");
+      ov.setAttribute("data-aw-lock", "1");
+      ov.style.cssText =
+        "position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;background:rgba(8,8,10,0.62);border:1px solid rgba(251,191,36,0.55);cursor:not-allowed;color:#fbbf24;font:700 10px Inter,sans-serif;letter-spacing:.09em;pointer-events:auto;user-select:none";
+      ov.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>BLOQUEADO NO COMERCIAL</span>';
+      EVTS.forEach((ev) => ov.addEventListener(ev, swallow, true));
+      card.appendChild(ov);
     });
   };
 
-  const posicionar = () => {
-    if (parado) return;
-    for (const { card, ov } of pares) {
-      if (!card.isConnected) { ov.style.display = "none"; continue; }
-      const r = card.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) { ov.style.display = "none"; continue; }
-      ov.style.display = "flex";
-      ov.style.top = `${r.top}px`;
-      ov.style.left = `${r.left}px`;
-      ov.style.width = `${r.width}px`;
-      ov.style.height = `${r.height}px`;
-    }
-    raf = requestAnimationFrame(posicionar);
-  };
-
-  const start = () => {
-    let doc: Document | null = null;
-    try { doc = iframe.contentDocument; } catch { return; }
+  const bind = () => {
+    try { doc = iframe.contentDocument; } catch { doc = null; }
     if (!doc || !doc.body) return;
-    scan();
+    // addEventListener é idempotente (mesma fn + capture) — pode chamar de novo.
+    EVTS.forEach((ev) => doc!.addEventListener(ev, onEvt, true));
+    marcar();
     if (!obs) {
-      obs = new MutationObserver(() => scan());
+      obs = new MutationObserver(() => marcar());
       obs.observe(doc.body, { childList: true, subtree: true });
     }
   };
 
-  iframe.addEventListener("load", start);
-  start();
-  raf = requestAnimationFrame(posicionar);
-  // Backstop: o React monta o drill-down depois; reaplica por alguns segundos.
+  iframe.addEventListener("load", bind);
+  bind();
   iv = setInterval(() => {
-    scan();
+    bind();
     if (++tries > 40) { if (iv) clearInterval(iv); iv = null; }
   }, 500);
 
   return () => {
-    parado = true;
-    iframe.removeEventListener("load", start);
+    iframe.removeEventListener("load", bind);
     if (obs) obs.disconnect();
     if (iv) clearInterval(iv);
-    if (raf) cancelAnimationFrame(raf);
-    for (const { card, ov } of pares) {
-      try { delete card.dataset.awLocked; } catch { /* noop */ }
-      ov.remove();
-    }
-    pares.length = 0;
+    try {
+      if (doc) {
+        EVTS.forEach((ev) => doc!.removeEventListener(ev, onEvt, true));
+        doc.querySelectorAll('[data-aw-lock="1"]').forEach((o) => o.remove());
+      }
+    } catch { /* iframe pode ter navegado; ignora */ }
   };
 }
