@@ -346,7 +346,7 @@ function selecionarProduto(id) {
       // Kit: prefilla state.dadosKit, leva pra escolha de modalidade.
       state.dadosKit = inicializarDadosKit();
       state.dadosKit.cliente_nome_completo = c.nome_completo || '';
-      state.dadosKit.cliente_genero = c.genero || 'masculino';
+      state.dadosKit.cliente_genero = c.genero || '';
       state.dadosKit.cliente_nacionalidade = c.nacionalidade || (c.genero === 'feminino' ? 'brasileira' : 'brasileiro');
       state.dadosKit.cliente_estado_civil = c.estado_civil || '';
       state.dadosKit.cliente_profissao = c.profissao || '';
