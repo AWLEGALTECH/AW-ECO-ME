@@ -6,14 +6,12 @@
 // que o Finder renderiza é idêntico à `rubrica` salva na análise comercial — o
 // casamento por nome (normalizado, exato) é confiável.
 //
-// Duas camadas:
-//  1. ENFORCEMENT (garantido): delegação de clique em fase de captura no
-//     document do iframe. A cada clique, sobe do alvo até o card; se o card for
-//     de um desconto bloqueado, cancela o evento. Independe de achar o card
-//     antes e sobrevive a qualquer re-render do React.
-//  2. VISUAL: cadeado como FILHO do card (position:absolute; inset:0 — sem
-//     `fixed`, imune a ancestral com transform). Se o React tirar no re-render,
-//     o MutationObserver recoloca.
+// Camadas:
+//  1. ENFORCEMENT: delegação de clique em captura no document do iframe. Se o
+//     clique cair num card bloqueado (e fora do cadeado), cancela.
+//  2. VISUAL/AÇÃO: cadeado grande e centralizado como FILHO do card
+//     (position:absolute; inset:0). Clicar no cadeado NÃO seleciona o desconto —
+//     chama de volta o ECO (onLockClick) pra abrir o diálogo de desbloqueio.
 //
 // Defensivo: se a estrutura não bater, não faz nada — nunca quebra o Finder.
 
@@ -27,8 +25,6 @@ function primeiroTextoDireto(el: Element): string {
   return "";
 }
 
-// Sobe até o card da categoria. Âncora: animação de entrada `cIn` (exclusiva dos
-// cards); com fallback pra cursor:pointer + borderRadius 12px.
 function acharCard(el: Element | null): HTMLElement | null {
   let cur = el as HTMLElement | null;
   for (let i = 0; i < 14 && cur; i++) {
@@ -42,20 +38,24 @@ function acharCard(el: Element | null): HTMLElement | null {
   return null;
 }
 
-// O card tem, entre seus descendentes, um título cujo texto direto é o label da
-// categoria. Casa contra o conjunto de bloqueadas.
-function cardBloqueado(card: Element, bloqueadas: Set<string>): boolean {
+// Retorna a chave normalizada da rubrica bloqueada que esse card representa
+// (ou null). O título tem, como texto direto, o label da categoria.
+function rubricaBloqueadaDoCard(card: Element, bloqueadas: Set<string>): string | null {
   const els = card.querySelectorAll("div,span");
   for (const el of Array.from(els)) {
     const t = norm(primeiroTextoDireto(el));
-    if (t && bloqueadas.has(t)) return true;
+    if (t && bloqueadas.has(t)) return t;
   }
-  return false;
+  return null;
 }
 
 const EVTS = ["click", "mousedown", "pointerdown", "mouseup", "pointerup", "dblclick"] as const;
 
-export function instalarBloqueioFinder(iframe: HTMLIFrameElement | null, bloqueadas: Set<string>): () => void {
+export function instalarBloqueioFinder(
+  iframe: HTMLIFrameElement | null,
+  bloqueadas: Set<string>,
+  onLockClick?: (rubricaNorm: string) => void,
+): () => void {
   if (!iframe || bloqueadas.size === 0) return () => {};
 
   let doc: Document | null = null;
@@ -69,29 +69,36 @@ export function instalarBloqueioFinder(iframe: HTMLIFrameElement | null, bloquea
     (e as any).stopImmediatePropagation?.();
   };
 
-  // Camada 1 — enforcement por delegação.
+  // Camada 1 — enforcement por delegação (ignora cliques no próprio cadeado,
+  // que têm tratamento próprio pra abrir o diálogo).
   const onEvt = (e: Event) => {
-    const card = acharCard(e.target as Element);
-    if (card && cardBloqueado(card, bloqueadas)) swallow(e);
+    const alvo = e.target as Element | null;
+    if (alvo && alvo.closest && alvo.closest('[data-aw-lock="1"]')) return;
+    const card = acharCard(alvo);
+    if (card && rubricaBloqueadaDoCard(card, bloqueadas)) swallow(e);
   };
 
-  // Camada 2 — overlay visual filho do card.
   const marcar = () => {
     if (!doc) return;
     const cards = doc.querySelectorAll<HTMLElement>("div");
     cards.forEach((card) => {
       const st = card.style;
       if (!st || (st.animation || "").indexOf("cIn") === -1) return;
-      if (!cardBloqueado(card, bloqueadas)) return;
+      const key = rubricaBloqueadaDoCard(card, bloqueadas);
+      if (!key) return;
       if (card.querySelector(':scope > [data-aw-lock="1"]')) return;
       if (!st.position || st.position === "static") card.style.position = "relative";
       const ov = doc!.createElement("div");
       ov.setAttribute("data-aw-lock", "1");
       ov.style.cssText =
-        "position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;background:rgba(8,8,10,0.62);border:1px solid rgba(251,191,36,0.55);cursor:not-allowed;color:#fbbf24;font:700 10px Inter,sans-serif;letter-spacing:.09em;pointer-events:auto;user-select:none";
+        "position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:12px;background:rgba(8,8,10,0.78);border:1.5px solid rgba(251,191,36,0.6);cursor:pointer;color:#fbbf24;font-family:Inter,sans-serif;text-align:center;user-select:none;pointer-events:auto";
       ov.innerHTML =
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>BLOQUEADO NO COMERCIAL</span>';
-      EVTS.forEach((ev) => ov.addEventListener(ev, swallow, true));
+        '<div style="display:flex;align-items:center;gap:7px;font-weight:800;font-size:12.5px;letter-spacing:.07em"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>BLOQUEADO NA ANÁLISE COMERCIAL</div><span style="font-weight:500;font-size:10.5px;color:rgba(251,191,36,.75)">clique para desbloquear</span>';
+      // clique abre o diálogo no ECO; demais eventos só engolem.
+      ov.addEventListener("click", (e) => { swallow(e); onLockClick?.(key); }, true);
+      (["mousedown", "pointerdown", "mouseup", "pointerup", "dblclick"] as const).forEach((ev) =>
+        ov.addEventListener(ev, swallow, true),
+      );
       card.appendChild(ov);
     });
   };
@@ -99,7 +106,6 @@ export function instalarBloqueioFinder(iframe: HTMLIFrameElement | null, bloquea
   const bind = () => {
     try { doc = iframe.contentDocument; } catch { doc = null; }
     if (!doc || !doc.body) return;
-    // addEventListener é idempotente (mesma fn + capture) — pode chamar de novo.
     EVTS.forEach((ev) => doc!.addEventListener(ev, onEvt, true));
     marcar();
     if (!obs) {
