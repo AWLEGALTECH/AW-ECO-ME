@@ -51,11 +51,13 @@ function rubricaBloqueadaDoCard(card: Element, bloqueadas: Set<string>): string 
 
 const EVTS = ["click", "mousedown", "pointerdown", "mouseup", "pointerup", "dblclick"] as const;
 
+export interface BloqueioReport { docOk: boolean; cards: number; travados: number }
+
 export function instalarBloqueioFinder(
   iframe: HTMLIFrameElement | null,
   bloqueadas: Set<string>,
   onLockClick?: (rubricaNorm: string) => void,
-  onReport?: (travados: number) => void,
+  onReport?: (info: BloqueioReport) => void,
 ): () => void {
   if (!iframe || bloqueadas.size === 0) return () => {};
 
@@ -104,12 +106,22 @@ export function instalarBloqueioFinder(
       );
       card.appendChild(ov);
     });
-    if (doc) onReport?.(doc.querySelectorAll('[data-aw-lock="1"]').length);
+    report();
+  };
+
+  const report = () => {
+    if (!onReport) return;
+    let d: Document | null = null;
+    try { d = iframe.contentDocument; } catch { d = null; }
+    if (!d) { onReport({ docOk: false, cards: 0, travados: 0 }); return; }
+    const cards = Array.from(d.querySelectorAll<HTMLElement>("div"))
+      .filter((c) => c.style && c.style.cursor === "pointer" && c.style.borderRadius === "12px").length;
+    onReport({ docOk: true, cards, travados: d.querySelectorAll('[data-aw-lock="1"]').length });
   };
 
   const bind = () => {
     try { doc = iframe.contentDocument; } catch { doc = null; }
-    if (!doc || !doc.body) return;
+    if (!doc || !doc.body) { report(); return; }
     EVTS.forEach((ev) => doc!.addEventListener(ev, onEvt, true));
     marcar();
     if (!obs) {
