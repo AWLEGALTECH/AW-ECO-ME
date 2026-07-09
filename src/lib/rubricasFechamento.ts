@@ -2,12 +2,12 @@
 // As chaves batem com os cabeçalhos da planilha original e com o array
 // `rubricas` da tabela `fechamentos`. Cada rubrica marcada = 1 ação.
 export const RUBRICAS_FECHAMENTO: { key: string; label: string }[] = [
-  { key: "RMC",                  label: "RMC — Reserva de Margem Consignável" },
-  { key: "RCC",                  label: "RCC — Reserva de Cartão de Crédito" },
+  { key: "RMC",                  label: "RMC - Reserva de Margem Consignável" },
+  { key: "RCC",                  label: "RCC - Reserva de Cartão de Crédito" },
   { key: "CESTA",                label: "Cesta de tarifas" },
   { key: "MORA",                 label: "Mora" },
   { key: "JUROS_ABUSIVOS",       label: "Juros abusivos" },
-  { key: "MORA_CEL",             label: "Mora — celular" },
+  { key: "MORA_CEL",             label: "Mora - celular" },
   { key: "SVA",                  label: "SVA" },
   { key: "ANP",                  label: "ANP" },
   { key: "TIT_CAP",              label: "Título de capitalização" },
@@ -29,10 +29,10 @@ export const RUBRICAS_FECHAMENTO: { key: string; label: string }[] = [
   { key: "REORG_FINAN",          label: "Reorganização financeira" },
   { key: "OP_VENCIDAS",          label: "Operações vencidas" },
   { key: "REG_LANCAMENTO",       label: "Registro de lançamento" },
-  { key: "MORA_OPERAÇÕES",       label: "Mora — operações" },
+  { key: "MORA_OPERAÇÕES",       label: "Mora - operações" },
   { key: "ENCARGOS_DESCOBERTOS", label: "Encargos por descoberto" },
   { key: "ENCARGOS_EXCESSO",     label: "Encargos em excesso" },
-  { key: "MORA_C_CREDITO",       label: "Mora — cartão de crédito" },
+  { key: "MORA_C_CREDITO",       label: "Mora - cartão de crédito" },
 ];
 
 export const RUBRICA_LABEL: Record<string, string> = Object.fromEntries(
