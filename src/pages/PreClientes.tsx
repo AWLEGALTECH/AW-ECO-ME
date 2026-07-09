@@ -587,6 +587,9 @@ export default function PreClientes() {
       // tambem em clientes.requerido pra aparecer no card da esteira.
       requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
       precisa_analise_extratos: true,
+      // Snapshot da análise comercial (rubricas bloqueadas/ajuizáveis) pra
+      // travar os descontos descartados na análise primária da esteira.
+      analise_comercial: dk?._analise_comercial ?? null,
     };
     let novoCliente: any = null;
     let errCli: any = null;
