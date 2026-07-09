@@ -666,9 +666,6 @@ export default function PreClientes() {
       .eq("id", pre.id);
     setStage("pre_cliente", errPre ? { status: "error", detail: errPre.message } : { status: "done" });
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
-    // Comemoração dopaminérgica: o cliente fechou! Dispara no exato momento
-    // em que a confirmação grava no banco (independe do modal estar aberto).
-    if (!errPre) setCelebrando(pre.nome);
 
     // 4b. Comissionamento — lança um fechamento atribuído a QUEM CRIOU o
     // pré-cliente (voluntário), somando os descontos ajuizáveis (rubricas não
@@ -780,10 +777,16 @@ export default function PreClientes() {
   };
 
   const fecharProgresso = () => {
+    // Ao fechar o modal de progresso: se o cadastro foi confirmado com sucesso,
+    // dispara a comemoração AGORA (com o modal já saindo da frente), pra o
+    // funcionário ver o confete. É o clique no botão verde "Concluir".
+    const nome = confirmandoPre?.nome;
+    const sucesso = stages.pre_cliente.status === "done";
     setConfirmandoPre(null);
     setStages(STAGES_INICIAIS);
     setOrganizeResult(null);
     setLiveProgress(null);
+    if (sucesso && nome) setCelebrando(nome);
   };
 
   // Voluntários presentes no conjunto atual (pro dropdown de filtro)
