@@ -78,13 +78,37 @@ function toRegra(mes: string, row: any): Regra {
 }
 /**
  * Faixa especial vigente é INDIVIDUAL: cada pessoa passa pra faixa especial
- * quando as PRÓPRIAS ações do mês ultrapassam o limite (e o admin ativou a
- * faixa naquele mês). Ex.: base R$5/ação até 20; da 21ª em diante vale R$6.
+ * quando os PRÓPRIOS descontos do mês ultrapassam o limite (e a faixa está
+ * ativa). Ex.: base R$5/desconto até 20; do 21º em diante vale R$6.
  */
 function especialAtivoPara(acoes: number, r: Regra) {
   if (!r.especial_ativo || r.valor_especial <= 0) return false;
   const lim = r.especial_limite ?? 0;
   return acoes > lim;
+}
+
+// Meta + bônus + faixa especial PRÓPRIA de uma pessoa no mês.
+interface MetaUser {
+  meta: number;
+  bonus: number;
+  especialAtivo: boolean;
+  valorEspecial: number;
+  especialLimite: number | null;
+}
+/**
+ * Regra vigente pra uma pessoa: se ela tem faixa especial PRÓPRIA ativa,
+ * sobrepõe a faixa especial geral do mês; senão, usa a geral. O valor base
+ * é sempre o do mês (não é individualizado). Retorna também se a faixa em
+ * vigor é individual (pra sinalizar na UI).
+ */
+function regraDoFoco(regraMes: Regra, mu?: MetaUser): { regra: Regra; individual: boolean } {
+  if (mu && mu.especialAtivo && mu.valorEspecial > 0) {
+    return {
+      regra: { ...regraMes, especial_ativo: true, valor_especial: mu.valorEspecial, especial_limite: mu.especialLimite ?? 0 },
+      individual: true,
+    };
+  }
+  return { regra: regraMes, individual: false };
 }
 /** Valor por ação vigente (R$): base ou especial, conforme a faixa. */
 function valorAcaoVigente(acoes: number, r: Regra) {
@@ -198,9 +222,15 @@ export default function Fechamentos() {
     return toRegra(mesAtivo, rows.find((r) => r.mes === mesAtivo));
   }, [regrasRes.data, mesAtivo]);
   const metasMap = useMemo(() => {
-    const m: Record<string, { meta: number; bonus: number }> = {};
+    const m: Record<string, MetaUser> = {};
     const rows = Array.isArray(metasRes.data) ? metasRes.data : [];
-    for (const r of rows) if (r.mes === mesAtivo) m[r.user_id] = { meta: Number(r.meta) || 0, bonus: Number(r.bonus) || 0 };
+    for (const r of rows) if (r.mes === mesAtivo) m[r.user_id] = {
+      meta: Number(r.meta) || 0,
+      bonus: Number(r.bonus) || 0,
+      especialAtivo: !!r.especial_ativo,
+      valorEspecial: Number(r.valor_especial) || 0,
+      especialLimite: r.especial_limite == null ? null : Number(r.especial_limite),
+    };
     return m;
   }, [metasRes.data, mesAtivo]);
 
@@ -224,9 +254,11 @@ export default function Fechamentos() {
   const focoAcoes = focoId ? acoesDe[focoId] || 0 : 0;
   const focoMeta = focoId ? metasMap[focoId]?.meta || 0 : 0;
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
-  const focoEspecialAtivo = especialAtivoPara(focoAcoes, regra);
-  const focoValorAcao = valorAcaoVigente(focoAcoes, regra);
-  const focoComissao = comissaoDe(focoAcoes, regra, focoBonus);
+  // Regra vigente pro foco: faixa especial individual sobrepõe a geral do mês.
+  const { regra: focoRegra, individual: focoEspecialIndividual } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
+  const focoEspecialAtivo = especialAtivoPara(focoAcoes, focoRegra);
+  const focoValorAcao = valorAcaoVigente(focoAcoes, focoRegra);
+  const focoComissao = comissaoDe(focoAcoes, focoRegra, focoBonus);
 
   // Nº de pessoas da equipe com ao menos 1 ação no mês
   const pessoasContribuindo = useMemo(
@@ -325,11 +357,19 @@ export default function Fechamentos() {
 
           {/* Quadro individual (user comum sempre; admin quando escolhe pessoa) */}
           {focoId && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
-              <CardValorAcao regra={regra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
-              <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
-            </div>
+            <>
+              <RegraDinamicaBanner
+                regra={focoRegra}
+                acoes={focoAcoes}
+                individual={focoEspecialIndividual}
+                nome={focoNome}
+              />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
+                <CardValorAcao regra={focoRegra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
+                <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
+              </div>
+            </>
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -563,6 +603,64 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
   );
 }
 
+/* Banner gamificado: expõe a REGRA & DINÂMICA do mês pro funcionário — base,
+   gatilho da faixa especial e progresso até desbloquear, sinalizando se a
+   faixa em vigor é individual ou geral. */
+function RegraDinamicaBanner({ regra, acoes, individual, nome }: { regra: Regra; acoes: number; individual: boolean; nome: string | null }) {
+  const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
+  const lim = regra.especial_limite ?? 0;
+  const alvo = lim + 1;
+  const desbloqueado = especialAtivoPara(acoes, regra);
+  const faltam = temEspecial && !desbloqueado ? Math.max(0, alvo - acoes) : 0;
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border p-5 ${desbloqueado ? "border-amber-400/50 bg-gradient-to-br from-amber-400/15 to-amber-400/5 fech-glow" : "border-primary/25 bg-gradient-to-br from-primary/10 to-transparent"}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${desbloqueado ? "bg-amber-400/20" : "bg-primary/15"}`}>
+            {desbloqueado ? <Flame className="h-5 w-5 text-amber-400" /> : <Sparkles className="h-5 w-5 text-primary" />}
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold">Regra &amp; dinâmica do mês</p>
+            {nome && <p className="text-xs text-muted-foreground">Placar de {primeiroNome(nome)}</p>}
+          </div>
+        </div>
+        {temEspecial && (
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full border ${individual ? "border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-300" : "border-primary/30 bg-primary/10 text-primary"}`}>
+            {individual ? <><User className="h-3 w-3" /> Faixa individual</> : <><Users className="h-3 w-3" /> Faixa geral do mês</>}
+          </span>
+        )}
+      </div>
+
+      {/* Narrativa da regra */}
+      <div className="mt-4 space-y-1 text-sm leading-relaxed">
+        <p>
+          Base: cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>
+          {temEspecial ? <> — até o <strong className="text-foreground">{intBR(lim)}º</strong>.</> : "."}
+        </p>
+        {temEspecial && (
+          <p className={desbloqueado ? "text-amber-300" : "text-foreground/90"}>
+            Do <strong>{intBR(alvo)}º desconto</strong> em diante, cada um passa a valer <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
+          </p>
+        )}
+      </div>
+
+      {temEspecial ? (
+        <div className="mt-3 space-y-1.5">
+          <Barra value={acoes} max={alvo} className={desbloqueado ? "bg-gradient-to-r from-amber-400 to-amber-500" : "bg-gradient-to-r from-primary/70 to-primary"} />
+          <p className={`text-[12px] font-medium ${desbloqueado ? "text-amber-300" : "text-muted-foreground"}`}>
+            {desbloqueado
+              ? `Faixa especial ATIVA — cada desconto agora vale ${brl(regra.valor_especial)}.`
+              : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> {faltam === 1 ? "desconto" : "descontos"} pra desbloquear {brl(regra.valor_especial)}/desconto.</>}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-3 text-[12px] text-muted-foreground">Sem faixa especial neste mês — cada desconto vale {brl(regra.valor_base)} do início ao fim.</p>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────── Novo fechamento ─────────────────────── */
 function NovoFechamentoDialog({
   open, onClose, clientes, equipe, defaultUserId, onSaved,
@@ -698,7 +796,7 @@ function RegrasDialog({
   mes: string;
   regra: Regra;
   equipe: Membro[];
-  metasMap: Record<string, { meta: number; bonus: number }>;
+  metasMap: Record<string, MetaUser>;
   onSaved: () => void;
 }) {
   const [valorBase, setValorBase] = useState("");
@@ -707,7 +805,8 @@ function RegrasDialog({
   const [espLimite, setEspLimite] = useState("");
   const [metaGeral, setMetaGeral] = useState("");
   const [bonus, setBonus] = useState("");
-  const [metas, setMetas] = useState<Record<string, { meta: string; bonus: string }>>({});
+  type MetaForm = { meta: string; bonus: string; espAtivo: boolean; espLimite: string; valorEsp: string };
+  const [metas, setMetas] = useState<Record<string, MetaForm>>({});
   const [saving, setSaving] = useState(false);
 
   // Recarrega os campos toda vez que abrir/trocar de mês
@@ -719,13 +818,22 @@ function RegrasDialog({
     setEspLimite(regra.especial_limite == null ? "" : String(regra.especial_limite));
     setMetaGeral(regra.meta_geral ? String(regra.meta_geral) : "");
     setBonus(regra.bonus ? String(regra.bonus) : "");
-    const m: Record<string, { meta: string; bonus: string }> = {};
+    const m: Record<string, MetaForm> = {};
     for (const mem of equipe) {
       const cur = metasMap[mem.id];
-      m[mem.id] = { meta: cur?.meta ? String(cur.meta) : "", bonus: cur?.bonus ? String(cur.bonus) : "" };
+      m[mem.id] = {
+        meta: cur?.meta ? String(cur.meta) : "",
+        bonus: cur?.bonus ? String(cur.bonus) : "",
+        espAtivo: !!cur?.especialAtivo,
+        espLimite: cur?.especialLimite == null ? "" : String(cur.especialLimite),
+        valorEsp: cur?.valorEspecial ? String(cur.valorEspecial) : "",
+      };
     }
     setMetas(m);
   }, [open, mes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchMeta = (id: string, patch: Partial<MetaForm>) =>
+    setMetas((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
 
   const num = (s: string) => parseFloat(String(s).replace(/\./g, "").replace(",", ".")) || 0;
   const int = (s: string) => Math.max(0, Math.round(num(s)));
@@ -745,13 +853,20 @@ function RegrasDialog({
     }, { onConflict: "mes" });
     if (e1) { setSaving(false); toast.error("Erro ao salvar regras: " + e1.message); return; }
 
-    const rows = equipe.map((m) => ({
-      mes,
-      user_id: m.id,
-      meta: int(metas[m.id]?.meta || ""),
-      bonus: num(metas[m.id]?.bonus || ""),
-      updated_at: new Date().toISOString(),
-    }));
+    const rows = equipe.map((m) => {
+      const f = metas[m.id];
+      const espOn = !!f?.espAtivo;
+      return {
+        mes,
+        user_id: m.id,
+        meta: int(f?.meta || ""),
+        bonus: num(f?.bonus || ""),
+        especial_ativo: espOn,
+        valor_especial: espOn ? num(f?.valorEsp || "") : 0,
+        especial_limite: espOn ? (f?.espLimite?.trim() ? int(f.espLimite) : null) : null,
+        updated_at: new Date().toISOString(),
+      };
+    });
     if (rows.length) {
       const { error: e2 } = await supabase.from("fechamentos_metas" as any).upsert(rows, { onConflict: "mes,user_id" });
       if (e2) { setSaving(false); toast.error("Erro ao salvar metas: " + e2.message); return; }
@@ -776,12 +891,13 @@ function RegrasDialog({
             <CampoNum label="Bônus geral (R$)" value={bonus} onChange={setBonus} />
           </div>
 
-          {/* Faixa especial — liga/desliga por mês */}
+          {/* Faixa especial GERAL — vale pra todo mundo que não tiver a própria */}
           <div className={`rounded-lg border p-3 ${especialAtivo ? "border-amber-400/40 bg-amber-400/5" : "border-border"}`}>
             <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
               <Checkbox checked={especialAtivo} onCheckedChange={() => setEspecialAtivo((v) => !v)} />
               <Flame className={`h-4 w-4 ${especialAtivo ? "text-amber-400" : "text-muted-foreground"}`} />
-              Ativar faixa especial neste mês
+              Faixa especial GERAL neste mês
+              <span className="text-[10px] font-normal text-muted-foreground">· vale pra todos (quem tiver a própria sobrepõe)</span>
             </label>
             {especialAtivo && (
               <>
@@ -798,35 +914,60 @@ function RegrasDialog({
           </div>
 
           <div>
-            <Label className="flex items-center gap-1.5 mb-2"><Target className="h-4 w-4" /> Metas e bônus por pessoa</Label>
-            <div className="rounded-lg border border-border divide-y divide-border/60">
+            <Label className="flex items-center gap-1.5 mb-2"><Target className="h-4 w-4" /> Metas, bônus e faixa especial por pessoa</Label>
+            <div className="space-y-2">
               {equipe.length === 0 ? (
-                <p className="text-xs text-muted-foreground p-3">Nenhum membro na equipe.</p>
-              ) : equipe.map((m) => (
-                <div key={m.id} className="flex items-center gap-3 px-3 py-2">
-                  <span className="text-sm font-medium flex-1 truncate">{m.nome || m.email}</span>
-                  <div className="w-24">
-                    <Input
-                      value={metas[m.id]?.meta || ""}
-                      onChange={(e) => setMetas((p) => ({ ...p, [m.id]: { ...p[m.id], meta: e.target.value.replace(/[^\d]/g, "") } }))}
-                      placeholder="meta"
-                      inputMode="numeric"
-                      className="h-8 text-sm tabular-nums"
-                    />
+                <p className="text-xs text-muted-foreground p-3 rounded-lg border border-border">Nenhum membro na equipe.</p>
+              ) : equipe.map((m) => {
+                const f = metas[m.id];
+                const espOn = !!f?.espAtivo;
+                return (
+                  <div key={m.id} className={`rounded-lg border p-3 ${espOn ? "border-fuchsia-400/40 bg-fuchsia-400/5" : "border-border"}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium flex-1 truncate">{m.nome || m.email}</span>
+                      <div className="w-24">
+                        <Input
+                          value={f?.meta || ""}
+                          onChange={(e) => patchMeta(m.id, { meta: e.target.value.replace(/[^\d]/g, "") })}
+                          placeholder="meta"
+                          inputMode="numeric"
+                          className="h-8 text-sm tabular-nums"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <Input
+                          value={f?.bonus || ""}
+                          onChange={(e) => patchMeta(m.id, { bonus: e.target.value.replace(/[^\d.,]/g, "") })}
+                          placeholder="bônus R$"
+                          inputMode="decimal"
+                          className="h-8 text-sm tabular-nums"
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs font-medium cursor-pointer mt-2.5">
+                      <Checkbox checked={espOn} onCheckedChange={() => patchMeta(m.id, { espAtivo: !espOn })} />
+                      <Flame className={`h-3.5 w-3.5 ${espOn ? "text-fuchsia-400" : "text-muted-foreground"}`} />
+                      Faixa especial própria
+                      <span className="text-[10px] font-normal text-muted-foreground">· sobrepõe a geral só pra {primeiroNome(m.nome)}</span>
+                    </label>
+                    {espOn && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 mt-2.5">
+                          <CampoNum label="Base vale até (descontos)" value={f?.espLimite || ""} onChange={(v) => patchMeta(m.id, { espLimite: v })} placeholder="ex: 20" />
+                          <CampoNum label="Valor especial (R$/desconto)" value={f?.valorEsp || ""} onChange={(v) => patchMeta(m.id, { valorEsp: v })} placeholder="ex: 6" />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-2">
+                          Pra {primeiroNome(m.nome)}: cada desconto vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(f?.espLimite || "") || 0}</strong>. Do{" "}
+                          <strong>{(int(f?.espLimite || "") || 0) + 1}º</strong> em diante, vale <strong>{brl(num(f?.valorEsp || ""))}</strong>.
+                        </p>
+                      </>
+                    )}
                   </div>
-                  <div className="w-28">
-                    <Input
-                      value={metas[m.id]?.bonus || ""}
-                      onChange={(e) => setMetas((p) => ({ ...p, [m.id]: { ...p[m.id], bonus: e.target.value.replace(/[^\d.,]/g, "") } }))}
-                      placeholder="bônus R$"
-                      inputMode="decimal"
-                      className="h-8 text-sm tabular-nums"
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1.5">Coluna 1 = meta de descontos · Coluna 2 = bônus individual (R$) somado à comissão.</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">Campos: meta de descontos · bônus individual (R$) · faixa especial própria (opcional, sobrepõe a geral).</p>
           </div>
         </div>
 
