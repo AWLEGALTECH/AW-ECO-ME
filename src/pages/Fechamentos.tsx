@@ -602,18 +602,20 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
    corrida (base + faixa especial), com barra de progresso viva pra motivar. */
 function BarraViva({ value, max, desbloqueado }: { value: number; max: number; desbloqueado: boolean }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : value > 0 ? 100 : 0;
-  const grad = desbloqueado
-    ? "from-amber-400 via-yellow-300 to-amber-500"
-    : "from-violet-500 via-fuchsia-500 to-violet-500";
-  const glow = desbloqueado
-    ? ["0 0 6px 0 hsla(38,92%,55%,0.5)", "0 0 22px 3px hsla(45,95%,60%,0.95)", "0 0 6px 0 hsla(38,92%,55%,0.5)"]
-    : ["0 0 6px 0 hsla(280,70%,60%,0.5)", "0 0 24px 4px hsla(295,85%,65%,0.95)", "0 0 6px 0 hsla(280,70%,60%,0.5)"];
+  // Cor segue o tema (--primary). No estado desbloqueado, âmbar fixo — sinal
+  // "quente" da faixa especial, igual aos outros cards. O glow pulsa mantendo
+  // a cor constante numa var (--glow), então o framer interpola só os px.
+  const fill = desbloqueado
+    ? "linear-gradient(90deg, hsl(45 95% 58%), hsl(38 92% 50%), hsl(45 95% 58%))"
+    : "linear-gradient(90deg, hsl(var(--primary) / 0.6), hsl(var(--primary)), hsl(var(--primary) / 0.6))";
+  const glowColor = desbloqueado ? "hsl(45 95% 58% / 0.9)" : "hsl(var(--primary) / 0.85)";
   return (
     <div className="relative h-3.5 rounded-full bg-black/30 overflow-hidden">
       <motion.div
-        className={`fech-shimmer relative h-full rounded-full bg-gradient-to-r ${grad} overflow-hidden`}
+        className="fech-shimmer relative h-full rounded-full overflow-hidden"
+        style={{ background: fill, ["--glow" as any]: glowColor }}
         initial={{ width: 0 }}
-        animate={{ width: `${pct}%`, boxShadow: glow }}
+        animate={{ width: `${pct}%`, boxShadow: ["0 0 6px 0 var(--glow)", "0 0 22px 3px var(--glow)", "0 0 6px 0 var(--glow)"] }}
         transition={{ width: { duration: 1, ease: "easeOut" }, boxShadow: { duration: 1.5, repeat: Infinity, ease: "easeInOut" } }}
       />
     </div>
