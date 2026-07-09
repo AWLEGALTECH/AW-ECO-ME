@@ -1,6 +1,7 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
 import { FinderCienciaComercial } from "@/components/FinderCienciaComercial";
 
@@ -20,15 +21,36 @@ export function PersistentFinderHost() {
   const visivel = location.pathname.startsWith("/finder");
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Fallback resiliente: se a sessão veio sem driveUrl (corrida ao iniciar),
+  // busca a pasta do Drive direto no cadastro do cliente. Assim o botão "Pasta
+  // no Drive" e a opção de puxar docs via Drive nunca somem quando o cliente
+  // tem pasta cadastrada.
+  const [driveCliente, setDriveCliente] = useState<{ url: string | null; id: string | null }>({ url: null, id: null });
+  useEffect(() => {
+    if (!active?.clienteId) { setDriveCliente({ url: null, id: null }); return; }
+    let cancel = false;
+    (async () => {
+      const { data } = await supabase.from("clientes").select("drive_folder_url").eq("id", active.clienteId).single();
+      if (cancel) return;
+      const url = (data as any)?.drive_folder_url || null;
+      const id = url?.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+      setDriveCliente({ url, id });
+    })();
+    return () => { cancel = true; };
+  }, [active?.clienteId]);
+
+  const driveUrl = active?.driveUrl || driveCliente.url;
+  const driveFolderId = active?.driveFolderId || driveCliente.id;
+
   const iframeSrc = useMemo(() => {
     if (!active) return null;
     const qs = new URLSearchParams();
     qs.set("cliente", active.clienteId);
     qs.set("nome", active.nome);
-    if (active.driveUrl) qs.set("drive", active.driveUrl);
-    if (active.driveFolderId) qs.set("drive_folder_id", active.driveFolderId);
+    if (driveUrl) qs.set("drive", driveUrl);
+    if (driveFolderId) qs.set("drive_folder_id", driveFolderId);
     return `/finder-app/index.html?${qs.toString()}`;
-  }, [active]);
+  }, [active, driveUrl, driveFolderId]);
 
   if (!active || !iframeSrc) return null;
 
@@ -69,9 +91,9 @@ export function PersistentFinderHost() {
             </span>
           </div>
           <div className="shrink-0 flex items-center gap-2">
-            {active.driveUrl && (
+            {driveUrl && (
               <a
-                href={active.driveUrl}
+                href={driveUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-card/80 hover:bg-card border border-border/70 hover:border-primary/60 text-xs font-medium transition-colors"
