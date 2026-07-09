@@ -606,8 +606,8 @@ function onKitReuRemove(idx) {
    pré-cliente + lançamento automático em Fechamentos) já entende sem mudanças.
    ========================================================================= */
 const DESCONTOS_KIT = [
-  'RMC — Reserva de Margem Consignável',
-  'RCC — Reserva de Cartão de Crédito',
+  'RMC - Reserva de Margem Consignável',
+  'RCC - Reserva de Cartão de Crédito',
   'Cesta de tarifas',
   'Mora',
   'Juros abusivos',
