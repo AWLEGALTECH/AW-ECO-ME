@@ -147,7 +147,7 @@ function Barra({ value, max, className }: { value: number; max: number; classNam
 
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Fechamentos() {
-  useEffect(() => { document.title = `Fechamentos — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Fechamentos · ${appConfig.name}`; }, []);
   const { user, profile, isAdmin } = useAuth();
 
   const [mesAtivo, setMesAtivo] = useState(hojeMes());

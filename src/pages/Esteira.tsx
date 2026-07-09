@@ -92,7 +92,7 @@ const fmtData = (iso: string | null): string => {
 };
 
 export default function Esteira() {
-  useEffect(() => { document.title = `Esteira Pré-Protocolo — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Esteira Pré-Protocolo · ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const navigate = useNavigate();
   const [inicioCliente, setInicioCliente] = useState<ClienteEsteira | null>(null);

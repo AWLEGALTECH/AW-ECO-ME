@@ -322,7 +322,7 @@ export default function ClienteDetail() {
   }, [id]);
 
   useEffect(() => {
-    document.title = "Cliente — AW ECO ME";
+    document.title = "Cliente · AW ECO ME";
     load();
   }, [load]);
 

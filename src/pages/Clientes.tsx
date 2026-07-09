@@ -81,7 +81,7 @@ type Stage = "form" | "drive";
 
 export default function Clientes() {
   const { profile } = useAuth();
-  useEffect(() => { document.title = "Clientes — AW ECO ME"; }, []);
+  useEffect(() => { document.title = "Clientes · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [search, setSearch] = useState("");

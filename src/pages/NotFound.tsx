@@ -2,7 +2,7 @@ import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 
 const NotFound = () => {
-  useEffect(() => { document.title = "Página não encontrada — AW ECO"; }, []);
+  useEffect(() => { document.title = "Página não encontrada · AW ECO"; }, []);
   const location = useLocation();
 
   useEffect(() => {

@@ -102,7 +102,7 @@ const fmtFollowUp = (iso: string): string => {
 };
 
 export default function Prospeccao() {
-  useEffect(() => { document.title = `Prospecção — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Prospecção · ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const [inserirOpen, setInserirOpen] = useState(false);
   const [mensagensOpen, setMensagensOpen] = useState(false);

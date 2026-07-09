@@ -58,7 +58,7 @@ const tempoDecorrido = (iso: string | null): string => {
 };
 
 export default function Publicacoes() {
-  useEffect(() => { document.title = `Publicações — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Publicações · ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const qc = useQueryClient();
   const [filtro, setFiltro] = useState<StatusLeitura | "todas">("nao_lida");

@@ -457,7 +457,7 @@ const STATUS_META: Record<PreCliente["status"], { label: string; color: string; 
 };
 
 export default function PreClientes() {
-  useEffect(() => { document.title = `Pré-clientes — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Pré-clientes · ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const qc = useQueryClient();
   const [filtroStatus, setFiltroStatus] = useState<PreCliente["status"] | "todos">("aguardando_assinatura");

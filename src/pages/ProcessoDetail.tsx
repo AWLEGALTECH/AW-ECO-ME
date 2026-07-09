@@ -95,7 +95,7 @@ export default function ProcessoDetail() {
   }, [id, isNew]);
 
   useEffect(() => {
-    document.title = isNew ? "Novo Processo — AW ECO ME" : "Processo — AW ECO ME";
+    document.title = isNew ? "Novo Processo · AW ECO ME" : "Processo · AW ECO ME";
     loadClientes();
     loadProcesso();
   }, [loadClientes, loadProcesso, isNew]);

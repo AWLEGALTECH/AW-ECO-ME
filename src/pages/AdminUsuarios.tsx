@@ -27,7 +27,7 @@ interface ProfileRow {
 interface AccessRow { user_id: string; module_key: string; }
 
 export default function AdminUsuarios() {
-  useEffect(() => { document.title = `Usuários — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Usuários · ${appConfig.name}`; }, []);
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);

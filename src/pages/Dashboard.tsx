@@ -101,7 +101,7 @@ function BarList({
 }
 
 export default function Dashboard() {
-  useEffect(() => { document.title = "Dashboard — AW ECO ME"; }, []);
+  useEffect(() => { document.title = "Dashboard · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [totalClientes, setTotalClientes] = useState(0);
