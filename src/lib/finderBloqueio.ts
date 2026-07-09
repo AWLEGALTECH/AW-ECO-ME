@@ -55,6 +55,7 @@ export function instalarBloqueioFinder(
   iframe: HTMLIFrameElement | null,
   bloqueadas: Set<string>,
   onLockClick?: (rubricaNorm: string) => void,
+  onReport?: (travados: number) => void,
 ): () => void {
   if (!iframe || bloqueadas.size === 0) return () => {};
 
@@ -80,13 +81,15 @@ export function instalarBloqueioFinder(
 
   const marcar = () => {
     if (!doc) return;
-    const cards = doc.querySelectorAll<HTMLElement>("div");
-    cards.forEach((card) => {
-      const st = card.style;
-      if (!st || (st.animation || "").indexOf("cIn") === -1) return;
-      const key = rubricaBloqueadaDoCard(card, bloqueadas);
-      if (!key) return;
+    // Ancoragem robusta: acha o TÍTULO por texto (confiável) e sobe até o card.
+    const els = doc.querySelectorAll<HTMLElement>("div,span");
+    els.forEach((el) => {
+      const key = norm(primeiroTextoDireto(el));
+      if (!key || !bloqueadas.has(key)) return;
+      const card = acharCard(el);
+      if (!card) return;
       if (card.querySelector(':scope > [data-aw-lock="1"]')) return;
+      const st = card.style;
       if (!st.position || st.position === "static") card.style.position = "relative";
       const ov = doc!.createElement("div");
       ov.setAttribute("data-aw-lock", "1");
@@ -101,6 +104,7 @@ export function instalarBloqueioFinder(
       );
       card.appendChild(ov);
     });
+    if (doc) onReport?.(doc.querySelectorAll('[data-aw-lock="1"]').length);
   };
 
   const bind = () => {
