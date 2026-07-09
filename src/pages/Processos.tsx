@@ -43,7 +43,7 @@ const fmtDate = (d: string | null) => {
 };
 
 export default function Processos() {
-  useEffect(() => { document.title = "Processos — AW ECO ME"; }, []);
+  useEffect(() => { document.title = "Processos · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [processos, setProcessos] = useState<Processo[]>([]);

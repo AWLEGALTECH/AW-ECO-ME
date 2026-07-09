@@ -35,8 +35,8 @@ export default function Finder() {
 
   useEffect(() => {
     document.title = nome
-      ? `Finder — ${nome} · ${appConfig.name}`
-      : `Finder — ${appConfig.name}`;
+      ? `Finder · ${nome} · ${appConfig.name}`
+      : `Finder · ${appConfig.name}`;
   }, [nome]);
 
   useEffect(() => {

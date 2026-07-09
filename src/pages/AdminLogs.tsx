@@ -41,7 +41,7 @@ const fmtDateTime = (iso: string) =>
 const PAGE_SIZE = 100;
 
 export default function AdminLogs() {
-  useEffect(() => { document.title = `Logs — ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Logs · ${appConfig.name}`; }, []);
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [resourceFilter, setResourceFilter] = useState<string>("all");
