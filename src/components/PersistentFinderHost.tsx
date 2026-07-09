@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
+import { FinderCienciaComercial } from "@/components/FinderCienciaComercial";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
 // esta em /finder, ele aparece sobre o Outlet com o header de contexto
@@ -98,6 +99,10 @@ export function PersistentFinderHost() {
           </div>
         </div>
       )}
+
+      {/* Ciência da análise comercial DENTRO da análise primária: mostra o que
+          foi bloqueado no comercial pra não ser reconsiderado aqui. */}
+      {visivel && <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} />}
 
       <iframe
         src={iframeSrc}
