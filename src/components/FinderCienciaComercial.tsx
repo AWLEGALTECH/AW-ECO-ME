@@ -26,6 +26,7 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   const [open, setOpen] = useState(false);
   const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
   const [criador, setCriador] = useState<string | null>(null);
+  const [travados, setTravados] = useState<number | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -65,7 +66,8 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
   useEffect(() => {
     if (!iframeRef?.current || bloqueadas.length === 0) return;
     const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
-    return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k));
+    setTravados(null);
+    return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k), (n) => setTravados(n));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analise, iframeRef?.current]);
 
@@ -100,6 +102,11 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
               </span>
             ))}
           </div>
+          {travados != null && (
+            <span className="shrink-0 text-[10px] text-amber-200/70 tabular-nums" title="descontos travados no drill-down">
+              {travados}/{bloqueadas.length} travado{travados === 1 ? "" : "s"}
+            </span>
+          )}
           <button
             onClick={() => setOpen(true)}
             className="ml-auto shrink-0 inline-flex items-center gap-1 rounded-md border border-amber-400/40 px-2 py-1 hover:bg-amber-400/15 transition-colors font-medium"
