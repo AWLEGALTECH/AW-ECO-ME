@@ -158,7 +158,7 @@ function inicializarDadosKit() {
     cliente_aw_id: '',
     analise_comercial_id: '',
     cliente_nome_completo: '',
-    cliente_genero: 'masculino',
+    cliente_genero: '',
     cliente_nacionalidade: 'brasileiro',
     cliente_estado_civil: '',
     cliente_profissao: '',
@@ -295,6 +295,7 @@ function renderKitForm(view) {
             <label class="kit-field">
               <span>Gênero</span>
               <select onchange="onKitGeneroChange(this.value)">
+                <option value="">Selecione…</option>
                 <option value="masculino" ${d.cliente_genero==='masculino'?'selected':''}>Masculino</option>
                 <option value="feminino" ${d.cliente_genero==='feminino'?'selected':''}>Feminino</option>
               </select>
@@ -553,10 +554,13 @@ function onKitChange(field, value) {
 function onKitGeneroChange(value) {
   state.dadosKit.cliente_genero = value;
   // Atualiza nacionalidade default se ainda estiver no valor anterior.
-  const novaNac = FLEXOES_GENERO[value].nacionalidade_default;
-  const nacAtual = state.dadosKit.cliente_nacionalidade;
-  if (nacAtual === 'brasileiro' || nacAtual === 'brasileira' || nacAtual === '') {
-    state.dadosKit.cliente_nacionalidade = novaNac;
+  // Se voltar pra "Selecione…" (vazio), não mexe na nacionalidade.
+  const flex = FLEXOES_GENERO[value];
+  if (flex) {
+    const nacAtual = state.dadosKit.cliente_nacionalidade;
+    if (nacAtual === 'brasileiro' || nacAtual === 'brasileira' || nacAtual === '') {
+      state.dadosKit.cliente_nacionalidade = flex.nacionalidade_default;
+    }
   }
   render();
 }
@@ -811,6 +815,7 @@ function validarDadosKit() {
   // contrato omite o bloco do RG inteiro (mantém só o CPF).
   const obrigatorios = [
     ['cliente_nome_completo', 'Nome do cliente'],
+    ['cliente_genero', 'Gênero'],
     ['cliente_estado_civil', 'Estado civil'],
     ['cliente_profissao', 'Profissão'],
     ['cliente_cpf', 'CPF'],
