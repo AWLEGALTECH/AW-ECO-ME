@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Lock, ClipboardList } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DescontosAnaliseComercial, rubricasDaAnalise } from "@/components/DescontosAnaliseComercial";
+import { instalarBloqueioFinder } from "@/lib/finderBloqueio";
+
+const normRub = (s: string) =>
+  (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
 const MOTIVO_LABEL: Record<string, string> = {
   ja_ajuizada: "já ajuizada",
@@ -12,7 +16,7 @@ const MOTIVO_LABEL: Record<string, string> = {
 // Dá CIÊNCIA, dentro do Finder da análise primária (modo cliente-vinculado),
 // do que foi decidido na análise comercial daquele cliente. Faixa fixa com os
 // descontos BLOQUEADOS (não reconsiderar) + painel completo ao clicar.
-export function FinderCienciaComercial({ clienteId, nome }: { clienteId: string; nome: string }) {
+export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { clienteId: string; nome: string; iframeRef?: RefObject<HTMLIFrameElement> }) {
   const [analise, setAnalise] = useState<any | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -30,8 +34,17 @@ export function FinderCienciaComercial({ clienteId, nome }: { clienteId: string;
   }, [clienteId]);
 
   const rubricas = rubricasDaAnalise(analise);
-  if (rubricas.length === 0) return null;
   const bloqueadas = rubricas.filter((r) => r.bloqueada);
+
+  // Bloqueio REAL das linhas bloqueadas no drill-down do Finder (mesma origem).
+  useEffect(() => {
+    if (!iframeRef?.current || bloqueadas.length === 0) return;
+    const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
+    return instalarBloqueioFinder(iframeRef.current, set);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analise, iframeRef?.current]);
+
+  if (rubricas.length === 0) return null;
 
   return (
     <>
