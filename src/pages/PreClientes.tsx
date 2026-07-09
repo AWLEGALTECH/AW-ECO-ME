@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -490,6 +491,7 @@ export default function PreClientes() {
     organize:    { status: "pending" },
   };
   const [confirmandoPre, setConfirmandoPre] = useState<PreCliente | null>(null);
+  const [celebrando, setCelebrando] = useState<string | null>(null);
   const [modalMinimizado, setModalMinimizado] = useState(false);
   const [stages, setStages] = useState<StagesMap>(STAGES_INICIAIS);
   const [organizeResult, setOrganizeResult] = useState<OrganizeResult | null>(null);
@@ -664,6 +666,9 @@ export default function PreClientes() {
       .eq("id", pre.id);
     setStage("pre_cliente", errPre ? { status: "error", detail: errPre.message } : { status: "done" });
     qc.invalidateQueries({ queryKey: ["pre_clientes"] });
+    // Comemoração dopaminérgica: o cliente fechou! Dispara no exato momento
+    // em que a confirmação grava no banco (independe do modal estar aberto).
+    if (!errPre) setCelebrando(pre.nome);
 
     // 4b. Comissionamento — lança um fechamento atribuído a QUEM CRIOU o
     // pré-cliente (voluntário), somando os descontos ajuizáveis (rubricas não
@@ -1143,6 +1148,8 @@ export default function PreClientes() {
       />
 
       <PreClienteExpandido pre={expandido} onClose={() => setExpandido(null)} />
+
+      <Celebracao nome={celebrando} onDone={() => setCelebrando(null)} />
     </div>
   );
 }
@@ -1233,5 +1240,96 @@ function PreClienteExpandido({ pre, onClose }: { pre: PreCliente | null; onClose
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Comemoração dopaminérgica ao fechar um cliente ─────────────────────────
+// Overlay em tela cheia (pointer-events: none, não bloqueia nada) com uma
+// chuva de confete + selo "Cliente fechado!". Auto-some em ~2.6s. Serve pra
+// dar aquele reforço positivo no time toda vez que um cadastro é confirmado.
+const CONFETTI_CORES = ["#22c55e", "#3b82f6", "#eab308", "#ec4899", "#a855f7", "#f97316", "#06b6d4", "#ef4444"];
+
+function Celebracao({ nome, onDone }: { nome: string | null; onDone: () => void }) {
+  useEffect(() => {
+    if (!nome) return;
+    const t = setTimeout(onDone, 2600);
+    return () => clearTimeout(t);
+  }, [nome, onDone]);
+
+  const pecas = useMemo(
+    () =>
+      Array.from({ length: 90 }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        delay: Math.random() * 0.35,
+        dur: 1.9 + Math.random() * 1.3,
+        cor: CONFETTI_CORES[i % CONFETTI_CORES.length],
+        rot: (Math.random() - 0.5) * 720,
+        drift: (Math.random() - 0.5) * 240,
+        size: 6 + Math.random() * 9,
+        round: Math.random() > 0.5,
+      })),
+    // recria a cada comemoração (nome muda)
+    [nome], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  return (
+    <AnimatePresence>
+      {nome && (
+        <motion.div
+          className="fixed inset-0 z-[100] pointer-events-none overflow-hidden"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {pecas.map((p) => (
+            <motion.div
+              key={p.id}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: `${p.x}vw`,
+                width: p.size,
+                height: p.size * (p.round ? 1 : 0.5),
+                background: p.cor,
+                borderRadius: p.round ? "50%" : 2,
+              }}
+              initial={{ y: "-12vh", opacity: 0, rotate: 0 }}
+              animate={{ y: "112vh", x: p.drift, opacity: [0, 1, 1, 0.9, 0], rotate: p.rot }}
+              transition={{ duration: p.dur, delay: p.delay, ease: "easeIn" }}
+            />
+          ))}
+
+          <div className="absolute inset-0 flex items-center justify-center">
+            <motion.div
+              className="flex flex-col items-center gap-3"
+              initial={{ scale: 0.4, opacity: 0 }}
+              animate={{ scale: [0.4, 1.18, 1], opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              transition={{ duration: 0.55, ease: [0.34, 1.56, 0.64, 1] }}
+            >
+              <motion.div
+                className="h-24 w-24 rounded-full bg-emerald-500/15 border-2 border-emerald-400 flex items-center justify-center"
+                animate={{
+                  boxShadow: [
+                    "0 0 0px rgba(16,185,129,0)",
+                    "0 0 48px rgba(16,185,129,0.7)",
+                    "0 0 0px rgba(16,185,129,0)",
+                  ],
+                }}
+                transition={{ duration: 1.3, repeat: 1 }}
+              >
+                <CheckCircle2 className="h-12 w-12 text-emerald-400" />
+              </motion.div>
+              <div className="text-center">
+                <div className="text-3xl font-black tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
+                  Cliente fechado!
+                </div>
+                <div className="text-sm text-emerald-300 font-semibold mt-1 uppercase tracking-wide">{nome}</div>
+              </div>
+            </motion.div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
