@@ -99,7 +99,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     setAnalise((a) => {
       if (!a) return a;
       const rubricas = a.rubricas.map((r, idx) =>
-        idx === i ? (r.bloqueada ? { ...r, bloqueada: false, motivo: null } : { ...r, bloqueada: true, motivo: r.motivo || "cliente_nao_quer" }) : r
+        idx === i ? (r.bloqueada ? { ...r, bloqueada: false, motivo: null } : { ...r, bloqueada: true, motivo: r.motivo || "ja_ajuizada" }) : r
       );
       return { ...a, rubricas };
     });
@@ -176,10 +176,10 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
                   <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>{r.rubrica}</span>
                   <span className="text-[12px] tabular-nums text-muted-foreground shrink-0 w-24 text-right">{fmtBRL(r.valor)}</span>
                   {r.bloqueada ? (
-                    <select value={r.motivo || "cliente_nao_quer"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
+                    <select value={r.motivo || "ja_ajuizada"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
                       className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200">
-                      <option value="cliente_nao_quer">Cliente não quer</option>
                       <option value="ja_ajuizada">Já ajuizada</option>
+                      <option value="cliente_nao_quer">Cliente não quer</option>
                     </select>
                   ) : <span className="shrink-0 w-[104px]" />}
                 </div>
