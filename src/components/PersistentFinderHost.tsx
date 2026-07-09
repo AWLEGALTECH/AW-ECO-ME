@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { useFinderSession } from "@/hooks/useFinderSession";
@@ -18,6 +18,7 @@ export function PersistentFinderHost() {
   const location = useLocation();
   const navigate = useNavigate();
   const visivel = location.pathname.startsWith("/finder");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = useMemo(() => {
     if (!active) return null;
@@ -102,9 +103,10 @@ export function PersistentFinderHost() {
 
       {/* Ciência da análise comercial DENTRO da análise primária: mostra o que
           foi bloqueado no comercial pra não ser reconsiderado aqui. */}
-      {visivel && <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} />}
+      {visivel && <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} iframeRef={iframeRef} />}
 
       <iframe
+        ref={iframeRef}
         src={iframeSrc}
         title="AW Finder"
         className="flex-1 w-full border-0"
