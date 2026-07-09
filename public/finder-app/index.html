@@ -111,7 +111,29 @@
         });
       })();
     </script>
-    <script type="module" crossorigin src="/finder-app/assets/index-DYBOv29h.js?v=2"></script>
+    <!-- Esconde o badge "Motor Ativo" do header SEM tocar no bundle compilado.
+         Observa o DOM e some com o elemento assim que ele renderiza/re-renderiza. -->
+    <script>
+      (function () {
+        function hideMotorAtivo() {
+          var nodes = document.querySelectorAll('header *');
+          for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            if (el.childElementCount <= 1 && el.textContent && el.textContent.trim() === 'Motor Ativo') {
+              el.style.display = 'none';
+            }
+          }
+        }
+        var obs = new MutationObserver(hideMotorAtivo);
+        function start() {
+          hideMotorAtivo();
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+        else start();
+      })();
+    </script>
+    <script type="module" crossorigin src="/finder-app/assets/index-DYBOv29h.js"></script>
   </head>
   <body>
     <div id="root"></div>
