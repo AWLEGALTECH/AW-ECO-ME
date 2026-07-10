@@ -3018,6 +3018,14 @@ select:has(option[value=""]:checked) {
   --accent-l: 55%;
 }
 
+/* VERMELHO — vermelho vivo. Mesmo padrao: so troca de tonalidade,
+   todas as derivadas (--violet, --violet-glow, etc) recalculam sozinhas. */
+[data-theme="vermelho"] {
+  --accent-h: 0;
+  --accent-s: 78%;
+  --accent-l: 58%;
+}
+
 /* SPACE GRAY — prateado surfista, baixa saturacao com vies azul-grafite */
 [data-theme="space-gray"] {
   --accent-h: 215;

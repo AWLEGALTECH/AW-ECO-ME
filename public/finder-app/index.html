@@ -36,6 +36,11 @@
         --accent-s: 75%;
         --accent-l: 55%;
       }
+      [data-theme="vermelho"] {
+        --accent-h: 0;
+        --accent-s: 78%;
+        --accent-l: 58%;
+      }
       /* Space gray precisa override explicito das --violet-* porque o bundle JS
          hardcoda saturacao/luminancia em 60%/60%, anulando o --accent-s/l prateado.
          !important pra vencer o <style> que o React injeta em runtime no head. */
@@ -100,7 +105,7 @@
       (function(){
         try {
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+          if (p === 'midnight-blue' || p === 'vermelho' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
         } catch(e) {}
         window.addEventListener('message', function(e){
           if (e.origin !== window.location.origin) return;
