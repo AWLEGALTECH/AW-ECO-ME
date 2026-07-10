@@ -799,12 +799,13 @@ export default function PreClientes() {
     return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [preClientes]);
 
-  const preClientesFiltrados = useMemo(() => {
+  // Base do período/busca SEM o filtro de voluntário. Serve pra régua de
+  // resumo mostrar TODOS os voluntários do período (o ativo destacado), pra
+  // nunca "travar" a visão num só — o filtro fica sempre visível e reversível.
+  const preClientesBaseVol = useMemo(() => {
     const [ini, fim] = rangeDoPeriodo(periodo, customIni, customFim);
     const q = busca.trim().toLowerCase();
     return (preClientes ?? []).filter((p) => {
-      // voluntário
-      if (voluntario !== "todos" && voluntarioDe(p) !== voluntario) return false;
       // período (pela data de referência: fechamento/cancelamento/criação)
       if (ini || fim) {
         const d = new Date(refDate(p));
@@ -819,17 +820,33 @@ export default function PreClientes() {
       }
       return true;
     });
-  }, [preClientes, periodo, customIni, customFim, voluntario, busca]);
+  }, [preClientes, periodo, customIni, customFim, busca]);
 
-  // Resumo do período filtrado
+  const preClientesFiltrados = useMemo(() => {
+    if (voluntario === "todos") return preClientesBaseVol;
+    return preClientesBaseVol.filter((p) => voluntarioDe(p) === voluntario);
+  }, [preClientesBaseVol, voluntario]);
+
+  // Auto-cura: se o voluntário selecionado nao existe mais no conjunto atual
+  // (ex.: troca de aba de status onde ele nao tem registros), volta pra "todos"
+  // em vez de deixar a tela presa/vazia.
+  useEffect(() => {
+    if (voluntario !== "todos" && !voluntarios.includes(voluntario)) {
+      setVoluntario("todos");
+    }
+  }, [voluntarios, voluntario]);
+
+  // Resumo do período. A contagem (n) reflete o que esta sendo exibido (com
+  // filtro de voluntário), mas os chips por voluntário saem da base SEM esse
+  // filtro — assim todos aparecem e da pra trocar/limpar direto na régua.
   const resumo = useMemo(() => {
     const porVol: Record<string, number> = {};
-    for (const p of preClientesFiltrados) {
+    for (const p of preClientesBaseVol) {
       const v = voluntarioDe(p) || "sem voluntário";
       porVol[v] = (porVol[v] || 0) + 1;
     }
     return { n: preClientesFiltrados.length, porVol: Object.entries(porVol).sort((a, b) => b[1] - a[1]) };
-  }, [preClientesFiltrados]);
+  }, [preClientesBaseVol, preClientesFiltrados.length]);
 
   // Histórico agrupado por mês (mais recente primeiro)
   const grupos = useMemo(() => {
@@ -1074,7 +1091,7 @@ export default function PreClientes() {
       </div>
 
       {/* Régua de resumo do período filtrado */}
-      {!isLoading && preClientesFiltrados.length > 0 && (
+      {!isLoading && preClientesBaseVol.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/40 p-3">
           <div className="flex items-center gap-2 pr-3 border-r border-border">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
@@ -1089,6 +1106,16 @@ export default function PreClientes() {
           </div>
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            {/* Chip "Todos" — sempre presente pra limpar o filtro de voluntário. */}
+            <button
+              onClick={() => setVoluntario("todos")}
+              className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                voluntario === "todos" ? "bg-primary/15 text-primary border-primary/30" : "border-border text-muted-foreground hover:border-primary/40"
+              }`}
+              title="Mostrar todos os voluntários"
+            >
+              Todos
+            </button>
             {resumo.porVol.map(([v, n]) => (
               <button
                 key={v}
@@ -1096,7 +1123,7 @@ export default function PreClientes() {
                 className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
                   voluntario === v ? "bg-primary/15 text-primary border-primary/30" : "border-border text-muted-foreground hover:border-primary/40"
                 }`}
-                title="Filtrar por este voluntário"
+                title={voluntario === v ? "Clique pra limpar o filtro" : `Filtrar só por ${v}`}
               >
                 {v} <span className="tabular-nums font-semibold">{n}</span>
               </button>
