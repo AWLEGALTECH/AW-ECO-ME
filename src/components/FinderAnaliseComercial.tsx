@@ -17,7 +17,7 @@ import { Lock, Unlock, Save, ClipboardList, Loader2, Check } from "lucide-react"
 // nativo do AW-FINDER (que já tem o botão "não ajuizável" embutido) for
 // copiado pra public/finder-app/, este componente pode ser removido.
 
-type Motivo = "cliente_nao_quer" | "ja_ajuizada";
+type Motivo = "cliente_nao_quer" | "ja_ajuizada" | "rubrica_invalida";
 
 interface RubricaCaptada { rubrica: string; valor: number | null; bloqueada: boolean; motivo: Motivo | null; }
 interface AnaliseCaptada { nome: string; rubricas: RubricaCaptada[]; fileName: string | null; }
@@ -182,6 +182,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
                       className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200">
                       <option value="ja_ajuizada">Já ajuizada</option>
                       <option value="cliente_nao_quer">Cliente não quer</option>
+                      <option value="rubrica_invalida">Rúbrica inválida</option>
                     </select>
                   ) : <span className="shrink-0 w-[104px]" />}
                 </div>
