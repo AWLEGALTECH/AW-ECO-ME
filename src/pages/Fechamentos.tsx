@@ -978,7 +978,7 @@ function RegrasDialog({
                 const f = metas[m.id];
                 const espOn = !!f?.espAtivo;
                 return (
-                  <div key={m.id} className={`rounded-lg border p-3 ${espOn ? "border-fuchsia-400/40 bg-fuchsia-400/5" : "border-border"}`}>
+                  <div key={m.id} className={`rounded-lg border p-3 ${espOn ? "border-amber-400/40 bg-amber-400/5" : "border-border"}`}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium flex-1 truncate">{m.nome || m.email}</span>
                       <div className="w-24">
@@ -1003,7 +1003,7 @@ function RegrasDialog({
 
                     <label className="flex items-center gap-2 text-xs font-medium cursor-pointer mt-2.5">
                       <Checkbox checked={espOn} onCheckedChange={() => patchMeta(m.id, { espAtivo: !espOn })} />
-                      <Flame className={`h-3.5 w-3.5 ${espOn ? "text-fuchsia-400" : "text-muted-foreground"}`} />
+                      <Flame className={`h-3.5 w-3.5 ${espOn ? "text-amber-400" : "text-muted-foreground"}`} />
                       Faixa especial própria
                       <span className="text-[10px] font-normal text-muted-foreground">· sobrepõe a geral só pra {primeiroNome(m.nome)}</span>
                     </label>

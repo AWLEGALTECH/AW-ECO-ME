@@ -158,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         children
       ) : (
         <div className="flex items-center justify-center min-h-screen bg-background">
-          <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
         </div>
       )}
     </AuthContext.Provider>
