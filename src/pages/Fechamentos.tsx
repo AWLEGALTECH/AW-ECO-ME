@@ -145,8 +145,8 @@ function Barra({ value, max, className }: { value: number; max: number; classNam
   );
 }
 
-/* Data grande no topo/centro — foco no dia da semana e, abaixo, dia/mês/ano.
-   Sem hora. Reavalia a cada minuto pra virar o dia sozinho à meia-noite. */
+/* Data grande no topo/centro — dia/mês/ano em destaque (maior) e, abaixo, o
+   dia da semana. Sem hora. Reavalia a cada minuto pra virar o dia à meia-noite. */
 function RelogioTopo() {
   const [now, setNow] = useState<Date>(() => new Date());
   useEffect(() => {
@@ -157,8 +157,8 @@ function RelogioTopo() {
   const diaMesAno = now.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
   return (
     <div className="text-center select-none">
-      <div className="text-4xl sm:text-5xl font-black tracking-tight leading-none capitalize">{diaSemana}</div>
-      <div className="mt-1.5 text-base sm:text-lg font-medium text-muted-foreground capitalize">{diaMesAno}</div>
+      <div className="text-4xl sm:text-5xl font-black tracking-tight leading-none capitalize">{diaMesAno}</div>
+      <div className="mt-1.5 text-base sm:text-lg font-medium text-muted-foreground capitalize">{diaSemana}</div>
     </div>
   );
 }
