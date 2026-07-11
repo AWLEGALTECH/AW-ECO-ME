@@ -145,19 +145,20 @@ function Barra({ value, max, className }: { value: number; max: number; classNam
   );
 }
 
-/* Relógio grande no topo/centro — dia da semana, dia/mês/ano e hora ao vivo. */
+/* Data grande no topo/centro — foco no dia da semana e, abaixo, dia/mês/ano.
+   Sem hora. Reavalia a cada minuto pra virar o dia sozinho à meia-noite. */
 function RelogioTopo() {
   const [now, setNow] = useState<Date>(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
   }, []);
-  const dataExt = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const hora = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const diaSemana = now.toLocaleDateString("pt-BR", { weekday: "long" });
+  const diaMesAno = now.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
   return (
     <div className="text-center select-none">
-      <div className="text-5xl sm:text-6xl font-black tabular-nums tracking-tight leading-none">{hora}</div>
-      <div className="mt-1.5 text-sm sm:text-base font-medium text-muted-foreground capitalize">{dataExt}</div>
+      <div className="text-4xl sm:text-5xl font-black tracking-tight leading-none capitalize">{diaSemana}</div>
+      <div className="mt-1.5 text-base sm:text-lg font-medium text-muted-foreground capitalize">{diaMesAno}</div>
     </div>
   );
 }
