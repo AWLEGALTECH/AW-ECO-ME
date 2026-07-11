@@ -16,6 +16,7 @@ const normRub = (s: string) =>
 const MOTIVO_LABEL: Record<string, string> = {
   ja_ajuizada: "já ajuizada",
   cliente_nao_quer: "cliente não quer",
+  rubrica_invalida: "rúbrica inválida",
 };
 
 // Dá CIÊNCIA + BLOQUEIO REAL, dentro do Finder da análise primária, das rubricas

@@ -189,6 +189,22 @@ export function UserPanel() {
             </button>
 
             <button
+              onClick={() => setPalette("vermelho")}
+              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
+                palette === "vermelho"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
+                  : "border-border/60 hover:border-primary/40 bg-card/40"
+              }`}
+              title="Vermelho — vermelho vivo"
+            >
+              {palette === "vermelho" && (
+                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
+              )}
+              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(0 85% 60%), hsl(352 75% 42%))" }} />
+              <span className="text-[11px] font-medium">Vermelho</span>
+            </button>
+
+            <button
               onClick={() => setPalette("space-gray")}
               className={`relative rounded-xl border-2 p-3 text-left transition-all ${
                 palette === "space-gray"

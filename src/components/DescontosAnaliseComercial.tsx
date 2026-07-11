@@ -11,6 +11,7 @@ interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean;
 const MOTIVO_LABEL: Record<string, string> = {
   ja_ajuizada: "Já ajuizada",
   cliente_nao_quer: "Cliente não quer",
+  rubrica_invalida: "Rúbrica inválida",
 };
 
 const fmtBRL = (v: number | null) =>

@@ -145,6 +145,23 @@ function Barra({ value, max, className }: { value: number; max: number; classNam
   );
 }
 
+/* Relógio grande no topo/centro — dia da semana, dia/mês/ano e hora ao vivo. */
+function RelogioTopo() {
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const dataExt = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const hora = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="text-center select-none">
+      <div className="text-5xl sm:text-6xl font-black tabular-nums tracking-tight leading-none">{hora}</div>
+      <div className="mt-1.5 text-sm sm:text-base font-medium text-muted-foreground capitalize">{dataExt}</div>
+    </div>
+  );
+}
+
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Fechamentos() {
   useEffect(() => { document.title = `Fechamentos · ${appConfig.name}`; }, []);
@@ -293,7 +310,7 @@ export default function Fechamentos() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-amber-400" /> Fechamentos &amp; Comissões
+            <Trophy className="h-5 w-5 text-primary" /> Fechamentos &amp; Comissões
           </h1>
           <p className="text-sm text-muted-foreground">Placar do mês, metas e comissão por multiplicador.</p>
         </div>
@@ -308,6 +325,9 @@ export default function Fechamentos() {
           </Button>
         </div>
       </div>
+
+      {/* Relógio grande — data e hora do dia, no topo e centro */}
+      <RelogioTopo />
 
       {/* Navegação de mês — estilo calendário, foco no mês atual */}
       <div className="flex items-center justify-center gap-2">
@@ -347,24 +367,26 @@ export default function Fechamentos() {
       ) : (
         <>
           {/* ── DASHBOARD ── */}
-          {/* GERAL (prioridade) */}
-          <CardGeral
-            acoes={teamAcoes}
-            meta={regra.meta_geral}
-            pessoas={pessoasContribuindo}
-            mes={mesAtivo}
-          />
-
-          {/* Quadro individual (user comum sempre; admin quando escolhe pessoa) */}
-          {focoId && (
+          {focoId ? (
+            /* Aba individual: a META INDIVIDUAL vira o card grande (ocupa o
+               espaço do quadro geral) e a DINÂMICA DO MÊS desce pra linha dos
+               3 cards. A barra geral NÃO aparece aqui — só na aba Geral. */
             <>
-              <RegraDinamicaBanner regra={focoRegra} acoes={focoAcoes} />
+              <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
+                <CardDinamica regra={focoRegra} acoes={focoAcoes} />
                 <CardValorAcao regra={focoRegra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
                 <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
               </div>
             </>
+          ) : (
+            /* Aba geral (só admin): quadro geral grande, com a barra geral. */
+            <CardGeral
+              acoes={teamAcoes}
+              meta={regra.meta_geral}
+              pessoas={pessoasContribuindo}
+              mes={mesAtivo}
+            />
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -380,7 +402,11 @@ export default function Fechamentos() {
               ) : listaMes.map((f) => (
                 <div key={f.id} className="rounded-xl border border-border bg-card/40 p-3 group">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5" title={equipe.find((m) => m.id === f.user_id)?.nome || f.responsavel || "Voluntário"}>
+                        <User className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold">{f.cliente_nome}</span>
                         {!focoId && f.user_id && (
@@ -406,6 +432,7 @@ export default function Fechamentos() {
                         <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
                         <span className="text-muted-foreground/50">·</span>
                         {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "desconto ajuizável" : "descontos ajuizáveis"}
+                      </div>
                       </div>
                     </div>
                     <button
@@ -527,22 +554,48 @@ function CardGeral({ acoes, meta, pessoas, mes }: { acoes: number; meta: number;
   );
 }
 
+/* Card GRANDE da meta individual — na aba individual ocupa o espaço/tamanho
+   que o quadro geral tem na aba Geral (mesma prominência: número gigante,
+   % à direita e barra ao pé). */
 function CardIndividual({ nome, acoes, meta }: { nome: string | null; acoes: number; meta: number }) {
   const bateu = meta > 0 && acoes >= meta;
   const pct = meta > 0 ? Math.min(100, Math.round((acoes / meta) * 100)) : 0;
   return (
-    <div className={`rounded-2xl border p-4 ${bateu ? "border-emerald-500/40 bg-emerald-500/10" : "border-border bg-card/50"}`}>
-      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold flex items-center gap-1.5">
-        <Target className="h-3.5 w-3.5" /> Meta individual{nome ? ` · ${primeiroNome(nome)}` : ""}
-      </p>
-      <div className="mt-1 flex items-end gap-1.5">
-        <CountUp value={acoes} className="text-4xl font-black tabular-nums leading-none" />
-        <span className="text-sm text-muted-foreground mb-0.5">{meta > 0 ? <>/ {intBR(meta)}</> : "descontos ajuizáveis"}</span>
+    <div className={`relative overflow-hidden rounded-2xl border p-5 ${bateu ? "border-emerald-500/40 bg-emerald-500/10" : "border-primary/30 bg-gradient-to-br from-primary/15 to-primary/5"}`}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
+            <Target className="h-3.5 w-3.5" /> Meta individual{nome ? ` · ${primeiroNome(nome)}` : ""}
+          </p>
+          <div className="mt-1 flex items-end gap-2">
+            <CountUp value={acoes} className="text-5xl font-black tabular-nums leading-none" />
+            <span className="text-lg text-muted-foreground mb-1">
+              {meta > 0 ? <>/ {intBR(meta)} descontos ajuizáveis</> : "descontos ajuizáveis"}
+            </span>
+          </div>
+          {meta > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {bateu ? "meta batida" : `faltam ${intBR(Math.max(0, meta - acoes))} pra bater a meta`}
+            </p>
+          )}
+        </div>
+        {bateu ? (
+          <div className="text-right">
+            <div className="inline-flex items-center gap-1.5 text-emerald-400">
+              <Check className="h-5 w-5" strokeWidth={3} />
+              <span className="text-xs font-bold uppercase tracking-wide">Meta batida</span>
+            </div>
+          </div>
+        ) : meta > 0 ? (
+          <div className="text-right">
+            <div className="text-3xl font-black text-primary tabular-nums"><CountUp value={pct} format={(n) => `${Math.round(n)}%`} /></div>
+            <span className="text-[11px] text-muted-foreground uppercase tracking-wide">da meta individual</span>
+          </div>
+        ) : null}
       </div>
       {meta > 0 && (
-        <div className="mt-3 space-y-1">
-          <Barra value={acoes} max={meta} className={bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-violet-500 to-fuchsia-500"} />
-          <p className="text-[11px] text-right text-muted-foreground">{bateu ? "meta batida" : `${pct}% · faltam ${intBR(Math.max(0, meta - acoes))}`}</p>
+        <div className="mt-4">
+          <Barra value={acoes} max={meta} className={bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-primary/70 to-primary"} />
         </div>
       )}
     </div>
@@ -622,7 +675,9 @@ function BarraViva({ value, max, desbloqueado }: { value: number; max: number; d
   );
 }
 
-function RegraDinamicaBanner({ regra, acoes }: { regra: Regra; acoes: number }) {
+/* Dinâmica do mês, versão compacta — cabe na linha dos 3 cards (individual).
+   Mantém a frase corrida da regra e a barra viva gamificada. */
+function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
   const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
   const lim = regra.especial_limite ?? 0;
   const alvo = lim + 1;
@@ -630,34 +685,30 @@ function RegraDinamicaBanner({ regra, acoes }: { regra: Regra; acoes: number }) 
   const faltam = temEspecial && !desbloqueado ? Math.max(0, alvo - acoes) : 0;
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-5 ${desbloqueado ? "border-amber-400/50 bg-gradient-to-br from-amber-400/15 to-amber-400/5 fech-glow" : "border-primary/25 bg-gradient-to-br from-primary/10 to-transparent"}`}>
-      <div className="flex items-center gap-2.5">
-        <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${desbloqueado ? "bg-amber-400/20" : "bg-primary/15"}`}>
-          {desbloqueado ? <Flame className="h-5 w-5 text-amber-400" /> : <Sparkles className="h-5 w-5 text-primary" />}
-        </div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold">Dinâmica do mês</p>
-      </div>
+    <div className={`relative overflow-hidden rounded-2xl border p-4 ${desbloqueado ? "border-amber-400/50 bg-amber-400/10 fech-glow" : "border-border bg-card/50"}`}>
+      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold flex items-center gap-1.5">
+        {desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />} Dinâmica do mês
+      </p>
 
-      {/* Regra como uma frase corrida (citação direta), sem truncar */}
-      <p className="mt-4 text-base leading-relaxed">
+      <p className="mt-2 text-[13px] leading-snug">
         {temEspecial ? (
           <>
-            Cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>, e a partir do{" "}
-            <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{intBR(alvo)}º</strong>, cada um passa a valer{" "}
+            Cada desconto vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>; do{" "}
+            <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{intBR(alvo)}º</strong> em diante,{" "}
             <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
           </>
         ) : (
-          <>Cada desconto fechado vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
+          <>Cada desconto vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
         )}
       </p>
 
       {temEspecial && (
-        <div className="mt-3.5 space-y-1.5">
+        <div className="mt-3 space-y-1.5">
           <BarraViva value={acoes} max={alvo} desbloqueado={desbloqueado} />
-          <p className={`text-[12px] font-medium ${desbloqueado ? "text-amber-300" : "text-muted-foreground"}`}>
+          <p className={`text-[11px] font-medium ${desbloqueado ? "text-amber-300" : "text-muted-foreground"}`}>
             {desbloqueado
-              ? `Faixa especial ATIVA — cada desconto agora vale ${brl(regra.valor_especial)}.`
-              : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> {faltam === 1 ? "desconto" : "descontos"} pra desbloquear {brl(regra.valor_especial)}/desconto.</>}
+              ? "Faixa especial ativa"
+              : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> pra {brl(regra.valor_especial)}/desconto</>}
           </p>
         </div>
       )}
