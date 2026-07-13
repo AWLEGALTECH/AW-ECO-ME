@@ -15,7 +15,7 @@ function navegarPara(tela) {
       .catch(e => console.warn('[writer] falha salvando cliente:', e));
   }
   state.tela = tela;
-  const semStepper = ['lobby', 'done', 'modalidade', 'pacoteKit', 'kitDescontos', 'kitDone'];
+  const semStepper = ['lobby', 'done', 'modalidade', 'pacoteKit', 'kitDescontos', 'kitPreCliente', 'kitDone'];
   document.getElementById('stepper').classList.toggle('hidden', semStepper.includes(tela));
   atualizarStepper(tela);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -32,6 +32,7 @@ function voltarTela(telaAtual) {
     modalidade: 'lobby',
     pacoteKit: 'modalidade',
     kitDescontos: 'pacoteKit',
+    kitPreCliente: 'lobby',
     kitDone: 'lobby',
     pacote1: 'lobby',
     pacote2: 'pacote1',
@@ -62,6 +63,7 @@ function render() {
     case 'selecaoCliente': renderSelecaoCliente(view); break;
     case 'pacoteKit': renderKitForm(view); break;
     case 'kitDescontos': renderKitDescontos(view); break;
+    case 'kitPreCliente': renderKitPreCliente(view); break;
     case 'kitDone': renderKitDone(view); break;
     case 'pacote1': renderPacote1(view); break;
     case 'pacote2': renderPacote2(view); break;

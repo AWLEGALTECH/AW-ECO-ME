@@ -801,7 +801,9 @@ async function gerarKitPecas() {
     state.arquivoKitProcuracao = procuracaoBlob;
 
     await animacao;
-    navegarPara('kitDone');
+    // Antes das peças, mostra a confirmação do que foi criado no sistema
+    // (pré-cliente na esteira + pasta no Drive). Dali o user segue pro kitDone.
+    navegarPara('kitPreCliente');
   } catch (err) {
     console.error('Erro gerando peças do kit:', err);
     alert('Erro ao gerar peças: ' + err.message);
@@ -1049,6 +1051,92 @@ function numeroExtenso(n) {
 /* =========================================================================
    DONE — tela final com 2 cards de download (contrato + procuração)
    ========================================================================= */
+/* Tela intermediária pós-geração: confirma que o pré-cliente foi adicionado à
+   esteira e lista tudo que foi criado junto (pasta no Drive, contrato,
+   procuração). Só depois o user segue pra tela de peças (kitDone). Os dados
+   vêm de state.preClienteInfo, alimentado por salvarPreCliente(). */
+function renderKitPreCliente(view) {
+  const info = state.preClienteInfo || {};
+  const nome = info.nome || (state.dadosKit && state.dadosKit.cliente_nome_completo) || 'Cliente';
+  const existente = info.status === 'cliente_existente';
+
+  const checkSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`;
+  const folderSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>`;
+  const spinSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="animation:kitspin 0.8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+
+  // Estado da pasta no Drive.
+  let driveLinha;
+  if (existente) {
+    driveLinha = `<div class="kitpc-item"><span class="kitpc-ic ok">${checkSvg}</span><div><div class="kitpc-t">Cliente já existente na base</div><div class="kitpc-s">Usa a pasta do Drive que o cliente já possui — dados atualizados.</div></div></div>`;
+  } else if (info.driveStatus === 'ok' && info.driveUrl) {
+    driveLinha = `<div class="kitpc-item"><span class="kitpc-ic ok">${folderSvg}</span><div><div class="kitpc-t">Pasta criada no Drive <span class="kitpc-badge">Pré-clientes</span></div><div class="kitpc-s"><a href="${escapeHtml(info.driveUrl)}" target="_blank" rel="noopener" class="kitpc-link">Abrir pasta no Drive</a></div></div></div>`;
+  } else if (info.driveStatus === 'fail') {
+    driveLinha = `<div class="kitpc-item"><span class="kitpc-ic warn">${folderSvg}</span><div><div class="kitpc-t">Pasta no Drive</div><div class="kitpc-s">Será criada quando o cadastro for confirmado na esteira.</div></div></div>`;
+  } else {
+    driveLinha = `<div class="kitpc-item"><span class="kitpc-ic pend">${spinSvg}</span><div><div class="kitpc-t">Criando pasta no Drive <span class="kitpc-badge">Pré-clientes</span></div><div class="kitpc-s">Um instante…</div></div></div>`;
+  }
+
+  let linhaPreCliente;
+  if (existente) {
+    linhaPreCliente = `<div class="kitpc-item"><span class="kitpc-ic ok">${checkSvg}</span><div><div class="kitpc-t">Dados sincronizados na base</div><div class="kitpc-s">O cadastro do cliente foi atualizado com os dados do kit.</div></div></div>`;
+  } else if (info.status === 'error') {
+    linhaPreCliente = `<div class="kitpc-item"><span class="kitpc-ic warn">${checkSvg}</span><div><div class="kitpc-t">Pré-cliente não registrado automaticamente</div><div class="kitpc-s">As peças foram geradas. Cadastre o cliente manualmente na esteira, se necessário.</div></div></div>`;
+  } else {
+    linhaPreCliente = `<div class="kitpc-item"><span class="kitpc-ic ok">${checkSvg}</span><div><div class="kitpc-t">Pré-cliente adicionado à esteira</div><div class="kitpc-s">Aguardando assinatura do contrato pra ser confirmado.</div></div></div>`;
+  }
+
+  const eyebrow = existente ? 'Cliente atualizado' : 'Pré-cliente adicionado';
+  const titulo = existente ? 'Cadastro atualizado' : 'Pré-cliente adicionado';
+
+  view.innerHTML = `
+    <style>
+      @keyframes kitspin { to { transform: rotate(360deg); } }
+      .kitpc-wrap { max-width: 560px; margin: 0 auto; text-align: center; }
+      .kitpc-seal { width: 72px; height: 72px; margin: 0 auto 1.1rem; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--violet-bg); border: 1.5px solid var(--violet-border);
+        color: var(--violet); box-shadow: 0 0 32px var(--violet-glow); }
+      .kitpc-seal svg { width: 34px; height: 34px; }
+      .kitpc-nome { font-size: 1.35rem; font-weight: 800; margin-top: .2rem; }
+      .kitpc-sub { color: var(--text-ghost, var(--text-dim)); font-size: .9rem; margin-top: .3rem; }
+      .kitpc-list { text-align: left; margin: 1.6rem 0 1.4rem; display: flex; flex-direction: column; gap: .55rem; }
+      .kitpc-item { display: flex; align-items: flex-start; gap: .7rem; padding: .8rem .9rem;
+        border: 1px solid var(--violet-border-soft); border-radius: 12px; background: var(--bg-glass, rgba(255,255,255,0.02)); }
+      .kitpc-ic { flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+      .kitpc-ic svg { width: 16px; height: 16px; }
+      .kitpc-ic.ok { background: rgba(34,197,94,0.14); color: #4ade80; }
+      .kitpc-ic.pend { background: var(--violet-bg); color: var(--violet); }
+      .kitpc-ic.warn { background: rgba(251,191,36,0.14); color: #fbbf24; }
+      .kitpc-t { font-weight: 700; font-size: .9rem; }
+      .kitpc-s { font-size: .8rem; color: var(--text-ghost, var(--text-dim)); margin-top: .12rem; }
+      .kitpc-badge { font-size: .64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+        vertical-align: middle; margin-left: .35rem; padding: .12rem .4rem; border-radius: 6px;
+        background: var(--violet-bg); color: var(--violet); border: 1px solid var(--violet-border-soft); }
+      .kitpc-link { color: var(--violet); font-weight: 600; text-decoration: none; }
+      .kitpc-link:hover { text-decoration: underline; }
+    </style>
+    <div class="done-page">
+      <div class="done-hero kitpc-wrap">
+        <div class="done-eyebrow">${eyebrow}</div>
+        <div class="kitpc-seal">${checkSvg}</div>
+        <div class="kitpc-nome">${escapeHtml(nome)}</div>
+        <div class="kitpc-sub">${escapeHtml(titulo)} no AW ECO. Confira o que foi criado:</div>
+
+        <div class="kitpc-list">
+          ${linhaPreCliente}
+          ${driveLinha}
+          <div class="kitpc-item"><span class="kitpc-ic ok">${checkSvg}</span><div><div class="kitpc-t">Contrato gerado</div><div class="kitpc-s">Pronto pra download na próxima tela.</div></div></div>
+          <div class="kitpc-item"><span class="kitpc-ic ok">${checkSvg}</span><div><div class="kitpc-t">Procuração gerada</div><div class="kitpc-s">Procuração unificada com declaração de hipossuficiência.</div></div></div>
+        </div>
+
+        <button class="btn btn-primary done-btn-primary" onclick="navegarPara('kitDone')">
+          Ver peças jurídicas
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function renderKitDone(view) {
   const p = state.produtoSelecionado || {};
   const modalidade = state.modalidadeSelecionada || {};
