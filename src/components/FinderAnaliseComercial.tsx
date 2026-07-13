@@ -19,11 +19,14 @@ import { Lock, Unlock, Save, ClipboardList, Loader2, Check } from "lucide-react"
 
 type Motivo = "cliente_nao_quer" | "ja_ajuizada" | "rubrica_invalida";
 
-interface RubricaCaptada { rubrica: string; valor: number | null; bloqueada: boolean; motivo: Motivo | null; }
+interface RubricaCaptada { rubrica: string; valor: number | null; bloqueada: boolean; motivo: Motivo | null; naoReembolsavel?: boolean; }
 interface AnaliseCaptada { nome: string; rubricas: RubricaCaptada[]; fileName: string | null; }
 
 const fmtBRL = (v: number | null) =>
   v == null ? "-" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+const normRub = (s: string) =>
+  (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
 function extrairNome(meta: any, fileName: string | null): string {
   // O bundle atual do Finder expõe o titular em `meta.clientName`; mantemos os
@@ -34,27 +37,55 @@ function extrairNome(meta: any, fileName: string | null): string {
   return "";
 }
 
+// Soma o valor de um grupo (formatos variados do bundle).
+function valorDoGrupo(g: any): number | null {
+  if (Array.isArray(g?.items)) return g.items.reduce((s: number, it: any) => s + (Number(it?.valor) || 0), 0) || null;
+  if (g?.total != null) return Number(g.total) || null;
+  if (g?.valor != null) return Number(g.valor) || null;
+  return null;
+}
+
+// Capta TODAS as rubricas que o Finder mostra no drill-down por categoria,
+// inclusive as NÃO REEMBOLSÁVEIS (ex.: Invest Fácil). O evento expõe:
+//   - `grouped`: lista COMPLETA (Object.values do agrupamento, com naoReembolsavel)
+//   - `rubricasDetalhadas`/`rubricas`: só o subconjunto reembolsável
+// Então priorizamos `grouped` e fazemos união com o resto por segurança —
+// assim tudo que aparece no drill-down pode ser bloqueado na análise comercial.
 function extrairRubricas(detail: any): RubricaCaptada[] {
-  const det = detail?.rubricasDetalhadas;
-  const out: RubricaCaptada[] = [];
-  if (Array.isArray(det)) {
-    for (const g of det) {
-      const label = g?.cat?.label || g?.label || g?.rubrica || g?.nome;
-      if (!label) continue;
-      let valor: number | null = null;
-      if (Array.isArray(g?.items)) valor = g.items.reduce((s: number, it: any) => s + (Number(it?.valor) || 0), 0) || null;
-      else if (g?.total != null) valor = Number(g.total) || null;
-      else if (g?.valor != null) valor = Number(g.valor) || null;
-      out.push({ rubrica: String(label), valor, bloqueada: false, motivo: null });
+  const byKey = new Map<string, RubricaCaptada>();
+  const add = (label: any, valor: number | null, naoReemb: boolean) => {
+    const rub = String(label ?? "").trim();
+    if (!rub) return;
+    const k = normRub(rub);
+    const prev = byKey.get(k);
+    if (prev) {
+      if (prev.valor == null && valor != null) prev.valor = valor;
+      if (naoReemb) prev.naoReembolsavel = true;
+      return;
+    }
+    byKey.set(k, { rubrica: rub, valor, bloqueada: false, motivo: null, naoReembolsavel: naoReemb });
+  };
+
+  // 1) grouped — lista completa (inclui não reembolsáveis)
+  if (Array.isArray(detail?.grouped)) {
+    for (const g of detail.grouped) {
+      add(g?.cat?.label ?? g?.label ?? g?.rubrica ?? g?.nome, valorDoGrupo(g), !!g?.cat?.naoReembolsavel);
     }
   }
-  if (out.length === 0 && Array.isArray(detail?.rubricas)) {
+  // 2) rubricasDetalhadas — reembolsáveis (união por segurança)
+  if (Array.isArray(detail?.rubricasDetalhadas)) {
+    for (const g of detail.rubricasDetalhadas) {
+      add(g?.cat?.label ?? g?.label ?? g?.rubrica ?? g?.nome, valorDoGrupo(g), false);
+    }
+  }
+  // 3) fallback final: lista simples de rubricas
+  if (byKey.size === 0 && Array.isArray(detail?.rubricas)) {
     for (const r of detail.rubricas) {
-      const label = typeof r === "string" ? r : (r?.label || r?.rubrica || r?.nome);
-      if (label) out.push({ rubrica: String(label), valor: Number(r?.valor) || null, bloqueada: false, motivo: null });
+      const label = typeof r === "string" ? r : (r?.label ?? r?.rubrica ?? r?.nome);
+      add(label, typeof r === "string" ? null : (Number(r?.valor) || null), false);
     }
   }
-  return out;
+  return [...byKey.values()];
 }
 
 export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTMLIFrameElement> }) {
@@ -99,7 +130,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     setAnalise((a) => {
       if (!a) return a;
       const rubricas = a.rubricas.map((r, idx) =>
-        idx === i ? (r.bloqueada ? { ...r, bloqueada: false, motivo: null } : { ...r, bloqueada: true, motivo: r.motivo || "ja_ajuizada" }) : r
+        idx === i ? (r.bloqueada ? { ...r, bloqueada: false, motivo: null } : { ...r, bloqueada: true, motivo: r.motivo || "rubrica_invalida" }) : r
       );
       return { ...a, rubricas };
     });
@@ -152,7 +183,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
               <ClipboardList className="h-5 w-5 text-primary" /> Gerar análise comercial
             </DialogTitle>
             <DialogDescription>
-              Marque as rubricas <strong>não ajuizáveis</strong> (cliente não quer ou já ajuizada). Fica salvo pro Writer e pra análise primária.
+              Todas as rubricas do drill-down aparecem aqui. Marque as <strong>não ajuizáveis</strong> (rúbrica inválida, já ajuizada ou cliente não quer). Fica salvo pro Writer e pra análise primária.
             </DialogDescription>
           </DialogHeader>
 
@@ -175,14 +206,19 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
                   <button onClick={() => toggleBloqueio(i)} className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/50 hover:text-foreground"}`} title={r.bloqueada ? "Liberar" : "Marcar como não ajuizável"}>
                     {r.bloqueada ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                   </button>
-                  <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>{r.rubrica}</span>
+                  <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>
+                    {r.rubrica}
+                    {r.naoReembolsavel && (
+                      <span className="ml-1.5 align-middle no-underline text-[9px] uppercase tracking-wide text-amber-300/90 bg-amber-400/10 border border-amber-400/25 rounded px-1 py-0.5">não reembolsável</span>
+                    )}
+                  </span>
                   <span className="text-[12px] tabular-nums text-muted-foreground shrink-0 w-24 text-right">{fmtBRL(r.valor)}</span>
                   {r.bloqueada ? (
-                    <select value={r.motivo || "ja_ajuizada"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
+                    <select value={r.motivo || "rubrica_invalida"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
                       className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200">
+                      <option value="rubrica_invalida">Rúbrica inválida</option>
                       <option value="ja_ajuizada">Já ajuizada</option>
                       <option value="cliente_nao_quer">Cliente não quer</option>
-                      <option value="rubrica_invalida">Rúbrica inválida</option>
                     </select>
                   ) : <span className="shrink-0 w-[104px]" />}
                 </div>
