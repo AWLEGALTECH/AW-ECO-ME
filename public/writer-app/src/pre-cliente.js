@@ -12,6 +12,14 @@ const PRE_CLIENTE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJp
 // guarda o ultimo id criado pra evitar duplicidade se o user voltar e re-entrar na done
 let _ultimoPreClienteEnviado = null;
 
+// Re-renderiza a tela "Pré-cliente adicionado" (kitPreCliente) quando o
+// estado de criação/pasta-do-Drive muda em background.
+function _refreshPreClienteTela() {
+  try {
+    if (typeof state !== 'undefined' && state.tela === 'kitPreCliente' && typeof render === 'function') render();
+  } catch (e) { /* noop */ }
+}
+
 function _hashSnapshot(payload) {
   // chave simples baseada em nome+cpf+produto pra deduplica entre re-renders
   return [
@@ -114,6 +122,15 @@ async function salvarPreCliente() {
       return { ok: true, skipped: 'fluxo_peticao' };
     }
 
+    // Estado exibido na tela "Pré-cliente adicionado" (kitPreCliente).
+    state.preClienteInfo = {
+      status: 'pending',
+      nome: state.dadosKit.cliente_nome_completo || null,
+      id: null,
+      driveUrl: null,
+      driveStatus: 'pending',
+    };
+
     // GUARD: cliente puxado da base oficial (dropdown 'Puxar da base de
     // clientes') ja existe em `clientes` e ja tem pasta no Drive. Nao cria
     // pre_cliente nem pasta nova — isso duplicaria. Mas SINCRONIZA de volta
@@ -121,6 +138,8 @@ async function salvarPreCliente() {
     // So fluxo de cliente novo (digitado manual, sem aw_id) gera pre_cliente.
     if (state.dadosKit.cliente_aw_id) {
       console.log('[pre-cliente] cliente ja existe na base (aw_id=' + state.dadosKit.cliente_aw_id + '), atualiza dados e nao cria pre-cliente/pasta');
+      state.preClienteInfo.status = 'cliente_existente';
+      _refreshPreClienteTela();
       if (typeof salvarDadosClienteDoKit === 'function') {
         salvarDadosClienteDoKit(state.dadosKit.cliente_aw_id, state.dadosKit)
           .then(r => console.log('[pre-cliente] sync cliente existente:', r))
@@ -136,6 +155,9 @@ async function salvarPreCliente() {
     const hash = _hashSnapshot(payload);
     if (_ultimoPreClienteEnviado === hash) {
       console.log('[pre-cliente] ja enviado nesta sessao (hash igual), skip');
+      // Ja foi criado antes nesta sessao — nao deixa a tela no spinner eterno.
+      if (state.preClienteInfo) { state.preClienteInfo.status = 'created'; state.preClienteInfo.driveStatus = 'fail'; }
+      _refreshPreClienteTela();
       return { ok: true, skipped: true };
     }
 
@@ -177,6 +199,8 @@ async function salvarPreCliente() {
 
     _ultimoPreClienteEnviado = hash;
     console.log('[pre-cliente] criado com sucesso (status ' + resp.status + ') id=' + preClienteId);
+    if (state.preClienteInfo) { state.preClienteInfo.status = 'created'; state.preClienteInfo.id = preClienteId; }
+    _refreshPreClienteTela();
 
     // Dispara criacao da pasta no Drive em background (fire-and-forget).
     // Se a edge function falhar (sem secrets, sem permissao), o pre_cliente
@@ -193,15 +217,26 @@ async function salvarPreCliente() {
       if (!r.ok) {
         const t = await r.text();
         console.warn('[pre-cliente] create-drive-folder falhou', r.status, t);
+        if (state.preClienteInfo) state.preClienteInfo.driveStatus = 'fail';
       } else {
         const d = await r.json();
         console.log('[pre-cliente] pasta no Drive criada:', d.folder_url);
+        if (state.preClienteInfo) { state.preClienteInfo.driveStatus = 'ok'; state.preClienteInfo.driveUrl = d.folder_url || null; }
       }
-    }).catch(e => console.warn('[pre-cliente] erro chamando create-drive-folder', e));
+      _refreshPreClienteTela();
+    }).catch(e => {
+      console.warn('[pre-cliente] erro chamando create-drive-folder', e);
+      if (state.preClienteInfo) state.preClienteInfo.driveStatus = 'fail';
+      _refreshPreClienteTela();
+    });
 
     return { ok: true, id: preClienteId };
   } catch (e) {
     console.error('[pre-cliente] excecao:', e);
+    if (state.preClienteInfo && state.preClienteInfo.status === 'pending') {
+      state.preClienteInfo.status = 'error';
+      _refreshPreClienteTela();
+    }
     return { ok: false, error: String(e) };
   }
 }
