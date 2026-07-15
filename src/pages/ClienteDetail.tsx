@@ -31,7 +31,7 @@ import {
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
-  Scale, Gavel, Building2, Hammer,
+  Scale, Gavel, Building2, Hammer, ClipboardPaste,
 } from "lucide-react";
 
 export interface Cliente {
@@ -1605,7 +1605,7 @@ export function EspelhoProtocoloDialog({
                   da tela do processo distribuído. Poupa a digitação um a um. */}
               <div className="rounded-xl border border-primary/25 bg-primary/[0.06] p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  <ClipboardPaste className="h-4 w-4 text-primary shrink-0" />
                   <p className="text-xs font-semibold text-foreground">Preencher do Projudi</p>
                   <span className="text-[10px] text-muted-foreground ml-auto text-right">cole o Ctrl+A da tela do processo</span>
                 </div>
@@ -1642,7 +1642,7 @@ export function EspelhoProtocoloDialog({
                     onClick={() => aplicarProjudi(projudiRaw)}
                     disabled={!projudiRaw.trim()}
                   >
-                    <Sparkles className="h-3 w-3 mr-1" /> Preencher campos
+                    <ClipboardPaste className="h-3 w-3 mr-1" /> Preencher campos
                   </Button>
                 </div>
               </div>
