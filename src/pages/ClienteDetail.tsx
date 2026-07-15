@@ -1142,6 +1142,86 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
 // ─── ESPELHO DE PROTOCOLO — modal multi-etapa ────────────────────────────
 type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success";
 
+// Comarca em Title Case, preservando preposições em minúsculo ("São José do
+// Egito"). Usado quando a fonte vem em CAIXA ALTA (ex.: "MANAUS").
+function tituloComarca(s: string): string {
+  const minus = new Set(["de", "da", "do", "das", "dos", "e"]);
+  return s.toLowerCase().trim().split(/\s+/).map((w, i) =>
+    i > 0 && minus.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1),
+  ).join(" ");
+}
+
+// Mapeia a "Classe Processual" do Projudi pro value do Select de procedimento.
+function mapProcedimentoProjudi(s: string): string | undefined {
+  const t = s.toLowerCase();
+  if (/juizado\s+especial\s+federal/.test(t)) return "JEF";
+  if (/juizado\s+especial\s+da\s+fazenda/.test(t)) return "JEFP";
+  if (/fazenda\s+p[úu]blica/.test(t)) return "Fazenda Pública";
+  if (/juizado\s+especial\s+c[íi]vel|\bjec\b/.test(t)) return "JEC";
+  if (/procedimento\s+comum|\bcomum\b/.test(t)) return "Comum";
+  if (/empresarial/.test(t)) return "Cível e Empresarial";
+  if (/fam[íi]lia/.test(t)) return "Família";
+  if (/criminal/.test(t)) return "Criminal";
+  if (/trabalh/.test(t)) return "Trabalhista";
+  if (/execu[çc]/.test(t)) return "Execução";
+  return undefined;
+}
+
+// Extrai os campos do "espelho" que o Projudi mostra logo após o protocolo —
+// a tela do processo distribuído que, com Ctrl+A, copia todo o cabeçalho.
+// Tolerante a tabs / espaços múltiplos: cada campo é buscado pelo seu rótulo.
+export function parseProjudiEspelho(raw: string): {
+  numero?: string;
+  valor?: string;
+  comarca?: string;
+  localTramite?: string;
+  procedimento?: string;
+} {
+  const txt = (raw || "").replace(/\r/g, "");
+  const out: {
+    numero?: string; valor?: string; comarca?: string;
+    localTramite?: string; procedimento?: string;
+  } = {};
+
+  // Número CNJ: 0000000-00.0000.0.00.0000
+  const mNum = txt.match(/\b(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})\b/);
+  if (mNum) out.numero = mNum[1];
+
+  // Valor da causa: "Valor da Causa  R$ 55.970,00"
+  const mVal = txt.match(/Valor\s+da\s+Causa\s*:?\s*R?\$?\s*([\d.]+,\d{2}|\d[\d.]*)/i);
+  if (mVal) out.valor = mVal[1].trim();
+
+  // Juízo (local de trâmite): "Juízo  16ª Vara ...". Não confundir com "Juiz:"
+  // (nome do magistrado) — o \o final de "Juízo" já separa os dois.
+  const mJuizo = txt.match(/Ju[íi]zo\s*:?\s*\t*\s*([^\n]+)/i);
+  if (mJuizo) {
+    out.localTramite = mJuizo[1]
+      .replace(/\s{2,}/g, " ")
+      .replace(/\s*-\s*C[íi]vel\s*$/i, "")
+      .trim();
+  }
+
+  // Comarca: "da Comarca de X" > "Competência ... de X" > Cidade "X/UF".
+  let comarca: string | undefined;
+  const mCom = txt.match(/Comarca\s+de\s+([A-Za-zÀ-úçÇ'.\s]+?)\s*(?:-|\t|\n|$)/i);
+  if (mCom) comarca = mCom[1];
+  if (!comarca) {
+    const mComp = txt.match(/Compet[êe]ncia\s*:?\s*\t*[^\n]*?\bde\s+([A-Za-zÀ-úçÇ'.\s]+?)\s*(?:\t|\n|$)/i);
+    if (mComp) comarca = mComp[1];
+  }
+  if (!comarca) {
+    const mCid = txt.match(/Cidade\s*:?\s*([A-Za-zÀ-úçÇ'.\s]+?)\s*\//i);
+    if (mCid) comarca = mCid[1];
+  }
+  if (comarca) out.comarca = tituloComarca(comarca);
+
+  // Procedimento: mapeia a "Classe Processual" pro Select.
+  const mClasse = txt.match(/Classe\s+Processual\s*:?\s*\t*\s*([^\n\t]+)/i);
+  if (mClasse) out.procedimento = mapProcedimentoProjudi(mClasse[1]);
+
+  return out;
+}
+
 export function EspelhoProtocoloDialog({
   demanda, cliente, onClose, onProtocolado, onVerPerfil,
 }: {
@@ -1164,6 +1244,9 @@ export function EspelhoProtocoloDialog({
   const [comarcaIn, setComarcaIn] = useState("");
   const [localTramiteIn, setLocalTramiteIn] = useState("");
   const [procedimentoIn, setProcedimentoIn] = useState("");
+  // "Colar do Projudi": cola o Ctrl+A da tela do processo e auto-preenche.
+  const [projudiRaw, setProjudiRaw] = useState("");
+  const [projudiPreenchidos, setProjudiPreenchidos] = useState<string[]>([]);
   // Competencia editavel no proprio espelho (com persistencia). Inicia com
   // o que o Writer gravou OU fallback automatico. Toggle abaixo permite o
   // advogado trocar JEC <-> Vara Civel na hora, registrando como forcada.
@@ -1187,6 +1270,8 @@ export function EspelhoProtocoloDialog({
       setComarcaIn(demanda.comarca || cliente.comarca || "");
       setLocalTramiteIn(demanda.local_tramite || "");
       setProcedimentoIn(demanda.procedimento || "");
+      setProjudiRaw("");
+      setProjudiPreenchidos([]);
       // Inicializa competencia: prioriza valor gravado pelo Writer, senao
       // fallback baseado em valor (limite atualizado 64.840).
       const v = Number(demanda.valor_causa || 0);
@@ -1249,6 +1334,23 @@ export function EspelhoProtocoloDialog({
   // (lib/money) que detecta o separador decimal — evita o bug histórico de
   // remover o ponto do valor pré-preenchido e inflar ×100.
   const parseMoney = (s: string): number => parseMoneyBR(s);
+
+  // Lê o texto colado do Projudi e preenche os campos reconhecidos.
+  const aplicarProjudi = (text: string) => {
+    const p = parseProjudiEspelho(text);
+    const feitos: string[] = [];
+    if (p.numero) { setNumeroProcesso(p.numero); feitos.push("Número"); }
+    if (p.valor) { setValorCausaIn(p.valor); feitos.push("Valor"); }
+    if (p.comarca) { setComarcaIn(p.comarca); feitos.push("Comarca"); }
+    if (p.procedimento) { setProcedimentoIn(p.procedimento); feitos.push("Procedimento"); }
+    if (p.localTramite) { setLocalTramiteIn(p.localTramite); feitos.push("Local de trâmite"); }
+    setProjudiPreenchidos(feitos);
+    if (feitos.length === 0) {
+      toast.error("Não reconheci os dados. Cole o Ctrl+A da tela do processo no Projudi.");
+    } else {
+      toast.success(`${feitos.length} campo${feitos.length > 1 ? "s" : ""} preenchido${feitos.length > 1 ? "s" : ""} do Projudi`);
+    }
+  };
 
   const finalizar = async () => {
     if (!numeroProcesso.trim()) {
@@ -1499,6 +1601,52 @@ export function EspelhoProtocoloDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+              {/* Colar do Projudi — auto-preenche os campos a partir do Ctrl+A
+                  da tela do processo distribuído. Poupa a digitação um a um. */}
+              <div className="rounded-xl border border-primary/25 bg-primary/[0.06] p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  <p className="text-xs font-semibold text-foreground">Preencher do Projudi</p>
+                  <span className="text-[10px] text-muted-foreground ml-auto text-right">cole o Ctrl+A da tela do processo</span>
+                </div>
+                <Textarea
+                  value={projudiRaw}
+                  onChange={(e) => setProjudiRaw(e.target.value)}
+                  onPaste={(e) => {
+                    const t = e.clipboardData.getData("text");
+                    if (t && t.trim()) {
+                      e.preventDefault();
+                      setProjudiRaw(t);
+                      aplicarProjudi(t);
+                    }
+                  }}
+                  placeholder="Cole aqui (Ctrl+V) o conteúdo copiado da tela do processo protocolado no Projudi…"
+                  className="resize-none min-h-[64px] max-h-[120px] text-[11px] font-mono"
+                />
+                <div className="flex items-center gap-2 min-h-[20px]">
+                  {projudiPreenchidos.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                      <Check className="h-3 w-3 text-emerald-400 shrink-0" />
+                      {projudiPreenchidos.map((c) => (
+                        <span key={c} className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[11px] ml-auto shrink-0"
+                    onClick={() => aplicarProjudi(projudiRaw)}
+                    disabled={!projudiRaw.trim()}
+                  >
+                    <Sparkles className="h-3 w-3 mr-1" /> Preencher campos
+                  </Button>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <Label className="text-xs">Número do processo</Label>
                 <Input
