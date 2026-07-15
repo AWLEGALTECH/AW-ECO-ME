@@ -72,6 +72,15 @@ interface ClienteEsteira {
   demandas_downstream: number;
 }
 
+// Design compartilhado com o Dashboard (SpotlightCard): superfícies "glassy".
+// GLASS_PANEL = painel de coluna; GLASS_CARD = card de item dentro da coluna.
+// Mantém a esteira visualmente coerente com o resto do sistema.
+const GLASS_PANEL =
+  "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md " +
+  "shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.04)]";
+const GLASS_CARD =
+  "rounded-xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-primary/40 transition-all duration-200";
+
 const tempoDecorrido = (iso: string | null): string => {
   if (!iso) return "—";
   const ms = Date.now() - new Date(iso).getTime();
@@ -594,7 +603,7 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-start">
           <Coluna
             titulo="0. Pendências"
             descricao="Documentos faltando — bloqueia o avanço até resolver"
@@ -960,12 +969,12 @@ function ClienteAccordion({
 }) {
   const accentBorder = locked
     ? "border-amber-400/40"
-    : accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-border hover:border-primary/40";
-  const accentBg = locked ? "bg-amber-400/[0.04]" : accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-card/40 hover:bg-card/60";
+    : accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-white/[0.07] hover:border-primary/40";
+  const accentBg = locked ? "bg-amber-400/[0.04]" : accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-white/[0.03] hover:bg-white/[0.06]";
   const accentBadge = accent === "amber" ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
     <div
-      className={`rounded-lg border transition-colors ${accentBorder} ${expanded ? "" : accentBg} ${locked ? "opacity-80" : ""}`}
+      className={`rounded-xl border transition-all duration-200 ${accentBorder} ${expanded ? "bg-white/[0.02]" : accentBg} ${locked ? "opacity-80" : ""}`}
       title={locked ? (lockedHint || "Bloqueado por pendência") : undefined}
     >
       <button
@@ -1012,21 +1021,26 @@ function Coluna({
   count: number;
   children: React.ReactNode;
 }) {
-  const corClass = cor === "amber"
-    ? "text-amber-400 bg-amber-400/10 border-amber-400/30"
-    : "text-primary bg-primary/10 border-primary/30";
+  const chipClass = cor === "amber"
+    ? "bg-amber-400/10 ring-amber-400/25 text-amber-400"
+    : "bg-primary/10 ring-primary/25 text-primary";
+  const badgeClass = cor === "amber"
+    ? "text-amber-400 bg-amber-400/15 border-amber-400/30"
+    : "text-primary bg-primary/15 border-primary/30";
   return (
-    <div className="space-y-2 min-w-0">
-      <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-          <h3 className="text-sm font-medium truncate">{titulo}</h3>
+    <div className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0`}>
+      {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+      <div className="flex items-center gap-2.5">
+        <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ring-1 ${chipClass}`}>
+          <Icon className="h-4 w-4" />
         </div>
-        <span className={`inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums shrink-0 ${corClass}`}>
+        <h3 className="text-sm font-semibold truncate flex-1 min-w-0">{titulo}</h3>
+        <span className={`inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full border text-[11px] font-bold tabular-nums shrink-0 ${badgeClass}`}>
           {count}
         </span>
       </div>
-      <p className="text-[11px] text-muted-foreground mb-2">{descricao}</p>
+      <p className="text-[11px] text-muted-foreground leading-snug">{descricao}</p>
       <div className="space-y-2">{children}</div>
     </div>
   );
@@ -1034,7 +1048,7 @@ function Coluna({
 
 function Vazio() {
   return (
-    <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-border rounded-lg">
+    <div className="text-[12px] italic text-muted-foreground/60 px-3 py-6 text-center border border-dashed border-white/[0.08] rounded-xl">
       Nada pendente nessa etapa.
     </div>
   );
@@ -1082,7 +1096,7 @@ function CardLinha({
   return (
     <Link
       to={to}
-      className="block rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+      className={`block ${GLASS_CARD} p-3 group`}
     >
       <div className="flex items-center gap-2 mb-1.5">
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -1129,7 +1143,7 @@ function CardBotaoLinha({
       <div
         title={motivoBloqueio || "Bloqueada"}
         aria-disabled="true"
-        className="block w-full text-left rounded-lg border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
+        className="block w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
       >
         <div className="flex items-center gap-2 mb-1.5">
           <Lock className="h-3 w-3 text-amber-400 shrink-0" />
@@ -1153,7 +1167,7 @@ function CardBotaoLinha({
   return (
     <button
       onClick={onClick}
-      className="block w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+      className={`block w-full text-left ${GLASS_CARD} p-3 group`}
     >
       <div className="flex items-center gap-2 mb-1.5">
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -1188,7 +1202,7 @@ function CardBotao({
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+      className={`w-full text-left ${GLASS_CARD} p-3 group`}
     >
       <div className="flex items-center gap-2 mb-1.5">
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -1234,7 +1248,7 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
       <div
         title={motivoBloqueio || "Bloqueada"}
         aria-disabled="true"
-        className="w-full text-left rounded-lg border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
+        className="w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
       >
         <div className="flex items-center gap-2 mb-1.5">
           <Lock className="h-3 w-3 text-amber-400 shrink-0" />
@@ -1261,7 +1275,7 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
     <>
       <button
         onClick={() => setOpen(true)}
-        className="w-full text-left rounded-lg border border-border bg-card/40 hover:border-primary/40 hover:bg-card/60 transition-colors p-3 group"
+        className={`w-full text-left ${GLASS_CARD} p-3 group`}
       >
         <div className="flex items-center gap-2 mb-1.5">
           <Hammer className="h-3 w-3 text-primary shrink-0" />
@@ -1402,7 +1416,7 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-lg border border-amber-400/30 bg-amber-400/5 hover:border-amber-400/60 hover:bg-amber-400/10 transition-colors p-3 space-y-1.5"
+      className="w-full text-left rounded-xl border border-amber-400/30 bg-amber-400/5 hover:border-amber-400/60 hover:bg-amber-400/10 transition-all duration-200 p-3 space-y-1.5"
     >
       <div className="flex items-start gap-1.5">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
