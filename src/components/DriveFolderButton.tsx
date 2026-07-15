@@ -94,7 +94,7 @@ export function DriveFolderButton({ clienteId, clienteNome, driveFolderUrl, onCr
           <div className={chip}><FolderOpen className="h-5 w-5" /></div>
           <div className="flex-1 min-w-0 text-left">
             <p className="text-sm font-semibold text-foreground">Abrir pasta no Drive</p>
-            <p className="text-[11px] text-muted-foreground leading-snug">Faça o upload dos documentos do cliente</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">Upload dos documentos</p>
           </div>
           <ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" />
         </a>
@@ -107,7 +107,7 @@ export function DriveFolderButton({ clienteId, clienteNome, driveFolderUrl, onCr
         </div>
         <div className="flex-1 min-w-0 text-left">
           <p className="text-sm font-semibold text-foreground">{creating ? "Criando pasta no Drive…" : "Criar pasta no Drive"}</p>
-          <p className="text-[11px] text-muted-foreground leading-snug">Este cliente ainda não tem pasta associada</p>
+          <p className="text-[11px] text-muted-foreground leading-snug">Cliente ainda sem pasta</p>
         </div>
       </button>
     );
