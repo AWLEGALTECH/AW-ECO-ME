@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
-  ScanSearch, AlertTriangle, X, Check, ChevronLeft, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
+  ScanSearch, AlertTriangle, X, Check, ChevronLeft, ChevronRight, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
+  type LucideIcon,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
@@ -53,6 +54,84 @@ interface Props {
 }
 
 type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_qtd" | "artesanal_specs";
+
+// Rótulo de seção com fio: separa visualmente os 3 tipos de interação
+// (cadastral, fluxo da matéria, conclusão) sem pesar o card.
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 pt-1">
+      <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground whitespace-nowrap">
+        {children}
+      </span>
+      <span className="h-px flex-1 bg-border/60" />
+    </div>
+  );
+}
+
+// Botão-linha padronizado: mesma anatomia (ícone à esquerda, título +
+// subtítulo, indicador à direita) pra TODAS as ações do card. A cor sai
+// da prop `tone` — primary é o padrão; só a conclusão (emerald) e a
+// pendência (amber) fogem disso. Serve tanto como <a> (href) quanto <button>.
+function ActionRow({
+  icon: Icon,
+  title,
+  subtitle,
+  onClick,
+  href,
+  tone = "primary",
+  disabled,
+  trailing,
+}: {
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  onClick?: () => void;
+  href?: string;
+  tone?: "primary" | "amber" | "emerald" | "muted";
+  disabled?: boolean;
+  trailing?: ReactNode;
+}) {
+  const wrap = {
+    primary: "border-primary/30 bg-primary/10 hover:bg-primary/15 hover:border-primary/40",
+    amber: "border-amber-400/35 bg-amber-400/[0.07] hover:bg-amber-400/[0.12] hover:border-amber-400/55",
+    emerald: "border-emerald-500/35 bg-emerald-500/[0.07] hover:bg-emerald-500/[0.12] hover:border-emerald-500/55",
+    muted: "border-border bg-muted/20 hover:bg-muted/40",
+  }[tone];
+  const iconWrap = {
+    primary: "bg-primary/20 text-primary",
+    amber: "bg-amber-400/15 text-amber-400",
+    emerald: "bg-emerald-500/15 text-emerald-400",
+    muted: "bg-muted text-muted-foreground",
+  }[tone];
+
+  const inner = (
+    <>
+      <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${iconWrap}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="flex-1 min-w-0 text-left">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-[11px] text-muted-foreground leading-snug">{subtitle}</p>
+      </div>
+      {trailing}
+    </>
+  );
+
+  const base = `w-full flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors disabled:opacity-50 disabled:pointer-events-none ${wrap}`;
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={base}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={base}>
+      {inner}
+    </button>
+  );
+}
 
 export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo, permitirFinalizarPrimaria }: Props) {
   const navigate = useNavigate();
@@ -246,85 +325,81 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
-              {/* Resumo do card — mesmas infos exibidas na coluna 1 da
-                  esteira (requerido, quem cadastrou, peças em produção),
-                  mas expandidas pra leitura sem cortar. */}
-              <div className="rounded-xl border border-border bg-card/40 px-4 py-3 space-y-2">
-                <div className="flex items-start gap-2.5">
-                  <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Requerido</p>
-                    <p className="text-sm font-medium text-foreground break-words">
-                      {(cliente?.requerido || "").trim() || "—"}
-                    </p>
+              {/* BRIEFING — todo o contexto de leitura num bloco só: requerido,
+                  quem cadastrou, peças em produção e a observação do aprovador
+                  (como faixa destacada no rodapé do próprio bloco). */}
+              <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
+                <div className="px-4 py-3 space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Requerido</p>
+                      <p className="text-sm font-medium text-foreground break-words">
+                        {(cliente?.requerido || "").trim() || "—"}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Cadastrado por</p>
-                    <p className="text-sm text-foreground/90 break-words">
-                      {(cliente?.cadastrado_por || "").trim() || "—"}
-                      <span className="text-muted-foreground/70">
-                        {" "}({cliente?.origem === "writer" ? "via procuração" : "manual"})
-                      </span>
-                    </p>
+                  <div className="flex items-start gap-2.5">
+                    <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Cadastrado por</p>
+                      <p className="text-sm text-foreground/90 break-words">
+                        {(cliente?.cadastrado_por || "").trim() || "—"}
+                        <span className="text-muted-foreground/70">
+                          {" "}({cliente?.origem === "writer" ? "via procuração" : "manual"})
+                        </span>
+                      </p>
+                    </div>
                   </div>
+                  {(cliente?.demandas_downstream ?? 0) > 0 && (
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <p className="text-sm text-emerald-400/90">
+                        {cliente!.demandas_downstream === 1
+                          ? "1 peça em produção"
+                          : `${cliente!.demandas_downstream} peças em produção`}
+                      </p>
+                    </div>
+                  )}
                 </div>
-                {(cliente?.demandas_downstream ?? 0) > 0 && (
-                  <div className="flex items-center gap-2.5 pt-0.5">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                    <p className="text-sm text-emerald-400/90">
-                      {cliente!.demandas_downstream === 1
-                        ? "1 peça em produção"
-                        : `${cliente!.demandas_downstream} peças em produção`}
-                    </p>
+
+                {/* Observação de quem aprovou o pré-cliente — faixa âmbar
+                    dentro do próprio briefing, pra ela não ficar "solta". */}
+                {cliente?.observacoes && (
+                  <div className="border-t border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 flex items-start gap-2.5">
+                    <MessageSquare className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                    <div className="space-y-1 min-w-0">
+                      <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 font-semibold">
+                        Observação do aprovador
+                      </p>
+                      <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
+                        {cliente.observacoes}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Observacoes deixadas por quem aprovou o pre-cliente */}
-              {cliente?.observacoes && (
-                <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 flex items-start gap-2.5">
-                  <MessageSquare className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-                  <div className="space-y-1 min-w-0">
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400/80 font-semibold">
-                      Observação do aprovador
-                    </p>
-                    <p className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
-                      {cliente.observacoes}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Atalho pro perfil completo do cliente — primeiro botao */}
-              {cliente && (
-                <a
-                  href={`/clientes/${cliente.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 hover:bg-primary/15 transition-colors"
-                >
-                  <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                    <User className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">Abrir perfil do cliente</p>
-                    <p className="text-[11px] text-muted-foreground">Veja dados, demandas e histórico completo</p>
-                  </div>
-                  <ExternalLink className="h-4 w-4 text-primary opacity-70" />
-                </a>
-              )}
-
-              {/* Passo 1: Drive */}
-              {cliente && (
-                <DriveFolderButton
-                  clienteId={cliente.id}
-                  clienteNome={cliente.nome}
-                  driveFolderUrl={cliente.drive_folder_url}
-                />
-              )}
+              {/* ── 1) CADASTRAL — abrir o que o cliente já tem ─────────── */}
+              <div className="space-y-2">
+                <SectionLabel>Cadastro &amp; documentos</SectionLabel>
+                {cliente && (
+                  <ActionRow
+                    icon={User}
+                    title="Abrir perfil do cliente"
+                    subtitle="Veja dados, demandas e histórico completo"
+                    href={`/clientes/${cliente.id}`}
+                    trailing={<ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" />}
+                  />
+                )}
+                {cliente && (
+                  <DriveFolderButton
+                    clienteId={cliente.id}
+                    clienteNome={cliente.nome}
+                    driveFolderUrl={cliente.drive_folder_url}
+                  />
+                )}
+              </div>
 
               {/* Descontos da análise comercial — bloqueados aparecem travados,
                   impedindo que a análise primária reconsidere algo já descartado. */}
@@ -332,72 +407,49 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 <DescontosAnaliseComercial analise={cliente.analise_comercial} />
               )}
 
-              <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-2">Decisão</div>
-
-              <div className="grid grid-cols-1 gap-2">
-                <Button
+              {/* ── 2) FLUXO DA MATÉRIA — por qual esteira a peça sai ───── */}
+              <div className="space-y-2">
+                <SectionLabel>Fluxo da matéria</SectionLabel>
+                <ActionRow
+                  icon={Building2}
+                  title="Seguir fluxo Bradesco"
+                  subtitle="Abre o Finder pra análise vinculada Bradesco"
                   onClick={seguirBradesco}
-                  className="justify-start gap-2 h-auto py-3"
-                >
-                  <Building2 className="h-4 w-4" />
-                  <div className="text-left">
-                    <p className="text-sm font-medium">Seguir fluxo Bradesco</p>
-                    <p className="text-[11px] opacity-80 font-normal">Abre o Finder pra análise vinculada Bradesco</p>
-                  </div>
-                </Button>
-
-                <Button
-                  variant="outline"
+                  trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                />
+                <ActionRow
+                  icon={Hammer}
+                  title="Seguir fluxo artesanal"
+                  subtitle="Caso não-Bradesco. A peça será feita à mão."
                   onClick={iniciarArtesanal}
                   disabled={saving}
-                  className="justify-start gap-2 h-auto py-3"
-                >
-                  <Hammer className="h-4 w-4 text-primary" />
-                  <div className="text-left">
-                    <p className="text-sm font-medium">Seguir fluxo artesanal</p>
-                    <p className="text-[11px] opacity-80 font-normal">Caso não-Bradesco. A peça será feita à mão.</p>
-                  </div>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={() => setStage("pendencia")}
-                  className="justify-start gap-2 h-auto py-3 border-amber-400/40 hover:border-amber-400/60 hover:bg-amber-400/5"
-                >
-                  <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <div className="text-left">
-                    <p className="text-sm font-medium">Relatar pendência</p>
-                    <p className="text-[11px] opacity-80 font-normal">Algo está faltando no Drive deste cliente</p>
-                  </div>
-                </Button>
+                  trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                />
               </div>
 
-              {/* Finalizar analise primaria — so aparece quando chamado
-                  pela esteira (col 1). Tira o cliente da fila enquanto
-                  preserva qualquer demanda ja gerada (Bradesco / artesanal). */}
-              {permitirFinalizarPrimaria && (
-                <>
-                  <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground pt-3">
-                    Encerrar análise primária
-                  </div>
-                  <Button
-                    variant="outline"
+              {/* ── 3) CONCLUSÃO — encerra a análise primária ──────────── */}
+              <div className="space-y-2">
+                <SectionLabel>Conclusão</SectionLabel>
+                <ActionRow
+                  icon={AlertTriangle}
+                  title="Relatar pendência"
+                  subtitle="Algo está faltando no Drive deste cliente"
+                  onClick={() => setStage("pendencia")}
+                  tone="amber"
+                />
+                {/* Finalizar só aparece quando o dialog vem da esteira (col 1).
+                    Tira o cliente da fila e preserva as demandas já geradas. */}
+                {permitirFinalizarPrimaria && (
+                  <ActionRow
+                    icon={Check}
+                    title={finalizandoPrimaria ? "Finalizando…" : "Finalizar análise primária"}
+                    subtitle="Tira o cliente da coluna 1. As peças geradas continuam nas colunas seguintes."
                     onClick={finalizarPrimaria}
                     disabled={finalizandoPrimaria}
-                    className="w-full justify-start gap-2 h-auto py-3 border-emerald-500/40 hover:border-emerald-500/60 hover:bg-emerald-500/5"
-                  >
-                    <Check className="h-4 w-4 text-emerald-400" />
-                    <div className="text-left">
-                      <p className="text-sm font-medium">
-                        {finalizandoPrimaria ? "Finalizando…" : "Finalizar análise primária"}
-                      </p>
-                      <p className="text-[11px] opacity-80 font-normal">
-                        Tira o cliente da coluna 1. As peças geradas continuam nas colunas seguintes.
-                      </p>
-                    </div>
-                  </Button>
-                </>
-              )}
+                    tone="emerald"
+                  />
+                )}
+              </div>
             </>
           )}
 
@@ -516,44 +568,31 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
           )}
 
           {stage === "pos_pendencia" && (
-            <div className="grid grid-cols-1 gap-2">
-              <Button
+            <div className="space-y-2">
+              <ActionRow
+                icon={Building2}
+                title="Seguir fluxo Bradesco"
+                subtitle="Pendência fica registrada, mas a análise Bradesco começa agora"
                 onClick={seguirBradesco}
                 disabled={saving}
-                className="justify-start gap-2 h-auto py-3"
-              >
-                <Building2 className="h-4 w-4" />
-                <div className="text-left">
-                  <p className="text-sm font-medium">Seguir fluxo Bradesco</p>
-                  <p className="text-[11px] opacity-80 font-normal">Pendência fica registrada, mas a análise Bradesco começa agora</p>
-                </div>
-              </Button>
-
-              <Button
-                variant="outline"
+                trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+              />
+              <ActionRow
+                icon={PenSquare}
+                title="Seguir fluxo artesanal"
+                subtitle="Vai pra fila de peças manuais com a pendência registrada"
                 onClick={iniciarArtesanal}
                 disabled={saving}
-                className="justify-start gap-2 h-auto py-3"
-              >
-                <PenSquare className="h-4 w-4 text-primary" />
-                <div className="text-left">
-                  <p className="text-sm font-medium">Seguir fluxo artesanal</p>
-                  <p className="text-[11px] opacity-80 font-normal">Vai pra fila de peças manuais com a pendência registrada</p>
-                </div>
-              </Button>
-
-              <Button
-                variant="outline"
+                trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+              />
+              <ActionRow
+                icon={X}
+                title="Não seguir agora"
+                subtitle="Fecha — só fica a pendência registrada"
                 onClick={handleClose}
                 disabled={saving}
-                className="justify-start gap-2 h-auto py-3 border-destructive/30 hover:border-destructive/50 hover:bg-destructive/5"
-              >
-                <X className="h-4 w-4 text-destructive" />
-                <div className="text-left">
-                  <p className="text-sm font-medium">Não seguir agora</p>
-                  <p className="text-[11px] opacity-80 font-normal">Fecha — só fica a pendência registrada</p>
-                </div>
-              </Button>
+                tone="muted"
+              />
             </div>
           )}
         </div>
