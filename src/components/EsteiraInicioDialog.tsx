@@ -314,7 +314,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-      <DialogContent className="max-w-lg max-h-[88dvh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className={`${stage === "actions" ? "sm:max-w-2xl" : "sm:max-w-lg"} max-w-[95vw] max-h-[88dvh] overflow-y-auto overflow-x-hidden`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {(stage === "pendencia" || stage === "artesanal_qtd") && (
@@ -330,7 +330,9 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             {stage === "actions" && (
               <ScanSearch className="h-5 w-5 text-primary shrink-0" />
             )}
-            {titulo || "Iniciar análise"} — {cliente?.nome || "cliente"}
+            {titulo
+              ? `${titulo} — ${cliente?.nome || "cliente"}`
+              : `Análise primária de ${cliente?.nome || "cliente"}`}
           </DialogTitle>
           <DialogDescription>
             {stage === "actions" && "1. Analise a pasta do Drive. Depois escolha o próximo passo."}
@@ -344,46 +346,70 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         <div key={stage} className="animate-in fade-in slide-in-from-right-4 duration-300 space-y-4">
           {stage === "actions" && (
             <>
-              {/* BRIEFING — todo o contexto de leitura num bloco só: requerido,
-                  quem cadastrou, peças em produção e a observação do aprovador
-                  (como faixa destacada no rodapé do próprio bloco). */}
+              {/* BRIEFING + CADASTRAL, lado a lado: à esquerda os dados de
+                  leitura do cliente, à direita os atalhos (perfil / Drive).
+                  A observação do aprovador passa full-width por baixo dos
+                  dois. No mobile tudo colapsa pra coluna única. */}
               <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
-                <div className="px-4 py-3 space-y-2.5">
-                  <div className="flex items-start gap-2.5">
-                    <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Requerido</p>
-                      <p className="text-sm font-medium text-foreground break-words">
-                        {(cliente?.requerido || "").trim() || "—"}
-                      </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 p-4">
+                  {/* Coluna esquerda: dados de leitura */}
+                  <div className="space-y-2.5 min-w-0 sm:self-center">
+                    <div className="flex items-start gap-2.5">
+                      <Building2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Requerido</p>
+                        <p className="text-sm font-medium text-foreground break-words">
+                          {(cliente?.requerido || "").trim() || "—"}
+                        </p>
+                      </div>
                     </div>
+                    <div className="flex items-start gap-2.5">
+                      <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Cadastrado por</p>
+                        <p className="text-sm text-foreground/90 break-words">
+                          {(cliente?.cadastrado_por || "").trim() || "—"}
+                          <span className="text-muted-foreground/70">
+                            {" "}({cliente?.origem === "writer" ? "via procuração" : "manual"})
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    {(cliente?.demandas_downstream ?? 0) > 0 && (
+                      <div className="flex items-center gap-2.5">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                        <p className="text-sm text-emerald-400/90">
+                          {cliente!.demandas_downstream === 1
+                            ? "1 peça em produção"
+                            : `${cliente!.demandas_downstream} peças em produção`}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-start gap-2.5">
-                    <User className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Cadastrado por</p>
-                      <p className="text-sm text-foreground/90 break-words">
-                        {(cliente?.cadastrado_por || "").trim() || "—"}
-                        <span className="text-muted-foreground/70">
-                          {" "}({cliente?.origem === "writer" ? "via procuração" : "manual"})
-                        </span>
-                      </p>
-                    </div>
+
+                  {/* Coluna direita: atalhos cadastrais (perfil + Drive) */}
+                  <div className="space-y-2 min-w-0">
+                    {cliente && (
+                      <ActionRow
+                        icon={User}
+                        title="Abrir perfil do cliente"
+                        subtitle="Dados, demandas e histórico"
+                        href={`/clientes/${cliente.id}`}
+                        trailing={<ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" />}
+                      />
+                    )}
+                    {cliente && (
+                      <DriveFolderButton
+                        clienteId={cliente.id}
+                        clienteNome={cliente.nome}
+                        driveFolderUrl={cliente.drive_folder_url}
+                        variant="row"
+                      />
+                    )}
                   </div>
-                  {(cliente?.demandas_downstream ?? 0) > 0 && (
-                    <div className="flex items-center gap-2.5">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                      <p className="text-sm text-emerald-400/90">
-                        {cliente!.demandas_downstream === 1
-                          ? "1 peça em produção"
-                          : `${cliente!.demandas_downstream} peças em produção`}
-                      </p>
-                    </div>
-                  )}
                 </div>
 
-                {/* Observação de quem aprovou o pré-cliente — faixa âmbar
-                    dentro do próprio briefing, pra ela não ficar "solta". */}
+                {/* Observação do aprovador — full-width, por baixo dos dois */}
                 {cliente?.observacoes && (
                   <div className="border-t border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 flex items-start gap-2.5">
                     <MessageSquare className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
@@ -399,78 +425,61 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 )}
               </div>
 
-              {/* ── 1) CADASTRAL — abrir o que o cliente já tem ─────────── */}
-              <div className="space-y-2">
-                <SectionLabel>Cadastro &amp; documentos</SectionLabel>
-                {cliente && (
-                  <ActionRow
-                    icon={User}
-                    title="Abrir perfil do cliente"
-                    subtitle="Veja dados, demandas e histórico completo"
-                    href={`/clientes/${cliente.id}`}
-                    trailing={<ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" />}
-                  />
-                )}
-                {cliente && (
-                  <DriveFolderButton
-                    clienteId={cliente.id}
-                    clienteNome={cliente.nome}
-                    driveFolderUrl={cliente.drive_folder_url}
-                    variant="row"
-                  />
-                )}
-              </div>
-
               {/* Descontos da análise comercial — bloqueados aparecem travados,
                   impedindo que a análise primária reconsidere algo já descartado. */}
               {cliente?.analise_comercial && (
                 <DescontosAnaliseComercial analise={cliente.analise_comercial} />
               )}
 
-              {/* ── 2) FLUXO DA MATÉRIA — função principal do card, em destaque ── */}
+              {/* ── 2) FLUXO DA MATÉRIA — função principal, em destaque e lado
+                     a lado no desktop (aproveita a largura); empilha no mobile ── */}
               <div className="space-y-2.5">
                 <SectionLabel>Fluxo da matéria</SectionLabel>
-                <ActionRow
-                  hero
-                  icon={Building2}
-                  title="Seguir fluxo Bradesco"
-                  subtitle="Abre o Finder pra análise vinculada Bradesco"
-                  onClick={seguirBradesco}
-                  trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
-                />
-                <ActionRow
-                  hero
-                  icon={Hammer}
-                  title="Seguir fluxo artesanal"
-                  subtitle="Caso não-Bradesco. A peça será feita à mão."
-                  onClick={iniciarArtesanal}
-                  disabled={saving}
-                  trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <ActionRow
+                    hero
+                    icon={Building2}
+                    title="Seguir fluxo Bradesco"
+                    subtitle="Abre o Finder pra análise vinculada Bradesco"
+                    onClick={seguirBradesco}
+                    trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
+                  />
+                  <ActionRow
+                    hero
+                    icon={Hammer}
+                    title="Seguir fluxo artesanal"
+                    subtitle="Caso não-Bradesco. A peça será feita à mão."
+                    onClick={iniciarArtesanal}
+                    disabled={saving}
+                    trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
+                  />
+                </div>
               </div>
 
               {/* ── 3) CONCLUSÃO — encerra a análise primária ──────────── */}
               <div className="space-y-2">
                 <SectionLabel>Conclusão</SectionLabel>
-                <ActionRow
-                  icon={AlertTriangle}
-                  title="Relatar pendência"
-                  subtitle="Algo está faltando no Drive deste cliente"
-                  onClick={() => setStage("pendencia")}
-                  tone="amber"
-                />
-                {/* Finalizar só aparece quando o dialog vem da esteira (col 1).
-                    Tira o cliente da fila e preserva as demandas já geradas. */}
-                {permitirFinalizarPrimaria && (
+                <div className={`grid grid-cols-1 gap-2 ${permitirFinalizarPrimaria ? "sm:grid-cols-2" : ""}`}>
                   <ActionRow
-                    icon={Check}
-                    title={finalizandoPrimaria ? "Finalizando…" : "Finalizar análise primária"}
-                    subtitle="Tira o cliente da coluna 1. As peças geradas continuam nas colunas seguintes."
-                    onClick={finalizarPrimaria}
-                    disabled={finalizandoPrimaria}
-                    tone="emerald"
+                    icon={AlertTriangle}
+                    title="Relatar pendência"
+                    subtitle="Algo está faltando no Drive deste cliente"
+                    onClick={() => setStage("pendencia")}
+                    tone="amber"
                   />
-                )}
+                  {/* Finalizar só aparece quando o dialog vem da esteira (col 1).
+                      Tira o cliente da fila e preserva as demandas já geradas. */}
+                  {permitirFinalizarPrimaria && (
+                    <ActionRow
+                      icon={Check}
+                      title={finalizandoPrimaria ? "Finalizando…" : "Finalizar análise primária"}
+                      subtitle="Tira o cliente da coluna 1. As peças continuam nas colunas seguintes."
+                      onClick={finalizarPrimaria}
+                      disabled={finalizandoPrimaria}
+                      tone="emerald"
+                    />
+                  )}
+                </div>
               </div>
             </>
           )}
