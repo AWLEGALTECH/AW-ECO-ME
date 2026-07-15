@@ -10,7 +10,7 @@ interface Props {
   driveFolderUrl: string | null | undefined;
   onCreated?: (url: string) => void;
   // variantes visuais
-  variant?: "card" | "inline" | "minimal";
+  variant?: "card" | "inline" | "minimal" | "row";
 }
 
 // Botao unico que:
@@ -77,6 +77,38 @@ export function DriveFolderButton({ clienteId, clienteNome, driveFolderUrl, onCr
         className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 disabled:opacity-50">
         {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
         {creating ? "Criando pasta…" : "Criar pasta no Drive"}
+      </button>
+    );
+  }
+
+  // variant === "row" — casa com o ActionRow quieto do EsteiraInicioDialog:
+  // linha neutra glassy, cor só no chip do ícone.
+  if (variant === "row") {
+    const rowBase =
+      "w-full flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] " +
+      "hover:bg-white/[0.05] hover:border-white/[0.12] px-4 py-3 transition-all duration-200 disabled:opacity-50";
+    const chip = "h-10 w-10 rounded-xl bg-primary/12 ring-1 ring-primary/25 text-primary flex items-center justify-center shrink-0";
+    if (url) {
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className={rowBase} onClick={(e) => e.stopPropagation()}>
+          <div className={chip}><FolderOpen className="h-5 w-5" /></div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-sm font-semibold text-foreground">Abrir pasta no Drive</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">Faça o upload dos documentos do cliente</p>
+          </div>
+          <ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" />
+        </a>
+      );
+    }
+    return (
+      <button onClick={criar} disabled={creating} className={rowBase}>
+        <div className={chip}>
+          {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : <FolderPlus className="h-5 w-5" />}
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-sm font-semibold text-foreground">{creating ? "Criando pasta no Drive…" : "Criar pasta no Drive"}</p>
+          <p className="text-[11px] text-muted-foreground leading-snug">Este cliente ainda não tem pasta associada</p>
+        </div>
       </button>
     );
   }
