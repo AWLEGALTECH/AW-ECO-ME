@@ -68,10 +68,10 @@ function SectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
-// Botão-linha padronizado: mesma anatomia (ícone à esquerda, título +
-// subtítulo, indicador à direita) pra TODAS as ações do card. A cor sai
-// da prop `tone` — primary é o padrão; só a conclusão (emerald) e a
-// pendência (amber) fogem disso. Serve tanto como <a> (href) quanto <button>.
+// Botão-linha padronizado, inspirado nos cards do Dashboard: fundo neutro
+// glassy (a cor NÃO preenche a linha) e só o chip do ícone carrega o tom.
+// `hero` liga o tratamento de destaque (borda + gradiente + fio primário)
+// reservado ao Fluxo da matéria — a função principal do card.
 function ActionRow({
   icon: Icon,
   title,
@@ -79,6 +79,7 @@ function ActionRow({
   onClick,
   href,
   tone = "primary",
+  hero = false,
   disabled,
   trailing,
 }: {
@@ -88,36 +89,54 @@ function ActionRow({
   onClick?: () => void;
   href?: string;
   tone?: "primary" | "amber" | "emerald" | "muted";
+  hero?: boolean;
   disabled?: boolean;
   trailing?: ReactNode;
 }) {
-  const wrap = {
-    primary: "border-primary/30 bg-primary/10 hover:bg-primary/15 hover:border-primary/40",
-    amber: "border-amber-400/35 bg-amber-400/[0.07] hover:bg-amber-400/[0.12] hover:border-amber-400/55",
-    emerald: "border-emerald-500/35 bg-emerald-500/[0.07] hover:bg-emerald-500/[0.12] hover:border-emerald-500/55",
-    muted: "border-border bg-muted/20 hover:bg-muted/40",
+  // Chip do ícone — único elemento que "colore" a linha.
+  const iconChip = {
+    primary: "bg-primary/12 ring-1 ring-primary/25 text-primary",
+    amber: "bg-amber-400/12 ring-1 ring-amber-400/30 text-amber-400",
+    emerald: "bg-emerald-500/12 ring-1 ring-emerald-500/30 text-emerald-400",
+    muted: "bg-white/[0.04] ring-1 ring-white/10 text-muted-foreground",
   }[tone];
-  const iconWrap = {
-    primary: "bg-primary/20 text-primary",
-    amber: "bg-amber-400/15 text-amber-400",
-    emerald: "bg-emerald-500/15 text-emerald-400",
-    muted: "bg-muted text-muted-foreground",
-  }[tone];
+
+  // Fundo da linha. Neutro por padrão (glassy). Hero ganha destaque primário;
+  // as conclusões (amber/emerald) levam só um véu de cor pra se reconhecer.
+  let wrap: string;
+  if (hero) {
+    wrap =
+      "relative border-primary/30 bg-gradient-to-br from-primary/[0.13] via-primary/[0.05] to-transparent " +
+      "hover:border-primary/55 hover:from-primary/[0.18] shadow-lg shadow-black/20";
+  } else if (tone === "amber") {
+    wrap = "border-amber-400/20 bg-amber-400/[0.04] hover:bg-amber-400/[0.07] hover:border-amber-400/40";
+  } else if (tone === "emerald") {
+    wrap = "border-emerald-500/20 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.07] hover:border-emerald-500/40";
+  } else {
+    wrap = "border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.05] hover:border-white/[0.12]";
+  }
+
+  const chipSize = hero ? "h-11 w-11" : "h-10 w-10";
+  const pad = hero ? "px-4 py-3.5" : "px-4 py-3";
+  const titleSize = hero ? "text-[15px]" : "text-sm";
 
   const inner = (
     <>
-      <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${iconWrap}`}>
+      {hero && (
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-xl bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+      )}
+      <div className={`${chipSize} rounded-xl flex items-center justify-center shrink-0 ${iconChip}`}>
         <Icon className="h-5 w-5" />
       </div>
       <div className="flex-1 min-w-0 text-left">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className={`${titleSize} font-semibold text-foreground`}>{title}</p>
         <p className="text-[11px] text-muted-foreground leading-snug">{subtitle}</p>
       </div>
       {trailing}
     </>
   );
 
-  const base = `w-full flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors disabled:opacity-50 disabled:pointer-events-none ${wrap}`;
+  const base = `w-full flex items-center gap-3 rounded-xl border transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none ${pad} ${wrap}`;
 
   if (href) {
     return (
@@ -397,6 +416,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                     clienteId={cliente.id}
                     clienteNome={cliente.nome}
                     driveFolderUrl={cliente.drive_folder_url}
+                    variant="row"
                   />
                 )}
               </div>
@@ -407,23 +427,25 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                 <DescontosAnaliseComercial analise={cliente.analise_comercial} />
               )}
 
-              {/* ── 2) FLUXO DA MATÉRIA — por qual esteira a peça sai ───── */}
-              <div className="space-y-2">
+              {/* ── 2) FLUXO DA MATÉRIA — função principal do card, em destaque ── */}
+              <div className="space-y-2.5">
                 <SectionLabel>Fluxo da matéria</SectionLabel>
                 <ActionRow
+                  hero
                   icon={Building2}
                   title="Seguir fluxo Bradesco"
                   subtitle="Abre o Finder pra análise vinculada Bradesco"
                   onClick={seguirBradesco}
-                  trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                  trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
                 />
                 <ActionRow
+                  hero
                   icon={Hammer}
                   title="Seguir fluxo artesanal"
                   subtitle="Caso não-Bradesco. A peça será feita à mão."
                   onClick={iniciarArtesanal}
                   disabled={saving}
-                  trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                  trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
                 />
               </div>
 
@@ -568,22 +590,24 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
           )}
 
           {stage === "pos_pendencia" && (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <ActionRow
+                hero
                 icon={Building2}
                 title="Seguir fluxo Bradesco"
                 subtitle="Pendência fica registrada, mas a análise Bradesco começa agora"
                 onClick={seguirBradesco}
                 disabled={saving}
-                trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
               />
               <ActionRow
+                hero
                 icon={PenSquare}
                 title="Seguir fluxo artesanal"
                 subtitle="Vai pra fila de peças manuais com a pendência registrada"
                 onClick={iniciarArtesanal}
                 disabled={saving}
-                trailing={<ChevronRight className="h-4 w-4 text-primary opacity-60 shrink-0" />}
+                trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
               />
               <ActionRow
                 icon={X}
