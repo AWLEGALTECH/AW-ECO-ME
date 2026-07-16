@@ -11,6 +11,7 @@ interface Profile {
   avatar_url: string | null;
   role: "admin" | "user";
   approved: boolean;
+  ver_fechamentos_geral?: boolean;
 }
 
 interface AuthContextType {
@@ -47,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadAccess = async (userId: string) => {
     const { data: prof } = await supabase
       .from("profiles")
-      .select("id, nome, email, avatar_url, role, approved")
+      .select("id, nome, email, avatar_url, role, approved, ver_fechamentos_geral")
       .eq("id", userId)
       .single();
 
