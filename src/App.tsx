@@ -25,6 +25,7 @@ import Prospeccao from "./pages/Prospeccao";
 import Fechamentos from "./pages/Fechamentos";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
+import AdminNotificacoes from "./pages/AdminNotificacoes";
 import NotFound from "./pages/NotFound";
 import { RequireModule } from "@/components/RequireModule";
 
@@ -94,6 +95,7 @@ const App = () => (
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />
+                  <Route path="/admin/notificacoes" element={<AdminNotificacoes />} />
                 </Route>
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { UserPanel } from "@/components/UserPanel";
+import { NotificacaoBell } from "@/components/NotificacaoBell";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { Outlet, useLocation, Navigate } from "react-router-dom";
@@ -88,6 +89,7 @@ export function SidebarLayout() {
                   <span className={`text-xs hidden md:inline font-mono ${isSei ? "text-white" : "text-muted-foreground"}`}>
                     {user?.email}
                   </span>
+                  <NotificacaoBell />
                   <UserPanel />
                 </div>
               </header>

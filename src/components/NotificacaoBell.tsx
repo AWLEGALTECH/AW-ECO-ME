@@ -1,0 +1,120 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Bell, UserPlus, UserCheck, Send, CheckCheck, type LucideIcon } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
+
+// Ícone + tom por tipo de evento.
+const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
+  pre_cliente_criado:     { icon: UserPlus,  chip: "bg-primary/12 ring-primary/25 text-primary" },
+  pre_cliente_confirmado: { icon: UserCheck, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
+  peca_protocolada:       { icon: Send,      chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
+};
+
+function tempoAtras(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} d`;
+  return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+export function NotificacaoBell() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const { notificacoes, unread, isLoading, marcarUma, marcarTodas } = useNotificacoes();
+
+  const abrir = (n: Notificacao) => {
+    marcarUma(n.id);
+    setOpen(false);
+    if (n.link) navigate(n.link);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors"
+          aria-label="Notificações"
+        >
+          <Bell className="h-[18px] w-[18px]" />
+          {unread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums ring-2 ring-background">
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-[360px] max-w-[92vw] p-0 rounded-2xl border border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.5)] overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.07]">
+          <div className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">Notificações</span>
+            {unread > 0 && (
+              <span className="text-[10px] text-muted-foreground">({unread} nova{unread > 1 ? "s" : ""})</span>
+            )}
+          </div>
+          {unread > 0 && (
+            <button
+              onClick={() => marcarTodas()}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <CheckCheck className="h-3.5 w-3.5" /> Marcar todas
+            </button>
+          )}
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+          {isLoading ? (
+            <p className="text-center text-xs text-muted-foreground py-10">Carregando…</p>
+          ) : notificacoes.length === 0 ? (
+            <div className="text-center py-12 px-4">
+              <Bell className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+              <p className="text-xs text-muted-foreground">Nenhuma notificação por aqui.</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-white/[0.05]">
+              {notificacoes.map((n) => {
+                const v = VISUAL[n.tipo] || { icon: Bell, chip: "bg-white/[0.06] ring-white/10 text-muted-foreground" };
+                const Icon = v.icon;
+                return (
+                  <li key={n.id}>
+                    <button
+                      onClick={() => abrir(n)}
+                      className={`w-full text-left flex items-start gap-3 px-4 py-3 transition-colors hover:bg-white/[0.04] ${
+                        n.lida ? "opacity-70" : "bg-primary/[0.04]"
+                      }`}
+                    >
+                      <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ring-1 ${v.chip}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[13px] font-semibold text-foreground truncate flex-1">{n.titulo}</p>
+                          {!n.lida && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                        </div>
+                        {n.corpo && (
+                          <p className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">{n.corpo}</p>
+                        )}
+                        <p className="text-[10px] text-muted-foreground/70 mt-1">{tempoAtras(n.created_at)}</p>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
