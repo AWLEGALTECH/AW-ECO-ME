@@ -28,7 +28,7 @@ declare v_autor text; v_nome text; v_af text; begin
   v_nome := public.fn_title_nome(new.nome);
   v_af := public.fn_primeiro_nome(v_autor);
   perform public.fn_criar_notificacao(
-    'pre_cliente_criado', '📁 Novo pré-cliente',
+    'pre_cliente_criado', 'Novo pré-cliente 📁',
     case when coalesce(v_af,'') <> ''
       then v_af || ' cadastrou o pré-cliente ' || coalesce(v_nome,'—') || ', que agora aguarda confirmação.'
       else coalesce(v_nome,'—') || ' foi cadastrado como pré-cliente e aguarda confirmação.' end,
@@ -45,7 +45,7 @@ declare v_autor text; v_cli text; v_af text; begin
     v_cli := public.fn_title_nome(coalesce((select nome from public.clientes where id = new.cliente_id), new.nome));
     v_af := public.fn_primeiro_nome(v_autor);
     perform public.fn_criar_notificacao(
-      'pre_cliente_confirmado', '👤 Novo cliente',
+      'pre_cliente_confirmado', 'Novo cliente 👤',
       coalesce(v_cli,'—') || ' virou cliente.'
         || case when coalesce(v_af,'') <> '' then ' A captação foi de ' || v_af || '.' else '' end,
       jsonb_build_object('cliente_nome', coalesce((select nome from public.clientes where id = new.cliente_id), new.nome),
@@ -62,7 +62,7 @@ declare v_cli text; begin
   if new.protocolado_at is not null and (old.protocolado_at is null) then
     v_cli := public.fn_title_nome((select nome from public.clientes where id = new.cliente_id));
     perform public.fn_criar_notificacao(
-      'peca_protocolada', '☑️ Ação protocolada',
+      'peca_protocolada', 'Ação protocolada ☑️',
       'A ação de ' || coalesce(v_cli,'—') || ' foi protocolada, com valor de causa de ' || public.fn_fmt_brl(new.valor_causa) || '.',
       jsonb_build_object('cliente_nome', (select nome from public.clientes where id = new.cliente_id),
                          'cliente_id', new.cliente_id, 'valor_causa', new.valor_causa, 'numero_processo', new.numero_processo),
