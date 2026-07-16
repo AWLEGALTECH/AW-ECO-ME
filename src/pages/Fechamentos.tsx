@@ -263,8 +263,12 @@ export default function Fechamentos() {
   }, [doMes]);
   const teamAcoes = useMemo(() => doMes.reduce((a, f) => a + (f.rubricas?.length || 0), 0), [doMes]);
 
-  // Foco: user comum vê a si; admin vê o scope escolhido (ou geral)
-  const focoId = isAdmin ? (scope === "geral" ? null : scope) : user?.id || null;
+  // Quem pode ver o quadro geral: admin OU usuário com o flag liberado
+  // (ex.: Dr. Matheus e Diego) — sem virar admin nem editar regras.
+  const podeVerGeral = isAdmin || !!profile?.ver_fechamentos_geral;
+
+  // Foco: quem pode ver geral escolhe o scope (ou geral); os demais veem a si.
+  const focoId = podeVerGeral ? (scope === "geral" ? null : scope) : user?.id || null;
   const focoNome = focoId
     ? equipe.find((m) => m.id === focoId)?.nome || (focoId === user?.id ? profile?.nome : null)
     : null;
@@ -350,8 +354,8 @@ export default function Fechamentos() {
         </Button>
       </div>
 
-      {/* Seletor de quadro (admin) */}
-      {isAdmin && equipe.length > 0 && (
+      {/* Seletor de quadro (quem pode ver o geral) */}
+      {podeVerGeral && equipe.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap justify-center">
           <span className="text-[11px] uppercase tracking-wider text-muted-foreground mr-1">Quadro:</span>
           <ScopePill active={scope === "geral"} onClick={() => setScope("geral")} icon={Users} label="Geral" />
@@ -381,7 +385,7 @@ export default function Fechamentos() {
               </div>
             </>
           ) : (
-            /* Aba geral (só admin): quadro geral grande, com a barra geral. */
+            /* Aba geral (admin ou liberado): quadro geral grande, com a barra geral. */
             <CardGeral
               acoes={teamAcoes}
               meta={regra.meta_geral}
