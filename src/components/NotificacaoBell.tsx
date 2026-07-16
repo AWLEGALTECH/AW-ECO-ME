@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, UserPlus, UserCheck, Send, CheckCheck, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, CheckCheck, type LucideIcon } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
+import { usePush } from "@/hooks/usePush";
 
 // Ícone + tom por tipo de evento.
 const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
@@ -27,6 +28,7 @@ export function NotificacaoBell() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const { notificacoes, unread, isLoading, marcarUma, marcarTodas } = useNotificacoes();
+  const push = usePush();
 
   const abrir = (n: Notificacao) => {
     marcarUma(n.id);
@@ -112,6 +114,40 @@ export function NotificacaoBell() {
                 );
               })}
             </ul>
+          )}
+        </div>
+
+        {/* Rodapé: push por aparelho (com o app fechado) */}
+        <div className="border-t border-white/[0.07] px-4 py-3">
+          {!push.supported ? (
+            <div className="flex items-start gap-2">
+              <Smartphone className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Pra receber com o app fechado no iPhone, abra pelo ícone na{" "}
+                <strong className="text-foreground/80">tela inicial</strong> (não pelo Safari).
+              </p>
+            </div>
+          ) : push.subscribed ? (
+            <button
+              onClick={() => push.desativar()}
+              disabled={push.busy}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-muted-foreground hover:text-foreground hover:bg-white/[0.04] transition-colors disabled:opacity-50"
+            >
+              <BellRing className="h-4 w-4 text-emerald-400 shrink-0" />
+              <span className="flex-1 text-left">Push ativo neste aparelho</span>
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <BellOff className="h-3.5 w-3.5" /> Desativar
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => push.ativar()}
+              disabled={push.busy}
+              className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-medium bg-primary/12 text-primary ring-1 ring-primary/25 hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              <BellRing className="h-4 w-4 shrink-0" />
+              {push.busy ? "Ativando…" : "Ativar notificações neste aparelho"}
+            </button>
           )}
         </div>
       </PopoverContent>
