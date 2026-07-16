@@ -3,12 +3,20 @@ import App from "./App.tsx";
 import { RootErrorBoundary } from "./components/RootErrorBoundary";
 import "./index.css";
 
-// Desregistra qualquer service worker antigo (legado, ainda nao temos
-// /sw.js servido). Garante que o navegador nao fique servindo cache
-// quebrado de uma versao antiga do app.
+// Service workers:
+//  - Remove QUALQUER SW antigo que não seja o nosso push-sw.js (eram SWs de
+//    cache legados que serviam versão quebrada do app).
+//  - Registra o push-sw.js — que NÃO faz cache (só push), então não reintroduz
+//    o problema. É ele que recebe as notificações com o app fechado.
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.getRegistrations()
-    .then((regs) => { regs.forEach((r) => r.unregister()); })
+    .then((regs) => {
+      regs.forEach((r) => {
+        const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || "";
+        if (!url.endsWith("/push-sw.js")) r.unregister();
+      });
+      navigator.serviceWorker.register("/push-sw.js").catch(() => {});
+    })
     .catch(() => {});
 }
 
