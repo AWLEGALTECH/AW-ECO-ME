@@ -28,6 +28,11 @@ export default function Finder() {
   const [searchParams] = useSearchParams();
   const cliente = searchParams.get("cliente");
   const nome = searchParams.get("nome");
+  // Modo "refazer análise comercial de um cliente existente": continua
+  // standalone (a captura acontece aqui), mas ao salvar vai pra RPC de
+  // recálculo em vez do catálogo, e volta pro perfil do cliente.
+  const refazerClienteId = searchParams.get("refazerComercial");
+  const refazerNome = searchParams.get("refazerNome");
   const [driveUrl, setDriveUrl] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const { active, iniciar } = useFinderSession();
@@ -103,7 +108,11 @@ export default function Finder() {
           análise do Finder e deixa salvar a pré-análise (rubricas não ajuizáveis).
           No modo cliente-linked (esteira) o iframe vem do PersistentFinderHost e
           este componente nem é montado. */}
-      <FinderAnaliseComercial iframeRef={iframeRef} />
+      <FinderAnaliseComercial
+        iframeRef={iframeRef}
+        refazerClienteId={refazerClienteId}
+        refazerNome={refazerNome}
+      />
     </div>
   );
 }

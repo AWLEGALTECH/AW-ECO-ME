@@ -25,6 +25,7 @@ import { parseMoneyBR } from "@/lib/money";
 import { LANDING_OPCOES, type AdvogadoKey, linkSocio, whatsappSocioUrl } from "@/lib/socioLanding";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
+import { RefazerAnaliseComercialDialog } from "@/components/RefazerAnaliseComercialDialog";
 import { AcaoCard } from "@/components/AcaoCard";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
@@ -355,6 +356,7 @@ export default function ClienteDetail() {
   // edicao alterou esse campo, mostra confirmacao explicita pra evitar
   // troca acidental. Os demais campos salvam direto.
   const [confirmarParceiro, setConfirmarParceiro] = useState(false);
+  const [refazerAcOpen, setRefazerAcOpen] = useState(false);
 
   const persistirCliente = async () => {
     if (!draft) return;
@@ -612,11 +614,30 @@ export default function ClienteDetail() {
             </div>
           </section>
 
-          {cliente.analise_comercial && (
-            <section className="space-y-2">
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Análise comercial</h2>
+              <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={() => setRefazerAcOpen(true)}>
+                <ClipboardList className="h-3.5 w-3.5" />
+                {cliente.analise_comercial ? "Refazer análise" : "Fazer análise"}
+              </Button>
+            </div>
+            {cliente.analise_comercial ? (
               <DescontosAnaliseComercial analise={cliente.analise_comercial} />
-            </section>
-          )}
+            ) : (
+              <p className="text-xs text-muted-foreground/60 italic px-1 py-3">
+                Nenhuma análise comercial ainda. Clique em <strong>Fazer análise</strong> pra criar.
+              </p>
+            )}
+          </section>
+
+          <RefazerAnaliseComercialDialog
+            open={refazerAcOpen}
+            onClose={() => setRefazerAcOpen(false)}
+            cliente={cliente ? { id: cliente.id, nome: cliente.nome, analise_comercial: cliente.analise_comercial } : null}
+            onSaved={load}
+            editorId={user?.id ?? null}
+          />
 
           <section className="space-y-2">
             <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
