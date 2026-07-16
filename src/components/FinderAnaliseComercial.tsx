@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -88,8 +89,20 @@ function extrairRubricas(detail: any): RubricaCaptada[] {
   return [...byKey.values()];
 }
 
-export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTMLIFrameElement> }) {
+export function FinderAnaliseComercial({
+  iframeRef,
+  refazerClienteId = null,
+  refazerNome = null,
+}: {
+  iframeRef: RefObject<HTMLIFrameElement>;
+  // Quando setado, o salvar NÃO cria no catálogo — refaz a análise comercial
+  // deste cliente (recalcula o fechamento) e volta pro perfil dele.
+  refazerClienteId?: string | null;
+  refazerNome?: string | null;
+}) {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const refazendo = !!refazerClienteId;
   const [analise, setAnalise] = useState<AnaliseCaptada | null>(null);
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -142,12 +155,37 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
     if (!analise) return;
     if (!analise.nome.trim()) { toast.error("Informe o nome do cliente."); return; }
     setSalvando(true);
+    const rubricas = analise.rubricas.map((r) => ({
+      rubrica: r.rubrica, valor: r.valor, bloqueada: r.bloqueada, motivo: r.bloqueada ? r.motivo : null,
+    }));
+
+    // Modo REFAZER: recalcula a análise/fechamento deste cliente e volta.
+    if (refazendo) {
+      const { data, error } = await supabase.rpc("fn_refazer_analise_comercial" as any, {
+        p_cliente_id: refazerClienteId,
+        p_analise: { origem: "finder", rubricas },
+        p_editor: user?.id || null,
+      } as any);
+      setSalvando(false);
+      if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+      const r = (data as any) || {};
+      setSalvouId("ok");
+      toast.success(
+        r.acao === "atualizado"
+          ? `Análise refeita — fechamento de ${r.responsavel || "captador"}: ${r.antes} → ${r.depois} ação(ões).`
+          : `Análise salva e fechamento criado (${r.depois} ação(ões)).`,
+        { duration: 4000 },
+      );
+      setTimeout(() => navigate(`/clientes/${refazerClienteId}`), 900);
+      return;
+    }
+
     const payload = {
       nome: analise.nome.trim(),
       origem: "finder",
       created_by: user?.id || null,
       created_by_email: user?.email || null,
-      rubricas: analise.rubricas.map((r) => ({ rubrica: r.rubrica, valor: r.valor, bloqueada: r.bloqueada, motivo: r.bloqueada ? r.motivo : null })),
+      rubricas,
     };
     const { data, error } = await supabase.from("analises_comerciais" as any).insert(payload as any).select("id").single();
     setSalvando(false);
@@ -168,7 +206,9 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
         }`}
       >
         {salvouId ? <Check className="h-4 w-4" strokeWidth={3} /> : <ClipboardList className="h-4 w-4" />}
-        {salvouId ? "Análise comercial gerada" : "Gerar análise comercial"}
+        {salvouId
+          ? (refazendo ? "Análise refeita" : "Análise comercial gerada")
+          : (refazendo ? `Salvar nova análise${refazerNome ? " de " + refazerNome : ""}` : "Gerar análise comercial")}
         {!salvouId && nBloq > 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] bg-amber-400/20 text-amber-200 rounded-full px-1.5">
             <Lock className="h-3 w-3" /> {nBloq}
@@ -180,10 +220,13 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" /> Gerar análise comercial
+              <ClipboardList className="h-5 w-5 text-primary" />
+              {refazendo ? `Refazer análise comercial${refazerNome ? " — " + refazerNome : ""}` : "Gerar análise comercial"}
             </DialogTitle>
             <DialogDescription>
-              Todas as rubricas do drill-down aparecem aqui. Marque as <strong>não ajuizáveis</strong> (rúbrica inválida, já ajuizada ou cliente não quer). Fica salvo pro Writer e pra análise primária.
+              {refazendo
+                ? <>Marque as <strong>não ajuizáveis</strong>. Ao salvar, esta análise <strong>substitui</strong> a anterior deste cliente e <strong>recalcula o fechamento</strong> (mantendo quem captou).</>
+                : <>Todas as rubricas do drill-down aparecem aqui. Marque as <strong>não ajuizáveis</strong> (rúbrica inválida, já ajuizada ou cliente não quer). Fica salvo pro Writer e pra análise primária.</>}
             </DialogDescription>
           </DialogHeader>
 
@@ -230,7 +273,7 @@ export function FinderAnaliseComercial({ iframeRef }: { iframeRef: RefObject<HTM
             <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
             <Button onClick={salvar} disabled={salvando || !!salvouId}>
               {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : salvouId ? <Check className="h-4 w-4 mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}
-              {salvouId ? "Gerada" : "Gerar análise comercial"}
+              {salvouId ? (refazendo ? "Salva" : "Gerada") : refazendo ? "Salvar e recalcular" : "Gerar análise comercial"}
             </Button>
           </DialogFooter>
         </DialogContent>
