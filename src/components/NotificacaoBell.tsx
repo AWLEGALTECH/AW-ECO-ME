@@ -12,6 +12,45 @@ const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   peca_protocolada:       { icon: Send,      chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
 };
 
+// Nome em Title Case (tira o CAIXA ALTA do cadastro).
+function capNome(s?: string | null): string {
+  if (!s) return "";
+  const small = new Set(["de", "da", "do", "das", "dos", "e"]);
+  return s.trim().toLowerCase().split(/\s+/)
+    .map((w, i) => (i > 0 && small.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+function primeiroNome(s?: string | null): string {
+  return capNome((s || "").trim().split(/\s+/)[0] || "");
+}
+function fmtBRL(v: number): string {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Corpo do sininho, montado a partir dos dados — permite negrito no nome do
+// cliente e no valor (o que o push, texto puro do SO, não permite).
+function CorpoRico({ n }: { n: Notificacao }) {
+  const d = n.dados || {};
+  const nome = capNome(d.cliente_nome);
+  if (!nome) return <>{n.corpo}</>;
+  const autor = primeiroNome(n.actor_nome);
+  const B = (t: string) => <strong className="font-semibold text-foreground/90">{t}</strong>;
+
+  if (n.tipo === "pre_cliente_criado") {
+    return autor
+      ? <>{autor} cadastrou o pré-cliente {B(nome)}, que agora aguarda confirmação.</>
+      : <>{B(nome)} foi cadastrado como pré-cliente e aguarda confirmação.</>;
+  }
+  if (n.tipo === "pre_cliente_confirmado") {
+    return <>{B(nome)} virou cliente.{autor ? <> A captação foi de {autor}.</> : null}</>;
+  }
+  if (n.tipo === "peca_protocolada") {
+    const v = Number(d.valor_causa) || 0;
+    return <>A ação de {B(nome)} foi protocolada, com valor de causa de {B(fmtBRL(v))}.</>;
+  }
+  return <>{n.corpo}</>;
+}
+
 function tempoAtras(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const min = Math.floor(ms / 60000);
@@ -104,9 +143,9 @@ export function NotificacaoBell() {
                           <p className="text-[13px] font-semibold text-foreground truncate flex-1">{n.titulo}</p>
                           {!n.lida && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                         </div>
-                        {n.corpo && (
-                          <p className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">{n.corpo}</p>
-                        )}
+                        <p className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">
+                          <CorpoRico n={n} />
+                        </p>
                         <p className="text-[10px] text-muted-foreground/70 mt-1">{tempoAtras(n.created_at)}</p>
                       </div>
                     </button>
