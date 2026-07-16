@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { MODULES, type ModuleKey } from "@/lib/modules";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
-import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2, MessageSquareText, ChevronDown } from "lucide-react";
+import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2, MessageSquareText, ChevronDown, Bell } from "lucide-react";
 import { SLOTS_MENSAGENS } from "@/lib/mensagensProntas";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -247,6 +247,7 @@ export default function AdminUsuarios() {
                   </div>
                 )}
 
+                {p.approved && <UserNotificacoesSection userId={p.id} isAdminRow={isAdminRow} />}
                 <UserMensagensSection userId={p.id} />
               </div>
             );
@@ -274,6 +275,89 @@ export default function AdminUsuarios() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// Quais notificações este usuário recebe. Admin decide por usuário; admin
+// sempre recebe todas. Lazy: só busca ao expandir.
+function UserNotificacoesSection({ userId, isAdminRow }: { userId: string; isAdminRow: boolean }) {
+  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+
+  const cfgQ = useQuery({
+    queryKey: ["notif-config-list"],
+    enabled: open,
+    queryFn: async (): Promise<{ tipo: string; label: string; ativo: boolean }[]> => {
+      const { data, error } = await (supabase.from("notificacao_config" as any) as any)
+        .select("tipo,label,ativo").order("label");
+      if (error) throw error;
+      return (data || []) as any;
+    },
+  });
+
+  const prefsQ = useQuery({
+    queryKey: ["notif-prefs", userId],
+    enabled: open && !isAdminRow,
+    queryFn: async (): Promise<Record<string, boolean>> => {
+      const { data, error } = await (supabase.from("notificacao_user_prefs" as any) as any)
+        .select("tipo,permitido").eq("user_id", userId);
+      if (error) throw error;
+      const m: Record<string, boolean> = {};
+      for (const r of (data || []) as any[]) m[r.tipo] = r.permitido;
+      return m;
+    },
+  });
+
+  const toggle = async (tipo: string, on: boolean) => {
+    qc.setQueryData<Record<string, boolean>>(["notif-prefs", userId], (old) => ({ ...(old || {}), [tipo]: on }));
+    if (on) {
+      const { error } = await (supabase.from("notificacao_user_prefs" as any) as any)
+        .upsert({ user_id: userId, tipo, permitido: true }, { onConflict: "user_id,tipo" });
+      if (error) toast.error(error.message);
+    } else {
+      const { error } = await (supabase.from("notificacao_user_prefs" as any) as any)
+        .delete().eq("user_id", userId).eq("tipo", tipo);
+      if (error) toast.error(error.message);
+    }
+  };
+
+  return (
+    <div className="border-t border-border/60 pt-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Bell className="h-3.5 w-3.5" />
+        Notificações que recebe
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        isAdminRow ? (
+          <p className="text-[11px] text-muted-foreground italic mt-2">
+            Admin recebe todas as notificações automaticamente.
+          </p>
+        ) : cfgQ.isLoading ? (
+          <div className="text-[11px] text-muted-foreground mt-2">Carregando…</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
+            {(cfgQ.data || []).map((c) => {
+              const on = !!prefsQ.data?.[c.tipo];
+              return (
+                <label
+                  key={c.tipo}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-card/40 text-xs cursor-pointer"
+                >
+                  <span className={c.ativo ? "" : "text-muted-foreground/60"}>
+                    {c.label}{!c.ativo && " (desligada)"}
+                  </span>
+                  <Switch checked={on} disabled={!c.ativo} onCheckedChange={(v) => toggle(c.tipo, v)} />
+                </label>
+              );
+            })}
+          </div>
+        )
+      )}
     </div>
   );
 }

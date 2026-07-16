@@ -1,9 +1,9 @@
 // send-push
 //
 // Chamada pelo trigger trg_disparar_push quando uma notificação é inserida.
-// Body: { notificacao_id }. Resolve os destinatários (admins sempre; usuários
-// comuns só se o tipo estiver liberado em notificacao_config.visivel_usuarios),
-// pega as inscrições push desses usuários e entrega o Web Push.
+// Body: { notificacao_id }. Destinatários = admins (sempre) + usuários com o
+// tipo permitido em notificacao_user_prefs. Pega as inscrições push desses
+// usuários e entrega o Web Push.
 //
 // Chave VAPID vem da tabela push_vapid (lida com service role). Inscrições
 // expiradas (404/410) são removidas.
@@ -41,20 +41,24 @@ Deno.serve(async (req: Request) => {
       .single();
     if (eN || !notif) return j({ error: "notificacao nao encontrada", detail: eN?.message }, 404);
 
-    // 2. Config do tipo (usuários comuns veem?)
+    // 2. Tipo ativo?
     const { data: cfg } = await sb
       .from("notificacao_config")
-      .select("visivel_usuarios, ativo")
+      .select("ativo")
       .eq("tipo", notif.tipo)
       .single();
     if (cfg && cfg.ativo === false) return j({ ok: true, skipped: "tipo_inativo" });
-    const visivelUsuarios = !!cfg?.visivel_usuarios;
 
-    // 3. Destinatários: admins sempre; +todos se liberado pra usuários.
-    let q = sb.from("profiles").select("id").eq("approved", true);
-    if (!visivelUsuarios) q = q.eq("role", "admin");
-    const { data: profs } = await q;
-    const userIds = (profs || []).map((p: any) => p.id);
+    // 3. Destinatários: admins (sempre) + usuários com o tipo permitido.
+    const [{ data: admins }, { data: prefs }] = await Promise.all([
+      sb.from("profiles").select("id").eq("approved", true).eq("role", "admin"),
+      sb.from("notificacao_user_prefs").select("user_id").eq("tipo", notif.tipo).eq("permitido", true),
+    ]);
+    const set = new Set<string>([
+      ...(admins || []).map((a: any) => a.id),
+      ...(prefs || []).map((p: any) => p.user_id),
+    ]);
+    const userIds = [...set];
     if (!userIds.length) return j({ ok: true, sent: 0, motivo: "sem_destinatarios" });
 
     // 4. Inscrições desses usuários
