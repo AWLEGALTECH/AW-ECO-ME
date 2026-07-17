@@ -438,6 +438,65 @@ function aplicarPrescricaoDecenal(documentXml) {
   return documentXml;
 }
 
+/* =========================================================================
+   QUADRO SOCIOECONÔMICO — tópico de ABERTURA das peças de Bradesco.
+   Injetado programaticamente (mesma técnica da prescrição decenal) pra NÃO
+   precisar editar os 10 templates .docx. Entra ANTES da seção "DOS FATOS",
+   com título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME EM CAIXA ALTA]" e um
+   parágrafo humanizado (IA, com fallback local garantido em gerarQuadro-
+   SocioeconomicoLocal). Escopo: só produtos que têm a zona ia_quadro_-
+   socioeconomico (os de Bradesco). Defensivo: qualquer falha mantém o
+   template intacto.
+   ========================================================================= */
+function paragrafoSocioeconXml(txt, ehTitulo) {
+  const rpr = ehTitulo
+    ? '<w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:b w:val="1"/><w:bCs w:val="1"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/>'
+    : '<w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:rtl w:val="0"/>';
+  const tab = ehTitulo ? '' : '<w:tab/>';
+  return `<w:p><w:pPr><w:ind w:right="-430.8661417322827"/><w:jc w:val="both"/><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/></w:rPr></w:pPr><w:r><w:rPr>${rpr}</w:rPr>${tab}<w:t xml:space="preserve">${escXml(txt)}</w:t></w:r></w:p>`;
+}
+
+function aplicarQuadroSocioeconomico(documentXml) {
+  try {
+    const ehBradesco = state.produtoSelecionado && Array.isArray(state.produtoSelecionado.zonas_ia)
+      && state.produtoSelecionado.zonas_ia.some(z => z.tag === 'ia_quadro_socioeconomico');
+    if (!ehBradesco) return documentXml;
+
+    const textOf = s => (s.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
+      .map(t => t.replace(/<[^>]+>/g, '')).join('');
+    const paras = [...documentXml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)];
+
+    // idempotência: se o tópico já existe (reprocessamento), não duplica
+    if (paras.some(m => textOf(m[0]).toUpperCase().includes('QUADRO SOCIOECONÔMICO DE'))) {
+      return documentXml;
+    }
+
+    const nome = ((state.dadosPacote1 && state.dadosPacote1.nome_completo) || '').trim();
+    const nomeUpper = nome.toLocaleUpperCase('pt-BR');
+    if (!nomeUpper) { console.warn('[socioecon] sem nome do cliente — tópico não inserido.'); return documentXml; }
+
+    // Corpo: texto da IA (n8n) ou fallback local garantido.
+    let corpo = ((state.trechosIA && state.trechosIA.ia_quadro_socioeconomico) || '').trim();
+    if (!corpo && typeof gerarQuadroSocioeconomicoLocal === 'function') corpo = gerarQuadroSocioeconomicoLocal();
+    if (!corpo) return documentXml;
+
+    // Âncora: heading "DOS FATOS" (existe exatamente 1x em todo template Bradesco).
+    const anchorIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('DOS FATOS'));
+    if (anchorIdx === -1) { console.warn('[socioecon] âncora "DOS FATOS" não encontrada — tópico não inserido.'); return documentXml; }
+    const anchor = paras[anchorIdx];
+
+    const heading = paragrafoSocioeconXml('DO QUADRO SOCIOECONÔMICO DE ' + nomeUpper, true);
+    const corpoParas = corpo.split(/\n+/).map(s => s.trim()).filter(Boolean)
+      .map(p => paragrafoSocioeconXml(p, false)).join('');
+    const bloco = heading + corpoParas;
+    console.log('[socioecon] tópico de abertura inserido antes de "DOS FATOS".');
+    return documentXml.slice(0, anchor.index) + bloco + documentXml.slice(anchor.index);
+  } catch (e) {
+    console.warn('[socioecon] erro — template mantido:', e);
+    return documentXml;
+  }
+}
+
 /**
  * Monta o XML OOXML completo da tabela de descontos, fiel à planilha:
  * preserva subtítulos mesclados, cabeçalho, linhas de dados, e linhas de
@@ -1285,6 +1344,16 @@ async function montarDocxNoNavegador() {
     const xmlAntesDec = zipFinal.file('word/document.xml').asText();
     const xmlDepoisDec = aplicarPrescricaoDecenal(xmlAntesDec);
     if (xmlDepoisDec !== xmlAntesDec) zipFinal.file('word/document.xml', xmlDepoisDec);
+  }
+
+  // 9a-2. QUADRO SOCIOECONÔMICO — tópico de abertura (só produtos Bradesco).
+  // Injeta título + parágrafo humanizado ANTES de "DOS FATOS". Roda ANTES do
+  // revisor (9c) pra os parágrafos inseridos receberem a uniformização de
+  // margem, e antes da sanitização de twips (9b) que trunca o ind fracionário.
+  {
+    const xmlAntesQS = zipFinal.file('word/document.xml').asText();
+    const xmlDepoisQS = aplicarQuadroSocioeconomico(xmlAntesQS);
+    if (xmlDepoisQS !== xmlAntesQS) zipFinal.file('word/document.xml', xmlDepoisQS);
   }
 
   // 9b. SANITIZAÇÃO DE TWIPS FRACIONÁRIOS — Word recusa o arquivo se algum

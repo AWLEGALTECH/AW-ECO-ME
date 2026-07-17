@@ -134,6 +134,13 @@ async function gerarTrechos() {
           state.trechosIA.ia_lastro_dano_material = lastroLocal;
         }
       }
+      // FALLBACK do quadro socioeconômico (tópico de abertura). Zona nova: se o
+      // fluxo do n8n ainda não a conhece, preenche localmente pra o tópico NUNCA
+      // sair em branco na peça de Bradesco. O advogado edita/regenera no preview.
+      const ehBradescoQS = (state.produtoSelecionado?.zonas_ia || []).some(z => z.tag === 'ia_quadro_socioeconomico');
+      if (ehBradescoQS && !(state.trechosIA.ia_quadro_socioeconomico || '').trim()) {
+        state.trechosIA.ia_quadro_socioeconomico = gerarQuadroSocioeconomicoLocal();
+      }
       state.trechosIAOriginais = { ...state.trechosIA };
     } else {
       await new Promise(r => setTimeout(r, 3000));
@@ -417,11 +424,17 @@ function enriquecerZonasConfigComContextos(configBase) {
  */
 function montarZonasConfigBradesco() {
   const config = {
+    ia_quadro_socioeconomico: {
+      papel: 'ABERTURA da petição, sob título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]". Pintar, em prosa humanizada, digna e sóbria, o RETRATO SOCIOECONÔMICO da pessoa por trás da ação: sua realidade de trabalho e renda, a fragilidade orçamentária e a dependência do que recebe para prover a própria subsistência e a da família. É o primeiro contato do juízo com o caso e deve gerar identificação humana e contextualizar a vulnerabilidade, ANTES de qualquer discussão fática ou jurídica.',
+      incluir: 'Retrato do cliente em sua condição socioeconômica concreta (profissão, faixa de renda, composição e encargos familiares, sinais de vulnerabilidade fornecidos nos dados). Tom humano e respeitoso, nunca piegas nem apelativo. UM parágrafo (5 a 9 linhas).',
+      evitar: 'NÃO descreva a conta bancária, agência, número de conta nem a MECÂNICA dos descontos — isso é a seção DOS FATOS, que vem logo em seguida. NÃO fale de dano moral, angústia, dignidade, impotência, lastro nem valores em dobro. NÃO reenumere friamente RG, CPF e endereço (a qualificação formal já foi feita no cabeçalho). NÃO invente dados que não foram fornecidos.',
+      posicao: 'É o PRIMEIRÍSSIMO tópico da peça, logo após a qualificação das partes e ANTES de "DOS FATOS". O parágrafo seguinte (ia_contexto_conta_salarial) fará a apresentação formal e a natureza salarial da conta; aqui o foco é o retrato humano e econômico.',
+    },
     ia_contexto_conta_salarial: {
-      papel: 'Contextualização socioeconômica do cliente e vinculação da conta bancária ao sustento familiar.',
-      incluir: 'Apresentação completa do cliente (nome, profissão, renda, composição familiar) e da natureza salarial da conta como instrumento essencial de subsistência.',
-      evitar: 'NADA sobre dano moral, impotência, dignidade ou sofrimento psíquico — esses virão em trechos separados.',
-      posicao: 'É o PRIMEIRO trecho da peça — único momento em que o cliente é apresentado com biografia completa.',
+      papel: 'Vincular a conta bancária ao sustento do cliente e da família, dando início à seção DOS FATOS.',
+      incluir: 'Apresentação formal da parte autora e da natureza SALARIAL da conta como instrumento essencial de subsistência, abrindo a narrativa dos fatos.',
+      evitar: 'NADA sobre dano moral, impotência, dignidade ou sofrimento psíquico — esses virão em trechos separados. IMPORTANTE: o retrato socioeconômico do cliente JÁ FOI PINTADO no tópico de abertura "Do quadro socioeconômico" (logo acima); portanto NÃO repita esse retrato por extenso (renda, composição familiar, vulnerabilidade). Aqui a ênfase é a natureza salarial da conta e seu papel de subsistência.',
+      posicao: 'Abre a seção DOS FATOS, logo após o tópico de abertura "Do quadro socioeconômico". É onde a conta salarial é formalmente vinculada à subsistência.',
     },
     ia_expropriacao_silenciosa: {
       papel: 'Denúncia da MECÂNICA do desconto — a ausência de aviso, de contrato, de discriminação nos extratos.',
@@ -520,6 +533,42 @@ function montarConfigLastroDanoMaterial() {
   };
 }
 
+// Retrato socioeconômico humanizado montado LOCALMENTE a partir dos dados do
+// cliente (Pacote 1 + Pacote 2). Serve de:
+//   1. fallback quando o n8n não devolve a zona nova ia_quadro_socioeconomico;
+//   2. valor do mock offline.
+// Determinístico (mesma prosa pro mesmo cliente); o advogado edita no preview.
+// IMPORTANTE: NÃO usa travessão (—) — este texto pode ir direto pro docx sem
+// passar pela sanitização, então já nasce limpo.
+function gerarQuadroSocioeconomicoLocal() {
+  const d = { ...state.dadosPacote1, ...state.dadosPacote2 };
+  const nome = (d.nome_completo || 'A parte autora').trim();
+  const prof = (d.profissao || 'trabalhador').trim();
+  const generoFem = d.genero === 'feminino';
+  const ecCasado = (d.estado_civil || '').includes('cas');
+  const ecPalavra = ecCasado ? (generoFem ? 'casada' : 'casado') : '';
+  let renda = '';
+  if (d.renda_mensal != null && String(d.renda_mensal).trim() !== '') {
+    const raw = String(d.renda_mensal).trim();
+    const n = parseFloat(raw.replace(/[^\d.,]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    renda = isNaN(n) ? raw : `R$ ${n.toLocaleString('pt-BR')}`;
+  }
+  const filhos = parseInt(d.numero_filhos) || 0;
+  const filhosFrag = filhos > 0 ? `, com ${filhos} filho${filhos > 1 ? 's' : ''} sob seus cuidados` : '';
+  const outrosDep = (d.outros_dependentes || '').trim();
+  const outrosFrag = outrosDep ? `, ${filhosFrag ? 'e ainda ' : 'responsável por '}${outrosDep}` : '';
+  const provedorFrag = d.unico_provedor === 'sim' ? ', único provedor do lar' : '';
+  const conjugeFrag = d.conjuge_trabalha === 'nao' ? ', cujo cônjuge não exerce atividade remunerada' : '';
+  const moradiaMap = { alugada: 'residindo em imóvel alugado', cedida: 'residindo em imóvel cedido', financiada: 'com imóvel ainda financiado' };
+  const moradiaFrag = moradiaMap[d.tipo_moradia] ? `, ${moradiaMap[d.tipo_moradia]}` : '';
+  const suf = `${filhosFrag}${outrosFrag}${provedorFrag}${conjugeFrag}${moradiaFrag}`;
+  const quali = prof + (ecPalavra ? `, ${ecPalavra}` : '') + suf;
+  const rendaClause = renda
+    ? ` Com rendimentos da ordem de ${renda} mensais, organiza a vida financeira em torno de prioridades básicas, sem margem para perdas inesperadas.`
+    : '';
+  return `${nome}, ${quali}, integra a imensa parcela de brasileiros cuja subsistência depende, mês a mês, do que ingressa em sua conta.${rendaClause} Cada valor recebido já chega com destinação certa: alimentação, moradia, contas essenciais e o cuidado com os seus. É nesse orçamento sem folga, em que não sobra espaço para subtrações silenciosas, que se compreende a real dimensão do prejuízo tratado nesta ação.`;
+}
+
 // `tentativa` controla qual variante de cada zona é retornada — usado pelo
 // regenerarZona pra que o mock offline mostre VARIAÇÃO REAL a cada clique
 // (sem isso, o usuário clica regenerar e vê o mesmo texto, dando impressão
@@ -562,6 +611,10 @@ function gerarTrechosMock(tentativa = 0) {
   // O nome completo aparece APENAS na zona de contexto. Demais zonas usam
   // "a parte autora", "a requerente", "ela/ele" pra evitar repetição.
   return {
+    // [0] QUADRO SOCIOECONÔMICO — tópico de abertura (retrato humano do cliente).
+    // Mock usa o gerador local determinístico; a IA real dá variedade.
+    ia_quadro_socioeconomico: gerarQuadroSocioeconomicoLocal(),
+
     // [1] CONTEXTO — apresenta cliente com biografia completa
     ia_contexto_conta_salarial: pickVariante([
       `Trata-se de conta bancária de natureza salarial, destinada ao sustento de ${nome}, ${prof}${ecCasado ? ', ' + ecFem : ''}${sufFilhos}, que percebe rendimentos de aproximadamente ${renda} mensais. Referida conta é o instrumento concreto pelo qual a autora garante alimentação, moradia e demais despesas essenciais da família.`,
