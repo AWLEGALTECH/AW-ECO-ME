@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
     // 4. cria a notificação (respeita o liga/desliga; dispara push via trigger)
     const { error } = await sb.rpc("fn_criar_notificacao", {
       p_tipo: "cliente_assinou",
-      p_titulo: "Contrato assinado ✍️",
+      p_titulo: "Contrato assinado 🎉",
       p_corpo: `${nome} assinou o contrato.`,
       p_dados: { cliente_nome: signer, cliente_id: clienteId, documento: doc || null },
       p_link: link,
