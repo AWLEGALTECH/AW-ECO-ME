@@ -14,8 +14,8 @@ begin
   select coalesce(sum(valor_causa), 0) into v_total
     from public.processos where fase_processual is distinct from 'ARQUIVADO';
   perform public.fn_criar_notificacao(
-    'bom_dia', 'Bom dia ☀️',
-    'Nosso valor ajuizado hoje é de ' || public.fn_fmt_brl(v_total) || '.',
+    'bom_dia', 'Balanço diário',
+    'Bom dia, nosso valor total em processos ajuizados é de ' || public.fn_fmt_brl(v_total) || '.',
     jsonb_build_object('valor_total', v_total),
     '/dashboard', null, null);
 end; $$;
