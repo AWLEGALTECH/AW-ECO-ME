@@ -37,7 +37,7 @@ function CorpoRico({ n }: { n: Notificacao }) {
 
   if (n.tipo === "bom_dia") {
     const v = Number(d.valor_total) || 0;
-    return <>Nosso valor ajuizado hoje é de {B(fmtBRL(v))}.</>;
+    return <>Bom dia, nosso valor total em processos ajuizados é de {B(fmtBRL(v))}.</>;
   }
 
   const nome = capNome(d.cliente_nome);
