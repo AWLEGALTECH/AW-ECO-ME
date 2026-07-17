@@ -21,8 +21,35 @@ export function RequireModule({ module, adminOnly = false }: Props) {
 
   if (module && !isAdmin && !modules.includes(module)) {
     const fallback = modules[0];
-    return <Navigate to={fallback ? `/${fallback.replace("_", "-")}` : "/"} replace />;
+    // IMPORTANTE: sem NENHUM módulo, NÃO redirecionar pra "/". Isso criava um
+    // loop / ↔ /dashboard que estourava o replaceState do Safari e travava o
+    // app (tela "Algo travou ao carregar"). Aqui mostramos uma tela
+    // recuperável — normalmente é falha transitória de carga no mobile.
+    if (!fallback) return <SemModulos />;
+    return <Navigate to={`/${fallback.replace(/_/g, "-")}`} replace />;
   }
 
   return <Outlet />;
+}
+
+function SemModulos() {
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center px-6">
+      <div className="max-w-md w-full text-center rounded-2xl border border-white/[0.08] bg-white/[0.03] p-8">
+        <h1 className="text-lg font-semibold text-foreground">Não conseguimos carregar seu acesso</h1>
+        <p className="text-sm text-muted-foreground mt-2">
+          Geralmente é uma falha momentânea de conexão. Recarregue a página. Se continuar,
+          fale com o administrador pra confirmar seus módulos liberados.
+        </p>
+        <div className="flex items-center justify-center gap-2 mt-5">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition"
+          >
+            Recarregar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
