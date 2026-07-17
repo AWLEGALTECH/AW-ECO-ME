@@ -15,6 +15,10 @@ self.addEventListener("push", (event) => {
     data: { link: data.link || "/" },
     tag: data.tipo || undefined,
     renotify: !!data.tipo,
+    // Não silenciar (deixa o SO tocar o som padrão de notificação) + vibração
+    // no Android. iOS ignora vibrate, mas toca o som do sistema.
+    silent: false,
+    vibrate: [120, 60, 120],
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

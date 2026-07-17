@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { tocarSomNotificacao } from "@/lib/som";
 
 export interface Notificacao {
   id: string;
@@ -51,7 +52,11 @@ export function useNotificacoes() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notificacoes" },
-        () => { qc.invalidateQueries({ queryKey: ["notificacoes", user.id] }); },
+        () => {
+          // Chegou notificação com o app aberto → toca o som e atualiza.
+          tocarSomNotificacao();
+          qc.invalidateQueries({ queryKey: ["notificacoes", user.id] });
+        },
       )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
