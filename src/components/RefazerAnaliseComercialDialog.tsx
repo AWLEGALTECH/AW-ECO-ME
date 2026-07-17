@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -35,6 +36,7 @@ interface Props {
 
 export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved, editorId }: Props) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [stage, setStage] = useState<"chooser" | "manual">("chooser");
   const [salvando, setSalvando] = useState(false);
 
@@ -102,6 +104,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
     } as any);
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+    // O recálculo mexe no quadro de fechamento. Sem invalidar, o cache
+    // persistido (staleTime 30s) segue mostrando o valor antigo.
+    qc.invalidateQueries({ queryKey: ["fechamentos"] });
     const r = (data as any) || {};
     toast.success(
       r.acao === "atualizado"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -102,6 +103,7 @@ export function FinderAnaliseComercial({
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const refazendo = !!refazerClienteId;
   const [analise, setAnalise] = useState<AnaliseCaptada | null>(null);
   const [open, setOpen] = useState(false);
@@ -168,6 +170,9 @@ export function FinderAnaliseComercial({
       } as any);
       setSalvando(false);
       if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+      // Recalculou o fechamento no banco — invalida o quadro pra não ficar
+      // preso no cache velho (staleTime 30s + persistência em localStorage).
+      qc.invalidateQueries({ queryKey: ["fechamentos"] });
       const r = (data as any) || {};
       setSalvouId("ok");
       toast.success(
