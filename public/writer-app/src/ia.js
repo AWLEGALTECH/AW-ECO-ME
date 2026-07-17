@@ -341,11 +341,14 @@ function montarPayloadGeracao() {
     },
     zonas: state.produtoSelecionado.zonas_ia
       .filter(z => {
-        // ia_lastro_humanizado é a única zona opcional restante.
-        // ia_lastro_dano_material agora é sempre incluído (gerado por IA
-        // com números calculados injetados via zonas_config) — sem opt-out.
+        // Zonas opcionais: o advogado liga/desliga pelo toggle no preview.
+        // Se desligada, a zona NÃO vai pro n8n (não é gerada nem cobra tokens)
+        // e o parágrafo do template é apagado (flag gerar_* em docx.js).
         if (z.tag === 'ia_lastro_humanizado') {
           return state.dadosPacote3.gerar_lastro_humanizado !== false;
+        }
+        if (z.tag === 'ia_lastro_dano_material') {
+          return state.dadosPacote3.gerar_lastro_dano_material !== false;
         }
         return true;
       })
@@ -463,8 +466,12 @@ function montarZonasConfigBradesco() {
   // a IA NUNCA calcula, só redige uma nova forma de escrever os MESMOS
   // números. Conteúdo deve focar SÓ em parâmetros oficiais (Decreto/DIEESE/
   // SM), nada de cliente. Sempre incluído (sem opt-out).
-  const lastroCfg = montarConfigLastroDanoMaterial();
-  if (lastroCfg) config.ia_lastro_dano_material = lastroCfg;
+  // Só monta a config do lastro técnico se o advogado não desligou o toggle —
+  // assim a zona nem entra no payload da IA quando pulada.
+  if (state.dadosPacote3.gerar_lastro_dano_material !== false) {
+    const lastroCfg = montarConfigLastroDanoMaterial();
+    if (lastroCfg) config.ia_lastro_dano_material = lastroCfg;
+  }
   return config;
 }
 

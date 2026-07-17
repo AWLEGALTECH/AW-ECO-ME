@@ -221,12 +221,12 @@ function montarContextoDocx() {
                                   ? capitalizarPrimeiraLetra(state.trechosIA.ia_dano_moral_impotencia   || '')
                                   : (state.trechosIA.ia_dano_moral_impotencia    || ''),
 
-    // [7] LASTRO DO DANO MATERIAL — sempre incluído. O lastro técnico não
-    // é mais opt-out-able (gerado por IA com números calculados). Flag
-    // hardcoded true pra docxtemplater renderizar o bloco do template.
+    // [7] LASTRO DO DANO MATERIAL — opcional (toggle no preview, igual ao
+    // humanizado). Quando desligado, o bloco condicional do template
+    // ({#gerar_lastro_dano_material}) é removido inteiro pelo docxtemplater.
     // Capitaliza por ser parágrafo isolado em todos os produtos.
     ia_lastro_dano_material:     capitalizarPrimeiraLetra(state.trechosIA.ia_lastro_dano_material || ''),
-    gerar_lastro_dano_material:  true,
+    gerar_lastro_dano_material:  state.dadosPacote3.gerar_lastro_dano_material !== false,
 
     // Lastro HUMANIZADO — gerado por IA, traduz valor em bens cotidianos do
     // cliente. Vem ANTES do lastro técnico na peça (humanizado dá impacto humano,
