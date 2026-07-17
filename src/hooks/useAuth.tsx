@@ -45,12 +45,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [accessReady, setAccessReady] = useState(false);
 
-  const loadAccess = async (userId: string) => {
-    const { data: prof } = await supabase
+  const loadAccess = async (userId: string, tentativa = 0): Promise<Profile | null> => {
+    const { data: prof, error } = await supabase
       .from("profiles")
       .select("id, nome, email, avatar_url, role, approved, ver_fechamentos_geral")
       .eq("id", userId)
       .single();
+
+    // Falha de rede/servidor (NÃO "0 linhas"): tenta de novo. Sem isso, uma
+    // falha transitória no boot (comum no mobile) deixava modules=[], e o
+    // RequireModule redirecionava em loop (/ ↔ /dashboard), estourando o
+    // limite de replaceState do Safari e travando o app.
+    if (error && error.code !== "PGRST116" && tentativa < 3) {
+      await new Promise((r) => setTimeout(r, 700 * (tentativa + 1)));
+      return loadAccess(userId, tentativa + 1);
+    }
 
     if (!prof) {
       setProfile(null);
@@ -76,10 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (prof.role === "admin") {
       nextModules = ALL_MODULE_KEYS;
     } else {
-      const { data: rows } = await supabase
+      const { data: rows, error: errMods } = await supabase
         .from("user_module_access")
         .select("module_key")
         .eq("user_id", userId);
+      // Falha ao ler os módulos: tenta de novo antes de assumir vazio (que
+      // levaria ao loop de redirecionamento).
+      if (errMods && tentativa < 3) {
+        await new Promise((r) => setTimeout(r, 700 * (tentativa + 1)));
+        return loadAccess(userId, tentativa + 1);
+      }
       nextModules = ((rows || []).map(r => r.module_key) as ModuleKey[]);
     }
 
