@@ -50,7 +50,7 @@ function CorpoRico({ n }: { n: Notificacao }) {
       : <>{B(nome)} foi cadastrado como pré-cliente e aguarda confirmação.</>;
   }
   if (n.tipo === "pre_cliente_confirmado") {
-    return <>{B(nome)} virou cliente.{autor ? <> A captação foi de {autor}.</> : null}</>;
+    return <>{B(nome)} virou cliente.{autor ? <> Fechamento de {autor}.</> : null}</>;
   }
   if (n.tipo === "peca_protocolada") {
     const v = Number(d.valor_causa) || 0;

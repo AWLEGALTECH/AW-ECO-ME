@@ -47,7 +47,7 @@ declare v_autor text; v_cli text; v_af text; begin
     perform public.fn_criar_notificacao(
       'pre_cliente_confirmado', 'Novo cliente 👤',
       coalesce(v_cli,'—') || ' virou cliente.'
-        || case when coalesce(v_af,'') <> '' then ' A captação foi de ' || v_af || '.' else '' end,
+        || case when coalesce(v_af,'') <> '' then ' Fechamento de ' || v_af || '.' else '' end,
       jsonb_build_object('cliente_nome', coalesce((select nome from public.clientes where id = new.cliente_id), new.nome),
                          'cliente_id', new.cliente_id, 'pre_cliente_id', new.id),
       coalesce('/clientes/' || new.cliente_id::text, '/pre-clientes'),
