@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, CheckCheck, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, Sunrise, CheckCheck, type LucideIcon } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
 import { usePush } from "@/hooks/usePush";
@@ -11,6 +11,7 @@ const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   pre_cliente_confirmado: { icon: UserCheck, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
   peca_protocolada:       { icon: Send,        chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
   cliente_assinou:        { icon: PartyPopper, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
+  bom_dia:                { icon: Sunrise,     chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
 };
 
 // Nome em Title Case (tira o CAIXA ALTA do cadastro).
@@ -32,10 +33,16 @@ function fmtBRL(v: number): string {
 // cliente e no valor (o que o push, texto puro do SO, não permite).
 function CorpoRico({ n }: { n: Notificacao }) {
   const d = n.dados || {};
+  const B = (t: string) => <strong className="font-semibold text-foreground/90">{t}</strong>;
+
+  if (n.tipo === "bom_dia") {
+    const v = Number(d.valor_total) || 0;
+    return <>Nosso valor ajuizado hoje é de {B(fmtBRL(v))}.</>;
+  }
+
   const nome = capNome(d.cliente_nome);
   if (!nome) return <>{n.corpo}</>;
   const autor = primeiroNome(n.actor_nome);
-  const B = (t: string) => <strong className="font-semibold text-foreground/90">{t}</strong>;
 
   if (n.tipo === "pre_cliente_criado") {
     return autor
