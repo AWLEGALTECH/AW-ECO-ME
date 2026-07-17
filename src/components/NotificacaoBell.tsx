@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, CheckCheck, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, CheckCheck, type LucideIcon } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
 import { usePush } from "@/hooks/usePush";
@@ -9,7 +9,8 @@ import { usePush } from "@/hooks/usePush";
 const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   pre_cliente_criado:     { icon: UserPlus,  chip: "bg-primary/12 ring-primary/25 text-primary" },
   pre_cliente_confirmado: { icon: UserCheck, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
-  peca_protocolada:       { icon: Send,      chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
+  peca_protocolada:       { icon: Send,        chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
+  cliente_assinou:        { icon: PartyPopper, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
 };
 
 // Nome em Title Case (tira o CAIXA ALTA do cadastro).
@@ -47,6 +48,9 @@ function CorpoRico({ n }: { n: Notificacao }) {
   if (n.tipo === "peca_protocolada") {
     const v = Number(d.valor_causa) || 0;
     return <>A ação de {B(nome)} foi protocolada, com valor de causa de {B(fmtBRL(v))}.</>;
+  }
+  if (n.tipo === "cliente_assinou") {
+    return <>{B(nome)} assinou o contrato.</>;
   }
   return <>{n.corpo}</>;
 }
