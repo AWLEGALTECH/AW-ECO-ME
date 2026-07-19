@@ -26,6 +26,7 @@ import { LANDING_OPCOES, type AdvogadoKey, linkSocio, whatsappSocioUrl } from "@
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { RefazerAnaliseComercialDialog } from "@/components/RefazerAnaliseComercialDialog";
+import { SpotlightCard } from "@/components/SpotlightCard";
 import { AcaoCard } from "@/components/AcaoCard";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
@@ -437,62 +438,70 @@ export default function ClienteDetail() {
       </Button>
 
       {/* HEADER ============================================================ */}
-      <header className="flex items-start gap-5">
-        <div className="h-20 w-20 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 flex items-center justify-center">
-          <User className="h-10 w-10 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-medium tracking-tight truncate">{cliente.nome}</h1>
+      <SpotlightCard className="p-5 sm:p-6 border-primary/15">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-5">
+          <div className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 rounded-2xl bg-primary/10 ring-1 ring-primary/25 flex items-center justify-center">
+            <User className="h-8 w-8 sm:h-10 sm:w-10 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-display text-2xl sm:text-3xl font-medium tracking-tight break-words leading-tight">
+              {cliente.nome}
+            </h1>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mt-2.5">
+              <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${origemMeta.color}`}>
+                {origemMeta.label}
+              </span>
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                <Clock className="h-3 w-3 opacity-70" /> Cliente desde {fmtDate(cliente.created_at)}
+              </span>
+              {cliente.cadastrado_por && (
+                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                  <User className="h-3 w-3 opacity-70" /> cadastrado por{" "}
+                  <strong className="text-foreground/80 font-medium">{cliente.cadastrado_por}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Ações — full width no mobile, à direita no desktop */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               onClick={() => { setDraft(cliente); setEditing(true); }}
-              className="shrink-0 inline-flex items-center gap-1.5 px-3 h-9 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 hover:border-primary/50 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 hover:border-primary/50 transition-colors"
               title="Editar todos os dados do cliente"
             >
               <Pencil className="h-4 w-4" /> Editar
             </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${origemMeta.color}`}>
-              {origemMeta.label}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Cliente desde {fmtDate(cliente.created_at)}
-            </span>
-            {cliente.cadastrado_por && (
-              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                <User className="h-3 w-3" /> cadastrado por <strong className="text-foreground/80 font-medium">{cliente.cadastrado_por}</strong>
-              </span>
-            )}
+            <DriveFolderButton
+              clienteId={cliente.id}
+              clienteNome={cliente.nome}
+              driveFolderUrl={cliente.drive_folder_url}
+              onCreated={(url) => setCliente({ ...cliente, drive_folder_url: url })}
+              variant="inline"
+            />
           </div>
         </div>
-        <div className="shrink-0">
-          <DriveFolderButton
-            clienteId={cliente.id}
-            clienteNome={cliente.nome}
-            driveFolderUrl={cliente.drive_folder_url}
-            onCreated={(url) => setCliente({ ...cliente, drive_folder_url: url })}
-            variant="inline"
-          />
-        </div>
-      </header>
+      </SpotlightCard>
 
       {/* QUADRADOS DE NAVEGACAO ============================================ */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
         {ABAS.map(a => {
           const ativa = aba === a.key;
           return (
             <button
               key={a.key}
               onClick={() => setAba(a.key)}
-              className={`group rounded-2xl border-2 p-4 text-left cursor-pointer transition-all shadow-sm ${
+              className={`group rounded-2xl border p-3 sm:p-4 text-left cursor-pointer transition-all ${
                 ativa
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20 shadow-[0_0_24px_hsla(var(--primary)/0.18)] -translate-y-0.5"
-                  : "border-border/80 bg-card/70 hover:border-primary/40 hover:bg-card hover:-translate-y-0.5 hover:shadow-md"
+                  ? "border-primary/40 bg-primary/[0.07] ring-1 ring-primary/20 shadow-[0_0_28px_hsla(var(--primary)/0.15)] -translate-y-0.5"
+                  : "border-white/[0.07] bg-white/[0.03] backdrop-blur-md hover:border-primary/30 hover:bg-white/[0.05] hover:-translate-y-0.5"
               }`}
             >
               <div className="flex items-center justify-between">
-                <a.Icon className={`h-5 w-5 ${ativa ? "text-primary" : "text-muted-foreground"}`} />
+                <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                  ativa ? "bg-primary/15 ring-1 ring-primary/25" : "bg-white/[0.04] ring-1 ring-white/10"
+                }`}>
+                  <a.Icon className={`h-4 w-4 sm:h-[18px] sm:w-[18px] ${ativa ? "text-primary" : "text-muted-foreground"}`} />
+                </span>
                 {a.count > 0 && (
                   a.key === "demandas" ? (
                     <span
@@ -510,10 +519,10 @@ export default function ClienteDetail() {
                   )
                 )}
               </div>
-              <p className={`mt-3 text-sm font-medium ${ativa ? "text-foreground" : "text-foreground/90"}`}>
+              <p className={`mt-2.5 sm:mt-3 text-sm font-medium ${ativa ? "text-foreground" : "text-foreground/90"}`}>
                 {a.label}
               </p>
-              <p className="text-[11px] text-muted-foreground/70 mt-0.5">{a.hint}</p>
+              <p className="text-[11px] text-muted-foreground/70 mt-0.5 leading-snug">{a.hint}</p>
             </button>
           );
         })}
@@ -933,9 +942,12 @@ function Slot({
 }: { icon: any; label: string; value: string | null; isLink?: boolean; className?: string }) {
   const empty = !value;
   return (
-    <div className={`rounded-lg bg-muted/15 px-4 py-3 cursor-default ${className || ""}`}>
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1">
-        <Icon className="h-3 w-3" /> {label}
+    <div className={`group rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 cursor-default transition-colors hover:border-white/[0.12] ${className || ""}`}>
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground/80 mb-1.5">
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 ring-1 ring-primary/15 shrink-0">
+          <Icon className="h-3 w-3 text-primary/70" />
+        </span>
+        {label}
       </div>
       {empty ? (
         <p className="text-sm text-muted-foreground/40 italic">não informado</p>
