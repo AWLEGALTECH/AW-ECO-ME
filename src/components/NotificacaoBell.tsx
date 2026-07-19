@@ -90,12 +90,12 @@ export function NotificacaoBell() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors"
+          className="relative h-11 w-11 md:h-9 md:w-9 inline-flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors"
           aria-label="Notificações"
         >
-          <Bell className="h-[18px] w-[18px]" />
+          <Bell className="h-6 w-6 md:h-[18px] md:w-[18px]" />
           {unread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums ring-2 ring-background">
+            <span className="absolute top-0.5 right-0.5 md:-top-0.5 md:-right-0.5 min-w-[20px] h-[20px] md:min-w-[18px] md:h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] md:text-[10px] font-bold tabular-nums ring-2 ring-background">
               {unread > 99 ? "99+" : unread}
             </span>
           )}

@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>AW ECO ME</title>
     <meta name="description" content="Plataforma de gestão processual — Dr. Matheus Enes">
     <meta name="author" content="AW ECO ME" />
@@ -33,6 +33,20 @@
         } catch(e) {}
       })();
     </script>
+    <script>
+      // Desativa o pinch-zoom no mobile (iOS Safari e PWA ignoram user-scalable=no,
+      // então bloqueamos os gestos de zoom do WebKit na mão). Não afeta o scroll.
+      (function(){
+        var stop = function(e){ e.preventDefault(); };
+        document.addEventListener('gesturestart', stop, { passive: false });
+        document.addEventListener('gesturechange', stop, { passive: false });
+        document.addEventListener('gestureend', stop, { passive: false });
+      })();
+    </script>
+    <style>
+      /* Remove o double-tap-to-zoom e o delay de 300ms — cara de app nativo. */
+      html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+    </style>
   </head>
 
   <body>

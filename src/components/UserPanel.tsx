@@ -98,9 +98,9 @@ export function UserPanel() {
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetTrigger asChild>
         <button className="flex items-center gap-2 rounded-full hover:opacity-80 transition-opacity">
-          <Avatar className="h-8 w-8 cursor-pointer border-2 border-primary-foreground/30">
+          <Avatar className="h-10 w-10 md:h-8 md:w-8 cursor-pointer border-2 border-primary-foreground/30">
             <AvatarImage src={avatarUrl || undefined} />
-            <AvatarFallback className="bg-primary-foreground/20 text-primary-foreground text-xs">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-primary-foreground/20 text-primary-foreground text-sm md:text-xs">{initials}</AvatarFallback>
           </Avatar>
         </button>
       </SheetTrigger>

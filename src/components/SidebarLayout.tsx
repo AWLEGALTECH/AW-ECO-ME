@@ -82,7 +82,7 @@ export function SidebarLayout() {
               {/* Topbar — fica cyan no SEI via override CSS scoped */}
               <header className={`h-14 flex items-center justify-between px-4 shrink-0 z-30 ${isSei ? "" : "glass-card border-b border-sidebar-border backdrop-blur-xl"}`}>
                 <div className="flex items-center gap-2">
-                  <SidebarTrigger className={isSei ? "text-white" : "text-muted-foreground hover:text-foreground transition-colors"} />
+                  <SidebarTrigger className={`h-10 w-10 md:h-7 md:w-7 [&_svg]:size-6 md:[&_svg]:size-4 ${isSei ? "text-white" : "text-muted-foreground hover:text-foreground transition-colors"}`} />
                 </div>
                 <div />
                 <div className="flex items-center gap-2">
