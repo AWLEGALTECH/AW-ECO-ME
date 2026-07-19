@@ -46,6 +46,12 @@ export function AppSidebar() {
 
   const visibleItems = navItems.filter(it => isAdmin || modules.includes(it.module));
 
+  // Mobile: itens da "barra de sessões" maiores (alvo de toque, ícone e texto),
+  // resetando pro compacto no desktop (md+). O menu vira Sheet abaixo de 768px,
+  // exatamente o breakpoint do `md`, então os resets casam com a troca de layout.
+  const itemMobile = "h-11 gap-3 [&>svg]:size-5 md:h-8 md:gap-2 md:[&>svg]:size-4";
+  const labelMobile = "text-[15px] md:text-sm";
+
   // Pra "AW ECO ME" no SEI, destaca a ultima palavra em verde (#91bb24)
   // espelhando o "!" verde-lima do logo "sei!".
   const nomePartes = appConfig.name.trim().split(/\s+/);
@@ -141,14 +147,14 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
       <button
         onClick={() => navigate("/dashboard")}
-        className={`sei-brand flex items-center h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
+        className={`sei-brand flex items-center h-16 md:h-14 shrink-0 border-b border-sidebar-border transition-colors hover:bg-sidebar-accent/40 ${collapsed ? "justify-center px-2" : "px-4 gap-3"}`}
       >
-        <div className="flex h-8 w-8 items-center justify-center shrink-0">
-          <img src="/aw-logo.png" alt="AW" className="h-7 w-7 object-contain" />
+        <div className="flex h-9 w-9 md:h-8 md:w-8 items-center justify-center shrink-0">
+          <img src="/aw-logo.png" alt="AW" className="h-8 w-8 md:h-7 md:w-7 object-contain" />
         </div>
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
-            <span className="sei-brand-title font-medium text-sm tracking-tight text-sidebar-foreground leading-none">
+            <span className="sei-brand-title font-medium text-base md:text-sm tracking-tight text-sidebar-foreground leading-none">
               {isSei && nomeBase ? (
                 <>{nomeBase} <span className="sei-brand-accent">{nomeUltima}</span></>
               ) : appConfig.name}
@@ -160,7 +166,7 @@ export function AppSidebar() {
       <SidebarContent className="py-1 overflow-y-auto scrollbar-thin">
         <SidebarGroup>
           {!collapsed && (
-            <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
+            <SidebarGroupLabel className="text-[11px] md:text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary opacity-80" />
               AW System
             </SidebarGroupLabel>
@@ -175,15 +181,16 @@ export function AppSidebar() {
                       asChild
                       tooltip={item.title}
                       className={
-                        isActive
+                        (isActive
                           ? "bg-primary/15 text-primary rounded-xl mx-1"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
+                        + " " + itemMobile
                       }
                     >
                       <NavLink to={item.url} end className="" activeClassName="">
                         <item.icon className="h-4 w-4 shrink-0" />
                         {!collapsed && (
-                          <span className="text-sm flex-1 flex items-center justify-between gap-1">
+                          <span className={`${labelMobile} flex-1 flex items-center justify-between gap-1`}>
                             <span className="flex items-center gap-1.5 min-w-0">
                               <span className="truncate">{item.title}</span>
                               {item.beta && (
@@ -226,7 +233,7 @@ export function AppSidebar() {
         {isAdmin && (
           <SidebarGroup>
             {!collapsed && (
-              <SidebarGroupLabel className="text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
+              <SidebarGroupLabel className="text-[11px] md:text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 opacity-80" />
                 Administração
               </SidebarGroupLabel>
@@ -238,14 +245,15 @@ export function AppSidebar() {
                     asChild
                     tooltip="Usuários"
                     className={
-                      location.pathname.startsWith("/admin/usuarios")
+                      (location.pathname.startsWith("/admin/usuarios")
                         ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
+                      + " " + itemMobile
                     }
                   >
                     <NavLink to="/admin/usuarios" end className="" activeClassName="">
                       <UserCog className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className="text-sm">Usuários</span>}
+                      {!collapsed && <span className={labelMobile}>Usuários</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -254,14 +262,15 @@ export function AppSidebar() {
                     asChild
                     tooltip="Notificações"
                     className={
-                      location.pathname.startsWith("/admin/notificacoes")
+                      (location.pathname.startsWith("/admin/notificacoes")
                         ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
+                      + " " + itemMobile
                     }
                   >
                     <NavLink to="/admin/notificacoes" end className="" activeClassName="">
                       <Bell className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className="text-sm">Notificações</span>}
+                      {!collapsed && <span className={labelMobile}>Notificações</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -270,14 +279,15 @@ export function AppSidebar() {
                     asChild
                     tooltip="Logs"
                     className={
-                      location.pathname.startsWith("/admin/logs")
+                      (location.pathname.startsWith("/admin/logs")
                         ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
+                      + " " + itemMobile
                     }
                   >
                     <NavLink to="/admin/logs" end className="" activeClassName="">
                       <Activity className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className="text-sm">Logs</span>}
+                      {!collapsed && <span className={labelMobile}>Logs</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

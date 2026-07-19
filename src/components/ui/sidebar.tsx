@@ -164,7 +164,13 @@ const Sidebar = React.forwardRef<
           }
           side={side}
         >
-          <div className="flex h-full w-full flex-col">{children}</div>
+          {/* iOS: o Sheet é portalado pra fora do container com safe-area, então
+              respeitamos a safe area aqui pra o topo do menu (logo "AW ECO ME")
+              não ficar sob o relógio/notch. */}
+          <div
+            className="flex h-full w-full flex-col"
+            style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+          >{children}</div>
         </SheetContent>
       </Sheet>
     );
