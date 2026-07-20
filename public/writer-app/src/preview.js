@@ -93,6 +93,18 @@ function renderPreview(view) {
   // outra zona, com botões de editar/regenerar. Os números (SM, cestas, meses
   // ME) seguem vindo do front pra nunca serem inventados pela IA.
   const zonas = state.produtoSelecionado.zonas_ia;
+  // Reunião de rubricas: o tópico da Nota Técnica NUMOPEDE só faz sentido com
+  // MAIS DE UMA rubrica. Produtos que têm o tópico no template: Débitos (1),
+  // Tarifas (3), Juros (5), Mix Bradesco (14). O toggle liga/desliga sozinho
+  // pela contagem de rubricas marcadas (na aba de descontos), salvo override.
+  const TEM_REUNIAO = [1, 3, 5, 14].includes(state.produtoSelecionado.id);
+  const nRubReuniao = (typeof contarRubricasMarcadas === 'function') ? contarRubricasMarcadas() : 0;
+  if (TEM_REUNIAO && !state.dadosPacote3._reuniao_manual) {
+    state.dadosPacote3.gerar_reuniao_rubricas = nRubReuniao > 1;
+  }
+  const reuniaoCard = TEM_REUNIAO
+    ? renderReuniaoCard(state.dadosPacote3.gerar_reuniao_rubricas !== false, nRubReuniao)
+    : '';
   // Aviso quando webhook não está configurado: usuário está vendo MOCK
   // (texto offline com 3 variantes que rotam por regenerar), não IA real.
   // Sem esse aviso, o usuário acha que a IA está com bug porque o regenerar
@@ -127,6 +139,7 @@ function renderPreview(view) {
         <div class="legend-item"><span class="legend-swatch edited"></span>Editado manualmente</div>
       </div>
 
+      ${reuniaoCard}
       ${zonas.map((z, i) => renderZonaCard(z, i)).join('')}
 
       <div class="form-footer">
@@ -436,6 +449,52 @@ function toggleZonaOpcional(tag, ativo) {
   const zona = state.produtoSelecionado.zonas_ia.find(z => z.tag === tag);
   if (!zona) return;
   card.outerHTML = renderZonaCard(zona, idx);
+}
+
+/**
+ * Card de toggle do tópico "Reunião de rubricas" (Nota Técnica NUMOPEDE).
+ * Não é uma zona de IA — é um bloco fixo do template que a gente MANTÉM ou
+ * REMOVE na geração do docx (aplicarReuniaoRubricas). Aparece junto com os
+ * outros toggles na aba de revisão. Liga/desliga sozinho pela contagem de
+ * rubricas; o advogado pode forçar pelo toggle.
+ */
+function renderReuniaoCard(ativo, nRub) {
+  const auto = nRub > 1 ? 'ligado automaticamente (mais de uma rubrica)' : 'desligado automaticamente (apenas uma rubrica)';
+  return `
+    <div class="zone-card zone-card-optional ${ativo ? '' : 'zone-card-disabled'}" data-tag="ia_reuniao_rubricas">
+      <div class="zone-header">
+        <div class="zone-header-left">
+          <div class="zone-number">§</div>
+          <div class="zone-info">
+            <div class="zone-name">Reunião de rubricas <span class="zone-optional-tag">opcional</span></div>
+            <div class="zone-tag">Nota Técnica 01/2022-NUMOPEDE/TJAM · bloco fixo do template</div>
+          </div>
+        </div>
+        <label class="zone-toggle" title="${ativo ? 'O tópico SERÁ incluído na peça' : 'O tópico NÃO será incluído na peça'}">
+          <input type="checkbox" ${ativo ? 'checked' : ''} onchange="toggleReuniaoRubricas(this.checked)">
+          <span class="zone-toggle-slider"></span>
+          <span class="zone-toggle-label">${ativo ? 'Incluir' : 'Pular'}</span>
+        </label>
+      </div>
+      <div class="zone-context">
+        <span class="ctx-body">Justifica reunir várias rubricas numa única ação. Só faz sentido com <strong>mais de uma rubrica</strong>. Você marcou <strong>${nRub}</strong> rubrica${nRub === 1 ? '' : 's'}, então está ${auto}.</span>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Toggle do tópico de reunião de rubricas. Marca como override manual pra não
+ * ser sobrescrito pela contagem automática ao re-renderizar o preview.
+ */
+function toggleReuniaoRubricas(ativo) {
+  state.dadosPacote3.gerar_reuniao_rubricas = !!ativo;
+  state.dadosPacote3._reuniao_manual = true;
+  const card = document.querySelector('.zone-card[data-tag="ia_reuniao_rubricas"]');
+  if (card) {
+    const nRub = (typeof contarRubricasMarcadas === 'function') ? contarRubricasMarcadas() : 0;
+    card.outerHTML = renderReuniaoCard(!!ativo, nRub);
+  }
 }
 
 /**

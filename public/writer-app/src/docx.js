@@ -511,6 +511,51 @@ function aplicarQuadroSocioeconomico(documentXml) {
   }
 }
 
+/* =========================================================================
+   REUNIÃO DE RUBRICAS — o tópico "DA REUNIÃO DE DEMANDAS E OBSERVÂNCIA À NOTA
+   TÉCNICA Nº 01/2022-NUMOPEDE/TJAM" (presente nos templates mix-bradesco,
+   tarifas, juros e padrão) só faz sentido quando a peça reúne MAIS DE UMA
+   rubrica. Com 1 rubrica só, remove-se o tópico inteiro (heading + corpo).
+   Decisão: usa state.dadosPacote3.gerar_reuniao_rubricas se o advogado tiver
+   mexido no toggle; senão, segue a contagem (contarRubricasMarcadas > 1).
+   Defensivo: qualquer falha mantém o template intacto. Templates sem o tópico
+   simplesmente não são afetados (heading não encontrado).
+   ========================================================================= */
+function aplicarReuniaoRubricas(documentXml) {
+  try {
+    let incluir;
+    if (state.dadosPacote3 && state.dadosPacote3.gerar_reuniao_rubricas !== undefined) {
+      incluir = state.dadosPacote3.gerar_reuniao_rubricas !== false;
+    } else {
+      incluir = contarRubricasMarcadas() > 1;
+    }
+    if (incluir) return documentXml; // mantém o tópico como está no template
+
+    const textOf = s => (s.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])
+      .map(t => t.replace(/<[^>]+>/g, '')).join('');
+    const paras = [...documentXml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)];
+    const hIdx = paras.findIndex(m => textOf(m[0]).toUpperCase().includes('REUNIÃO DE DEMANDAS'));
+    if (hIdx === -1) return documentXml; // template não tem o tópico
+
+    // corpo vai até o PRÓXIMO título de seção (DA/DO/DOS/DAS ...), ex.: "DA
+    // PROCURAÇÃO ELETRÔNICA". Guarda de 12 parágrafos por segurança.
+    let end = hIdx + 1;
+    while (end < paras.length) {
+      const t = textOf(paras[end][0]).trim().toUpperCase();
+      if (/^(DA|DO|DOS|DAS)\s/.test(t) && t.length < 90) break;
+      end++;
+      if (end > hIdx + 12) break;
+    }
+    const startPos = paras[hIdx].index;
+    const endPos = (end < paras.length) ? paras[end].index : (paras[hIdx].index + paras[hIdx][0].length);
+    console.log('[reuniao] tópico removido (1 rubrica só ou toggle desligado).');
+    return documentXml.slice(0, startPos) + documentXml.slice(endPos);
+  } catch (e) {
+    console.warn('[reuniao] erro — template mantido:', e);
+    return documentXml;
+  }
+}
+
 /**
  * Monta o XML OOXML completo da tabela de descontos, fiel à planilha:
  * preserva subtítulos mesclados, cabeçalho, linhas de dados, e linhas de
@@ -1368,6 +1413,15 @@ async function montarDocxNoNavegador() {
     const xmlAntesQS = zipFinal.file('word/document.xml').asText();
     const xmlDepoisQS = aplicarQuadroSocioeconomico(xmlAntesQS);
     if (xmlDepoisQS !== xmlAntesQS) zipFinal.file('word/document.xml', xmlDepoisQS);
+  }
+
+  // 9a-3. REUNIÃO DE RUBRICAS — remove o tópico da Nota Técnica NUMOPEDE quando
+  // a peça tem 1 rubrica só (não faz sentido "reunir" uma única rubrica). Roda
+  // antes do revisor. Templates sem o tópico ficam intactos.
+  {
+    const xmlAntesRR = zipFinal.file('word/document.xml').asText();
+    const xmlDepoisRR = aplicarReuniaoRubricas(xmlAntesRR);
+    if (xmlDepoisRR !== xmlAntesRR) zipFinal.file('word/document.xml', xmlDepoisRR);
   }
 
   // 9b. SANITIZAÇÃO DE TWIPS FRACIONÁRIOS — Word recusa o arquivo se algum
