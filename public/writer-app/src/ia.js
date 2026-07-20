@@ -348,6 +348,11 @@ function montarPayloadGeracao() {
     },
     zonas: state.produtoSelecionado.zonas_ia
       .filter(z => {
+        // A zona de ABERTURA socioeconômica é gerada 100% LOCALMENTE
+        // (gerarQuadroSocioeconomicoLocal) e injetada direto no docx. NUNCA vai
+        // pro n8n: o fluxo do n8n não conhece essa tag e, ao recebê-la, quebrava
+        // a geração inteira ("não deixa seguir"). Por isso é filtrada aqui.
+        if (z.tag === 'ia_quadro_socioeconomico') return false;
         // Zonas opcionais: o advogado liga/desliga pelo toggle no preview.
         // Se desligada, a zona NÃO vai pro n8n (não é gerada nem cobra tokens)
         // e o parágrafo do template é apagado (flag gerar_* em docx.js).
@@ -431,13 +436,11 @@ function enriquecerZonasConfigComContextos(configBase) {
  * definindo papel exclusivo + o que NÃO fazer + sinalizações de coexistência.
  */
 function montarZonasConfigBradesco() {
+  // OBS: a zona ia_quadro_socioeconomico (tópico de abertura) NÃO entra aqui:
+  // ela é gerada 100% localmente (gerarQuadroSocioeconomicoLocal) e injetada no
+  // docx, sem passar pelo n8n. Manter config dela aqui a enviaria pro fluxo e
+  // arriscaria quebrar a geração.
   const config = {
-    ia_quadro_socioeconomico: {
-      papel: 'ABERTURA da petição, sob título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]". Pintar, em prosa humanizada, digna e sóbria, o RETRATO SOCIOECONÔMICO da pessoa por trás da ação: sua realidade de trabalho e renda, a fragilidade orçamentária e a dependência do que recebe para prover a própria subsistência e a da família. É o primeiro contato do juízo com o caso e deve gerar identificação humana e contextualizar a vulnerabilidade, ANTES de qualquer discussão fática ou jurídica.',
-      incluir: 'Retrato do cliente em sua condição socioeconômica concreta (profissão, faixa de renda, composição e encargos familiares, sinais de vulnerabilidade fornecidos nos dados). Tom humano e respeitoso, nunca piegas nem apelativo. UM parágrafo (5 a 9 linhas).',
-      evitar: 'NÃO descreva a conta bancária, agência, número de conta nem a MECÂNICA dos descontos — isso é a seção DOS FATOS, que vem logo em seguida. NÃO fale de dano moral, angústia, dignidade, impotência, lastro nem valores em dobro. NÃO reenumere friamente RG, CPF e endereço (a qualificação formal já foi feita no cabeçalho). NÃO invente dados que não foram fornecidos. JAMAIS defina ou explique a profissão do cliente como num verbete (ex.: "barman é o profissional que prepara bebidas"); cite a ocupação de passagem e foque na realidade socioeconômica concreta.',
-      posicao: 'É o PRIMEIRÍSSIMO tópico da peça, logo após a qualificação das partes e ANTES de "DOS FATOS". O parágrafo seguinte (ia_contexto_conta_salarial) fará a apresentação formal e a natureza salarial da conta; aqui o foco é o retrato humano e econômico.',
-    },
     ia_contexto_conta_salarial: {
       papel: 'Vincular a conta bancária ao sustento do cliente e da família, dando início à seção DOS FATOS.',
       incluir: 'Apresentação formal da parte autora e da natureza SALARIAL da conta como instrumento essencial de subsistência, abrindo a narrativa dos fatos.',

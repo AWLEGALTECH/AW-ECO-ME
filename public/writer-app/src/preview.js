@@ -485,7 +485,16 @@ async function regenerarZona(tag, sugestaoUsuario) {
     const tentativa = state.regeneracoesPorZona[tag];
     const textoAnterior = state.trechosIA[tag] || '';
 
-    if (state.config.webhookTrechos) {
+    // A zona de abertura socioeconômica é 100% LOCAL (não vai pro n8n).
+    // "Regenerar" aqui re-monta o retrato a partir dos dados do cliente.
+    if (tag === 'ia_quadro_socioeconomico') {
+      await new Promise(r => setTimeout(r, 400));
+      const novo = (typeof gerarQuadroSocioeconomicoLocal === 'function')
+        ? gerarQuadroSocioeconomicoLocal()
+        : (state.trechosIA[tag] || '');
+      state.trechosIA[tag] = novo;
+      state.trechosIAOriginais[tag] = novo;
+    } else if (state.config.webhookTrechos) {
       // Payload inclui sugestao_usuario quando foi passada — o n8n usa isso
       // pra enriquecer o prompt daquela zona específica.
       const payloadBase = montarPayloadGeracao();
