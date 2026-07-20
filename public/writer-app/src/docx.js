@@ -441,7 +441,8 @@ function aplicarPrescricaoDecenal(documentXml) {
 /* =========================================================================
    QUADRO SOCIOECONÔMICO — tópico de ABERTURA das peças de Bradesco.
    Injetado programaticamente (mesma técnica da prescrição decenal) pra NÃO
-   precisar editar os 10 templates .docx. Entra ANTES da seção "DOS FATOS",
+   precisar editar os 10 templates .docx. Entra LOGO APÓS o título do tipo de
+   ação ("AÇÃO ...") e antes de "DA REUNIÃO DE DEMANDAS...",
    com título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME EM CAIXA ALTA]" e um
    parágrafo humanizado (IA, com fallback local garantido em gerarQuadro-
    SocioeconomicoLocal). Escopo: só produtos que têm a zona ia_quadro_-
@@ -480,17 +481,22 @@ function aplicarQuadroSocioeconomico(documentXml) {
     if (!corpo && typeof gerarQuadroSocioeconomicoLocal === 'function') corpo = gerarQuadroSocioeconomicoLocal();
     if (!corpo) return documentXml;
 
-    // Âncora: heading "DOS FATOS" (existe exatamente 1x em todo template Bradesco).
-    const anchorIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('DOS FATOS'));
-    if (anchorIdx === -1) { console.warn('[socioecon] âncora "DOS FATOS" não encontrada — tópico não inserido.'); return documentXml; }
+    // Âncora: o título do TIPO DE AÇÃO (começa com "AÇÃO ..."), que existe 1x
+    // em todo template Bradesco. O tópico entra LOGO APÓS ele — o que, no mix
+    // Bradesco, cai exatamente antes de "DA REUNIÃO DE DEMANDAS... NOTA TÉCNICA
+    // Nº 01/2022-NUMOPEDE/TJAM", como pedido.
+    const anchorIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('AÇÃO '));
+    if (anchorIdx === -1) { console.warn('[socioecon] âncora "AÇÃO ..." não encontrada — tópico não inserido.'); return documentXml; }
     const anchor = paras[anchorIdx];
 
     const heading = paragrafoSocioeconXml('DO QUADRO SOCIOECONÔMICO DE ' + nomeUpper, true);
     const corpoParas = corpo.split(/\n+/).map(s => s.trim()).filter(Boolean)
       .map(p => paragrafoSocioeconXml(p, false)).join('');
     const bloco = heading + corpoParas;
-    console.log('[socioecon] tópico de abertura inserido antes de "DOS FATOS".');
-    return documentXml.slice(0, anchor.index) + bloco + documentXml.slice(anchor.index);
+    // Insere APÓS o parágrafo do "AÇÃO ..." (não antes).
+    const posDepois = anchor.index + anchor[0].length;
+    console.log('[socioecon] tópico inserido logo após o título do tipo de ação.');
+    return documentXml.slice(0, posDepois) + bloco + documentXml.slice(posDepois);
   } catch (e) {
     console.warn('[socioecon] erro — template mantido:', e);
     return documentXml;
