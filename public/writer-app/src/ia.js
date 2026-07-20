@@ -385,6 +385,14 @@ function montarPayloadGeracao() {
       // Há sanitização defensiva no front que substitui "—"/"–" por vírgula
       // de qualquer forma, mas a IA NÃO pode produzir esses caracteres.
       'PROIBIDO: NUNCA use travessão (—, U+2014) nem en-dash (–, U+2013) em nenhuma circunstância. Esses caracteres delatam texto de IA e estão TERMINANTEMENTE banidos. Em vez de "X — Y" ou "X – Y", use vírgula ("X, Y"), ponto-e-vírgula ("X; Y"), parênteses ("X (Y)") ou ponto final ("X. Y."). Reescreva qualquer construção que naturalmente pediria travessão usando uma das alternativas. Hífen comum (-) só é permitido em palavras compostas (ex: "ex-marido", "boa-fé").',
+      // ────────────────────────────────────────────────────────────────────
+      // PROIBIÇÃO DE DEFINIR/EXPLICAR A PROFISSÃO
+      // ────────────────────────────────────────────────────────────────────
+      // Bug real: para profissões incomuns (ex.: "barman"), a IA às vezes
+      // "explica o que é a profissão" como num verbete de dicionário/AI Overview
+      // ("barman é o profissional que prepara bebidas..."). Isso é inaceitável
+      // numa petição. A profissão é ATRIBUTO do cliente, nunca um tema a explicar.
+      'PROIBIDO ABSOLUTAMENTE definir, explicar, conceituar ou descrever genericamente a PROFISSÃO do cliente (nada de "barman é o profissional que prepara bebidas", "pedreiro é quem constrói", "aposentado é aquele que...", etc.). NUNCA produza conteúdo de verbete, dicionário, enciclopédia, Wikipédia ou resultado de busca sobre a ocupação. A profissão é apenas um ATRIBUTO que qualifica o cliente e ajuda a dimensionar sua realidade socioeconômica; cite-a de passagem ("a parte autora, barman,") e siga o raciocínio jurídico. Se não souber algo sobre a profissão, NÃO invente e NÃO explique: apenas mencione o nome da ocupação e prossiga.',
     ],
   };
 }
@@ -427,7 +435,7 @@ function montarZonasConfigBradesco() {
     ia_quadro_socioeconomico: {
       papel: 'ABERTURA da petição, sob título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]". Pintar, em prosa humanizada, digna e sóbria, o RETRATO SOCIOECONÔMICO da pessoa por trás da ação: sua realidade de trabalho e renda, a fragilidade orçamentária e a dependência do que recebe para prover a própria subsistência e a da família. É o primeiro contato do juízo com o caso e deve gerar identificação humana e contextualizar a vulnerabilidade, ANTES de qualquer discussão fática ou jurídica.',
       incluir: 'Retrato do cliente em sua condição socioeconômica concreta (profissão, faixa de renda, composição e encargos familiares, sinais de vulnerabilidade fornecidos nos dados). Tom humano e respeitoso, nunca piegas nem apelativo. UM parágrafo (5 a 9 linhas).',
-      evitar: 'NÃO descreva a conta bancária, agência, número de conta nem a MECÂNICA dos descontos — isso é a seção DOS FATOS, que vem logo em seguida. NÃO fale de dano moral, angústia, dignidade, impotência, lastro nem valores em dobro. NÃO reenumere friamente RG, CPF e endereço (a qualificação formal já foi feita no cabeçalho). NÃO invente dados que não foram fornecidos.',
+      evitar: 'NÃO descreva a conta bancária, agência, número de conta nem a MECÂNICA dos descontos — isso é a seção DOS FATOS, que vem logo em seguida. NÃO fale de dano moral, angústia, dignidade, impotência, lastro nem valores em dobro. NÃO reenumere friamente RG, CPF e endereço (a qualificação formal já foi feita no cabeçalho). NÃO invente dados que não foram fornecidos. JAMAIS defina ou explique a profissão do cliente como num verbete (ex.: "barman é o profissional que prepara bebidas"); cite a ocupação de passagem e foque na realidade socioeconômica concreta.',
       posicao: 'É o PRIMEIRÍSSIMO tópico da peça, logo após a qualificação das partes e ANTES de "DOS FATOS". O parágrafo seguinte (ia_contexto_conta_salarial) fará a apresentação formal e a natureza salarial da conta; aqui o foco é o retrato humano e econômico.',
     },
     ia_contexto_conta_salarial: {
