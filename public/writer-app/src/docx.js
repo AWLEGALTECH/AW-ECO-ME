@@ -481,21 +481,29 @@ function aplicarQuadroSocioeconomico(documentXml) {
     if (!corpo && typeof gerarQuadroSocioeconomicoLocal === 'function') corpo = gerarQuadroSocioeconomicoLocal();
     if (!corpo) return documentXml;
 
-    // Âncora: o título do TIPO DE AÇÃO (começa com "AÇÃO ..."), que existe 1x
-    // em todo template Bradesco. O tópico entra LOGO APÓS ele — o que, no mix
-    // Bradesco, cai exatamente antes de "DA REUNIÃO DE DEMANDAS... NOTA TÉCNICA
-    // Nº 01/2022-NUMOPEDE/TJAM", como pedido.
-    const anchorIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('AÇÃO '));
-    if (anchorIdx === -1) { console.warn('[socioecon] âncora "AÇÃO ..." não encontrada — tópico não inserido.'); return documentXml; }
+    // O preâmbulo do TIPO DE AÇÃO são DOIS parágrafos: o título "AÇÃO ..." e o
+    // "Em desfavor de {réu}..." que o completa (nomeia o banco e a base legal).
+    // O quadro entra APÓS esse preâmbulo INTEIRO (depois do "Em desfavor de..."),
+    // antes do primeiro tópico seguinte — no mix Bradesco, antes de "DA REUNIÃO
+    // DE DEMANDAS...". Inserir entre os dois partiria a frase do preâmbulo.
+    const acaoIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('AÇÃO '));
+    let anchorIdx = -1;
+    if (acaoIdx !== -1) {
+      for (let i = acaoIdx; i < paras.length; i++) {
+        if (textOf(paras[i][0]).trim().toUpperCase().startsWith('EM DESFAVOR DE')) { anchorIdx = i; break; }
+      }
+    }
+    if (anchorIdx === -1) anchorIdx = acaoIdx; // fallback: após o próprio "AÇÃO ..."
+    if (anchorIdx === -1) { console.warn('[socioecon] preâmbulo do tipo de ação não encontrado — tópico não inserido.'); return documentXml; }
     const anchor = paras[anchorIdx];
 
     const heading = paragrafoSocioeconXml('DO QUADRO SOCIOECONÔMICO DE ' + nomeUpper, true);
     const corpoParas = corpo.split(/\n+/).map(s => s.trim()).filter(Boolean)
       .map(p => paragrafoSocioeconXml(p, false)).join('');
     const bloco = heading + corpoParas;
-    // Insere APÓS o parágrafo do "AÇÃO ..." (não antes).
+    // Insere APÓS o parágrafo âncora ("Em desfavor de...", fim do preâmbulo).
     const posDepois = anchor.index + anchor[0].length;
-    console.log('[socioecon] tópico inserido logo após o título do tipo de ação.');
+    console.log('[socioecon] tópico inserido após o preâmbulo do tipo de ação.');
     return documentXml.slice(0, posDepois) + bloco + documentXml.slice(posDepois);
   } catch (e) {
     console.warn('[socioecon] erro — template mantido:', e);
