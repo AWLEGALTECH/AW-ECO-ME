@@ -348,11 +348,10 @@ function montarPayloadGeracao() {
     },
     zonas: state.produtoSelecionado.zonas_ia
       .filter(z => {
-        // A zona de ABERTURA socioeconômica é gerada 100% LOCALMENTE
-        // (gerarQuadroSocioeconomicoLocal) e injetada direto no docx. NUNCA vai
-        // pro n8n: o fluxo do n8n não conhece essa tag e, ao recebê-la, quebrava
-        // a geração inteira ("não deixa seguir"). Por isso é filtrada aqui.
-        if (z.tag === 'ia_quadro_socioeconomico') return false;
+        // ia_quadro_socioeconomico (tópico de abertura) AGORA vai pro n8n: o
+        // fluxo já conhece essa tag (nó "Preparar Prompts") e a gera por IA. Se
+        // o n8n falhar/não devolver, o fallback local em gerarTrechos preenche
+        // e o docx injeta assim mesmo. Por isso não filtramos mais aqui.
         // Zonas opcionais: o advogado liga/desliga pelo toggle no preview.
         // Se desligada, a zona NÃO vai pro n8n (não é gerada nem cobra tokens)
         // e o parágrafo do template é apagado (flag gerar_* em docx.js).
