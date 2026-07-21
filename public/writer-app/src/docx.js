@@ -329,6 +329,34 @@ function contarRubricasMarcadas() {
 }
 
 /**
+ * Decide se a peça leva o tópico "DA REUNIÃO DE DEMANDAS..." (Nota Técnica
+ * NUMOPEDE). Regra: só faz sentido reunir MAIS DE UMA rubrica. Automático pela
+ * contagem, com override manual (state.dadosPacote3.reuniao_override):
+ *   null  → automático (incluir se >1 rubrica)
+ *   'SIM' → forçar presença
+ *   'NAO' → forçar ausência
+ * Usado tanto no card do pacote 3 (render.js) quanto na geração (docx).
+ */
+function calcularReuniaoRubricas(override) {
+  const n = contarRubricasMarcadas();
+  let incluir = n > 1;
+  let forcado = false;
+  if (override === 'SIM') { incluir = true; forcado = true; }
+  else if (override === 'NAO') { incluir = false; forcado = true; }
+  let explicacao;
+  if (forcado) {
+    explicacao = incluir
+      ? `Tópico forçado a aparecer (você marcou ${n} rubrica${n === 1 ? '' : 's'}).`
+      : `Tópico forçado a sair (você marcou ${n} rubrica${n === 1 ? '' : 's'}).`;
+  } else {
+    explicacao = incluir
+      ? `${n} rubricas reunidas numa única ação, conforme a Nota Técnica 01/2022-NUMOPEDE/TJAM.`
+      : `Apenas ${n} rubrica selecionada — não há o que reunir, tópico dispensável.`;
+  }
+  return { incluir, forcado, n, explicacao };
+}
+
+/**
  * Monta o texto das rubricas marcadas com vírgulas e "e" antes da última.
  * Ex.: só BX → '"BX.ANT.FINANC"'
  *      BX + Parcela → '"PARCELA CRÉDITO PESSOAL" e "BX.ANT.FINANC"'
@@ -523,12 +551,8 @@ function aplicarQuadroSocioeconomico(documentXml) {
    ========================================================================= */
 function aplicarReuniaoRubricas(documentXml) {
   try {
-    let incluir;
-    if (state.dadosPacote3 && state.dadosPacote3.gerar_reuniao_rubricas !== undefined) {
-      incluir = state.dadosPacote3.gerar_reuniao_rubricas !== false;
-    } else {
-      incluir = contarRubricasMarcadas() > 1;
-    }
+    const override = (state.dadosPacote3 && state.dadosPacote3.reuniao_override) || null;
+    const incluir = calcularReuniaoRubricas(override).incluir;
     if (incluir) return documentXml; // mantém o tópico como está no template
 
     const textOf = s => (s.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [])

@@ -27,7 +27,9 @@ function renderBarraCadeia() {
   bar.id = 'cadeia-bar';
   bar.style.cssText = `
     position: sticky; top: 0; z-index: 50;
-    background: linear-gradient(180deg, hsl(var(--bg)) 0%, hsla(var(--bg), 0.92) 100%);
+    background: hsla(var(--bg), 0.55);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
     border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
     padding: 10px 20px;
     font-family: Inter, system-ui, sans-serif;
@@ -243,7 +245,9 @@ function renderBarraConfeccao() {
   bar.id = 'confeccao-bar';
   bar.style.cssText = `
     position: sticky; top: 0; z-index: 50;
-    background: linear-gradient(180deg, hsl(var(--bg)) 0%, hsla(var(--bg), 0.92) 100%);
+    background: hsla(var(--bg), 0.55);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
     border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
     padding: 10px 20px;
     font-family: Inter, system-ui, sans-serif;

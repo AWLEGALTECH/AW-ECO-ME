@@ -2297,6 +2297,38 @@ function renderCalc() {
     ? `<span class="vara-badge forcado">FORÇADO MANUALMENTE</span>`
     : `<span class="vara-badge auto">AUTOMÁTICO</span>`;
 
+  // Reunião de rubricas — só existe no template de 4 produtos (Débitos 1,
+  // Tarifas 3, Juros 5, Mix 14). Automático pela contagem de rubricas marcadas
+  // (nesta mesma etapa), com override manual. Espelha o padrão da prescrição.
+  const TEM_REUNIAO = [1, 3, 5, 14].includes(state.produtoSelecionado.id);
+  const reuOverride = state.dadosPacote3.reuniao_override || null;
+  const reu = TEM_REUNIAO && typeof calcularReuniaoRubricas === 'function'
+    ? calcularReuniaoRubricas(reuOverride) : null;
+  const reuBadge = reu && reu.forcado
+    ? `<span class="vara-badge forcado">FORÇADO MANUALMENTE</span>`
+    : `<span class="vara-badge auto">AUTOMÁTICO</span>`;
+  const reuLabelBtn = reuOverride === null
+    ? (reu && reu.incluir ? 'Forçar ausência do tópico' : 'Forçar presença do tópico')
+    : 'Voltar ao automático';
+
+  // Ícones (linha) dos tópicos opcionais/interagíveis da peça.
+  const IC_VARA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>`;
+  const IC_PRESC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+  const IC_REUNIAO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`;
+
+  const reuCard = (TEM_REUNIAO && reu) ? `
+    <div class="calc-card calc-card-vara ${reu.forcado ? 'forcado' : ''}">
+      <div class="calc-vara-header">
+        <div class="calc-vara-title"><span class="cvt-icon">${IC_REUNIAO}</span>Reunião de rubricas</div>
+        ${reuBadge}
+      </div>
+      <div class="calc-vara-text">${reu.incluir ? '✔ Tópico INCLUÍDO na peça' : '✖ Tópico OMITIDO da peça'}</div>
+      <div class="calc-vara-exp">${reu.explicacao}</div>
+      <button class="vara-override-btn" onclick="toggleReuniaoRubricasOverride()">
+        ${reuLabelBtn}
+      </button>
+    </div>` : '';
+
   return `
     ${bloqueDivergencia}
     <div class="calc-card">
@@ -2310,7 +2342,7 @@ function renderCalc() {
     ${blocoAvisoLastro}
     <div class="calc-card calc-card-vara ${vara.forcado_manualmente ? 'forcado' : ''}">
       <div class="calc-vara-header">
-        <div class="calc-label">Endereçamento</div>
+        <div class="calc-vara-title"><span class="cvt-icon">${IC_VARA}</span>Endereçamento</div>
         ${badgeHtml}
       </div>
       <div class="calc-vara-text">${enderecamentoPreview}</div>
@@ -2321,7 +2353,7 @@ function renderCalc() {
     </div>
     <div class="calc-card calc-card-vara ${dec.forcado ? 'forcado' : ''}">
       <div class="calc-vara-header">
-        <div class="calc-label">Prescrição decenal (10 anos)</div>
+        <div class="calc-vara-title"><span class="cvt-icon">${IC_PRESC}</span>Prescrição decenal (10 anos)</div>
         ${decBadge}
       </div>
       <div class="calc-vara-text">${dec.incluir ? '✔ Tópico INCLUÍDO na peça' : '✖ Tópico OMITIDO da peça'}</div>
@@ -2330,6 +2362,7 @@ function renderCalc() {
         ${labelPresc}
       </button>
     </div>
+    ${reuCard}
   `;
 }
 
@@ -2390,6 +2423,24 @@ function togglePrescricaoDecenalOverride() {
   const atual = state.dadosPacote3.prescricao_decenal_override || null;
   const proximo = atual === null ? 'SIM' : atual === 'SIM' ? 'NAO' : null;
   state.dadosPacote3.prescricao_decenal_override = proximo;
+  const calcPanel = document.getElementById('calcPanel');
+  if (calcPanel) calcPanel.innerHTML = renderCalc();
+}
+
+/**
+ * Toggle do tópico de reunião de rubricas. Cicla entre AUTOMÁTICO (segue a
+ * contagem de rubricas) e FORÇADO (o oposto do automático). Como forçar o
+ * mesmo que o automático não faz sentido, é um toggle de 2 estados: null →
+ * força o oposto → null.
+ */
+function toggleReuniaoRubricasOverride() {
+  const atual = state.dadosPacote3.reuniao_override || null;
+  if (atual === null) {
+    const autoInclui = calcularReuniaoRubricas(null).incluir;
+    state.dadosPacote3.reuniao_override = autoInclui ? 'NAO' : 'SIM';
+  } else {
+    state.dadosPacote3.reuniao_override = null; // volta ao automático
+  }
   const calcPanel = document.getElementById('calcPanel');
   if (calcPanel) calcPanel.innerHTML = renderCalc();
 }
