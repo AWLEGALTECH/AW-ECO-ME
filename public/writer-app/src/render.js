@@ -2321,13 +2321,18 @@ function renderCalc() {
   const IC_PRESC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
   const IC_REUNIAO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`;
 
+  // Ícones modernos de status do tópico (incluído / omitido).
+  const IC_CHECK = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.8 10A10 10 0 1 1 17 3.34"/><path d="m9 11 3 3L22 4"/></svg>`;
+  const IC_X = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>`;
+  const statusTopico = (incl) => `<div class="calc-vara-text" style="display:flex; align-items:center; gap:8px;"><span style="display:inline-flex; flex-shrink:0; color:${incl ? 'hsl(150 58% 55%)' : 'var(--text-mute)'};">${incl ? IC_CHECK : IC_X}</span><span>Tópico ${incl ? 'INCLUÍDO' : 'OMITIDO'} na peça</span></div>`;
+
   const reuCard = (TEM_REUNIAO && reu) ? `
     <div class="calc-card calc-card-vara ${reu.forcado ? 'forcado' : ''}">
       <div class="calc-vara-header">
         <div class="calc-vara-title"><span class="cvt-icon">${IC_REUNIAO}</span>Reunião de rubricas</div>
         ${reuBadge}
       </div>
-      <div class="calc-vara-text">${reu.incluir ? '✔ Tópico INCLUÍDO na peça' : '✖ Tópico OMITIDO da peça'}</div>
+      ${statusTopico(reu.incluir)}
       <div class="calc-vara-exp">${reu.explicacao}</div>
       <button class="vara-override-btn" onclick="toggleReuniaoRubricasOverride()">
         ${reuLabelBtn}
@@ -2361,7 +2366,7 @@ function renderCalc() {
         <div class="calc-vara-title"><span class="cvt-icon">${IC_PRESC}</span>Prescrição decenal (10 anos)</div>
         ${decBadge}
       </div>
-      <div class="calc-vara-text">${dec.incluir ? '✔ Tópico INCLUÍDO na peça' : '✖ Tópico OMITIDO da peça'}</div>
+      ${statusTopico(dec.incluir)}
       <div class="calc-vara-exp">${dec.explicacao}</div>
       <button class="vara-override-btn" onclick="togglePrescricaoDecenalOverride()">
         ${labelPresc}
