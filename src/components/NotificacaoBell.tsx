@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, Sunrise, CheckCheck, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, Sunrise, CheckCheck, BarChart3, type LucideIcon } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
 import { usePush } from "@/hooks/usePush";
@@ -12,6 +12,7 @@ const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   peca_protocolada:       { icon: Send,        chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
   cliente_assinou:        { icon: PartyPopper, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
   bom_dia:                { icon: Sunrise,     chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
+  balanco_comercial:      { icon: BarChart3,   chip: "bg-primary/12 ring-primary/25 text-primary" },
 };
 
 // Nome em Title Case (tira o CAIXA ALTA do cadastro).
@@ -38,6 +39,19 @@ function CorpoRico({ n }: { n: Notificacao }) {
   if (n.tipo === "bom_dia") {
     const v = Number(d.valor_total) || 0;
     return <>Bom dia, nosso valor total em processos ajuizados é de {B(fmtBRL(v))}.</>;
+  }
+
+  if (n.tipo === "balanco_comercial") {
+    const ticket = Number(d.ticket_medio) || 0;
+    const nCli = Number(d.n_clientes) || 0;
+    const nAcoes = Number(d.n_acoes) || 0;
+    return (
+      <span className="flex flex-col gap-0.5">
+        <span>Ticket médio dos processos: {B(fmtBRL(ticket))}</span>
+        <span>Clientes: {B(String(nCli))}</span>
+        <span>Ações ajuizadas: {B(String(nAcoes))}</span>
+      </span>
+    );
   }
 
   const nome = capNome(d.cliente_nome);
