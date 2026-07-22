@@ -463,10 +463,12 @@ export default function Clientes() {
 
 // Campos de cadastro acompanhados pela completude (fora o socioeconômico,
 // que tem fluxo próprio de envio). present(c) = dado preenchido.
-const CAMPOS_COMPLETUDE: { key: string; label: string; icon: any; present: (c: Cliente) => boolean }[] = [
+// conta=false → aparece na lista como informação, mas NÃO entra no critério
+// de "cadastro completo" (caso do e-mail, que quase ninguém tem).
+const CAMPOS_COMPLETUDE: { key: string; label: string; icon: any; present: (c: Cliente) => boolean; conta?: boolean }[] = [
   { key: "telefone",  label: "Telefone",   icon: Phone,      present: (c) => !!(c.telefone || "").trim() },
   { key: "cpf_cnpj",  label: "CPF / CNPJ", icon: CreditCard, present: (c) => !!(c.cpf_cnpj || "").trim() },
-  { key: "email",     label: "E-mail",     icon: Mail,       present: (c) => !!(c.email || "").trim() },
+  { key: "email",     label: "E-mail",     icon: Mail,       present: (c) => !!(c.email || "").trim(), conta: false },
   { key: "requerido", label: "Requerido",  icon: Building2,  present: (c) => !!(c.requerido || "").trim() },
   { key: "drive",     label: "Pasta no Drive", icon: FolderOpen, present: (c) => !!(c.drive_folder_url || "").trim() },
 ];
@@ -490,7 +492,7 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
       if (c.socio_status === "preenchido") socioOk++;
       else if (c.socio_status === "aguardando_resposta") socioResp++;
       else socioGer++;
-      const tudo = socioPreenchido(c) && CAMPOS_COMPLETUDE.every((f) => f.present(c));
+      const tudo = socioPreenchido(c) && CAMPOS_COMPLETUDE.every((f) => f.conta === false || f.present(c));
       if (tudo) completos++; else incompletos.push(c);
     }
     const socioPend = socioResp + socioGer;
@@ -598,8 +600,8 @@ function ClientesDashboard({ clientes, onRefetch }: { clientes: Cliente[]; onRef
                       <div className="h-full bg-primary rounded-full" style={{ width: `${pct(f.ok)}%` }} />
                     </div>
                     <span className="text-[11px] tabular-nums text-muted-foreground w-12 text-right shrink-0">{f.ok}/{s.total}</span>
-                    <span className={`text-[11px] w-16 text-right shrink-0 ${faltam === 0 ? "text-muted-foreground/40" : "text-primary"}`}>
-                      {faltam === 0 ? "completo" : `${faltam} falta${faltam > 1 ? "m" : ""}`}
+                    <span className={`text-[11px] w-16 text-right shrink-0 ${f.conta === false || faltam === 0 ? "text-muted-foreground/40" : "text-primary"}`}>
+                      {faltam === 0 ? "completo" : f.conta === false ? "opcional" : `${faltam} falta${faltam > 1 ? "m" : ""}`}
                     </span>
                   </button>
                 );
