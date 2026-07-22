@@ -254,4 +254,81 @@ function aplicarClienteNoState(c) {
   state.dadosPacote3 = state.dadosPacote3 || {};
   if (c.comarca && !state.dadosPacote3.comarca) state.dadosPacote3.comarca = c.comarca;
   if (c.uf && !state.dadosPacote3.uf) state.dadosPacote3.uf = c.uf;
+
+  // Baseline pra "alteração vinculada": guarda o que veio da ficha, pra
+  // detectar quando o advogado modifica um campo (habilita o botão Vincular).
+  state.baselineVinculada = {};
+  [
+    'nome_completo','genero','nacionalidade','estado_civil','profissao',
+    'rg','orgao_expedidor','cpf','endereco_completo'
+  ].forEach(k => { state.baselineVinculada[k] = c[k] || ''; });
+  [
+    'idade','escolaridade','numero_filhos','idades_filhos','conjuge_trabalha',
+    'renda_mensal','unico_provedor','tipo_moradia','outros_dependentes',
+    'condicao_saude','observacoes_livres'
+  ].forEach(k => { state.baselineVinculada[k] = c[k] ?? ''; });
+}
+
+// Mapa state-key (pacote 1) -> coluna real na tabela clientes.
+const VINC_COL_P1 = {
+  nome_completo:   'nome',
+  cpf:             'cpf_cnpj',
+  endereco_completo: 'endereco',
+  genero:          'genero',
+  nacionalidade:   'nacionalidade',
+  estado_civil:    'estado_civil',
+  profissao:       'profissao',
+  rg:              'rg',
+  orgao_expedidor: 'orgao_expedidor',
+};
+
+// Grava UM campo do cliente direto na ficha (Supabase) — usado pela
+// "alteração vinculada" do writer. Pacote 1 vira coluna; Pacote 2 entra no
+// jsonb dados_socioeconomicos com MERGE (nunca apaga as outras chaves).
+async function salvarCampoVinculadoAW(clienteId, campo, pacote, valor) {
+  if (!clienteId) return { ok: false, reason: 'sem id' };
+  let update;
+  if (pacote === 'pacote1') {
+    const col = VINC_COL_P1[campo];
+    if (!col) return { ok: false, reason: 'campo desconhecido' };
+    update = { [col]: valor };
+  } else {
+    // Pacote 2 -> jsonb: busca o atual e sobrescreve só a chave alterada.
+    let atual = {};
+    try {
+      const g = await fetch(
+        `${AW_SB_URL}/rest/v1/clientes?select=dados_socioeconomicos&id=eq.${encodeURIComponent(clienteId)}&limit=1`,
+        { headers: _awHeaders() }
+      );
+      if (g.ok) {
+        const rows = await g.json();
+        if (rows.length && rows[0].dados_socioeconomicos && typeof rows[0].dados_socioeconomicos === 'object') {
+          atual = rows[0].dados_socioeconomicos;
+        }
+      }
+    } catch (e) { /* segue com objeto vazio */ }
+    atual[campo] = valor;
+    update = { dados_socioeconomicos: atual };
+  }
+
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/clientes?id=eq.${encodeURIComponent(clienteId)}`,
+      {
+        method: 'PATCH',
+        headers: { ..._awHeaders(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(update),
+      }
+    );
+    if (!resp.ok) {
+      const t = await resp.text();
+      console.warn('[clientes-aw] salvarCampoVinculado falhou', resp.status, t);
+      return { ok: false, error: t };
+    }
+    console.log('[clientes-aw] campo vinculado gravado', campo, '->', clienteId);
+    return { ok: true };
+  } catch (e) {
+    console.warn('[clientes-aw] excecao salvarCampoVinculado', e);
+    return { ok: false, error: String(e) };
+  }
 }

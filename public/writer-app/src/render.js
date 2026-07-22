@@ -2512,6 +2512,7 @@ function renderCampo(campo, dados, pacote, obrigatorio) {
         <span class="field-label-text">${campo.label}${obrigatorio ? '<span class="req">*</span>' : ''}</span>
         <div class="field-controls">
           ${renderShieldBtn(campo.key)}
+          ${renderVinculadaBtn(campo.key, pacote)}
           ${!obrigatorio ? `
             <button class="no-info-btn ${notInformed ? 'active' : ''}" onclick="toggleNaoInformado('${campo.key}', '${pacote}')">
               ${notInformed ? '✓ Pulado' : 'Pular'}
@@ -2691,6 +2692,122 @@ function aplicarMascaraData(valor) {
   return num.slice(0, 2) + '/' + num.slice(2, 4) + '/' + num.slice(4);
 }
 
+/* =========================================================================
+   ALTERAÇÃO VINCULADA — grava a mudança de UM campo direto na ficha do
+   cliente (Supabase). Como a cadeia re-busca o cliente fresco do banco a
+   cada peça, gravar na ficha reflete automaticamente em TODAS as próximas
+   peças da cadeia. Só aparece quando há cliente da base (aw_id).
+   ========================================================================= */
+
+// Só faz sentido vincular quando o requerente é um cliente da base.
+function clienteVinculavel() {
+  return !!(state.clienteSelecionado && state.clienteSelecionado.aw_id);
+}
+
+// Campo "sujo" = valor atual difere do que veio da ficha (baseline).
+function campoVincSujo(campo, pacote) {
+  if (!state.baselineVinculada) return false;
+  const dados = pacote === 'pacote1' ? state.dadosPacote1 : state.dadosPacote2;
+  const atual = dados ? dados[campo] : undefined;
+  if (atual === null || atual === undefined) return false; // pulado/sem valor
+  const base = state.baselineVinculada[campo];
+  return String(atual).trim() !== String(base ?? '').trim();
+}
+
+function renderVinculadaBtn(campo, pacote) {
+  if (!clienteVinculavel()) return '';
+  const sujo = campoVincSujo(campo, pacote);
+  const chain = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`;
+  const title = sujo
+    ? 'Salvar esta alteração na ficha do cliente — vale pras próximas peças'
+    : 'Modifique o campo pra liberar a alteração vinculada';
+  return `<button class="link-btn ${sujo ? 'armed' : ''}" data-vinc="${campo}" data-pacote="${pacote}" ${sujo ? '' : 'disabled'} onclick="abrirConfirmVinculada('${campo}','${pacote}')" title="${title}">${chain}Vincular</button>`;
+}
+
+// Atualiza só o botão daquele campo (chamado no input handler).
+function atualizarBtnVinculada(campo, pacote) {
+  const btn = document.querySelector(`.link-btn[data-vinc="${campo}"]`);
+  if (!btn) return;
+  const sujo = campoVincSujo(campo, pacote);
+  btn.classList.toggle('armed', sujo);
+  btn.classList.remove('saved');
+  btn.disabled = !sujo;
+  btn.setAttribute('title', sujo
+    ? 'Salvar esta alteração na ficha do cliente — vale pras próximas peças'
+    : 'Modifique o campo pra liberar a alteração vinculada');
+}
+
+// Rótulo humano do campo (lê do próprio label renderizado).
+function _vincLabelCampo(campo) {
+  const el = document.querySelector(`.field[data-key="${campo}"] .field-label-text`);
+  return el ? el.textContent.replace(/\*+$/, '').trim() : campo;
+}
+function _vincEsc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function abrirConfirmVinculada(campo, pacote) {
+  if (!clienteVinculavel() || !campoVincSujo(campo, pacote)) return;
+  const dados = pacote === 'pacote1' ? state.dadosPacote1 : state.dadosPacote2;
+  const valor = dados[campo];
+  const label = _vincLabelCampo(campo);
+  const nome = (state.dadosPacote1.nome_completo || state.clienteSelecionado.nome_completo || 'cliente').trim();
+  const chain = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`;
+  const old = document.getElementById('modalVinc');
+  if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'modalVinc';
+  wrap.className = 'modal';
+  wrap.addEventListener('click', e => { if (e.target === wrap) fecharConfirmVinculada(); });
+  wrap.innerHTML = `
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-lock">${chain}</div>
+      <div class="modal-title">Alterar esta info na ficha do cliente?</div>
+      <div class="modal-sub">
+        Você vai gravar <b>${_vincEsc(label)}</b> na ficha de <b>${_vincEsc(nome)}</b> como
+        <b>"${_vincEsc(valor)}"</b>.<br><br>
+        Essa alteração fica <b>vinculada</b>: atualiza a ficha do cliente e reflete
+        automaticamente em <b>todas as próximas peças</b> desta cadeia.
+      </div>
+      <div id="vincMsg" class="modal-msg"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-small" onclick="fecharConfirmVinculada()">Cancelar</button>
+        <button id="btnConfirmVinc" class="btn btn-primary btn-small" onclick="confirmarVinculada('${campo}','${pacote}')">Sim, vincular</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+}
+
+function fecharConfirmVinculada() {
+  const m = document.getElementById('modalVinc');
+  if (m) m.remove();
+}
+
+async function confirmarVinculada(campo, pacote) {
+  const dados = pacote === 'pacote1' ? state.dadosPacote1 : state.dadosPacote2;
+  const valor = dados[campo];
+  const btn = document.getElementById('btnConfirmVinc');
+  const msg = document.getElementById('vincMsg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+  const res = await salvarCampoVinculadoAW(state.clienteSelecionado.aw_id, campo, pacote, valor);
+  if (!res || !res.ok) {
+    if (msg) { msg.textContent = 'Não deu pra salvar agora. Confira a conexão e tente de novo.'; msg.style.color = 'var(--amber)'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Sim, vincular'; }
+    return;
+  }
+  // Vira o novo baseline (desarma o botão) e mantém o shape do cliente coerente.
+  state.baselineVinculada[campo] = valor;
+  if (state.clienteSelecionado) state.clienteSelecionado[campo] = valor;
+  fecharConfirmVinculada();
+  const fieldBtn = document.querySelector(`.link-btn[data-vinc="${campo}"]`);
+  if (fieldBtn) {
+    fieldBtn.classList.remove('armed');
+    fieldBtn.classList.add('saved');
+    fieldBtn.disabled = true;
+    setTimeout(() => { fieldBtn.classList.remove('saved'); }, 1600);
+  }
+}
+
 function bindFormInputs(pacote) {
   const dados = pacote === 'pacote1' ? state.dadosPacote1 :
                 pacote === 'pacote2' ? state.dadosPacote2 : state.dadosPacote3;
@@ -2746,6 +2863,7 @@ function bindFormInputs(pacote) {
         if (campo === 'data_fim_descontos')    state.dadosPacote3._data_fim_editado_manual    = true;
       }
       if (pacote === 'pacote1') atualizarBtnAvancar1();
+      if (pacote === 'pacote1' || pacote === 'pacote2') atualizarBtnVinculada(campo, pacote);
       if (pacote === 'pacote3') {
         const calcPanel = document.getElementById('calcPanel');
         if (calcPanel) calcPanel.innerHTML = renderCalc();

@@ -1207,6 +1207,8 @@ input, select, textarea {
   display: flex;
   gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .field input,
@@ -1371,6 +1373,46 @@ input, select, textarea {
   color: var(--amber);
   border-color: var(--amber-border);
   border-style: solid;
+}
+
+/* Botão "Vincular" (alteração vinculada) — mesmo porte do shield (IA on/off).
+   Fica apagado/desabilitado até o campo mudar; aí "arma" em âmbar. */
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  height: 20px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1px solid var(--line-bright);
+  background: rgba(255,255,255,0.02);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-ghost);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.25s ease, border-color 0.25s ease, background-color 0.25s ease, opacity 0.2s ease, transform 0.1s ease;
+  position: relative;
+  overflow: hidden;
+}
+.link-btn svg { width: 10px; height: 10px; flex-shrink: 0; }
+.link-btn:disabled { opacity: 0.4; cursor: default; }
+.link-btn.armed {
+  opacity: 1;
+  color: var(--amber);
+  border-color: var(--amber-border);
+  background: var(--amber-bg);
+}
+.link-btn.armed:hover { border-color: var(--amber); }
+.link-btn:active:not(:disabled) { transform: scale(0.96); }
+.link-btn.saved {
+  opacity: 1;
+  color: var(--violet-soft);
+  border-color: var(--violet-border-soft);
+  background: rgba(139, 92, 246, 0.10);
 }
 
 .form-footer {
