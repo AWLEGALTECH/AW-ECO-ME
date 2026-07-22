@@ -839,7 +839,7 @@ function ListaClientesDialog({ lista, onClose, onAbrirPerfil, onRefetch }: {
             }
             // Lista mista (cadastro incompleto): mostra o que falta + perfil.
             const faltas = [
-              ...CAMPOS_COMPLETUDE.filter((f) => !f.present(c)).map((f) => f.label),
+              ...CAMPOS_COMPLETUDE.filter((f) => f.conta !== false && !f.present(c)).map((f) => f.label),
               ...(socioPreenchido(c) ? [] : ["Socioeconômico"]),
             ];
             return (
