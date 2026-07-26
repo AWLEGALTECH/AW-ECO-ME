@@ -129,36 +129,75 @@ function CountUp({ value, format, className }: { value: number; format?: (n: num
   return <span className={className}>{format ? format(disp) : intBR(disp)}</span>;
 }
 
-function Barra({ value, max, className }: { value: number; max: number; className: string }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : value > 0 ? 100 : 0;
-  const full = max > 0 && value >= max;
+/* Anel circular de progresso da meta — % no centro. Segue o tema (--primary);
+   fica esmeralda quando a meta é batida. Inspirado no anel do dashboard. */
+function AnelMeta({ pct, bateu, size = 150, stroke = 13 }: { pct: number; bateu: boolean; size?: number; stroke?: number }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const alvo = Math.min(100, Math.max(0, pct));
+  const gid = bateu ? "anelOk" : "anelPrim";
   return (
-    <div className="relative h-2.5 rounded-full bg-black/25 overflow-hidden">
-      <motion.div
-        className={`h-full rounded-full ${className}`}
-        initial={{ width: 0 }}
-        animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.9, ease: "easeOut" }}
-      />
-      {full && <div className="fech-shimmer absolute inset-0 pointer-events-none" />}
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90 overflow-visible">
+        <defs>
+          <linearGradient id="anelPrim" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="hsl(var(--primary) / 0.55)" />
+            <stop offset="100%" stopColor="hsl(var(--primary))" />
+          </linearGradient>
+          <linearGradient id="anelOk" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="hsl(152 55% 55%)" />
+            <stop offset="100%" stopColor="hsl(152 60% 42%)" />
+          </linearGradient>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="hsl(var(--muted-foreground) / 0.13)" strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={`url(#${gid})`} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circ}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ - (alvo / 100) * circ }}
+          transition={{ duration: 1.1, ease: "easeOut" }}
+          style={{ filter: `drop-shadow(0 0 7px ${bateu ? "hsl(152 60% 45% / 0.55)" : "hsl(var(--primary) / 0.5)"})` }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
+        <CountUp value={alvo} format={(n) => `${Math.round(n)}%`} className={`text-4xl font-black tabular-nums leading-none ${bateu ? "text-emerald-400" : "text-primary"}`} />
+        <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mt-1">{bateu ? "batida" : "da meta"}</span>
+      </div>
     </div>
   );
 }
 
-/* Data grande no topo/centro — dia/mês/ano em destaque (maior) e, abaixo, o
-   dia da semana. Sem hora. Reavalia a cada minuto pra virar o dia à meia-noite. */
-function RelogioTopo() {
-  const [now, setNow] = useState<Date>(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
-  const diaSemana = now.toLocaleDateString("pt-BR", { weekday: "long" });
-  const diaMesAno = now.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
+/* Barra de progresso com marcos numéricos embaixo (0 · ¼ · ½ · ¾ · total),
+   igual à régua do dashboard de referência. */
+function BarraMarcos({ value, max, bateu }: { value: number; max: number; bateu: boolean }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  const marcos = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(max * f));
   return (
-    <div className="text-center select-none">
-      <div className="text-4xl sm:text-5xl font-black tracking-tight leading-none capitalize">{diaMesAno}</div>
-      <div className="mt-1.5 text-base sm:text-lg font-medium text-muted-foreground capitalize">{diaSemana}</div>
+    <div>
+      <div className="relative h-2.5 rounded-full bg-black/25 overflow-hidden">
+        <motion.div
+          className={`h-full rounded-full ${bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-primary/70 to-primary"}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.9, ease: "easeOut" }}
+        />
+        {max > 0 && value >= max && <div className="fech-shimmer absolute inset-0 pointer-events-none" />}
+      </div>
+      <div className="flex justify-between mt-1 text-[9px] tabular-nums text-muted-foreground/55">
+        {marcos.map((n, i) => <span key={i}>{intBR(n)}</span>)}
+      </div>
+    </div>
+  );
+}
+
+/* Mini-métrica (rótulo + número) usada dentro do painel de meta. */
+function MiniStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-black/15 px-3 py-2.5">
+      <p className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground/80">{label}</p>
+      <p className="text-lg font-bold tabular-nums leading-tight mt-0.5">
+        {value} {sub && <span className="text-[10px] font-normal text-muted-foreground">{sub}</span>}
+      </p>
     </div>
   );
 }
@@ -331,9 +370,6 @@ export default function Fechamentos() {
         </div>
       </div>
 
-      {/* Relógio grande — data e hora do dia, no topo e centro */}
-      <RelogioTopo />
-
       {/* Navegação de mês — estilo calendário, foco no mês atual */}
       <div className="flex items-center justify-center gap-2">
         <Button variant="ghost" size="icon" onClick={() => setMesAtivo((m) => addMes(m, -1))} aria-label="Mês anterior">
@@ -373,11 +409,15 @@ export default function Fechamentos() {
         <>
           {/* ── DASHBOARD ── */}
           {focoId ? (
-            /* Aba individual: a META INDIVIDUAL vira o card grande (ocupa o
-               espaço do quadro geral) e a DINÂMICA DO MÊS desce pra linha dos
-               3 cards. A barra geral NÃO aparece aqui — só na aba Geral. */
+            /* Aba individual: painel de meta com anel circular + os 3 cards
+               (dinâmica, valor por desconto e comissão). */
             <>
-              <CardIndividual nome={focoNome} acoes={focoAcoes} meta={focoMeta} />
+              <PainelMeta
+                titulo={`Meta individual${focoNome ? ` · ${primeiroNome(focoNome)}` : ""}`}
+                icon={Target}
+                acoes={focoAcoes}
+                meta={focoMeta}
+              />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <CardDinamica regra={focoRegra} acoes={focoAcoes} />
                 <CardValorAcao regra={focoRegra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
@@ -385,13 +425,19 @@ export default function Fechamentos() {
               </div>
             </>
           ) : (
-            /* Aba geral (admin ou liberado): quadro geral grande, com a barra geral. */
-            <CardGeral
-              acoes={teamAcoes}
-              meta={regra.meta_geral}
-              pessoas={pessoasContribuindo}
-              mes={mesAtivo}
-            />
+            /* Aba geral (admin ou liberado): painel de meta do time + ranking. */
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
+                <PainelMeta
+                  titulo={`Quadro geral · ${mesExtenso(mesAtivo)}`}
+                  icon={Users}
+                  acoes={teamAcoes}
+                  meta={regra.meta_geral}
+                  nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
+                />
+              </div>
+              <RankingMes equipe={equipe} acoesDe={acoesDe} regra={regra} metasMap={metasMap} />
+            </div>
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -516,91 +562,109 @@ function ScopePill({ active, onClick, icon: Icon, label }: { active: boolean; on
   );
 }
 
-function CardGeral({ acoes, meta, pessoas, mes }: { acoes: number; meta: number; pessoas: number; mes: string }) {
+/* Painel GRANDE de meta (geral ou individual) — anel circular à esquerda,
+   contagem + régua de marcos + mini-stats à direita. Estado esmeralda quando
+   a meta é batida. É o centro do dashboard, inspirado no anel de referência. */
+function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
+  titulo: string; icon: any; acoes: number; meta: number; nota?: string;
+}) {
   const bateu = meta > 0 && acoes >= meta;
   const pct = meta > 0 ? Math.min(100, Math.round((acoes / meta) * 100)) : 0;
+  const faltam = Math.max(0, meta - acoes);
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-5 ${bateu ? "border-emerald-500/40 bg-emerald-500/10" : "border-primary/30 bg-gradient-to-br from-primary/15 to-primary/5"}`}>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
-            <Users className="h-3.5 w-3.5" /> Quadro geral de {mesExtenso(mes)}
-          </p>
-          <div className="mt-1 flex items-end gap-2">
+    <div className={`relative h-full overflow-hidden rounded-2xl border p-5 sm:p-6 ${bateu ? "border-emerald-500/40 bg-emerald-500/[0.07]" : "border-primary/25 bg-gradient-to-br from-primary/[0.10] via-primary/[0.04] to-transparent"}`}>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5" /> {titulo}
+        </p>
+        {bateu && (
+          <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-bold uppercase tracking-wide">
+            <Check className="h-4 w-4" strokeWidth={3} /> Meta batida
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-5 sm:gap-7 flex-wrap sm:flex-nowrap">
+        <AnelMeta pct={pct} bateu={bateu} />
+
+        <div className="flex-1 min-w-[220px]">
+          <div className="flex items-end gap-2">
             <CountUp value={acoes} className="text-5xl font-black tabular-nums leading-none" />
-            <span className="text-lg text-muted-foreground mb-1">
-              {meta > 0 ? <>/ {intBR(meta)} descontos ajuizáveis</> : "descontos ajuizáveis"}
+            <span className="text-base text-muted-foreground mb-1">
+              / {meta > 0 ? intBR(meta) : "—"} descontos
             </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {pessoas} {pessoas === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês
+          <p className={`text-xs mt-1.5 ${bateu ? "text-emerald-400/90" : "text-muted-foreground"}`}>
+            {meta > 0
+              ? (bateu ? "Parabéns, meta do mês batida! 🎉" : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> pra bater a meta</>)
+              : "Meta do mês ainda não definida"}
           </p>
+
+          {meta > 0 && <div className="mt-4"><BarraMarcos value={acoes} max={meta} bateu={bateu} /></div>}
+
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <MiniStat label="Meta do mês" value={meta > 0 ? intBR(meta) : "—"} sub="descontos" />
+            <MiniStat label="Desempenho" value={intBR(acoes)} sub="descontos" />
+          </div>
+
+          {nota && <p className="text-[11px] text-muted-foreground mt-3">{nota}</p>}
         </div>
-        {bateu ? (
-          <div className="text-right">
-            <div className="inline-flex items-center gap-1.5 text-emerald-400">
-              <Check className="h-5 w-5" strokeWidth={3} />
-              <span className="text-xs font-bold uppercase tracking-wide">Meta batida</span>
-            </div>
-          </div>
-        ) : meta > 0 ? (
-          <div className="text-right">
-            <div className="text-3xl font-black text-primary tabular-nums"><CountUp value={pct} format={(n) => `${Math.round(n)}%`} /></div>
-            <span className="text-[11px] text-muted-foreground uppercase tracking-wide">da meta geral</span>
-          </div>
-        ) : null}
       </div>
-      {meta > 0 && (
-        <div className="mt-4">
-          <Barra value={acoes} max={meta} className={bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-primary/70 to-primary"} />
-        </div>
-      )}
     </div>
   );
 }
 
-/* Card GRANDE da meta individual — na aba individual ocupa o espaço/tamanho
-   que o quadro geral tem na aba Geral (mesma prominência: número gigante,
-   % à direita e barra ao pé). */
-function CardIndividual({ nome, acoes, meta }: { nome: string | null; acoes: number; meta: number }) {
-  const bateu = meta > 0 && acoes >= meta;
-  const pct = meta > 0 ? Math.min(100, Math.round((acoes / meta) * 100)) : 0;
+/* Ranking do mês (aba geral) — placar do time por descontos, com pódio pros
+   três primeiros e barrinha proporcional ao líder. */
+function RankingMes({ equipe, acoesDe, regra, metasMap }: {
+  equipe: Membro[]; acoesDe: Record<string, number>; regra: Regra; metasMap: Record<string, MetaUser>;
+}) {
+  const linhas = equipe
+    .map((m) => {
+      const acoes = acoesDe[m.id] || 0;
+      const { regra: r } = regraDoFoco(regra, metasMap[m.id]);
+      const comissao = comissaoDe(acoes, r, metasMap[m.id]?.bonus || 0);
+      return { id: m.id, nome: m.nome, acoes, comissao };
+    })
+    .sort((a, b) => b.acoes - a.acoes || b.comissao - a.comissao);
+  const topo = linhas[0]?.acoes || 0;
+  const medalha = ["text-amber-400", "text-slate-300", "text-amber-700"];
+
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-5 ${bateu ? "border-emerald-500/40 bg-emerald-500/10" : "border-primary/30 bg-gradient-to-br from-primary/15 to-primary/5"}`}>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
-            <Target className="h-3.5 w-3.5" /> Meta individual{nome ? ` · ${primeiroNome(nome)}` : ""}
-          </p>
-          <div className="mt-1 flex items-end gap-2">
-            <CountUp value={acoes} className="text-5xl font-black tabular-nums leading-none" />
-            <span className="text-lg text-muted-foreground mb-1">
-              {meta > 0 ? <>/ {intBR(meta)} descontos ajuizáveis</> : "descontos ajuizáveis"}
-            </span>
-          </div>
-          {meta > 0 && (
-            <p className="text-xs text-muted-foreground mt-1">
-              {bateu ? "meta batida" : `faltam ${intBR(Math.max(0, meta - acoes))} pra bater a meta`}
-            </p>
-          )}
-        </div>
-        {bateu ? (
-          <div className="text-right">
-            <div className="inline-flex items-center gap-1.5 text-emerald-400">
-              <Check className="h-5 w-5" strokeWidth={3} />
-              <span className="text-xs font-bold uppercase tracking-wide">Meta batida</span>
-            </div>
-          </div>
-        ) : meta > 0 ? (
-          <div className="text-right">
-            <div className="text-3xl font-black text-primary tabular-nums"><CountUp value={pct} format={(n) => `${Math.round(n)}%`} /></div>
-            <span className="text-[11px] text-muted-foreground uppercase tracking-wide">da meta individual</span>
-          </div>
-        ) : null}
-      </div>
-      {meta > 0 && (
-        <div className="mt-4">
-          <Barra value={acoes} max={meta} className={bateu ? "bg-gradient-to-r from-emerald-400 to-emerald-500" : "bg-gradient-to-r from-primary/70 to-primary"} />
+    <div className="rounded-2xl border border-border bg-card/40 p-4 flex flex-col">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5 mb-3">
+        <Trophy className="h-3.5 w-3.5" /> Ranking do mês
+      </p>
+      {linhas.length === 0 ? (
+        <p className="text-xs text-muted-foreground/70 italic">Sem equipe cadastrada.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {linhas.map((l, i) => {
+            const pct = topo > 0 ? Math.max(4, Math.round((l.acoes / topo) * 100)) : 0;
+            return (
+              <div key={l.id} className="flex items-center gap-2.5">
+                <span className={`w-5 text-center text-sm font-black tabular-nums ${i < 3 ? medalha[i] : "text-muted-foreground/60"}`}>
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium truncate">{primeiroNome(l.nome)}</span>
+                    <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
+                      {intBR(l.acoes)} · <span className="text-foreground/80">{brl(l.comissao)}</span>
+                    </span>
+                  </div>
+                  <div className="relative h-1.5 rounded-full bg-black/25 overflow-hidden mt-1">
+                    <motion.div
+                      className={`h-full rounded-full ${i === 0 ? "bg-gradient-to-r from-primary/70 to-primary" : "bg-primary/40"}`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.8, ease: "easeOut", delay: i * 0.05 }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
