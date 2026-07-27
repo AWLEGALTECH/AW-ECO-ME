@@ -490,7 +490,7 @@ export default function Fechamentos() {
                               <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1">
                                 <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
                                 <span className="text-muted-foreground/50">·</span>
-                                {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "desconto ajuizável" : "descontos ajuizáveis"}
+                                {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "ação válida" : "ações válidas"}
                               </div>
                             </div>
                           </div>
@@ -526,7 +526,7 @@ export default function Fechamentos() {
               </CardHeader>
               <CardContent>
                 {porRubrica.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">Sem descontos ajuizáveis neste mês.</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">Sem ações válidas neste mês.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {porRubrica.map(([r, n]) => {
@@ -617,7 +617,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
           <div className="flex items-end gap-2">
             <CountUp value={acoes} className="text-5xl font-semibold font-display tabular-nums leading-none" />
             <span className="text-base text-muted-foreground mb-1">
-              / {meta > 0 ? intBR(meta) : "—"} descontos
+              / {meta > 0 ? intBR(meta) : "—"} ações válidas
             </span>
           </div>
           <p className={`text-xs mt-1.5 ${bateu ? "text-emerald-400/90" : "text-muted-foreground"}`}>
@@ -629,8 +629,8 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
           {meta > 0 && <div className="mt-4"><BarraMarcos value={acoes} max={meta} bateu={bateu} /></div>}
 
           <div className="grid grid-cols-2 gap-2 mt-4">
-            <MiniStat label="Meta do mês" value={meta > 0 ? intBR(meta) : "—"} sub="descontos" />
-            <MiniStat label="Desempenho" value={intBR(acoes)} sub="descontos" />
+            <MiniStat label="Meta do mês" value={meta > 0 ? intBR(meta) : "—"} sub="ações válidas" />
+            <MiniStat label="Desempenho" value={intBR(acoes)} sub="ações válidas" />
           </div>
 
           {nota && <p className="text-[11px] text-muted-foreground mt-3">{nota}</p>}
@@ -709,16 +709,16 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra;
   return (
     <SpotlightCard className={especialAtivo ? "border-amber-400/40 fech-glow" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-        {especialAtivo ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Zap className="h-3.5 w-3.5" />} Valor por desconto
+        {especialAtivo ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Zap className="h-3.5 w-3.5" />} Valor por ação válida
       </p>
       <div className="mt-1.5 flex items-center gap-2">
         <span className={`text-3xl font-normal font-display tabular-nums leading-none ${especialAtivo ? "text-amber-400" : ""}`}>{brl(vigente)}</span>
-        <span className="text-sm text-muted-foreground mb-0.5">/ desconto</span>
+        <span className="text-sm text-muted-foreground mb-0.5">/ ação</span>
         {especialAtivo && <Sparkles className="h-5 w-5 text-amber-400" />}
       </div>
       <div className="mt-3 space-y-1 text-[11px]">
         <div className={`flex items-center justify-between ${!especialAtivo ? "text-foreground font-medium" : "text-muted-foreground"}`}>
-          <span>Base{temEspecial ? ` (até ${intBR(lim)} descontos)` : ""}</span><span className="tabular-nums">{brl(regra.valor_base)}</span>
+          <span>Base{temEspecial ? ` (até ${intBR(lim)} ações)` : ""}</span><span className="tabular-nums">{brl(regra.valor_base)}</span>
         </div>
         {temEspecial && (
           <div className={`flex items-center justify-between ${especialAtivo ? "text-amber-400 font-semibold" : "text-muted-foreground"}`}>
@@ -726,7 +726,7 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra;
           </div>
         )}
         {temEspecial && !especialAtivo && (
-          <p className="text-[11px] text-amber-400/90 pt-1">Faltam <strong>{intBR(faltam)}</strong> descontos pra cada desconto valer {brl(regra.valor_especial)}</p>
+          <p className="text-[11px] text-amber-400/90 pt-1">Faltam <strong>{intBR(faltam)}</strong> ações válidas pra cada ação valer {brl(regra.valor_especial)}</p>
         )}
         {!temEspecial && <p className="text-[11px] text-muted-foreground pt-1">Sem faixa especial neste mês.</p>}
       </div>
@@ -744,7 +744,7 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
         <CountUp value={total} format={(n) => brl(n)} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
       </div>
       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-        {intBR(acoes)} descontos × {brl(valorAcao)}/desconto
+        {intBR(acoes)} ações válidas × {brl(valorAcao)}/ação
         {bonus > 0 && <> + {brl(bonus)} bônus</>}
       </p>
     </SpotlightCard>
@@ -793,12 +793,12 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
       <p className="mt-2 text-[13px] leading-snug">
         {temEspecial ? (
           <>
-            Cada desconto vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>; do{" "}
+            Cada ação válida vale <strong className="text-foreground">{brl(regra.valor_base)}</strong>; do{" "}
             <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{intBR(alvo)}º</strong> em diante,{" "}
             <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
           </>
         ) : (
-          <>Cada desconto vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
+          <>Cada ação válida vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
         )}
       </p>
 
@@ -808,7 +808,7 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
           <p className={`text-[11px] font-medium ${desbloqueado ? "text-amber-300" : "text-muted-foreground"}`}>
             {desbloqueado
               ? "Faixa especial ativa"
-              : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> pra {brl(regra.valor_especial)}/desconto</>}
+              : <>Faltam <strong className="text-foreground">{intBR(faltam)}</strong> pra {brl(regra.valor_especial)}/ação</>}
           </p>
         </div>
       )}
@@ -876,7 +876,7 @@ function NovoFechamentoDialog({
       <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-400" /> Novo fechamento</DialogTitle>
-          <DialogDescription>Marque os descontos ajuizáveis fechados. Cada um conta como 1 no placar.</DialogDescription>
+          <DialogDescription>Marque as ações válidas fechadas. Cada uma conta como 1 no placar.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -914,7 +914,7 @@ function NovoFechamentoDialog({
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <Label>Descontos ajuizáveis fechados</Label>
+              <Label>Ações válidas fechadas</Label>
               <span className="text-[11px] text-muted-foreground">{rubricas.size} selecionada(s)</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[40vh] overflow-y-auto pr-1 rounded-lg border border-border p-2">
@@ -934,7 +934,7 @@ function NovoFechamentoDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => { onClose(); setTimeout(reset, 200); }} disabled={saving}>Cancelar</Button>
           <Button onClick={salvar} disabled={saving}>
-            {saving ? "Salvando…" : `Salvar (${rubricas.size} ${rubricas.size === 1 ? "desconto" : "descontos"})`}
+            {saving ? "Salvando…" : `Salvar (${rubricas.size} ${rubricas.size === 1 ? "ação válida" : "ações válidas"})`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1041,8 +1041,8 @@ function RegrasDialog({
 
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <CampoNum label="Valor base (R$/desconto)" value={valorBase} onChange={setValorBase} />
-            <CampoNum label="Meta geral (descontos)" value={metaGeral} onChange={setMetaGeral} />
+            <CampoNum label="Valor base (R$/ação)" value={valorBase} onChange={setValorBase} />
+            <CampoNum label="Meta geral (ações válidas)" value={metaGeral} onChange={setMetaGeral} />
             <CampoNum label="Bônus geral (R$)" value={bonus} onChange={setBonus} />
           </div>
 
@@ -1057,12 +1057,12 @@ function RegrasDialog({
             {especialAtivo && (
               <>
                 <div className="grid grid-cols-2 gap-3 mt-3">
-                  <CampoNum label="Base vale até (descontos)" value={espLimite} onChange={setEspLimite} placeholder="ex: 20" />
-                  <CampoNum label="Valor especial (R$/desconto)" value={valorEsp} onChange={setValorEsp} placeholder="ex: 6" />
+                  <CampoNum label="Base vale até (ações)" value={espLimite} onChange={setEspLimite} placeholder="ex: 20" />
+                  <CampoNum label="Valor especial (R$/ação)" value={valorEsp} onChange={setValorEsp} placeholder="ex: 6" />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  Cada desconto vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(espLimite) || 0}</strong> descontos. Do{" "}
-                  <strong>{(int(espLimite) || 0) + 1}º</strong> em diante, cada desconto passa a valer <strong>{brl(num(valorEsp))}</strong>.
+                  Cada ação válida vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(espLimite) || 0}</strong> ações. Do{" "}
+                  <strong>{(int(espLimite) || 0) + 1}º</strong> em diante, cada ação passa a valer <strong>{brl(num(valorEsp))}</strong>.
                 </p>
               </>
             )}
@@ -1109,11 +1109,11 @@ function RegrasDialog({
                     {espOn && (
                       <>
                         <div className="grid grid-cols-2 gap-3 mt-2.5">
-                          <CampoNum label="Base vale até (descontos)" value={f?.espLimite || ""} onChange={(v) => patchMeta(m.id, { espLimite: v })} placeholder="ex: 20" />
-                          <CampoNum label="Valor especial (R$/desconto)" value={f?.valorEsp || ""} onChange={(v) => patchMeta(m.id, { valorEsp: v })} placeholder="ex: 6" />
+                          <CampoNum label="Base vale até (ações)" value={f?.espLimite || ""} onChange={(v) => patchMeta(m.id, { espLimite: v })} placeholder="ex: 20" />
+                          <CampoNum label="Valor especial (R$/ação)" value={f?.valorEsp || ""} onChange={(v) => patchMeta(m.id, { valorEsp: v })} placeholder="ex: 6" />
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-2">
-                          Pra {primeiroNome(m.nome)}: cada desconto vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(f?.espLimite || "") || 0}</strong>. Do{" "}
+                          Pra {primeiroNome(m.nome)}: cada ação válida vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(f?.espLimite || "") || 0}</strong>. Do{" "}
                           <strong>{(int(f?.espLimite || "") || 0) + 1}º</strong> em diante, vale <strong>{brl(num(f?.valorEsp || ""))}</strong>.
                         </p>
                       </>
@@ -1122,7 +1122,7 @@ function RegrasDialog({
                 );
               })}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1.5">Campos: meta de descontos · bônus individual (R$) · faixa especial própria (opcional, sobrepõe a geral).</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">Campos: meta de ações válidas · bônus individual (R$) · faixa especial própria (opcional, sobrepõe a geral).</p>
           </div>
         </div>
 
