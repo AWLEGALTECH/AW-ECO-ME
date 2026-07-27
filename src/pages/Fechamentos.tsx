@@ -9,12 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SpotlightCard } from "@/components/SpotlightCard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
   ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
+  ClipboardList, ListChecks,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -160,7 +163,7 @@ function AnelMeta({ pct, bateu, size = 150, stroke = 13 }: { pct: number; bateu:
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
-        <CountUp value={alvo} format={(n) => `${Math.round(n)}%`} className={`text-4xl font-black tabular-nums leading-none ${bateu ? "text-emerald-400" : "text-primary"}`} />
+        <CountUp value={alvo} format={(n) => `${Math.round(n)}%`} className={`text-4xl font-semibold font-display tabular-nums leading-none ${bateu ? "text-emerald-400" : "text-primary"}`} />
         <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mt-1">{bateu ? "batida" : "da meta"}</span>
       </div>
     </div>
@@ -193,9 +196,9 @@ function BarraMarcos({ value, max, bateu }: { value: number; max: number; bateu:
 /* Mini-métrica (rótulo + número) usada dentro do painel de meta. */
 function MiniStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-black/15 px-3 py-2.5">
-      <p className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground/80">{label}</p>
-      <p className="text-lg font-bold tabular-nums leading-tight mt-0.5">
+    <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-lg font-semibold font-display tabular-nums leading-tight mt-0.5">
         {value} {sub && <span className="text-[10px] font-normal text-muted-foreground">{sub}</span>}
       </p>
     </div>
@@ -349,14 +352,12 @@ export default function Fechamentos() {
   const ehMesAtual = mesAtivo === hojeMes();
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="space-y-6">
+      {/* Header — padrão do dashboard principal (font-display) */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-primary" /> Fechamentos &amp; Comissões
-          </h1>
-          <p className="text-sm text-muted-foreground">Placar do mês, metas e comissão por multiplicador.</p>
+          <h2 className="font-display text-3xl font-medium tracking-tight">Fechamentos &amp; Comissões</h2>
+          <p className="text-sm text-muted-foreground mt-1">Placar do mês, metas e comissão por multiplicador.</p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && (
@@ -442,84 +443,109 @@ export default function Fechamentos() {
 
           {/* ── LISTA + RUBRICAS ── */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-2">
-              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">
-                {focoNome ? `Fechamentos de ${primeiroNome(focoNome)}` : "Todos os fechamentos"} · {mesExtenso(mesAtivo)} ({listaMes.length})
-              </h2>
-              {listaMes.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                  Nenhum fechamento neste mês. Clique em <strong>Novo fechamento</strong> pra começar.
-                </div>
-              ) : listaMes.map((f) => (
-                <div key={f.id} className="rounded-xl border border-border bg-card/40 p-3 group">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5" title={equipe.find((m) => m.id === f.user_id)?.nome || f.responsavel || "Voluntário"}>
-                        <User className="h-3.5 w-3.5" />
-                      </div>
-                      <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold">{f.cliente_nome}</span>
-                        {!focoId && f.user_id && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                            {primeiroNome(equipe.find((m) => m.id === f.user_id)?.nome || f.responsavel)}
-                          </span>
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  {focoNome ? `Fechamentos de ${primeiroNome(focoNome)}` : "Todos os fechamentos"}
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">{listaMes.length} no mês</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {listaMes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    Nenhum fechamento neste mês. Clique em <strong>Novo fechamento</strong> pra começar.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-border/40">
+                    {listaMes.map((f) => (
+                      <div key={f.id} className="py-2.5 first:pt-0 last:pb-0 group">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5" title={equipe.find((m) => m.id === f.user_id)?.nome || f.responsavel || "Voluntário"}>
+                              <User className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium">{f.cliente_nome}</span>
+                                {!focoId && f.user_id && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                    {primeiroNome(equipe.find((m) => m.id === f.user_id)?.nome || f.responsavel)}
+                                  </span>
+                                )}
+                                {f.cliente_id && (
+                                  <a href={`/clientes/${f.cliente_id}`} className="text-[10px] text-primary hover:underline">ver ficha</a>
+                                )}
+                                {f.pendencia && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-1.5 py-0.5">
+                                    <AlertTriangle className="h-2.5 w-2.5" /> pendência
+                                  </span>
+                                )}
+                                {f.pasta_drive && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-400/10 border border-emerald-400/30 rounded-full px-1.5 py-0.5">
+                                    <FolderUp className="h-2.5 w-2.5" /> no Drive
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1">
+                                <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
+                                <span className="text-muted-foreground/50">·</span>
+                                {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "desconto ajuizável" : "descontos ajuizáveis"}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => excluir(f)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/60 hover:text-red-400 shrink-0"
+                            title="Excluir fechamento"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {(f.rubricas?.length || 0) > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2 ml-9">
+                            {f.rubricas!.map((r) => (
+                              <span key={r} className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground/80" title={RUBRICA_LABEL[r] || r}>
+                                {r}
+                              </span>
+                            ))}
+                          </div>
                         )}
-                        {f.cliente_id && (
-                          <a href={`/clientes/${f.cliente_id}`} className="text-[10px] text-primary hover:underline">ver ficha</a>
-                        )}
-                        {f.pendencia && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-1.5 py-0.5">
-                            <AlertTriangle className="h-2.5 w-2.5" /> pendência
-                          </span>
-                        )}
-                        {f.pasta_drive && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-400/10 border border-emerald-400/30 rounded-full px-1.5 py-0.5">
-                            <FolderUp className="h-2.5 w-2.5" /> no Drive
-                          </span>
-                        )}
                       </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1">
-                        <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
-                        <span className="text-muted-foreground/50">·</span>
-                        {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "desconto ajuizável" : "descontos ajuizáveis"}
-                      </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => excluir(f)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/60 hover:text-red-400 shrink-0"
-                      title="Excluir fechamento"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    ))}
                   </div>
-                  {(f.rubricas?.length || 0) > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {f.rubricas!.map((r) => (
-                        <span key={r} className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground/80" title={RUBRICA_LABEL[r] || r}>
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                )}
+              </CardContent>
+            </Card>
 
-            <div className="space-y-2">
-              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground px-1">Ações por rubrica</h2>
-              <div className="rounded-xl border border-border bg-card/40 divide-y divide-border/60">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-primary" /> Ações por rubrica
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
                 {porRubrica.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/60 italic p-3">Sem descontos ajuizáveis neste mês.</p>
-                ) : porRubrica.map(([r, n]) => (
-                  <div key={r} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <span className="text-xs truncate" title={RUBRICA_LABEL[r] || r}>{RUBRICA_LABEL[r] || r}</span>
-                    <span className="text-xs tabular-nums shrink-0 font-semibold">{n}</span>
+                  <p className="text-sm text-muted-foreground text-center py-4">Sem descontos ajuizáveis neste mês.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {porRubrica.map(([r, n]) => {
+                      const peak = porRubrica[0]?.[1] || 1;
+                      const pct = (n / peak) * 100;
+                      return (
+                        <div key={r} className="group relative overflow-hidden rounded-md px-2.5 py-1.5">
+                          <div className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${pct}%` }} />
+                          <div className="relative flex items-center justify-between gap-3">
+                            <span className="text-sm truncate" title={RUBRICA_LABEL[r] || r}>{RUBRICA_LABEL[r] || r}</span>
+                            <span className="text-xs font-mono text-muted-foreground tabular-nums shrink-0">{n}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </>
       )}
@@ -572,14 +598,14 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
   const pct = meta > 0 ? Math.min(100, Math.round((acoes / meta) * 100)) : 0;
   const faltam = Math.max(0, meta - acoes);
   return (
-    <div className={`relative h-full overflow-hidden rounded-2xl border p-5 sm:p-6 ${bateu ? "border-emerald-500/40 bg-emerald-500/[0.07]" : "border-primary/25 bg-gradient-to-br from-primary/[0.10] via-primary/[0.04] to-transparent"}`}>
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5">
+    <SpotlightCard className={`h-full ${bateu ? "border-emerald-500/25" : "border-primary/20"}`}>
+      <div className="flex items-center justify-between gap-2 mb-5">
+        <p className="text-xs uppercase tracking-[0.18em] text-primary/80 flex items-center gap-1.5">
           <Icon className="h-3.5 w-3.5" /> {titulo}
         </p>
         {bateu && (
-          <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-bold uppercase tracking-wide">
-            <Check className="h-4 w-4" strokeWidth={3} /> Meta batida
+          <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-semibold uppercase tracking-wide">
+            <Check className="h-4 w-4" strokeWidth={2.5} /> Meta batida
           </span>
         )}
       </div>
@@ -589,7 +615,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
 
         <div className="flex-1 min-w-[220px]">
           <div className="flex items-end gap-2">
-            <CountUp value={acoes} className="text-5xl font-black tabular-nums leading-none" />
+            <CountUp value={acoes} className="text-5xl font-semibold font-display tabular-nums leading-none" />
             <span className="text-base text-muted-foreground mb-1">
               / {meta > 0 ? intBR(meta) : "—"} descontos
             </span>
@@ -610,7 +636,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
           {nota && <p className="text-[11px] text-muted-foreground mt-3">{nota}</p>}
         </div>
       </div>
-    </div>
+    </SpotlightCard>
   );
 }
 
@@ -631,43 +657,48 @@ function RankingMes({ equipe, acoesDe, regra, metasMap }: {
   const medalha = ["text-amber-400", "text-slate-300", "text-amber-700"];
 
   return (
-    <div className="rounded-2xl border border-border bg-card/40 p-4 flex flex-col">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-primary/80 font-semibold flex items-center gap-1.5 mb-3">
-        <Trophy className="h-3.5 w-3.5" /> Ranking do mês
-      </p>
-      {linhas.length === 0 ? (
-        <p className="text-xs text-muted-foreground/70 italic">Sem equipe cadastrada.</p>
-      ) : (
-        <div className="space-y-2.5">
-          {linhas.map((l, i) => {
-            const pct = topo > 0 ? Math.max(4, Math.round((l.acoes / topo) * 100)) : 0;
-            return (
-              <div key={l.id} className="flex items-center gap-2.5">
-                <span className={`w-5 text-center text-sm font-black tabular-nums ${i < 3 ? medalha[i] : "text-muted-foreground/60"}`}>
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-medium truncate">{primeiroNome(l.nome)}</span>
-                    <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
-                      {intBR(l.acoes)} · <span className="text-foreground/80">{brl(l.comissao)}</span>
-                    </span>
-                  </div>
-                  <div className="relative h-1.5 rounded-full bg-black/25 overflow-hidden mt-1">
-                    <motion.div
-                      className={`h-full rounded-full ${i === 0 ? "bg-gradient-to-r from-primary/70 to-primary" : "bg-primary/40"}`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 0.8, ease: "easeOut", delay: i * 0.05 }}
-                    />
+    <Card className="h-full">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-primary" /> Ranking do mês
+          <span className="ml-auto text-xs font-normal text-muted-foreground">{linhas.length} no time</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {linhas.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Sem equipe cadastrada.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {linhas.map((l, i) => {
+              const pct = topo > 0 ? Math.max(4, Math.round((l.acoes / topo) * 100)) : 0;
+              return (
+                <div key={l.id} className="flex items-center gap-2.5">
+                  <span className={`w-5 text-center text-sm font-semibold font-display tabular-nums ${i < 3 ? medalha[i] : "text-muted-foreground/60"}`}>
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[13px] font-medium truncate">{primeiroNome(l.nome)}</span>
+                      <span className="text-[11px] font-mono tabular-nums text-muted-foreground shrink-0">
+                        {intBR(l.acoes)} · <span className="text-foreground/80">{brl(l.comissao)}</span>
+                      </span>
+                    </div>
+                    <div className="relative h-1.5 rounded-full bg-black/25 overflow-hidden mt-1">
+                      <motion.div
+                        className={`h-full rounded-full ${i === 0 ? "bg-gradient-to-r from-primary/70 to-primary" : "bg-primary/40"}`}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut", delay: i * 0.05 }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -676,12 +707,12 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra;
   const lim = regra.especial_limite ?? 0;
   const faltam = temEspecial && !especialAtivo ? Math.max(0, lim + 1 - acoes) : 0;
   return (
-    <div className={`rounded-2xl border p-4 ${especialAtivo ? "border-amber-400/50 bg-amber-400/10 fech-glow" : "border-border bg-card/50"}`}>
-      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold flex items-center gap-1.5">
+    <SpotlightCard className={especialAtivo ? "border-amber-400/40 fech-glow" : ""}>
+      <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
         {especialAtivo ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Zap className="h-3.5 w-3.5" />} Valor por desconto
       </p>
-      <div className="mt-1 flex items-center gap-2">
-        <span className={`text-4xl font-black tabular-nums leading-none ${especialAtivo ? "text-amber-400" : ""}`}>{brl(vigente)}</span>
+      <div className="mt-1.5 flex items-center gap-2">
+        <span className={`text-3xl font-normal font-display tabular-nums leading-none ${especialAtivo ? "text-amber-400" : ""}`}>{brl(vigente)}</span>
         <span className="text-sm text-muted-foreground mb-0.5">/ desconto</span>
         {especialAtivo && <Sparkles className="h-5 w-5 text-amber-400" />}
       </div>
@@ -699,24 +730,24 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra;
         )}
         {!temEspecial && <p className="text-[11px] text-muted-foreground pt-1">Sem faixa especial neste mês.</p>}
       </div>
-    </div>
+    </SpotlightCard>
   );
 }
 
 function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valorAcao: number; bonus: number; total: number }) {
   return (
-    <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/15 to-emerald-500/5 p-4">
-      <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400/90 font-semibold flex items-center gap-1.5">
+    <SpotlightCard className="border-emerald-500/25">
+      <p className="text-xs uppercase tracking-wider text-emerald-400/90 flex items-center gap-1.5">
         <Coins className="h-3.5 w-3.5" /> Comissão do mês
       </p>
-      <div className="mt-1">
-        <CountUp value={total} format={(n) => brl(n)} className="text-3xl font-black tabular-nums leading-none text-emerald-400" />
+      <div className="mt-1.5">
+        <CountUp value={total} format={(n) => brl(n)} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
       </div>
       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
         {intBR(acoes)} descontos × {brl(valorAcao)}/desconto
         {bonus > 0 && <> + {brl(bonus)} bônus</>}
       </p>
-    </div>
+    </SpotlightCard>
   );
 }
 
@@ -754,8 +785,8 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
   const faltam = temEspecial && !desbloqueado ? Math.max(0, alvo - acoes) : 0;
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-4 ${desbloqueado ? "border-amber-400/50 bg-amber-400/10 fech-glow" : "border-border bg-card/50"}`}>
-      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold flex items-center gap-1.5">
+    <SpotlightCard className={desbloqueado ? "border-amber-400/40 fech-glow" : ""}>
+      <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
         {desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />} Dinâmica do mês
       </p>
 
@@ -781,7 +812,7 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
           </p>
         </div>
       )}
-    </div>
+    </SpotlightCard>
   );
 }
 
