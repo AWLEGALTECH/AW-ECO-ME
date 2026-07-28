@@ -212,7 +212,7 @@ export default function Tracker() {
         <>
           {/* ── KPIs ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Kpi icon={Trophy}    label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
+            <Kpi icon={Trophy}    label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big hero
               sub={`${sentencas.length} ${sentencas.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
             <Kpi icon={Coins}     label="Ticket médio" value={sentencas.length ? m.totalGanho / sentencas.length : 0} accent="text-foreground" big sub="por sentença" />
           </div>
@@ -427,15 +427,15 @@ export default function Tracker() {
 }
 
 /* ─────────────────────── KPI card ─────────────────────── */
-function Kpi({ icon: Icon, label, value, accent, sub, border, big }: {
-  icon: any; label: string; value: number; accent: string; sub?: string; border?: string; big?: boolean;
+function Kpi({ icon: Icon, label, value, accent, sub, border, big, hero }: {
+  icon: any; label: string; value: number; accent: string; sub?: string; border?: string; big?: boolean; hero?: boolean;
 }) {
   return (
-    <SpotlightCard className={border || ""}>
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5" /> {label}
+    <SpotlightCard className={`${border || ""} ${hero ? "hero-kpi" : ""}`}>
+      <p className={`text-[11px] uppercase tracking-wider flex items-center gap-1.5 ${hero ? "text-primary/90" : "text-muted-foreground"}`}>
+        <Icon className={`h-3.5 w-3.5 ${hero ? "drop-shadow-[0_0_8px_hsla(var(--primary)/0.6)]" : ""}`} /> {label}
       </p>
-      <CountUp value={value} format={brl} className={`block ${big ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl"} font-semibold font-display tabular-nums leading-none mt-2 ${accent}`} />
+      <CountUp value={value} format={brl} className={`block ${big ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl"} font-semibold font-display tabular-nums leading-none mt-2 ${hero ? "hero-value" : accent}`} />
       {sub && <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>}
     </SpotlightCard>
   );
