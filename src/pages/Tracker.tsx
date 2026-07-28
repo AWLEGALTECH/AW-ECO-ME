@@ -13,9 +13,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { DonutChart } from "@/components/DonutChart";
 import {
-  Landmark, Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
-  CalendarDays, User, Loader2, Wallet, Banknote, Hash, ExternalLink, Check,
+  HandCoins, Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
+  CalendarDays, Loader2, Hash, ExternalLink, Check, Layers, MapPin, BarChart3, CalendarRange,
 } from "lucide-react";
 
 /* ─────────────────────────── tipos ─────────────────────────── */
@@ -62,6 +63,15 @@ const fmtData = (iso: string | null | undefined) => {
 };
 const primeiroNome = (n: string | null | undefined) => (n || "").trim().split(/\s+/)[0] || "—";
 const hoje = () => new Date().toISOString().slice(0, 10);
+
+/** Agrupa a cauda longa: mantém os `n` maiores e soma o resto em "Outras".
+ *  Espera `items` já ordenado por value desc. */
+function topSlices(items: { name: string; value: number }[], n: number) {
+  if (items.length <= n) return items;
+  const top = items.slice(0, n);
+  const resto = items.slice(n).reduce((a, b) => a + b.value, 0);
+  return resto > 0 ? [...top, { name: "Outras", value: resto }] : top;
+}
 
 function CountUp({ value, format, className }: { value: number; format?: (n: number) => string; className?: string }) {
   const [disp, setDisp] = useState(0);
@@ -117,13 +127,44 @@ export default function Tracker() {
     return { totalGanho, recebido, aReceber, nRecebidas, porStatus };
   }, [sentencas]);
 
+  /* ── agregações pros gráficos ── */
+  const analytics = useMemo(() => {
+    // acumula {n, valor} por chave textual (matéria / comarca)
+    const acc = (pick: (s: Sentenca) => string | null | undefined) => {
+      const map = new Map<string, { n: number; valor: number }>();
+      for (const s of sentencas) {
+        const k = (pick(s) || "").trim() || "Não informado";
+        const cur = map.get(k) || { n: 0, valor: 0 };
+        cur.n += 1; cur.valor += Number(s.valor || 0);
+        map.set(k, cur);
+      }
+      return [...map.entries()].map(([name, v]) => ({ name, ...v }));
+    };
+    const materias = acc((s) => s.processo?.materia).sort((a, b) => b.n - a.n);
+    const comarcas = acc((s) => s.processo?.comarca_uf).sort((a, b) => b.n - a.n);
+
+    // valor ganho por mês (YYYY-MM), em ordem cronológica
+    const mesMap = new Map<string, number>();
+    for (const s of sentencas) {
+      const mes = (s.data_sentenca || "").slice(0, 7);
+      if (!mes) continue;
+      mesMap.set(mes, (mesMap.get(mes) || 0) + Number(s.valor || 0));
+    }
+    const meses = [...mesMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([mes, valor]) => ({ mes, valor }));
+
+    // matérias por VALOR (ranking em R$), top 8
+    const materiasValor = [...materias].sort((a, b) => b.valor - a.valor).slice(0, 8);
+    return { materias, comarcas, meses, materiasValor };
+  }, [sentencas]);
+
   /* ── lista filtrada ── */
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return sentencas.filter((s) => {
       if (filtroStatus && s.status !== filtroStatus) return false;
       if (!q) return true;
-      const alvo = `${s.processo?.cliente?.nome || ""} ${s.processo?.numero_processo || ""} ${s.processo?.materia || ""}`.toLowerCase();
+      const alvo = `${s.processo?.cliente?.nome || ""} ${s.processo?.numero_processo || ""} ${s.processo?.materia || ""} ${s.processo?.comarca_uf || ""}`.toLowerCase();
       return alvo.includes(q);
     });
   }, [sentencas, filtroStatus, busca]);
@@ -154,9 +195,9 @@ export default function Tracker() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-medium tracking-tight flex items-center gap-2">
-            <Landmark className="h-7 w-7 text-primary" /> AW Tracker
+            <HandCoins className="h-7 w-7 text-primary" /> AW Tracker
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes — do ganho ao recebimento.</p>
+          <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes — o que já foi ganho em 1º grau.</p>
         </div>
         <Button onClick={() => setNovoOpen(true)} className="gap-1.5">
           <Plus className="h-4 w-4" /> Nova sentença
@@ -170,11 +211,71 @@ export default function Tracker() {
       ) : (
         <>
           {/* ── KPIs ── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Kpi icon={Trophy}  label="Total ganho"   value={m.totalGanho} accent="text-primary"     sub={`${sentencas.length} ${sentencas.length === 1 ? "sentença" : "sentenças"}`} />
-            <Kpi icon={Wallet}  label="A receber"     value={m.aReceber}   accent="text-amber-400"    sub={`${sentencas.length - m.nRecebidas} em andamento`} />
-            <Kpi icon={Banknote} label="Recebido"     value={m.recebido}   accent="text-emerald-400"  sub={`${m.nRecebidas} ${m.nRecebidas === 1 ? "quitada" : "quitadas"}`} border="border-emerald-500/25" />
-            <Kpi icon={Coins}   label="Ticket médio"  value={sentencas.length ? m.totalGanho / sentencas.length : 0} accent="text-foreground" sub="por sentença" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Kpi icon={Trophy}    label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
+              sub={`${sentencas.length} ${sentencas.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
+            <Kpi icon={Coins}     label="Ticket médio" value={sentencas.length ? m.totalGanho / sentencas.length : 0} accent="text-foreground" big sub="por sentença" />
+          </div>
+
+          {/* ── Gráficos dos ganhos ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-primary" /> Ganhos por matéria
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DonutChart
+                  data={topSlices(analytics.materias.map((x) => ({ name: x.name, value: x.n })), 6)}
+                  emptyMessage="Sem sentenças ainda"
+                  onSliceClick={(name) => setBusca(name === "Outras" || name === "Não informado" ? "" : name)}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-primary" /> Ganhos por comarca
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DonutChart
+                  data={topSlices(analytics.comarcas.map((x) => ({ name: x.name, value: x.n })), 6)}
+                  emptyMessage="Sem sentenças ainda"
+                  onSliceClick={(name) => setBusca(name === "Outras" || name === "Não informado" ? "" : name)}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-primary" /> Valor ganho por mês
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MesesBars data={analytics.meses} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-primary" /> Matérias por valor (R$)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <BarList
+                  data={analytics.materiasValor.map((x) => ({ label: x.name, value: x.valor, hint: `${x.n} ${x.n === 1 ? "sentença" : "sentenças"}` }))}
+                  format={brl}
+                  onItemClick={(label) => setBusca(label === "Não informado" ? "" : label)}
+                />
+              </CardContent>
+            </Card>
           </div>
 
           {/* ── Funil (clicável = filtro) ── */}
@@ -219,7 +320,7 @@ export default function Tracker() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Landmark className="h-4 w-4 text-primary" />
+                <Layers className="h-4 w-4 text-primary" />
                 {filtroStatus ? `Sentenças · ${STATUS_BY[filtroStatus].label}` : "Todas as sentenças"}
                 <span className="ml-auto text-xs font-normal text-muted-foreground">{lista.length}</span>
               </CardTitle>
@@ -326,17 +427,86 @@ export default function Tracker() {
 }
 
 /* ─────────────────────── KPI card ─────────────────────── */
-function Kpi({ icon: Icon, label, value, accent, sub, border }: {
-  icon: any; label: string; value: number; accent: string; sub?: string; border?: string;
+function Kpi({ icon: Icon, label, value, accent, sub, border, big }: {
+  icon: any; label: string; value: number; accent: string; sub?: string; border?: string; big?: boolean;
 }) {
   return (
     <SpotlightCard className={border || ""}>
       <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
         <Icon className="h-3.5 w-3.5" /> {label}
       </p>
-      <CountUp value={value} format={brl} className={`block text-2xl md:text-3xl font-semibold font-display tabular-nums leading-none mt-1.5 ${accent}`} />
+      <CountUp value={value} format={brl} className={`block ${big ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl"} font-semibold font-display tabular-nums leading-none mt-2 ${accent}`} />
       {sub && <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>}
     </SpotlightCard>
+  );
+}
+
+/* Barras horizontais de VALOR por mês (cronológico). Barra proporcional ao
+   maior mês; rótulo mês/ano abreviado + valor em R$. */
+const MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+function rotuloMes(mes: string) {
+  const [y, m] = mes.split("-").map(Number);
+  return `${MES_ABREV[m - 1]}/${String(y).slice(2)}`;
+}
+function MesesBars({ data }: { data: { mes: string; valor: number }[] }) {
+  if (!data.length) return <p className="text-sm text-muted-foreground text-center py-8">Sem sentenças ainda.</p>;
+  const peak = Math.max(...data.map((d) => d.valor), 1);
+  return (
+    <div className="space-y-2">
+      {data.map((d, i) => {
+        const pct = Math.max(3, (d.valor / peak) * 100);
+        return (
+          <div key={d.mes} className="flex items-center gap-3">
+            <span className="w-12 shrink-0 text-[11px] text-muted-foreground tabular-nums capitalize">{rotuloMes(d.mes)}</span>
+            <div className="relative flex-1 h-6 rounded-md bg-black/20 overflow-hidden">
+              <motion.div
+                className="h-full rounded-md bg-gradient-to-r from-primary/70 to-primary"
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{ duration: 0.8, ease: "easeOut", delay: i * 0.04 }}
+              />
+              <span className="absolute inset-y-0 right-2 flex items-center text-[11px] font-medium tabular-nums text-foreground/90">
+                {brl(d.valor)}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Lista de barras genérica (ranking). Barra proporcional ao topo; opcional
+   clique pra filtrar e uma dica (hint) à direita. */
+function BarList({ data, format, onItemClick }: {
+  data: { label: string; value: number; hint?: string }[];
+  format?: (n: number) => string;
+  onItemClick?: (label: string) => void;
+}) {
+  if (!data.length) return <p className="text-sm text-muted-foreground text-center py-8">Sem dados ainda.</p>;
+  const peak = data[0]?.value || 1;
+  return (
+    <div className="space-y-1.5">
+      {data.map((d) => {
+        const pct = Math.max(4, (d.value / peak) * 100);
+        return (
+          <button
+            key={d.label}
+            onClick={() => onItemClick?.(d.label)}
+            className="group relative w-full overflow-hidden rounded-md px-2.5 py-1.5 text-left"
+          >
+            <div className="absolute inset-y-0 left-0 bg-primary/15 group-hover:bg-primary/25 transition-colors" style={{ width: `${pct}%` }} />
+            <div className="relative flex items-center justify-between gap-3">
+              <span className="text-sm truncate">{d.label}</span>
+              <span className="flex items-center gap-2 shrink-0">
+                {d.hint && <span className="text-[10px] text-muted-foreground">{d.hint}</span>}
+                <span className="text-xs font-mono text-foreground/80 tabular-nums">{format ? format(d.value) : d.value}</span>
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
