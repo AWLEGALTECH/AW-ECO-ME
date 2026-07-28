@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { DonutChart } from "@/components/DonutChart";
 import {
-  HandCoins, Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
+  Eye, Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
   CalendarDays, Loader2, Hash, ExternalLink, Check, Layers, MapPin, BarChart3, CalendarRange,
 } from "lucide-react";
 
@@ -195,7 +195,7 @@ export default function Tracker() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-medium tracking-tight flex items-center gap-2">
-            <HandCoins className="h-7 w-7 text-primary" /> AW Tracker
+            <Eye className="h-7 w-7 text-primary" /> AW Tracker
           </h2>
           <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes — o que já foi ganho em 1º grau.</p>
         </div>
