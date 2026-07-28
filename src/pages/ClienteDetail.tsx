@@ -628,7 +628,7 @@ export default function ClienteDetail() {
               <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Análise comercial</h2>
               <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={() => setRefazerAcOpen(true)}>
                 <ClipboardList className="h-3.5 w-3.5" />
-                {cliente.analise_comercial ? "Refazer análise" : "Fazer análise"}
+                {cliente.analise_comercial ? "Editar análise comercial" : "Fazer análise"}
               </Button>
             </div>
             {cliente.analise_comercial ? (

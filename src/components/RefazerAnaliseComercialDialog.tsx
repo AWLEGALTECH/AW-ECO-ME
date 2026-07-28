@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, Hammer, ClipboardList, ChevronLeft, Loader2, Check } from "lucide-react";
+import { Building2, Pencil, ClipboardList, ChevronLeft, Loader2, Check } from "lucide-react";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 
 type Motivo = "rubrica_invalida" | "ja_ajuizada" | "cliente_nao_quer";
@@ -74,10 +74,13 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
   const setMotivo = (idx: number, motivo: Motivo) =>
     setItens((old) => old.map((it, i) => (i === idx ? { ...it, motivo } : it)));
 
-  const irBradesco = () => {
+  // Refazer = abre o Finder no modo ESTEIRA (sessão persistente) no contexto
+  // deste cliente. O Finder puxa a pasta do Drive dele pro gatilho e a nova
+  // análise vira uma demanda pronta pra esse cliente na esteira.
+  const irFinderEsteira = () => {
     if (!cliente) return;
     onClose();
-    navigate(`/finder?refazerComercial=${cliente.id}&refazerNome=${encodeURIComponent(cliente.nome)}`);
+    navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
   };
 
   const salvarManual = async () => {
@@ -129,39 +132,39 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
               </button>
             )}
             <ClipboardList className="h-5 w-5 text-primary" />
-            Refazer análise comercial — {cliente?.nome}
+            Editar análise comercial — {cliente?.nome}
           </DialogTitle>
           <DialogDescription>
             {stage === "chooser"
-              ? "Escolha o tipo de análise. A nova substitui a anterior e recalcula o fechamento (mantendo quem captou)."
-              : "Marque cada rubrica como ajuizável (conta), bloqueada (não conta) ou fora."}
+              ? "Edite as rubricas na hora ou refaça a análise do zero no Finder."
+              : "Adicione ou remova rubricas. Cada mudança recalcula o fechamento na hora (mantendo quem captou)."}
           </DialogDescription>
         </DialogHeader>
 
         {stage === "chooser" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <button
-              onClick={irBradesco}
+              onClick={() => setStage("manual")}
               className="text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center mb-3">
-                <Building2 className="h-5 w-5" />
+                <Pencil className="h-5 w-5" />
               </div>
-              <p className="text-sm font-semibold">Bradesco (Finder)</p>
+              <p className="text-sm font-semibold">Editar análise atual</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Abre o Finder pra fazer uma nova análise do extrato. Ao salvar, volta pra cá.
+                Adicione ou remova rubricas na hora. Cada mudança reflete direto no quadro de fechamentos.
               </p>
             </button>
             <button
-              onClick={() => setStage("manual")}
+              onClick={irFinderEsteira}
               className="text-left rounded-xl border border-white/[0.08] bg-white/[0.03] hover:border-primary/40 hover:bg-white/[0.05] p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-white/[0.05] ring-1 ring-white/10 text-foreground/80 flex items-center justify-center mb-3">
-                <Hammer className="h-5 w-5" />
+                <Building2 className="h-5 w-5" />
               </div>
-              <p className="text-sm font-semibold">Não-Bradesco (manual)</p>
+              <p className="text-sm font-semibold">Refazer no Finder (Bradesco)</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Monte a análise à mão a partir da lista de rubricas, marcando as ajuizáveis.
+                Abre o Finder na esteira com a pasta do Drive do cliente já no gatilho. Gera uma nova análise pronta pra ele.
               </p>
             </button>
           </div>
