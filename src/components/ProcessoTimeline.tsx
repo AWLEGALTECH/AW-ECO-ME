@@ -899,18 +899,20 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         {pop && (
           <motion.div
             key="dopa-pop"
-            className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 z-[200] flex items-center justify-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
+            {/* backdrop escuro — dá protagonismo ao pop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setPop(null)} />
             <motion.div
               initial={{ scale: 0.6, y: 12, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.85, opacity: 0 }}
               transition={{ type: "spring", stiffness: 320, damping: 18 }}
-              className="flex flex-col items-center gap-3 rounded-3xl bg-card/95 backdrop-blur-xl border border-white/[0.08] px-9 py-7 shadow-[0_12px_50px_rgba(0,0,0,0.55)]"
+              className="relative z-10 flex flex-col items-center gap-3 rounded-3xl bg-card/95 backdrop-blur-xl border border-white/[0.08] px-9 py-7 shadow-[0_12px_50px_rgba(0,0,0,0.55)]"
             >
               <motion.span
                 initial={{ scale: 0, rotate: -25 }}
