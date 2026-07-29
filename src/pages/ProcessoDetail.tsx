@@ -63,22 +63,20 @@ const EMPTY: ProcessoForm = {
   parceiro: "",
 };
 
-// TESTE PRELIMINAR — capa do produto do Writer só neste processo, pra avaliar
-// a ideia antes de aplicar por matéria em todos. A matéria
-// "BX ANT FINAN/PARC CRED/GASTOS CARTÃO" casa com o produto "Débitos
-// Automáticos" (rubricas GASTOS CARTÃO / PARCELA CRÉDITO / BX.ANT.FINANC).
-const CAPA_TESTE: Record<string, { src: string; nome: string }> = {
-  "628eb627-377b-448e-b003-339e497bef44": {
+// Capa do produto do Writer por MATÉRIA. "BX ANT FINAN/PARC CRED/GASTOS CARTÃO"
+// casa com o produto "Débitos Automáticos" (rubricas GASTOS CARTÃO / PARCELA
+// CRÉDITO / BX.ANT.FINANC). Qualquer processo com essa matéria mostra a capa.
+const CAPA_POR_MATERIA: Record<string, { src: string; nome: string }> = {
+  "BX ANT FINAN/PARC CRED/GASTOS CARTÃO": {
     src: "/processo-capas/debitos-automaticos.jpg",
     nome: "Débitos Automáticos",
   },
 };
 
-// SIMULAÇÃO — etapas cravadas do processo só neste (coringa da Vanderglaucia),
-// pra validar o formato antes de virar dado real no banco. Sequência canônica
-// do procedimento comum cível, com estado concluída/atual/pendente.
-const TIMELINE_TESTE: Record<string, Etapa[]> = {
-  "628eb627-377b-448e-b003-339e497bef44": [
+// SIMULAÇÃO — etapas cravadas por MATÉRIA (enquanto não vem do banco). Todo
+// processo com essa matéria exibe a timeline pra validarmos o formato.
+const TIMELINE_POR_MATERIA: Record<string, Etapa[]> = {
+  "BX ANT FINAN/PARC CRED/GASTOS CARTÃO": [
     { id: "e1", titulo: "Distribuição da ação", status: "concluida", inicio: "15/02/2026", conclusao: "15/02/2026" },
     { id: "e2", titulo: "Decisão inicial (recebimento)", status: "concluida", inicio: "15/02/2026", conclusao: "12/03/2026" },
     { id: "e3", titulo: "Citação do réu", status: "concluida", inicio: "12/03/2026", conclusao: "02/04/2026" },
@@ -238,8 +236,9 @@ export default function ProcessoDetail() {
   const clienteSelecionado = clientes.find((c) => c.id === form.cliente_id);
   const valorNum = form.valor_causa ? parseMoneyBR(form.valor_causa) : 0;
   const localizacao = [form.vara_juizo_origem, form.comarca_uf].filter(Boolean).join(" · ");
-  const capa = id ? CAPA_TESTE[id] : undefined;
-  const timeline = id ? TIMELINE_TESTE[id] : undefined;
+  const materiaChave = form.materia?.trim().toUpperCase() ?? "";
+  const capa = CAPA_POR_MATERIA[materiaChave];
+  const timeline = TIMELINE_POR_MATERIA[materiaChave];
 
   return (
     <div className="space-y-5">
