@@ -412,6 +412,14 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                         <span className="absolute inset-x-0 h-10 flow-down bg-gradient-to-b from-transparent via-primary/45 to-transparent" />
                       </div>
                     </>
+                  ) : recemAvancado?.concluida === e.id ? (
+                    // linha enche de cima pra baixo ao avançar
+                    <motion.div
+                      className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/60 origin-top"
+                      initial={{ scaleY: 0 }}
+                      animate={{ scaleY: 1 }}
+                      transition={{ duration: 0.7, ease: "easeInOut" }}
+                    />
                   ) : (
                     <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
                   )
@@ -420,16 +428,16 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   <motion.span
                     initial={recemAvancado?.concluida === e.id ? { scale: 0 } : false}
                     animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 15 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 13 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card"
                   >
                     <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
                   </motion.span>
                 ) : e.status === "atual" ? (
                   <motion.span
-                    initial={recemAvancado?.nova === e.id ? { scale: 0.2, opacity: 0 } : false}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 18, delay: recemAvancado?.nova === e.id ? 0.18 : 0 }}
+                    initial={recemAvancado?.nova === e.id ? { scale: 0 } : false}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 12, delay: recemAvancado?.nova === e.id ? 0.75 : 0 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
                   >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
