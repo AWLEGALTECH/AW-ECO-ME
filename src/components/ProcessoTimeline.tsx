@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight } from "lucide-react";
+import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -257,38 +257,54 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setDesfechoTask(null);
   };
 
-  // ── Avanço de milestone (popup de 2 páginas) ──
+  // ── Avanço de milestone (popup em passos) ──
+  type PassoAvanco = "data" | "destino" | "tarefas" | "confirmar";
   const [avancar, setAvancar] = useState<string | null>(null);   // etapa sendo concluída
-  const [avancoPasso, setAvancoPasso] = useState<1 | 2>(1);
+  const [avancoPasso, setAvancoPasso] = useState<PassoAvanco>("data");
   const [avancoData, setAvancoData] = useState("");              // yyyy-mm-dd
   const [avancoAlvo, setAvancoAlvo] = useState("");              // etapa destino
+  const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
+
+  const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
+  const etapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar] : null;
+  const opcoesAvanco = idxAvancar >= 0 ? etapas.slice(idxAvancar + 1) : [];
+  const nomeEtapaAvancar = etapaAvancar?.titulo ?? "";
+  const nomeAlvo = etapas.find((e) => e.id === avancoAlvo)?.titulo ?? "";
+  const tasksAbertas = (etapaAvancar?.tasks ?? []).filter((t) => !t.desfecho);
+  const todasTratadas = tasksAbertas.every((t) => migrar.includes(t.id));
+  const nPuladas = (() => {
+    const a = idxAvancar; const b = etapas.findIndex((e) => e.id === avancoAlvo);
+    return a >= 0 && b > a ? b - a - 1 : 0;
+  })();
+  const avancoDataDate = ymdToDate(avancoData);
 
   const abrirAvanco = (etapaId: string) => {
     const idx = etapas.findIndex((e) => e.id === etapaId);
     setAvancar(etapaId);
-    setAvancoPasso(1);
+    setAvancoPasso("data");
     setAvancoData(dateToYmd(new Date()));
-    setAvancoAlvo(etapas[idx + 1]?.id ?? "");
+    setAvancoAlvo(etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
+    setMigrar([]);
   };
+  const toggleMigrar = (id: string) =>
+    setMigrar((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const irDoDestino = () => setAvancoPasso(tasksAbertas.length ? "tarefas" : "confirmar");
+
   const aplicarAvanco = () => {
     if (!avancar || !avancoAlvo || !avancoData) return;
     const idxAtual = etapas.findIndex((e) => e.id === avancar);
     const idxAlvo = etapas.findIndex((e) => e.id === avancoAlvo);
     if (idxAlvo <= idxAtual) return;
     const dataBR = fmtPrazo(avancoData);
+    const migradas = (etapas[idxAtual].tasks ?? []).filter((t) => migrar.includes(t.id));
     setEtapas((prev) => prev.map((e, i) => {
-      if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR };
+      if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrar.includes(t.id)) };
       if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
-      if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR };
+      if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
       return e;
     }));
     setAvancar(null);
   };
-
-  const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
-  const opcoesAvanco = idxAvancar >= 0 ? etapas.slice(idxAvancar + 1) : [];
-  const nomeEtapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar].titulo : "";
-  const avancoDataDate = ymdToDate(avancoData);
 
   const prazoDate = ymdToDate(draft.prazo);
 
@@ -595,21 +611,27 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         </DialogContent>
       </Dialog>
 
-      {/* ── Popup: avançar etapa (2 páginas) ── */}
+      {/* ── Popup: avançar etapa (em passos) ── */}
       <Dialog open={!!avancar} onOpenChange={(o) => !o && setAvancar(null)}>
         <DialogContent className={PREMIUM_DIALOG}>
-          {avancoPasso === 1 ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                    <ArrowRight className="h-4 w-4 text-primary" />
-                  </span>
-                  Avançar etapa · 1 de 2
-                </DialogTitle>
-                <DialogDescription>Quando esta etapa foi concluída?</DialogDescription>
-              </DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                <ArrowRight className="h-4 w-4 text-primary" />
+              </span>
+              Avançar etapa
+            </DialogTitle>
+            <DialogDescription>
+              {avancoPasso === "data" ? "Quando esta etapa foi concluída?"
+                : avancoPasso === "destino" ? "Para qual etapa o processo avança?"
+                  : avancoPasso === "tarefas" ? "Há tarefas em aberto nesta etapa."
+                    : "Tem certeza que deseja avançar de etapa?"}
+            </DialogDescription>
+          </DialogHeader>
 
+          {/* Passo: data de conclusão */}
+          {avancoPasso === "data" && (
+            <>
               <Field label="Data de conclusão" hint={`Quando “${nomeEtapaAvancar}” foi efetivamente concluída no processo.`}>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -619,34 +641,20 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      locale={ptBR}
-                      selected={avancoDataDate}
-                      onSelect={(date) => setAvancoData(date ? dateToYmd(date) : "")}
-                      initialFocus
-                    />
+                    <Calendar mode="single" locale={ptBR} selected={avancoDataDate} onSelect={(d) => setAvancoData(d ? dateToYmd(d) : "")} initialFocus />
                   </PopoverContent>
                 </Popover>
               </Field>
-
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setAvancar(null)}>Cancelar</Button>
-                <Button disabled={!avancoData} onClick={() => setAvancoPasso(2)}>Próximo</Button>
+                <Button disabled={!avancoData} onClick={() => setAvancoPasso("destino")}>Próximo</Button>
               </DialogFooter>
             </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                    <ArrowRight className="h-4 w-4 text-primary" />
-                  </span>
-                  Avançar etapa · 2 de 2
-                </DialogTitle>
-                <DialogDescription>Para qual etapa o processo avança?</DialogDescription>
-              </DialogHeader>
+          )}
 
+          {/* Passo: destino */}
+          {avancoPasso === "destino" && (
+            <>
               <div className="space-y-2 max-h-[46vh] overflow-y-auto pr-1">
                 {opcoesAvanco.map((op, idx) => {
                   const ativo = avancoAlvo === op.id;
@@ -670,10 +678,78 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   );
                 })}
               </div>
-
               <DialogFooter>
-                <Button variant="ghost" onClick={() => setAvancoPasso(1)}>Voltar</Button>
-                <Button disabled={!avancoAlvo} onClick={aplicarAvanco}>Confirmar avanço</Button>
+                <Button variant="ghost" onClick={() => setAvancoPasso("data")}>Voltar</Button>
+                <Button disabled={!avancoAlvo} onClick={irDoDestino}>Próximo</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Passo: tarefas em aberto */}
+          {avancoPasso === "tarefas" && (
+            <>
+              <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-3">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[12px] text-muted-foreground leading-snug">
+                  Resolva cada tarefa (concluir, perder ou cancelar) ou leve para a próxima etapa antes de avançar.
+                </p>
+              </div>
+              <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
+                {tasksAbertas.map((t) => {
+                  const Icon = t.tipo === "acao" ? Zap : Eye;
+                  const levar = migrar.includes(t.id);
+                  return (
+                    <div key={t.id} className={cn("rounded-xl border p-2.5", levar ? "border-primary/40 bg-primary/[0.05]" : "border-white/[0.08] bg-white/[0.02]")}>
+                      <div className="flex items-center gap-2">
+                        <span className="h-6 w-6 rounded-md bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
+                          <Icon className="h-3.5 w-3.5 text-primary" />
+                        </span>
+                        <span className="text-sm font-medium truncate flex-1">{t.titulo}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-2">
+                        {levar ? (
+                          <button onClick={() => toggleMigrar(t.id)} className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+                            <CornerDownRight className="h-3.5 w-3.5" /> será levada para “{nomeAlvo}” · desfazer
+                          </button>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => abrirDesfecho(t)}>Resolver</Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => toggleMigrar(t.id)}>
+                              <CornerDownRight className="h-3.5 w-3.5" /> Levar p/ próxima
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {tasksAbertas.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-3">Todas as tarefas foram tratadas.</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setAvancoPasso("destino")}>Voltar</Button>
+                <Button disabled={!todasTratadas} onClick={() => setAvancoPasso("confirmar")}>Próximo</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Passo: confirmação */}
+          {avancoPasso === "confirmar" && (
+            <>
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-2 text-sm">
+                <p>Concluir <strong className="text-foreground">{nomeEtapaAvancar}</strong> em <strong className="text-foreground">{avancoDataDate ? format(avancoDataDate, "dd/MM/yyyy") : ""}</strong>.</p>
+                <p>Avançar para <strong className="text-primary">{nomeAlvo}</strong>.</p>
+                {nPuladas > 0 && (
+                  <p className="text-muted-foreground text-[12px]">{nPuladas} etapa(s) intermediária(s) ficam marcadas como puladas.</p>
+                )}
+                {migrar.length > 0 && (
+                  <p className="text-muted-foreground text-[12px]">{migrar.length} tarefa(s) serão levadas para a nova etapa.</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
+                <Button onClick={aplicarAvanco}>Confirmar avanço</Button>
               </DialogFooter>
             </>
           )}
