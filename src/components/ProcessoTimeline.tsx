@@ -443,18 +443,18 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   // o pop DEPOIS da linha encher (delay ~0,72s).
                   <span className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card">
                     <motion.span
-                      initial={recemAvancado?.concluida === e.id ? { scale: 0 } : false}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 420, damping: 11, delay: recemAvancado?.concluida === e.id ? 0.72 : 0 }}
+                      initial={recemAvancado?.concluida === e.id ? { scale: 0, opacity: 0 } : false}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.72 : 0 }}
                     >
                       <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
                     </motion.span>
                   </span>
                 ) : e.status === "atual" ? (
                   <motion.span
-                    initial={recemAvancado?.nova === e.id ? { scale: 0 } : false}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 12, delay: recemAvancado?.nova === e.id ? 0.85 : 0 }}
+                    initial={recemAvancado?.nova === e.id ? { scale: 0, opacity: 0 } : false}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.85 : 0 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
                   >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
@@ -910,20 +910,31 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
             {/* backdrop escuro — dá protagonismo ao pop */}
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setPop(null)} />
             <motion.div
-              initial={{ scale: 0.6, y: 12, opacity: 0 }}
+              initial={{ scale: 0.94, y: 8, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.85, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 320, damping: 18 }}
-              className="relative z-10 flex flex-col items-center gap-3 rounded-3xl bg-card/95 backdrop-blur-xl border border-white/[0.08] px-9 py-7 shadow-[0_12px_50px_rgba(0,0,0,0.55)]"
+              exit={{ scale: 0.97, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="relative z-10 flex flex-col items-center gap-3.5 rounded-3xl bg-card/95 backdrop-blur-xl border border-white/[0.08] px-9 py-7 shadow-[0_12px_50px_rgba(0,0,0,0.55)]"
             >
-              <motion.span
-                initial={{ scale: 0, rotate: -25 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", stiffness: 260, damping: 11, delay: 0.06 }}
-                className={cn("h-16 w-16 rounded-2xl grid place-items-center ring-1", pop.tom)}
-              >
-                <pop.Icon className="h-8 w-8" />
-              </motion.span>
+              <span className={cn("relative h-16 w-16 rounded-full grid place-items-center", pop.tom)}>
+                {/* anel que se desenha ao redor do ícone */}
+                <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100" fill="none">
+                  <motion.circle
+                    cx="50" cy="50" r="46" stroke="currentColor" strokeWidth="5" strokeLinecap="round"
+                    initial={{ pathLength: 0, opacity: 0.4 }}
+                    animate={{ pathLength: 1, opacity: 1 }}
+                    transition={{ duration: 0.6, ease: "easeInOut" }}
+                  />
+                </svg>
+                {/* ícone revelado de forma limpa (sem balançar) */}
+                <motion.span
+                  initial={{ scale: 0.7, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: 0.28 }}
+                >
+                  <pop.Icon className="h-7 w-7" />
+                </motion.span>
+              </span>
               <span className="text-sm font-medium text-center max-w-[240px]">{pop.texto}</span>
             </motion.div>
           </motion.div>
