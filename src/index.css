@@ -319,12 +319,12 @@ html, body, #root {
   /* Timeline — pulso que desce pela linha da etapa ATUAL, dando a sensação de
      continuidade aguardada até a conclusão daquela etapa. */
   @keyframes flow-down {
-    0%   { top: -4rem; opacity: 0; }
-    20%  { opacity: 1; }
-    80%  { opacity: 1; }
+    0%   { top: -2.5rem; opacity: 0; }
+    25%  { opacity: 0.9; }
+    75%  { opacity: 0.9; }
     100% { top: 100%; opacity: 0; }
   }
-  .flow-down { animation: flow-down 2.2s ease-in-out infinite; }
+  .flow-down { animation: flow-down 2.6s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .flow-down { animation: none; } }
 
   /* Status piscando de forma bem sutil (o que a etapa aguarda). */

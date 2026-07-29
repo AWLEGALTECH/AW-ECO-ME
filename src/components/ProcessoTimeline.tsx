@@ -287,9 +287,12 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                 {!last && (
                   e.status === "atual" ? (
                     <>
-                      {/* trilho visível + partícula larga e brilhante descendo */}
-                      <div className="absolute top-5 bottom-0 w-[2px] left-1/2 -translate-x-1/2 bg-primary/25 rounded-full" />
-                      <span className="absolute left-1/2 -translate-x-1/2 h-16 w-3 rounded-full flow-down blur-[4px] bg-gradient-to-b from-transparent via-primary to-transparent" />
+                      {/* trilho discreto na cor do tema + partícula recortada
+                          no trecho (não vaza da milestone) */}
+                      <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/20" />
+                      <div className="absolute top-5 bottom-0 w-1.5 left-1/2 -translate-x-1/2 overflow-hidden">
+                        <span className="absolute inset-x-0 h-10 flow-down bg-gradient-to-b from-transparent via-primary/45 to-transparent" />
+                      </div>
                     </>
                   ) : (
                     <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
