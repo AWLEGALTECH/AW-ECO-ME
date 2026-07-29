@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight } from "lucide-react";
@@ -325,10 +326,11 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   }, [avancar, desfechoTask, detalhe, tipoDialog]);
 
   const aplicarAvanco = () => {
-    if (!avancar || !avancoAlvo || !avancoData) return;
+    if (!avancar || !avancoAlvo || !avancoData) { toast.error("Avanço: faltam dados (data/destino)."); return; }
     const idxAtual = etapas.findIndex((e) => e.id === avancar);
     const idxAlvo = etapas.findIndex((e) => e.id === avancoAlvo);
-    if (idxAlvo <= idxAtual) return;
+    if (idxAlvo <= idxAtual) { toast.error(`Avanço: destino inválido (${idxAtual} → ${idxAlvo}).`); return; }
+    const alvoNome = etapas[idxAlvo].titulo;
     const dataBR = fmtPrazo(avancoData);
     const migradas = (etapas[idxAtual].tasks ?? []).filter((t) => migrar.includes(t.id));
     setEtapas((prev) => prev.map((e, i) => {
@@ -338,6 +340,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       return e;
     }));
     setAvancar(null);
+    toast.success(`Etapa avançada para ${alvoNome}.`);
   };
 
   const prazoDate = ymdToDate(draft.prazo);
@@ -825,9 +828,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   <p className="text-muted-foreground text-[12px]">{migrar.length} tarefa(s) serão levadas para a nova etapa.</p>
                 )}
               </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
-                <Button onClick={aplicarAvanco}>Confirmar avanço</Button>
+              <DialogFooter style={{ pointerEvents: "auto" }}>
+                <Button variant="ghost" style={{ pointerEvents: "auto" }} onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
+                <Button type="button" style={{ pointerEvents: "auto" }} onClick={aplicarAvanco}>Confirmar avanço</Button>
               </DialogFooter>
             </>
           )}
