@@ -98,7 +98,7 @@ const TIMELINE_TESTE: Record<string, Etapa[]> = {
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (d: string) => {
-  if (!d) return "—";
+  if (!d) return "não informado";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
 };
@@ -278,7 +278,7 @@ export default function ProcessoDetail() {
               maskImage: "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.85) 55%, #000 100%)",
             }}
           >
-            <img src={capa.src} alt={`Capa — ${capa.nome}`} className="h-full w-full object-cover" loading="lazy" />
+            <img src={capa.src} alt={`Capa: ${capa.nome}`} className="h-full w-full object-cover" loading="lazy" />
           </div>
         )}
 
@@ -286,7 +286,7 @@ export default function ProcessoDetail() {
           {/* Nº do processo */}
           <div className="flex items-center gap-2 text-xs">
             <span className="font-mono text-muted-foreground tracking-tight">
-              {form.numero_processo || (isNew ? "novo processo" : "—")}
+              {form.numero_processo || (isNew ? "novo processo" : "sem número")}
             </span>
             {form.numero_processo && (
               <button onClick={copiarNumero} className="text-muted-foreground/60 hover:text-primary transition-colors" title="Copiar número">
@@ -409,9 +409,9 @@ export default function ProcessoDetail() {
               </Field>
               <Field label="Status da Tarefa">
                 <Select value={form.status_tarefa || "__none__"} onValueChange={(v) => setForm({ ...form, status_tarefa: v === "__none__" ? "" : v })}>
-                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">—</SelectItem>
+                    <SelectItem value="__none__">Nenhum</SelectItem>
                     <SelectItem value="EM CONFECÇÃO">EM CONFECÇÃO</SelectItem>
                     <SelectItem value="CONCLUÍDO">CONCLUÍDO</SelectItem>
                   </SelectContent>
@@ -435,20 +435,20 @@ export default function ProcessoDetail() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10">
-              <Row label="Nº do Processo"><span className="font-mono">{form.numero_processo || "—"}</span></Row>
-              <Row label="Cliente">{clienteSelecionado?.nome || "—"}</Row>
-              <Row label="Matéria">{form.materia || "—"}</Row>
-              <Row label="Fase Processual">{form.fase_processual || "—"}</Row>
+              <Row label="Nº do Processo"><span className="font-mono">{form.numero_processo || "não informado"}</span></Row>
+              <Row label="Cliente">{clienteSelecionado?.nome || "não informado"}</Row>
+              <Row label="Matéria">{form.materia || "não informado"}</Row>
+              <Row label="Fase Processual">{form.fase_processual || "não informado"}</Row>
               <Row label="Último Andamento">{fmtData(form.data_ultimo_andamento)}</Row>
-              <Row label="Prazo Processual">{form.prazo_processual ? fmtData(form.prazo_processual) : "—"}</Row>
-              <Row label="Tipo de Pendência">{form.tipo_pendencia || "—"}</Row>
-              <Row label="Status da Tarefa">{form.status_tarefa || "—"}</Row>
-              <Row label="Vara/Juízo de Origem">{form.vara_juizo_origem || "—"}</Row>
-              <Row label="Comarca/UF">{form.comarca_uf || "—"}</Row>
-              <Row label="Valor da Causa">{valorNum ? brl(valorNum) : "—"}</Row>
-              <Row label="Parceiro">{form.parceiro || "—"}</Row>
+              <Row label="Prazo Processual">{form.prazo_processual ? fmtData(form.prazo_processual) : "não informado"}</Row>
+              <Row label="Tipo de Pendência">{form.tipo_pendencia || "não informado"}</Row>
+              <Row label="Status da Tarefa">{form.status_tarefa || "não informado"}</Row>
+              <Row label="Vara/Juízo de Origem">{form.vara_juizo_origem || "não informado"}</Row>
+              <Row label="Comarca/UF">{form.comarca_uf || "não informado"}</Row>
+              <Row label="Valor da Causa">{valorNum ? brl(valorNum) : "não informado"}</Row>
+              <Row label="Parceiro">{form.parceiro || "não informado"}</Row>
               <Row label="Observações" full>
-                <span className="whitespace-pre-wrap font-normal">{form.observacoes || "—"}</span>
+                <span className="whitespace-pre-wrap font-normal">{form.observacoes || "não informado"}</span>
               </Row>
             </div>
           )}

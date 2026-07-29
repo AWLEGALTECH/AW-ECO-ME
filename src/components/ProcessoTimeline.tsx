@@ -151,7 +151,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-// Card da tarefa — estética premium do dash, ícone na cor do tema, clicável.
+// Card da tarefa: estética premium do dash, ícone na cor do tema, clicável.
 function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const Icon = task.tipo === "acao" ? Zap : Eye;
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
@@ -286,9 +286,11 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               <div className="relative flex justify-center">
                 {!last && (
                   e.status === "atual" ? (
-                    <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-border overflow-hidden">
-                      <span className="absolute inset-x-0 h-8 flow-down bg-gradient-to-b from-transparent via-primary to-transparent" />
-                    </div>
+                    <>
+                      {/* trilho visível + partícula larga e brilhante descendo */}
+                      <div className="absolute top-5 bottom-0 w-[2px] left-1/2 -translate-x-1/2 bg-primary/25 rounded-full" />
+                      <span className="absolute left-1/2 -translate-x-1/2 h-16 w-3 rounded-full flow-down blur-[4px] bg-gradient-to-b from-transparent via-primary to-transparent" />
+                    </>
                   ) : (
                     <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
                   )
@@ -345,7 +347,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   </div>
                 )}
 
-                {/* Status — última info antes da próxima milestone */}
+                {/* Status: última info antes da próxima milestone */}
                 {e.status === "atual" && (
                   <div className="mt-4 flex justify-center">
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
@@ -375,7 +377,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         <DialogContent className={PREMIUM_DIALOG}>
           <DialogHeader>
             <DialogTitle>Nova tarefa</DialogTitle>
-            <DialogDescription>Escolha o tipo — isso muda como a tarefa é acompanhada.</DialogDescription>
+            <DialogDescription>Escolha o tipo. Isso muda como a tarefa é acompanhada.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {(["acao", "monitoramento"] as const).map((tp) => (
@@ -390,8 +392,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                 <span className="text-sm font-medium">{tp === "acao" ? "Ação" : "Monitoramento"}</span>
                 <span className="text-[11px] text-muted-foreground text-center leading-snug">
                   {tp === "acao"
-                    ? "Algo que a gente precisa fazer — protocolar, peticionar, juntar documento."
-                    : "Só acompanhar/aguardar um ato — sem ação nossa imediata."}
+                    ? "Algo que a gente precisa fazer: protocolar, peticionar, juntar documento."
+                    : "Só acompanhar ou aguardar um ato, sem ação nossa imediata."}
                 </span>
               </button>
             ))}
@@ -413,7 +415,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           </DialogHeader>
 
           <div className="space-y-4">
-            <Field label="Título" hint="Um resumo curto — ex.: “Protocolar réplica”, “Acompanhar decisão de provas”.">
+            <Field label="Título" hint="Um resumo curto. Ex.: “Protocolar réplica”, “Acompanhar decisão de provas”.">
               <Input value={draft.titulo} onChange={(ev) => setDraft((d) => ({ ...d, titulo: ev.target.value }))} placeholder="Título da tarefa" />
             </Field>
 
@@ -422,7 +424,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
             </Field>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Prazo" hint="Data-limite da tarefa. A contagem regressiva no card usa essa data.">
+              <Field label="Prazo" hint="Data limite da tarefa. A contagem regressiva no card usa essa data.">
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !draft.prazo && "text-muted-foreground")}>
@@ -442,7 +444,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                 </Popover>
               </Field>
 
-              <Field label="Status processual" hint="O que o processo passa a aguardar — vira o status que pisca na etapa atual.">
+              <Field label="Status processual" hint="O que o processo passa a aguardar. Vira o status que pisca na etapa atual.">
                 <Select value={draft.status} onValueChange={(v) => setDraft((d) => ({ ...d, status: v }))}>
                   <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório" /></SelectTrigger>
                   <SelectContent>
@@ -496,7 +498,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
 
           <Field
             label="Observações"
-            hint="Fica registrado na tarefa — vamos reaproveitar esse histórico depois."
+            hint="Fica registrado na tarefa. Vamos reaproveitar esse histórico depois."
           >
             <Textarea
               value={desfechoDraft.obs}
