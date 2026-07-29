@@ -327,8 +327,8 @@ html, body, #root {
   .flow-down { animation: flow-down 1.8s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .flow-down { animation: none; } }
 
-  /* Status piscando levemente (o que a etapa/o processo está aguardando). */
-  @keyframes status-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-  .status-blink { animation: status-blink 1.4s ease-in-out infinite; }
+  /* Status piscando de forma bem sutil (o que a etapa aguarda). */
+  @keyframes status-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
+  .status-blink { animation: status-blink 2.4s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .status-blink { animation: none; } }
 }

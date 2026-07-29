@@ -131,18 +131,13 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
 
   const concluidas = etapas.filter((e) => e.status === "concluida").length;
 
-  // Status do processo = status da tarefa mais recente (fallback: status da
-  // etapa atual). É o que pisca no ponto atual da timeline.
-  const todasTasks = etapas.flatMap((e) => e.tasks ?? []);
-  const taskRecente = todasTasks.length ? todasTasks.reduce((a, b) => (b.ordem > a.ordem ? b : a)) : null;
-  const etapaAtual = etapas.find((e) => e.status === "atual");
-  const statusProcesso = taskRecente?.status ?? etapaAtual?.statusProcessual ?? null;
-
   const setStatusEtapa = (id: string, v: string) =>
     setEtapas((prev) => prev.map((e) => (e.id === id ? { ...e, statusProcessual: v } : e)));
 
   const abrirForm = (id: string) => { setAddingFor(id); setDraft(DRAFT_VAZIO); };
 
+  // Ao adicionar uma tarefa, o status dela vira o status do processo (o campo
+  // da etapa atual) — a task mais recente manda no ponto atual.
   const salvarTask = (etapaId: string) => {
     if (!draft.titulo.trim() || !draft.status) return;
     const nova: Task = {
@@ -150,7 +145,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       titulo: draft.titulo.trim(), conteudo: draft.conteudo.trim(),
       prazo: draft.prazo, status: draft.status,
     };
-    setEtapas((prev) => prev.map((e) => (e.id === etapaId ? { ...e, tasks: [...(e.tasks ?? []), nova] } : e)));
+    setEtapas((prev) => prev.map((e) => (
+      e.id === etapaId ? { ...e, tasks: [...(e.tasks ?? []), nova], statusProcessual: nova.status } : e
+    )));
     setOrdem((o) => o + 1);
     setAddingFor(null);
     setDraft(DRAFT_VAZIO);
@@ -176,7 +173,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         {etapas.map((e, i) => {
           const last = i === etapas.length - 1;
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
-          const podeAdicionar = e.status !== "pendente";
+          const podeAdicionar = e.status === "atual";
           const cardGrande = e.status === "atual";
           const sub =
             e.status === "concluida"
@@ -234,29 +231,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                         <p className="text-sm font-medium tabular-nums mt-0.5">{e.conclusao}</p>
                       </>
                     )}
-                    {e.status === "atual" && (
-                      <>
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Status do processo</p>
-                        {statusProcesso
-                          ? <StatusChip status={statusProcesso} blink />
-                          : <span className="text-[11px] text-muted-foreground">defina abaixo</span>}
-                      </>
-                    )}
                   </div>
                 </div>
-
-                {/* Seletor de status da etapa (enquanto aberta) */}
-                {e.status === "atual" && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">Aguardando:</span>
-                    <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
-                      <SelectTrigger className="h-7 w-[190px] text-[11px]"><SelectValue placeholder="Definir status da etapa" /></SelectTrigger>
-                      <SelectContent>
-                        {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
 
                 {/* Tarefas no vão até a próxima milestone */}
                 {(e.tasks?.length || podeAdicionar) ? (
@@ -329,6 +305,27 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     ) : null}
                   </div>
                 ) : null}
+
+                {/* Status — última info antes da próxima milestone: centralizado,
+                    fonte normal, sem contorno, piscando bem de leve. */}
+                {e.status === "atual" && (
+                  <div className="mt-4 flex justify-center">
+                    <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
+                      <SelectTrigger
+                        className={cn(
+                          "mx-auto w-auto justify-center gap-1.5 border-0 bg-transparent shadow-none h-auto px-0 py-0 text-sm font-normal text-foreground focus:ring-0 focus:ring-offset-0 [&>svg]:hidden",
+                          e.statusProcessual && "status-blink",
+                        )}
+                      >
+                        <span className="text-muted-foreground text-xs">Aguardando</span>
+                        <SelectValue placeholder="definir status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </motion.div>
           );
