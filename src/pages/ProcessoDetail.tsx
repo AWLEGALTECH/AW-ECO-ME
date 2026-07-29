@@ -244,7 +244,7 @@ export default function ProcessoDetail() {
             card e derrete num degradê na esquerda, sem corte seco. */}
         {capa && (
           <div
-            className="pointer-events-none absolute inset-y-0 right-0 w-[52%] sm:w-[46%] hidden sm:block"
+            className="pointer-events-none absolute inset-y-0 right-0 w-[54%] sm:w-[46%]"
             style={{
               WebkitMaskImage: "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.85) 55%, #000 100%)",
               maskImage: "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.85) 55%, #000 100%)",
@@ -254,7 +254,7 @@ export default function ProcessoDetail() {
           </div>
         )}
 
-        <div className="relative z-10 sm:max-w-[66%]">
+        <div className="relative z-10 max-w-[62%] sm:max-w-[66%]">
           {/* Nº do processo */}
           <div className="flex items-center gap-2 text-xs">
             <span className="font-mono text-muted-foreground tracking-tight">
