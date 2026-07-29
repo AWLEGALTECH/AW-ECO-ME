@@ -120,24 +120,18 @@ function StatusChip({ status, blink }: { status: string; blink?: boolean }) {
   );
 }
 
-// Anel de dias até o prazo (cor por urgência).
-function PrazoRing({ prazo }: { prazo?: string }) {
+// Texto explicativo do prazo (cor por urgência).
+function prazoInfo(prazo?: string): { label: string; cls: string } {
   const dias = diasAtePrazo(prazo);
-  if (dias === null) {
-    return <span className="text-[10px] text-muted-foreground/60">sem prazo</span>;
+  if (dias === null) return { label: "Sem prazo definido", cls: "text-muted-foreground" };
+  if (dias < 0) {
+    const n = Math.abs(dias);
+    return { label: `Prazo vencido há ${n} ${n === 1 ? "dia" : "dias"}`, cls: "text-red-400" };
   }
-  const atrasada = dias < 0;
-  const tone = atrasada
-    ? "text-red-400 ring-red-500/40"
-    : dias <= 3
-      ? "text-amber-400 ring-amber-400/40"
-      : "text-primary ring-primary/40";
-  const label = atrasada ? `${Math.abs(dias)} dia(s) em atraso` : dias === 0 ? "vence hoje" : `faltam ${dias} dia(s)`;
-  return (
-    <span title={label} className={cn("grid place-items-center h-9 w-9 rounded-full ring-2 bg-card text-[12px] font-semibold tabular-nums shrink-0", tone)}>
-      {Math.abs(dias)}
-    </span>
-  );
+  if (dias === 0) return { label: "Hoje é o fim do prazo", cls: "text-amber-400" };
+  if (dias === 1) return { label: "Resta 1 dia para o fim do prazo", cls: "text-amber-400" };
+  const cls = dias <= 3 ? "text-amber-400" : "text-muted-foreground";
+  return { label: `Restam ${dias} dias para o fim do prazo`, cls };
 }
 
 // Campo de formulário com rótulo + microtexto explicativo.
@@ -156,6 +150,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const Icon = task.tipo === "acao" ? Zap : Eye;
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
   const DIcon = d?.icon;
+  const prazo = prazoInfo(task.prazo);
   return (
     <button
       onClick={onClick}
@@ -169,20 +164,25 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
         <span className="h-8 w-8 rounded-xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0">
           <Icon className="h-4 w-4 text-primary" />
         </span>
-        {d && DIcon ? <DIcon className={cn("h-5 w-5", d.text)} /> : <PrazoRing prazo={task.prazo} />}
+        {d && DIcon && <DIcon className={cn("h-5 w-5", d.text)} />}
       </div>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">
         {task.tipo === "acao" ? "Ação" : "Monitoramento"}
       </p>
       <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{task.titulo}</p>
       {task.conteudo && <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{task.conteudo}</p>}
-      <div className="mt-2.5 pt-2.5 border-t border-white/[0.06]">
+      <div className="mt-2.5 pt-2.5 border-t border-white/[0.06] space-y-1.5">
         {d && DIcon ? (
           <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1", d.chip)}>
             <DIcon className="h-3 w-3" /> {d.label}
           </span>
         ) : (
           <StatusChip status={task.status} />
+        )}
+        {!d && (
+          <p className={cn("flex items-center gap-1.5 text-[11px] leading-snug", prazo.cls)}>
+            <CalendarDays className="h-3 w-3 shrink-0" /> {prazo.label}
+          </p>
         )}
       </div>
     </button>
