@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -699,8 +700,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         </DialogContent>
       </Dialog>
 
-      {/* ── Popup: avançar etapa (modal próprio, sem Radix, pra não travar o clique) ── */}
-      {avancar && (
+      {/* ── Popup: avançar etapa (modal próprio, no portal do body) ── */}
+      {createPortal(avancar && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ pointerEvents: "auto" }}>
           <div className="absolute inset-0 bg-black/80" onClick={() => setAvancar(null)} />
           <div className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] p-6 grid gap-4">
@@ -892,9 +893,10 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
-      {/* ── Pop dopaminérgico (símbolo animado + texto, aparece e some) ── */}
+      {/* ── Pop dopaminérgico (portal no body pra cobrir a tela toda) ── */}
+      {createPortal(
       <AnimatePresence>
         {pop && (
           <motion.div
@@ -926,7 +928,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
     </div>
   );
 }
