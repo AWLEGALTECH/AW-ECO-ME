@@ -340,16 +340,24 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     const alvoNome = etapas[idxAlvo].titulo;
     const dataBR = fmtPrazo(avancoData);
     const migradas = (etapas[idxAtual].tasks ?? []).filter((t) => migrar.includes(t.id));
-    setEtapas((prev) => prev.map((e, i) => {
-      if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrar.includes(t.id)) };
-      if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
-      if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
-      return e;
-    }));
+    const migrarSnap = [...migrar];
+    const idConcluida = avancar;
+    const idNova = avancoAlvo;
+
+    // Fecha o modal primeiro; só depois (com o modal já fora da frente)
+    // dispara a mudança e a animação de check/avanço na linha do tempo.
     setAvancar(null);
-    setRecemAvancado({ concluida: avancar, nova: avancoAlvo });
-    window.setTimeout(() => setRecemAvancado(null), 1800);
-    toast.success(`Etapa avançada para ${alvoNome}.`);
+    window.setTimeout(() => {
+      setEtapas((prev) => prev.map((e, i) => {
+        if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
+        if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
+        if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
+        return e;
+      }));
+      setRecemAvancado({ concluida: idConcluida, nova: idNova });
+      window.setTimeout(() => setRecemAvancado(null), 1800);
+      toast.success(`Etapa avançada para ${alvoNome}.`);
+    }, 280);
   };
 
   const prazoDate = ymdToDate(draft.prazo);
