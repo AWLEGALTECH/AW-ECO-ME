@@ -84,7 +84,7 @@ const TIMELINE_TESTE: Record<string, Etapa[]> = {
     { id: "e3", titulo: "Citação do réu", status: "concluida", inicio: "12/03/2026", conclusao: "02/04/2026" },
     { id: "e4", titulo: "Contestação do Bradesco", status: "concluida", inicio: "02/04/2026", conclusao: "25/04/2026" },
     { id: "e5", titulo: "Réplica", status: "concluida", inicio: "25/04/2026", conclusao: "20/05/2026" },
-    { id: "e6", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026" },
+    { id: "e6", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026", statusProcessual: "AG. DECISÃO PROVAS" },
     { id: "e7", titulo: "Sentença", status: "pendente", prazoAlvoDias: 90 },
     // Fase recursal — só entra quando houver recurso; `secao` fica como gancho
     // (metadado) pra agrupar/puxar esses atos quando existirem, sem quebrar o
