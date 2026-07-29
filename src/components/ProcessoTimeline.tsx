@@ -93,6 +93,12 @@ function ymdToDate(s?: string): Date | undefined {
 function dateToYmd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// yyyy-mm-dd -> dd/mm/aaaa
+function fmtPrazo(s?: string): string {
+  if (!s) return "";
+  const [y, m, d] = s.split("-");
+  return `${d}/${m}/${y}`;
+}
 function diasAtePrazo(s?: string): number | null {
   const d = ymdToDate(s);
   if (!d) return null;
