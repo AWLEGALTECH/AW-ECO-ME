@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -75,16 +74,8 @@ export function ProcessoTimeline({ etapas, badge }: { etapas: Etapa[]; badge?: s
                 : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
 
           return (
-            <Fragment key={e.id}>
-              {/* Divisor de fase (ex.: recursal) — gancho pros atos da fase */}
-              {e.secao && (
-                <div className="flex items-center gap-3 pt-3 pb-4 pl-[2.25rem]">
-                  <span className="text-[10px] uppercase tracking-wider text-primary/80 font-medium">{e.secao}</span>
-                  <span className="flex-1 h-px bg-border/50" />
-                </div>
-              )}
-
               <motion.div
+                key={e.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, ease: EASE, delay: i * 0.04 }}
@@ -135,7 +126,6 @@ export function ProcessoTimeline({ etapas, badge }: { etapas: Etapa[]; badge?: s
                   </div>
                 </div>
               </motion.div>
-            </Fragment>
           );
         })}
       </div>

@@ -86,13 +86,13 @@ const TIMELINE_TESTE: Record<string, Etapa[]> = {
     { id: "e5", titulo: "Réplica", status: "concluida", inicio: "25/04/2026", conclusao: "20/05/2026" },
     { id: "e6", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026" },
     { id: "e7", titulo: "Sentença", status: "pendente", prazoAlvoDias: 90 },
-    // Fase recursal — só entra quando houver recurso; o divisor `secao` é o
-    // gancho que agrupa e puxa esses atos quando existirem.
+    // Fase recursal — só entra quando houver recurso; `secao` fica como gancho
+    // (metadado) pra agrupar/puxar esses atos quando existirem, sem quebrar o
+    // visual da linha.
     { id: "e8", titulo: "Recurso de apelação", status: "pendente", prazoAlvoDias: 15, secao: "Fase recursal" },
-    { id: "e9", titulo: "Contrarrazões", status: "pendente", prazoAlvoDias: 15 },
-    { id: "e10", titulo: "Julgamento em 2º grau (acórdão)", status: "pendente", prazoAlvoDias: 120 },
-    { id: "e11", titulo: "Trânsito em julgado", status: "pendente", prazoAlvoDias: 15 },
-    { id: "e12", titulo: "Cumprimento de sentença", status: "pendente", prazoAlvoDias: 30, secao: "Cumprimento" },
+    { id: "e9", titulo: "Julgamento", status: "pendente", prazoAlvoDias: 120 },
+    { id: "e10", titulo: "Trânsito em julgado", status: "pendente", prazoAlvoDias: 15 },
+    { id: "e11", titulo: "Cumprimento de sentença", status: "pendente", prazoAlvoDias: 30, secao: "Cumprimento" },
   ],
 };
 
