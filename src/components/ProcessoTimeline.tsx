@@ -100,20 +100,11 @@ function diasAtePrazo(s?: string): number | null {
   return Math.round((d.getTime() - hoje.getTime()) / 86400000);
 }
 
-function statusTone(s: string): string {
-  if (s === "ARQUIVADO") return "bg-red-500/15 text-red-400 ring-red-500/30";
-  if (s === "SUSPENSO") return "bg-white/10 text-muted-foreground ring-white/15";
-  if (s === "COMPARECER AO FÓRUM" || s === "REAJUIZAR" || s === "AG. REAJUIZAMENTO")
-    return "bg-amber-400/15 text-amber-400 ring-amber-400/30";
-  if (s.startsWith("JULGADO") || s === "ALVARÁ EXPEDIDO")
-    return "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30";
-  return "bg-primary/15 text-primary ring-primary/30";
-}
 function StatusChip({ status, blink }: { status: string; blink?: boolean }) {
   return (
     <span className={cn(
       "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 whitespace-nowrap max-w-full truncate",
-      statusTone(status), blink && "status-blink",
+      "bg-primary/15 text-primary ring-primary/30", blink && "status-blink",
     )}>
       {status}
     </span>
