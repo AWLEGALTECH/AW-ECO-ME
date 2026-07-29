@@ -315,21 +315,4 @@ html, body, #root {
     background: linear-gradient(90deg, transparent, hsla(0,0%,100%,0.35), transparent);
     animation: fech-shimmer 1.6s ease-in-out infinite;
   }
-
-  /* AW Tracker — "Total ganho em 1º grau": brilho só no dígito.
-     Uma varredura de luz lenta e discreta sobre o número, na cor do tema. */
-  @keyframes hero-sheen {
-    0%, 100% { background-position: 0% 50%; }
-    50%      { background-position: 100% 50%; }
-  }
-  .hero-value {
-    background-image: linear-gradient(110deg, hsl(var(--primary)) 0%, hsl(var(--primary)) 38%, hsla(0,0%,100%,0.92) 50%, hsl(var(--primary)) 62%, hsl(var(--primary)) 100%);
-    background-size: 220% 100%;
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent; color: transparent;
-    animation: hero-sheen 7s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hero-value { animation: none; }
-  }
 }
