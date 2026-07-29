@@ -648,24 +648,29 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         </DialogContent>
       </Dialog>
 
-      {/* ── Popup: avançar etapa (em passos) ── */}
-      <Dialog open={!!avancar} onOpenChange={(o) => !o && setAvancar(null)}>
-        <DialogContent className={PREMIUM_DIALOG}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                <ArrowRight className="h-4 w-4 text-primary" />
-              </span>
-              Avançar etapa
-            </DialogTitle>
-            <DialogDescription>
-              {avancoPasso === "data" ? "Quando esta etapa foi concluída?"
-                : avancoPasso === "destino" ? "Para qual etapa o processo avança?"
-                  : avancoPasso === "tarefas" ? "Há tarefas em aberto nesta etapa."
-                    : avancoPasso === "resolver" ? `Desfecho de “${resolverTaskObj?.titulo ?? ""}”`
-                      : "Tem certeza que deseja avançar de etapa?"}
-            </DialogDescription>
-          </DialogHeader>
+      {/* ── Popup: avançar etapa (modal próprio, sem Radix, pra não travar o clique) ── */}
+      {avancar && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ pointerEvents: "auto" }}>
+          <div className="absolute inset-0 bg-black/80" onClick={() => setAvancar(null)} />
+          <div className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] p-6 grid gap-4">
+            <button onClick={() => setAvancar(null)} className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors" aria-label="Fechar">
+              <X className="h-4 w-4" />
+            </button>
+            <div className="space-y-1.5">
+              <div className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
+                <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                  <ArrowRight className="h-4 w-4 text-primary" />
+                </span>
+                Avançar etapa
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {avancoPasso === "data" ? "Quando esta etapa foi concluída?"
+                  : avancoPasso === "destino" ? "Para qual etapa o processo avança?"
+                    : avancoPasso === "tarefas" ? "Há tarefas em aberto nesta etapa."
+                      : avancoPasso === "resolver" ? `Desfecho de “${resolverTaskObj?.titulo ?? ""}”`
+                        : "Tem certeza que deseja avançar de etapa?"}
+              </p>
+            </div>
 
           {/* Passo: data de conclusão */}
           {avancoPasso === "data" && (
@@ -828,14 +833,15 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   <p className="text-muted-foreground text-[12px]">{migrar.length} tarefa(s) serão levadas para a nova etapa.</p>
                 )}
               </div>
-              <DialogFooter style={{ pointerEvents: "auto" }}>
-                <Button variant="ghost" style={{ pointerEvents: "auto" }} onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
-                <Button type="button" style={{ pointerEvents: "auto" }} onClick={aplicarAvanco}>Confirmar avanço</Button>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
+                <Button type="button" onClick={aplicarAvanco}>Confirmar avanço</Button>
               </DialogFooter>
             </>
           )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
