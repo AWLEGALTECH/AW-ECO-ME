@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -12,7 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-// ── Status processuais (das planilhas) — o que o processo/etapa aguarda ──────
+// ── Status processuais (das planilhas) ───────────────────────────────────────
 export const STATUS_PROCESSUAIS: string[] = [
   "AG. DISTRIBUIÇÃO", "AG. DECISÃO INICIAL", "AG. EMENDA À INICIAL", "AG. CONTESTAÇÃO",
   "AG. RÉPLICA", "AG. DECISÃO PROVAS", "AG. AUDIÊNCIA", "AUDIÊNCIA DESIGNADA",
@@ -35,7 +39,7 @@ export interface Task {
   titulo: string;
   conteudo: string;
   prazo: string;       // yyyy-mm-dd
-  status: string;      // um de STATUS_PROCESSUAIS
+  status: string;
   ordem: number;
   desfecho?: TaskDesfecho;
   desfechoObs?: string;
@@ -45,8 +49,8 @@ export interface Etapa {
   id: string;
   titulo: string;
   status: "concluida" | "atual" | "pendente";
-  inicio?: string;        // dd/mm/aaaa
-  conclusao?: string;     // dd/mm/aaaa
+  inicio?: string;
+  conclusao?: string;
   prazoAlvoDias?: number;
   secao?: string;
   statusProcessual?: string;
@@ -54,13 +58,16 @@ export interface Etapa {
 }
 
 const EASE = [0.22, 1, 0.36, 1] as const;
+const PREMIUM_DIALOG =
+  "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)]";
 
-const DESFECHOS: Record<TaskDesfecho, { label: string; chip: string; icon: typeof Ban }> = {
-  concluido: { label: "Concluído", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", icon: CheckCircle2 },
-  perdido: { label: "Perdido", chip: "bg-red-500/15 text-red-400 ring-red-500/30", icon: XCircle },
-  cancelado: { label: "Cancelado", chip: "bg-white/10 text-muted-foreground ring-white/15", icon: Ban },
+const DESFECHOS: Record<TaskDesfecho, { label: string; chip: string; text: string; icon: typeof Ban }> = {
+  concluido: { label: "Concluído", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", text: "text-emerald-400", icon: CheckCircle2 },
+  perdido: { label: "Perdido", chip: "bg-red-500/15 text-red-400 ring-red-500/30", text: "text-red-400", icon: XCircle },
+  cancelado: { label: "Cancelado", chip: "bg-white/10 text-muted-foreground ring-white/15", text: "text-muted-foreground", icon: Ban },
 };
 
+// ── helpers de data ──────────────────────────────────────────────────────────
 function parseBR(d?: string): Date | null {
   if (!d) return null;
   const [dd, mm, yy] = d.split("/").map(Number);
@@ -76,10 +83,21 @@ function hojeBR(): string {
   const t = new Date();
   return `${String(t.getDate()).padStart(2, "0")}/${String(t.getMonth() + 1).padStart(2, "0")}/${t.getFullYear()}`;
 }
-function fmtPrazo(d?: string): string {
-  if (!d) return "";
-  const [y, m, dd] = d.split("-");
-  return `${dd}/${m}/${y}`;
+function ymdToDate(s?: string): Date | undefined {
+  if (!s) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return undefined;
+  return new Date(y, m - 1, d);
+}
+function dateToYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function diasAtePrazo(s?: string): number | null {
+  const d = ymdToDate(s);
+  if (!d) return null;
+  d.setHours(0, 0, 0, 0);
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - hoje.getTime()) / 86400000);
 }
 
 function statusTone(s: string): string {
@@ -91,11 +109,10 @@ function statusTone(s: string): string {
     return "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30";
   return "bg-primary/15 text-primary ring-primary/30";
 }
-
 function StatusChip({ status, blink }: { status: string; blink?: boolean }) {
   return (
     <span className={cn(
-      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 whitespace-nowrap",
+      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 whitespace-nowrap max-w-full truncate",
       statusTone(status), blink && "status-blink",
     )}>
       {status}
@@ -103,8 +120,39 @@ function StatusChip({ status, blink }: { status: string; blink?: boolean }) {
   );
 }
 
-// Card da tarefa — estética do dash, ícone (raio/olho) na cor do tema, clicável.
-function TaskCard({ task, big, onClick }: { task: Task; big: boolean; onClick: () => void }) {
+// Anel de dias até o prazo (cor por urgência).
+function PrazoRing({ prazo }: { prazo?: string }) {
+  const dias = diasAtePrazo(prazo);
+  if (dias === null) {
+    return <span className="text-[10px] text-muted-foreground/60">sem prazo</span>;
+  }
+  const atrasada = dias < 0;
+  const tone = atrasada
+    ? "text-red-400 ring-red-500/40"
+    : dias <= 3
+      ? "text-amber-400 ring-amber-400/40"
+      : "text-primary ring-primary/40";
+  const label = atrasada ? `${Math.abs(dias)} dia(s) em atraso` : dias === 0 ? "vence hoje" : `faltam ${dias} dia(s)`;
+  return (
+    <span title={label} className={cn("grid place-items-center h-9 w-9 rounded-full ring-2 bg-card text-[12px] font-semibold tabular-nums shrink-0", tone)}>
+      {Math.abs(dias)}
+    </span>
+  );
+}
+
+// Campo de formulário com rótulo + microtexto explicativo.
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-foreground">{label}</label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground leading-snug">{hint}</p>}
+    </div>
+  );
+}
+
+// Card da tarefa — estética premium do dash, ícone na cor do tema, clicável.
+function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const Icon = task.tipo === "acao" ? Zap : Eye;
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
   const DIcon = d?.icon;
@@ -112,20 +160,23 @@ function TaskCard({ task, big, onClick }: { task: Task; big: boolean; onClick: (
     <button
       onClick={onClick}
       className={cn(
-        "group w-full text-left rounded-xl border border-border bg-card/60 hover:bg-white/[0.04] hover:border-primary/40 transition-colors",
-        big ? "p-3.5" : "p-2.5",
-        d && "opacity-75",
+        "group flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-3.5 min-h-[172px]",
+        "shadow-[0_4px_20px_rgba(0,0,0,0.25)] transition-all hover:border-primary/40 hover:bg-white/[0.05] hover:-translate-y-0.5",
+        d && "opacity-70",
       )}
     >
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="inline-flex items-center gap-2">
-          <span className={cn("rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0", big ? "h-7 w-7" : "h-6 w-6")}>
-            <Icon className={cn("text-primary", big ? "h-4 w-4" : "h-3.5 w-3.5")} />
-          </span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {task.tipo === "acao" ? "Ação" : "Monitoramento"}
-          </span>
+      <div className="flex items-start justify-between gap-2">
+        <span className="h-8 w-8 rounded-xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0">
+          <Icon className="h-4 w-4 text-primary" />
         </span>
+        {d && DIcon ? <DIcon className={cn("h-5 w-5", d.text)} /> : <PrazoRing prazo={task.prazo} />}
+      </div>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">
+        {task.tipo === "acao" ? "Ação" : "Monitoramento"}
+      </p>
+      <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{task.titulo}</p>
+      {task.conteudo && <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{task.conteudo}</p>}
+      <div className="mt-2.5 pt-2.5 border-t border-white/[0.06]">
         {d && DIcon ? (
           <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1", d.chip)}>
             <DIcon className="h-3 w-3" /> {d.label}
@@ -134,18 +185,6 @@ function TaskCard({ task, big, onClick }: { task: Task; big: boolean; onClick: (
           <StatusChip status={task.status} />
         )}
       </div>
-      <p className={cn("font-medium leading-tight", big ? "text-sm" : "text-xs")}>{task.titulo}</p>
-      {task.conteudo && (
-        <p className={cn("text-muted-foreground mt-1", big ? "text-xs" : "text-[11px] line-clamp-2")}>{task.conteudo}</p>
-      )}
-      {task.prazo && (
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground mt-1.5">
-          <CalendarDays className="h-3 w-3" /> Prazo: {fmtPrazo(task.prazo)}
-        </p>
-      )}
-      {task.desfechoObs && (
-        <p className="text-[11px] text-muted-foreground/80 italic mt-1.5 border-t border-border/40 pt-1.5">{task.desfechoObs}</p>
-      )}
     </button>
   );
 }
@@ -156,12 +195,10 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   const [etapas, setEtapas] = useState<Etapa[]>(() => etapasIniciais.map((e) => ({ ...e, tasks: e.tasks ?? [] })));
   const [ordem, setOrdem] = useState(1);
 
-  // Fluxo de criação: escolher tipo -> preencher detalhes.
-  const [tipoDialog, setTipoDialog] = useState<string | null>(null);           // etapaId
+  const [tipoDialog, setTipoDialog] = useState<string | null>(null);
   const [detalhe, setDetalhe] = useState<{ etapaId: string; tipo: TaskTipo } | null>(null);
   const [draft, setDraft] = useState(DRAFT_VAZIO);
 
-  // Desfecho de uma tarefa existente.
   const [desfechoTask, setDesfechoTask] = useState<Task | null>(null);
   const [desfechoDraft, setDesfechoDraft] = useState<{ desfecho: TaskDesfecho | ""; obs: string }>({ desfecho: "", obs: "" });
 
@@ -177,7 +214,6 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setDraft(DRAFT_VAZIO);
   };
 
-  // Criar a tarefa; o status dela vira o status do processo (etapa atual).
   const criarTask = () => {
     if (!detalhe || !draft.titulo.trim() || !draft.status) return;
     const nova: Task = {
@@ -207,6 +243,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setDesfechoTask(null);
   };
 
+  const prazoDate = ymdToDate(draft.prazo);
+
   return (
     <div>
       {/* Cabeçalho */}
@@ -228,13 +266,13 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           const last = i === etapas.length - 1;
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
           const podeAdicionar = e.status === "atual";
-          const cardGrande = e.status === "atual";
           const sub =
             e.status === "concluida"
               ? `iniciada em ${e.inicio ?? "sem data"} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
               : e.status === "atual"
                 ? `em curso desde ${e.inicio ?? "sem data"} · ${diffDias(e.inicio, hojeBR())} dia(s)`
                 : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
+          const temGrid = (e.tasks?.length ?? 0) > 0 || podeAdicionar;
 
           return (
             <motion.div
@@ -287,22 +325,25 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   </div>
                 </div>
 
-                {/* Tarefas + botão grande (só na milestone atual) */}
-                {(e.tasks?.length || podeAdicionar) ? (
-                  <div className="mt-3 space-y-2">
+                {/* Tarefas lado a lado (3 por linha) + tile de adicionar */}
+                {temGrid && (
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {(e.tasks ?? []).map((t) => (
-                      <TaskCard key={t.id} task={t} big={cardGrande} onClick={() => abrirDesfecho(t)} />
+                      <TaskCard key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
                     ))}
                     {podeAdicionar && (
                       <button
                         onClick={() => setTipoDialog(e.id)}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] text-sm text-muted-foreground hover:text-primary py-3 transition-colors"
+                        className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] min-h-[172px] text-muted-foreground hover:text-primary transition-colors"
                       >
-                        <Plus className="h-4 w-4" /> Adicionar tarefa
+                        <span className="h-9 w-9 rounded-xl bg-primary/10 grid place-items-center">
+                          <Plus className="h-5 w-5 text-primary" />
+                        </span>
+                        <span className="text-xs font-medium">Adicionar tarefa</span>
                       </button>
                     )}
                   </div>
-                ) : null}
+                )}
 
                 {/* Status — última info antes da próxima milestone */}
                 {e.status === "atual" && (
@@ -331,24 +372,26 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
 
       {/* ── Popup 1: tipo da tarefa ── */}
       <Dialog open={!!tipoDialog} onOpenChange={(o) => !o && setTipoDialog(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={PREMIUM_DIALOG}>
           <DialogHeader>
             <DialogTitle>Nova tarefa</DialogTitle>
-            <DialogDescription>Que tipo de tarefa é essa?</DialogDescription>
+            <DialogDescription>Escolha o tipo — isso muda como a tarefa é acompanhada.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {(["acao", "monitoramento"] as const).map((tp) => (
               <button
                 key={tp}
                 onClick={() => escolherTipo(tp)}
-                className="group flex flex-col items-center gap-2 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/[0.05] p-5 transition-colors"
+                className="group flex flex-col items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] hover:border-primary/50 hover:bg-primary/[0.06] p-5 transition-all hover:-translate-y-0.5"
               >
-                <span className="h-12 w-12 rounded-xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                <span className="h-12 w-12 rounded-2xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
                   {tp === "acao" ? <Zap className="h-6 w-6 text-primary" /> : <Eye className="h-6 w-6 text-primary" />}
                 </span>
                 <span className="text-sm font-medium">{tp === "acao" ? "Ação" : "Monitoramento"}</span>
-                <span className="text-[11px] text-muted-foreground text-center">
-                  {tp === "acao" ? "Algo a fazer / protocolar" : "Acompanhar / aguardar"}
+                <span className="text-[11px] text-muted-foreground text-center leading-snug">
+                  {tp === "acao"
+                    ? "Algo que a gente precisa fazer — protocolar, peticionar, juntar documento."
+                    : "Só acompanhar/aguardar um ato — sem ação nossa imediata."}
                 </span>
               </button>
             ))}
@@ -358,26 +401,58 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
 
       {/* ── Popup 2: detalhes da tarefa ── */}
       <Dialog open={!!detalhe} onOpenChange={(o) => !o && setDetalhe(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={PREMIUM_DIALOG}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {detalhe?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
+              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                {detalhe?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
+              </span>
               Nova {detalhe?.tipo === "acao" ? "ação" : "tarefa de monitoramento"}
             </DialogTitle>
+            <DialogDescription>Preencha os detalhes. O status vira o que o processo passa a aguardar.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <Input value={draft.titulo} onChange={(ev) => setDraft((d) => ({ ...d, titulo: ev.target.value }))} placeholder="Título da tarefa" />
-            <Textarea value={draft.conteudo} onChange={(ev) => setDraft((d) => ({ ...d, conteudo: ev.target.value }))} placeholder="Sobre a tarefa / o que precisa ser feito…" rows={3} />
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input type="date" value={draft.prazo} onChange={(ev) => setDraft((d) => ({ ...d, prazo: ev.target.value }))} className="sm:w-40" />
-              <Select value={draft.status} onValueChange={(v) => setDraft((d) => ({ ...d, status: v }))}>
-                <SelectTrigger className="flex-1 text-xs"><SelectValue placeholder="Status (obrigatório)" /></SelectTrigger>
-                <SelectContent>
-                  {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
+
+          <div className="space-y-4">
+            <Field label="Título" hint="Um resumo curto — ex.: “Protocolar réplica”, “Acompanhar decisão de provas”.">
+              <Input value={draft.titulo} onChange={(ev) => setDraft((d) => ({ ...d, titulo: ev.target.value }))} placeholder="Título da tarefa" />
+            </Field>
+
+            <Field label="Descrição" hint="Detalhe o que precisa ser feito, com referências (peças, prazos, links).">
+              <Textarea value={draft.conteudo} onChange={(ev) => setDraft((d) => ({ ...d, conteudo: ev.target.value }))} placeholder="Sobre a tarefa…" rows={3} />
+            </Field>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Prazo" hint="Data-limite da tarefa. A contagem regressiva no card usa essa data.">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !draft.prazo && "text-muted-foreground")}>
+                      <CalendarDays className="h-4 w-4" />
+                      {prazoDate ? format(prazoDate, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      locale={ptBR}
+                      selected={prazoDate}
+                      onSelect={(date) => setDraft((d) => ({ ...d, prazo: date ? dateToYmd(date) : "" }))}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </Field>
+
+              <Field label="Status processual" hint="O que o processo passa a aguardar — vira o status que pisca na etapa atual.">
+                <Select value={draft.status} onValueChange={(v) => setDraft((d) => ({ ...d, status: v }))}>
+                  <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório" /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDetalhe(null)}>Cancelar</Button>
             <Button disabled={!draft.titulo.trim() || !draft.status} onClick={criarTask}>Criar tarefa</Button>
@@ -387,14 +462,17 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
 
       {/* ── Popup 3: desfecho da tarefa ── */}
       <Dialog open={!!desfechoTask} onOpenChange={(o) => !o && setDesfechoTask(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={PREMIUM_DIALOG}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {desfechoTask?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
-              {desfechoTask?.titulo}
+              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                {desfechoTask?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
+              </span>
+              <span className="truncate">{desfechoTask?.titulo}</span>
             </DialogTitle>
-            <DialogDescription>Qual o desfecho dessa tarefa?</DialogDescription>
+            <DialogDescription>Qual o desfecho dessa tarefa? Registre também o porquê.</DialogDescription>
           </DialogHeader>
+
           <div className="grid grid-cols-3 gap-2">
             {(Object.keys(DESFECHOS) as TaskDesfecho[]).map((k) => {
               const info = DESFECHOS[k];
@@ -405,8 +483,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   key={k}
                   onClick={() => setDesfechoDraft((d) => ({ ...d, desfecho: k }))}
                   className={cn(
-                    "flex flex-col items-center gap-1.5 rounded-xl border p-3 transition-colors",
-                    ativo ? cn("ring-1", info.chip) : "border-border hover:border-primary/40 text-muted-foreground",
+                    "flex flex-col items-center gap-1.5 rounded-2xl border p-3.5 transition-all hover:-translate-y-0.5",
+                    ativo ? cn("ring-1", info.chip) : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
                   )}
                 >
                   <DIcon className="h-5 w-5" />
@@ -415,18 +493,24 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               );
             })}
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground">
-              Observações {desfechoDraft.desfecho ? `(${DESFECHOS[desfechoDraft.desfecho as TaskDesfecho].label.toLowerCase()})` : ""}
-            </label>
+
+          <Field
+            label="Observações"
+            hint="Fica registrado na tarefa — vamos reaproveitar esse histórico depois."
+          >
             <Textarea
               value={desfechoDraft.obs}
               onChange={(ev) => setDesfechoDraft((d) => ({ ...d, obs: ev.target.value }))}
-              placeholder="Por que / como se resolveu…"
+              placeholder={
+                desfechoDraft.desfecho === "concluido" ? "Como foi concluída…"
+                  : desfechoDraft.desfecho === "perdido" ? "Por que foi perdida…"
+                    : desfechoDraft.desfecho === "cancelado" ? "Por que foi cancelada…"
+                      : "Escolha um desfecho acima…"
+              }
               rows={3}
-              className="mt-1.5"
             />
-          </div>
+          </Field>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDesfechoTask(null)}>Cancelar</Button>
             <Button disabled={!desfechoDraft.desfecho} onClick={salvarDesfecho}>Salvar desfecho</Button>
