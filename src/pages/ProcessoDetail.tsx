@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
+import { ProcessoTimeline, type Movimento } from "@/components/ProcessoTimeline";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -71,6 +72,43 @@ const CAPA_TESTE: Record<string, { src: string; nome: string }> = {
     src: "/processo-capas/debitos-automaticos.jpg",
     nome: "Débitos Automáticos",
   },
+};
+
+// SIMULAÇÃO — espinha de movimentações & demandas só neste processo (coringa
+// da Vanderglaucia), pra validar o formato antes de virar dado real no banco.
+const TIMELINE_TESTE: Record<string, Movimento[]> = {
+  "628eb627-377b-448e-b003-339e497bef44": [
+    {
+      id: "m7", data: "13/07/2026", titulo: "Aguardando reajuizamento", tipo: "atual",
+      descricao: "Processo pendente de novo impulso após a réplica.",
+      demandas: [
+        { id: "d6", titulo: "Peticionar o reajuizamento da ação", prazo: "vence em 5d" },
+        { id: "d5", titulo: "Especificar as provas a produzir" },
+      ],
+    },
+    {
+      id: "m6", data: "20/05/2026", titulo: "Réplica apresentada", tipo: "andamento",
+      demandas: [{ id: "d4", titulo: "Elaborar réplica à contestação", concluida: true }],
+    },
+    {
+      id: "m5", data: "25/04/2026", titulo: "Contestação do Bradesco", tipo: "andamento",
+      descricao: "Réu juntou contestação e documentos.",
+      demandas: [{ id: "d3", titulo: "Analisar as teses da contestação", concluida: true }],
+    },
+    { id: "m4", data: "02/04/2026", titulo: "Citação do réu", tipo: "andamento" },
+    {
+      id: "m3", data: "12/03/2026", titulo: "Decisão inicial — recebimento da inicial", tipo: "decisao",
+      descricao: "Deferida a gratuidade e designada a audiência do art. 334.",
+    },
+    {
+      id: "m2", data: "28/02/2026", titulo: "Emenda à inicial cumprida", tipo: "andamento",
+      demandas: [{ id: "d1", titulo: "Juntar comprovante de endereço", concluida: true }],
+    },
+    {
+      id: "m1", data: "15/02/2026", titulo: "Distribuição da ação", tipo: "inicial",
+      descricao: "Protocolo da petição inicial — 3ª VC de Manacapuru/AM.",
+    },
+  ],
 };
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -216,6 +254,7 @@ export default function ProcessoDetail() {
   const valorNum = form.valor_causa ? parseMoneyBR(form.valor_causa) : 0;
   const localizacao = [form.vara_juizo_origem, form.comarca_uf].filter(Boolean).join(" · ");
   const capa = id ? CAPA_TESTE[id] : undefined;
+  const timeline = id ? TIMELINE_TESTE[id] : undefined;
 
   return (
     <div className="space-y-5">
@@ -424,20 +463,34 @@ export default function ProcessoDetail() {
       </Card>
       </motion.div>
 
-      {/* Prévia da próxima leva — informações móveis (movimentações & demandas) */}
+      {/* Movimentações & demandas — timeline (simulada neste processo) */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
-      <Card className="border-dashed">
-        <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
-          <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
-            <History className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">Movimentações & demandas</p>
-            <p className="text-xs">As informações móveis do processo (andamentos, prazos e demandas) chegam na próxima atualização.</p>
-          </div>
-          <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
-        </CardContent>
-      </Card>
+        {timeline ? (
+          <Card>
+            <CardHeader className="flex-row items-center justify-between gap-2 pb-3">
+              <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" /> Movimentações & demandas
+              </CardTitle>
+              <span className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Simulação</span>
+            </CardHeader>
+            <CardContent>
+              <ProcessoTimeline movimentos={timeline} />
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-dashed">
+            <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
+                <History className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Movimentações & demandas</p>
+                <p className="text-xs">As informações móveis do processo (andamentos, prazos e demandas) chegam na próxima atualização.</p>
+              </div>
+              <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
+            </CardContent>
+          </Card>
+        )}
       </motion.div>
     </div>
   );
