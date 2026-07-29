@@ -18,11 +18,14 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
   Scale, MapPin, Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const EASE = [0.22, 1, 0.36, 1] as const;
 
 interface ProcessoForm {
   id?: string;
@@ -239,6 +242,7 @@ export default function ProcessoDetail() {
       </div>
 
       {/* ── HERO — identidade estática do processo ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
       <SpotlightCard className="relative overflow-hidden">
         {/* Capa do produto (teste, só neste processo) — sangra até a borda do
             card e derrete num degradê na esquerda, sem corte seco. */}
@@ -298,8 +302,10 @@ export default function ProcessoDetail() {
           </div>
         </div>
       </SpotlightCard>
+      </motion.div>
 
       {/* ── Informações do processo — tabela read-only / edição via lápis ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}>
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-2 pb-3">
           <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -313,6 +319,14 @@ export default function ProcessoDetail() {
         </CardHeader>
 
         <CardContent>
+          <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={editing ? "edit" : "view"}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: EASE }}
+          >
           {editing ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Nº do Processo *">
@@ -404,10 +418,14 @@ export default function ProcessoDetail() {
               </Row>
             </div>
           )}
+          </motion.div>
+          </AnimatePresence>
         </CardContent>
       </Card>
+      </motion.div>
 
       {/* Prévia da próxima leva — informações móveis (movimentações & demandas) */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
       <Card className="border-dashed">
         <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
           <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
@@ -420,6 +438,7 @@ export default function ProcessoDetail() {
           <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
         </CardContent>
       </Card>
+      </motion.div>
     </div>
   );
 }

@@ -15,6 +15,11 @@ import {
 import { toast } from "sonner";
 import { Plus, Search, Eye, Trash2, X, FileText } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
+
+// Easing suave (ease-out-expo-ish) reutilizado nas transições.
+const EASE = [0.22, 1, 0.36, 1] as const;
+const MotionRow = motion(TableRow);
 
 interface Processo {
   id: string;
@@ -130,12 +135,18 @@ export default function Processos() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <motion.div
+        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}
+        className="flex items-center justify-between mb-4 flex-wrap gap-2"
+      >
         <h2 className="font-display text-3xl font-medium tracking-tight">Processos</h2>
         <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>
-      </div>
+      </motion.div>
 
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.05 }}
+        className="flex items-center gap-3 mb-4 flex-wrap"
+      >
         <div className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5">
           <span className="text-sm font-medium">{filtered.length}</span>
           <span className="text-sm text-muted-foreground">de {processos.length}</span>
@@ -149,8 +160,9 @@ export default function Processos() {
             <X className="h-3.5 w-3.5" />Limpar filtros
           </Button>
         )}
-      </div>
+      </motion.div>
 
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.1 }}>
       <Card>
         <CardHeader className="space-y-3">
           <div className="relative">
@@ -196,11 +208,18 @@ export default function Processos() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer" onClick={() => navigate(`/processos/${p.id}`)}>
+              {filtered.map((p, i) => (
+                <MotionRow
+                  key={p.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: EASE, delay: Math.min(i, 14) * 0.025 }}
+                  className="cursor-pointer transition-colors hover:bg-primary/[0.05]"
+                  onClick={() => navigate(`/processos/${p.id}`)}
+                >
                   <TableCell className="font-mono text-xs">
-                    <span className="inline-flex items-center gap-3">
-                      <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center">
+                    <span className="inline-flex items-center gap-3 group">
+                      <span className="h-11 w-11 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 inline-flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
                         <FileText className="h-5 w-5 text-primary" />
                       </span>
                       {p.numero_processo}
@@ -218,7 +237,7 @@ export default function Processos() {
                       <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
-                </TableRow>
+                </MotionRow>
               ))}
               {filtered.length === 0 && (
                 <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhum processo encontrado.</TableCell></TableRow>
@@ -227,6 +246,7 @@ export default function Processos() {
           </Table>
         </CardContent>
       </Card>
+      </motion.div>
 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
         <AlertDialogContent>
