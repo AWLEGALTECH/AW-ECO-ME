@@ -272,6 +272,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   const [avancoAlvo, setAvancoAlvo] = useState("");              // etapa destino
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
   const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
+  const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string } | null>(null);
 
   const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
   const etapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar] : null;
@@ -346,6 +347,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       return e;
     }));
     setAvancar(null);
+    setRecemAvancado({ concluida: avancar, nova: avancoAlvo });
+    window.setTimeout(() => setRecemAvancado(null), 1800);
     toast.success(`Etapa avançada para ${alvoNome}.`);
   };
 
@@ -406,13 +409,23 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   )
                 )}
                 {e.status === "concluida" ? (
-                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card">
+                  <motion.span
+                    initial={recemAvancado?.concluida === e.id ? { scale: 0 } : false}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 15 }}
+                    className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card"
+                  >
                     <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
-                  </span>
+                  </motion.span>
                 ) : e.status === "atual" ? (
-                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card">
+                  <motion.span
+                    initial={recemAvancado?.nova === e.id ? { scale: 0.2, opacity: 0 } : false}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 18, delay: recemAvancado?.nova === e.id ? 0.18 : 0 }}
+                    className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
+                  >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
-                  </span>
+                  </motion.span>
                 ) : e.status === "pulada" ? (
                   <span title="Etapa pulada" className="relative z-10 mt-1 h-4 w-4 rounded-full bg-muted grid place-items-center ring-4 ring-card">
                     <X className="h-2.5 w-2.5 text-muted-foreground" strokeWidth={3} />
