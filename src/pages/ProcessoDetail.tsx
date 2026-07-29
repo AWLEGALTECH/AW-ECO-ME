@@ -19,9 +19,7 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Save, Check, ChevronsUpDown, Hash, Copy, Gavel, MapPin, User,
-  Layers, DollarSign, CalendarClock, CalendarCheck, ListChecks, Handshake,
-  ClipboardList, FileText, Scale, ExternalLink, History, Loader2,
+  ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, User, History, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +58,17 @@ const EMPTY: ProcessoForm = {
   parceiro: "",
 };
 
+// TESTE PRELIMINAR — capa do produto do Writer só neste processo, pra avaliar
+// a ideia antes de aplicar por matéria em todos. A matéria
+// "BX ANT FINAN/PARC CRED/GASTOS CARTÃO" casa com o produto "Débitos
+// Automáticos" (rubricas GASTOS CARTÃO / PARCELA CRÉDITO / BX.ANT.FINANC).
+const CAPA_TESTE: Record<string, { src: string; nome: string }> = {
+  "628eb627-377b-448e-b003-339e497bef44": {
+    src: "/processo-capas/debitos-automaticos.jpg",
+    nome: "Débitos Automáticos",
+  },
+};
+
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (d: string) => {
   if (!d) return "—";
@@ -67,55 +76,13 @@ const fmtData = (d: string) => {
   return `${day}/${m}/${y}`;
 };
 
-// Cor + rótulo auxiliar pra urgência do prazo processual.
-function prazoInfo(prazo: string): { texto: string; cls: string; sub: string | null } {
-  if (!prazo) return { texto: "Sem prazo", cls: "text-muted-foreground", sub: null };
-  const [y, m, d] = prazo.split("-").map(Number);
-  const alvo = new Date(y, m - 1, d);
-  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const dias = Math.round((alvo.getTime() - hoje.getTime()) / 86400000);
-  const texto = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
-  if (dias < 0) return { texto, cls: "text-red-400", sub: `vencido há ${Math.abs(dias)}d` };
-  if (dias === 0) return { texto, cls: "text-red-400", sub: "vence hoje" };
-  if (dias <= 7) return { texto, cls: "text-amber-400", sub: `faltam ${dias}d` };
-  return { texto, cls: "text-foreground", sub: `faltam ${dias}d` };
-}
-
-/* Fato do hero: ícone + rótulo + valor. */
-function Fact({ icon: Icon, label, children, valueClass, sub }: {
-  icon: any; label: string; children: React.ReactNode; valueClass?: string; sub?: string | null;
-}) {
+/* Linha da tabela read-only (rótulo → valor). */
+function Row({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return (
-    <div className="flex items-start gap-2.5 min-w-0">
-      <div className="mt-0.5 h-8 w-8 rounded-lg bg-primary/10 grid place-items-center shrink-0">
-        <Icon className="h-4 w-4 text-primary" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-        <p className={cn("text-sm font-medium truncate leading-tight mt-0.5", valueClass)} title={typeof children === "string" ? children : undefined}>
-          {children}
-        </p>
-        {sub && <p className="text-[10px] text-muted-foreground/80 mt-0.5">{sub}</p>}
-      </div>
+    <div className={cn("flex items-start justify-between gap-6 py-2.5 border-b border-border/40", full && "md:col-span-2")}>
+      <span className="text-xs text-muted-foreground shrink-0 pt-0.5">{label}</span>
+      <span className="text-sm font-medium text-right min-w-0 break-words">{children}</span>
     </div>
-  );
-}
-
-/* Seção editável: card com cabeçalho de ícone. */
-function Section({ icon: Icon, title, children, className }: {
-  icon: any; title: string; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-[12px] font-medium flex items-center gap-2 text-muted-foreground uppercase tracking-wider">
-          <Icon className="h-4 w-4 text-primary" /> {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className={className ?? "grid grid-cols-1 md:grid-cols-2 gap-4"}>
-        {children}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -134,10 +101,12 @@ export default function ProcessoDetail() {
   const isNew = id === "novo";
 
   const [form, setForm] = useState<ProcessoForm>(EMPTY);
+  const [saved, setSaved] = useState<ProcessoForm>(EMPTY);
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
   const [clientePopoverOpen, setClientePopoverOpen] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(isNew);
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -148,7 +117,7 @@ export default function ProcessoDetail() {
     if (isNew || !id) return;
     const { data } = await supabase.from("processos").select("*").eq("id", id).single();
     if (data) {
-      setForm({
+      const f: ProcessoForm = {
         id: data.id,
         numero_processo: data.numero_processo ?? "",
         cliente_id: data.cliente_id,
@@ -163,7 +132,9 @@ export default function ProcessoDetail() {
         valor_causa: data.valor_causa != null ? String(data.valor_causa) : "",
         comarca_uf: data.comarca_uf ?? "",
         parceiro: data.parceiro ?? "",
-      });
+      };
+      setForm(f);
+      setSaved(f);
     }
     setLoading(false);
   }, [id, isNew]);
@@ -210,6 +181,13 @@ export default function ProcessoDetail() {
       return;
     }
     toast.success("Processo atualizado");
+    setSaved(form);
+    setEditing(false);
+  };
+
+  const cancelarEdicao = () => {
+    setForm(saved);
+    setEditing(false);
   };
 
   const copiarNumero = async () => {
@@ -231,8 +209,9 @@ export default function ProcessoDetail() {
   }
 
   const clienteSelecionado = clientes.find((c) => c.id === form.cliente_id);
-  const prazo = prazoInfo(form.prazo_processual);
   const valorNum = form.valor_causa ? parseMoneyBR(form.valor_causa) : 0;
+  const localizacao = [form.vara_juizo_origem, form.comarca_uf].filter(Boolean).join(" · ");
+  const capa = id ? CAPA_TESTE[id] : undefined;
 
   return (
     <div className="space-y-5">
@@ -241,180 +220,193 @@ export default function ProcessoDetail() {
         <Button variant="ghost" onClick={() => navigate("/processos")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Button>
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saving ? "Salvando…" : "Salvar"}
-        </Button>
+        {editing ? (
+          <div className="flex items-center gap-2">
+            {!isNew && (
+              <Button variant="ghost" onClick={cancelarEdicao} disabled={saving}>Cancelar</Button>
+            )}
+            <Button onClick={handleSave} disabled={saving} className="gap-2">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? "Salvando…" : "Salvar"}
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" onClick={() => setEditing(true)} className="gap-2">
+            <Pencil className="h-4 w-4" /> Editar
+          </Button>
+        )}
       </div>
 
-      {/* ── HERO ── */}
-      <SpotlightCard className="!p-0 overflow-hidden">
-        <div className="p-6 md:p-7">
-          {/* Nº do processo (Projudi) */}
-          <div className="flex items-center gap-2 flex-wrap text-xs">
-            <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-mono text-muted-foreground tracking-tight">
-              {form.numero_processo || (isNew ? "novo processo" : "—")}
-            </span>
-            {form.numero_processo && (
-              <button onClick={copiarNumero} className="text-muted-foreground/70 hover:text-primary transition-colors" title="Copiar número">
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+      {/* ── HERO — identidade estática do processo ── */}
+      <SpotlightCard>
+        <div className="flex gap-5">
+          <div className="flex-1 min-w-0">
+            {/* Nº do processo */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-mono text-muted-foreground tracking-tight">
+                {form.numero_processo || (isNew ? "novo processo" : "—")}
+              </span>
+              {form.numero_processo && (
+                <button onClick={copiarNumero} className="text-muted-foreground/60 hover:text-primary transition-colors" title="Copiar número">
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
 
-          {/* Matéria — protagonista */}
-          <div className="flex items-start gap-3 mt-4">
-            <div className="mt-1.5 h-9 w-1 rounded-full bg-primary shrink-0" />
-            <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wider text-primary/80 mb-1 flex items-center gap-1.5">
-                <Scale className="h-3.5 w-3.5" /> Matéria
-              </p>
-              <h1 className="font-display text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
-                {form.materia || <span className="text-muted-foreground font-normal">Matéria não informada</span>}
-              </h1>
+            {/* Matéria — protagonista */}
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground mt-4 mb-1">Matéria</p>
+            <h1 className="font-display text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
+              {form.materia || <span className="text-muted-foreground font-normal">Matéria não informada</span>}
+            </h1>
+
+            {/* Vara · Comarca */}
+            <p className="text-sm text-muted-foreground mt-3">
+              {localizacao || "Vara e comarca não informadas"}
+            </p>
+
+            {/* Cliente */}
+            <div className="flex items-center gap-3 mt-5">
+              <div className="h-10 w-10 rounded-full bg-primary/15 grid place-items-center shrink-0">
+                <User className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Cliente</p>
+                <p className="text-[15px] font-medium truncate leading-tight">
+                  {clienteSelecionado ? clienteSelecionado.nome : <span className="text-muted-foreground font-normal">Não vinculado</span>}
+                </p>
+              </div>
+              {clienteSelecionado && (
+                <Link to={`/clientes/${clienteSelecionado.id}`} className="ml-auto text-xs text-primary hover:underline shrink-0">
+                  Ver cliente →
+                </Link>
+              )}
             </div>
           </div>
 
-          {/* Vara · Comarca */}
-          <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap mt-3.5 text-sm text-muted-foreground pl-4">
-            <span className="inline-flex items-center gap-1.5">
-              <Gavel className="h-4 w-4 text-primary/70" /> {form.vara_juizo_origem || "Vara não informada"}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <MapPin className="h-4 w-4 text-primary/70" /> {form.comarca_uf || "Comarca não informada"}
-            </span>
-          </div>
-
-          {/* Cliente */}
-          <div className="flex items-center gap-3 mt-5 pl-4">
-            <div className="h-10 w-10 rounded-full bg-primary/15 grid place-items-center shrink-0">
-              <User className="h-5 w-5 text-primary" />
+          {/* Capa do produto (teste, só neste processo) */}
+          {capa && (
+            <div className="shrink-0 hidden sm:flex flex-col items-center gap-1.5">
+              <img
+                src={capa.src}
+                alt={`Capa — ${capa.nome}`}
+                className="w-28 md:w-32 aspect-[2/3] object-cover rounded-xl border border-white/10 shadow-lg"
+                loading="lazy"
+              />
+              <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-28 md:max-w-32">{capa.nome}</span>
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Cliente</p>
-              <p className="text-[15px] font-medium truncate leading-tight">
-                {clienteSelecionado ? clienteSelecionado.nome : <span className="text-muted-foreground font-normal">Não vinculado</span>}
-              </p>
-            </div>
-            {clienteSelecionado && (
-              <Link to={`/clientes/${clienteSelecionado.id}`} className="ml-auto text-xs text-primary hover:underline inline-flex items-center gap-1 shrink-0">
-                Ver cliente <ExternalLink className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {/* Faixa de fatos */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-4 px-6 md:px-7 py-5 border-t border-white/[0.06] bg-white/[0.02]">
-          <Fact icon={Layers} label="Fase processual">
-            {form.fase_processual || "—"}
-          </Fact>
-          <Fact icon={DollarSign} label="Valor da causa" valueClass={valorNum ? "text-emerald-300" : ""}>
-            {valorNum ? brl(valorNum) : "—"}
-          </Fact>
-          <Fact icon={ListChecks} label="Status da tarefa">
-            {form.status_tarefa || "—"}
-          </Fact>
-          <Fact icon={CalendarClock} label="Último andamento">
-            {fmtData(form.data_ultimo_andamento)}
-          </Fact>
-          <Fact icon={CalendarCheck} label="Prazo processual" valueClass={prazo.cls} sub={prazo.sub}>
-            {prazo.texto}
-          </Fact>
-          <Fact icon={Handshake} label="Parceiro">
-            {form.parceiro || "—"}
-          </Fact>
+          )}
         </div>
       </SpotlightCard>
 
-      {/* ── FORMULÁRIO ── */}
-      <Section icon={Hash} title="Identificação">
-        <Field label="Nº do Processo *">
-          <Input value={form.numero_processo} onChange={(e) => setForm({ ...form, numero_processo: e.target.value })} placeholder="0000000-00.0000.0.00.0000" className="font-mono" />
-        </Field>
-        <Field label="Cliente *">
-          <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                {clienteSelecionado ? clienteSelecionado.nome : "Selecionar cliente..."}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[400px] p-0">
-              <Command>
-                <CommandInput placeholder="Buscar cliente..." />
-                <CommandList>
-                  <CommandEmpty>Nenhum cliente.</CommandEmpty>
-                  <CommandGroup>
-                    {clientes.map((c) => (
-                      <CommandItem key={c.id} value={c.nome} onSelect={() => { setForm({ ...form, cliente_id: c.id }); setClientePopoverOpen(false); }}>
-                        <Check className={cn("mr-2 h-4 w-4", form.cliente_id === c.id ? "opacity-100" : "opacity-0")} />
-                        {c.nome}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-        </Field>
-      </Section>
+      {/* ── Informações do processo — tabela read-only / edição via lápis ── */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between gap-2 pb-3">
+          <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">
+            Informações do processo
+          </CardTitle>
+          {!editing && (
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1.5 h-8 text-muted-foreground hover:text-foreground">
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </Button>
+          )}
+        </CardHeader>
 
-      <Section icon={Layers} title="Classificação">
-        <Field label="Matéria">
-          <Input value={form.materia} onChange={(e) => setForm({ ...form, materia: e.target.value })} placeholder="RCC, CESTA, RMC..." />
-        </Field>
-        <Field label="Fase Processual">
-          <Input value={form.fase_processual} onChange={(e) => setForm({ ...form, fase_processual: e.target.value })} placeholder="AG. SENTENÇA, ARQUIVADO..." />
-        </Field>
-      </Section>
+        <CardContent>
+          {editing ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Nº do Processo *">
+                <Input value={form.numero_processo} onChange={(e) => setForm({ ...form, numero_processo: e.target.value })} placeholder="0000000-00.0000.0.00.0000" className="font-mono" />
+              </Field>
+              <Field label="Cliente *">
+                <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      {clienteSelecionado ? clienteSelecionado.nome : "Selecionar cliente..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0">
+                    <Command>
+                      <CommandInput placeholder="Buscar cliente..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum cliente.</CommandEmpty>
+                        <CommandGroup>
+                          {clientes.map((c) => (
+                            <CommandItem key={c.id} value={c.nome} onSelect={() => { setForm({ ...form, cliente_id: c.id }); setClientePopoverOpen(false); }}>
+                              <Check className={cn("mr-2 h-4 w-4", form.cliente_id === c.id ? "opacity-100" : "opacity-0")} />
+                              {c.nome}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </Field>
+              <Field label="Matéria">
+                <Input value={form.materia} onChange={(e) => setForm({ ...form, materia: e.target.value })} placeholder="RCC, CESTA, RMC..." />
+              </Field>
+              <Field label="Fase Processual">
+                <Input value={form.fase_processual} onChange={(e) => setForm({ ...form, fase_processual: e.target.value })} placeholder="AG. SENTENÇA, ARQUIVADO..." />
+              </Field>
+              <Field label="Data Último Andamento">
+                <Input type="date" value={form.data_ultimo_andamento} onChange={(e) => setForm({ ...form, data_ultimo_andamento: e.target.value })} />
+              </Field>
+              <Field label="Prazo Processual">
+                <Input type="date" value={form.prazo_processual} onChange={(e) => setForm({ ...form, prazo_processual: e.target.value })} />
+              </Field>
+              <Field label="Tipo de Pendência">
+                <Input value={form.tipo_pendencia} onChange={(e) => setForm({ ...form, tipo_pendencia: e.target.value })} placeholder="Ex.: contestação, réplica..." />
+              </Field>
+              <Field label="Status da Tarefa">
+                <Select value={form.status_tarefa || "__none__"} onValueChange={(v) => setForm({ ...form, status_tarefa: v === "__none__" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    <SelectItem value="EM CONFECÇÃO">EM CONFECÇÃO</SelectItem>
+                    <SelectItem value="CONCLUÍDO">CONCLUÍDO</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Vara/Juízo de Origem">
+                <Input value={form.vara_juizo_origem} onChange={(e) => setForm({ ...form, vara_juizo_origem: e.target.value })} placeholder="3ª VC" />
+              </Field>
+              <Field label="Comarca/UF">
+                <Input value={form.comarca_uf} onChange={(e) => setForm({ ...form, comarca_uf: e.target.value })} placeholder="MANAUS/AM" />
+              </Field>
+              <Field label="Valor da Causa (R$)">
+                <Input inputMode="decimal" value={form.valor_causa} onChange={(e) => setForm({ ...form, valor_causa: e.target.value })} placeholder="0,00" />
+              </Field>
+              <Field label="Parceiro">
+                <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} />
+              </Field>
+              <Field label="Observações" full>
+                <Textarea rows={4} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Anotações internas sobre o processo…" />
+              </Field>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10">
+              <Row label="Nº do Processo"><span className="font-mono">{form.numero_processo || "—"}</span></Row>
+              <Row label="Cliente">{clienteSelecionado?.nome || "—"}</Row>
+              <Row label="Matéria">{form.materia || "—"}</Row>
+              <Row label="Fase Processual">{form.fase_processual || "—"}</Row>
+              <Row label="Último Andamento">{fmtData(form.data_ultimo_andamento)}</Row>
+              <Row label="Prazo Processual">{form.prazo_processual ? fmtData(form.prazo_processual) : "—"}</Row>
+              <Row label="Tipo de Pendência">{form.tipo_pendencia || "—"}</Row>
+              <Row label="Status da Tarefa">{form.status_tarefa || "—"}</Row>
+              <Row label="Vara/Juízo de Origem">{form.vara_juizo_origem || "—"}</Row>
+              <Row label="Comarca/UF">{form.comarca_uf || "—"}</Row>
+              <Row label="Valor da Causa">{valorNum ? brl(valorNum) : "—"}</Row>
+              <Row label="Parceiro">{form.parceiro || "—"}</Row>
+              <Row label="Observações" full>
+                <span className="whitespace-pre-wrap font-normal">{form.observacoes || "—"}</span>
+              </Row>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <Section icon={CalendarClock} title="Andamento & Prazos">
-        <Field label="Data Último Andamento">
-          <Input type="date" value={form.data_ultimo_andamento} onChange={(e) => setForm({ ...form, data_ultimo_andamento: e.target.value })} />
-        </Field>
-        <Field label="Prazo Processual">
-          <Input type="date" value={form.prazo_processual} onChange={(e) => setForm({ ...form, prazo_processual: e.target.value })} />
-        </Field>
-        <Field label="Tipo de Pendência">
-          <Input value={form.tipo_pendencia} onChange={(e) => setForm({ ...form, tipo_pendencia: e.target.value })} placeholder="Ex.: contestação, réplica..." />
-        </Field>
-        <Field label="Status da Tarefa">
-          <Select value={form.status_tarefa || "__none__"} onValueChange={(v) => setForm({ ...form, status_tarefa: v === "__none__" ? "" : v })}>
-            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">—</SelectItem>
-              <SelectItem value="EM CONFECÇÃO">EM CONFECÇÃO</SelectItem>
-              <SelectItem value="CONCLUÍDO">CONCLUÍDO</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-      </Section>
-
-      <Section icon={MapPin} title="Localização">
-        <Field label="Vara/Juízo de Origem">
-          <Input value={form.vara_juizo_origem} onChange={(e) => setForm({ ...form, vara_juizo_origem: e.target.value })} placeholder="3ª VC" />
-        </Field>
-        <Field label="Comarca/UF">
-          <Input value={form.comarca_uf} onChange={(e) => setForm({ ...form, comarca_uf: e.target.value })} placeholder="MANAUS/AM" />
-        </Field>
-      </Section>
-
-      <Section icon={DollarSign} title="Financeiro & Parceria">
-        <Field label="Valor da Causa (R$)">
-          <Input inputMode="decimal" value={form.valor_causa} onChange={(e) => setForm({ ...form, valor_causa: e.target.value })} placeholder="0,00" />
-        </Field>
-        <Field label="Parceiro">
-          <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} />
-        </Field>
-      </Section>
-
-      <Section icon={FileText} title="Observações" className="">
-        <Textarea rows={4} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Anotações internas sobre o processo…" />
-      </Section>
-
-      {/* Prévia da próxima leva — movimentações & demandas */}
+      {/* Prévia da próxima leva — informações móveis (movimentações & demandas) */}
       <Card className="border-dashed">
         <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
           <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
@@ -422,7 +414,7 @@ export default function ProcessoDetail() {
           </div>
           <div>
             <p className="text-sm font-medium text-foreground">Movimentações & demandas</p>
-            <p className="text-xs">Linha do tempo dos andamentos e das demandas do processo — chegando na próxima atualização.</p>
+            <p className="text-xs">As informações móveis do processo (andamentos, prazos e demandas) chegam na próxima atualização.</p>
           </div>
           <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
         </CardContent>
