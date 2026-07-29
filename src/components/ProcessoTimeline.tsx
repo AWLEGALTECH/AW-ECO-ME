@@ -357,9 +357,12 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     const idConcluida = avancar;
     const idNova = avancoAlvo;
 
-    // Fecha o modal primeiro; só depois (com o modal já fora da frente)
-    // dispara a mudança e a animação de check/avanço na linha do tempo.
+    // 1) Fecha o modal e mostra o POP do check (com o fundo escuro/blur).
     setAvancar(null);
+    dispararPop(Check, `Avançou para ${alvoNome}`, "bg-primary/15 text-primary ring-primary/30");
+
+    // 2) Só DEPOIS do pop fechar (fundo já limpo) é que aplica o avanço e
+    //    anima a linha do tempo — senão a animação fica escondida atrás do pop.
     window.setTimeout(() => {
       setEtapas((prev) => prev.map((e, i) => {
         if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
@@ -369,9 +372,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       }));
       setRecemAvancado({ concluida: idConcluida, nova: idNova });
       window.setTimeout(() => setRecemAvancado(null), 2000);
-      // pop dopaminérgico só depois da linha encher + o ponto pulsar
-      window.setTimeout(() => dispararPop(Check, `Avançou para ${alvoNome}`, "bg-primary/15 text-primary ring-primary/30"), 900);
-    }, 280);
+    }, 1750);
   };
 
   const prazoDate = ymdToDate(draft.prazo);
