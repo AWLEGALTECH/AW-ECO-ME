@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, User, History, Loader2,
+  ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
+  Scale, MapPin, Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -238,63 +239,63 @@ export default function ProcessoDetail() {
       </div>
 
       {/* ── HERO — identidade estática do processo ── */}
-      <SpotlightCard>
-        <div className="flex gap-5">
-          <div className="flex-1 min-w-0">
-            {/* Nº do processo */}
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-mono text-muted-foreground tracking-tight">
-                {form.numero_processo || (isNew ? "novo processo" : "—")}
-              </span>
-              {form.numero_processo && (
-                <button onClick={copiarNumero} className="text-muted-foreground/60 hover:text-primary transition-colors" title="Copiar número">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+      <SpotlightCard className="relative overflow-hidden">
+        {/* Capa do produto (teste, só neste processo) — sangra até a borda do
+            card e derrete num degradê na esquerda, sem corte seco. */}
+        {capa && (
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 w-[52%] sm:w-[46%] hidden sm:block"
+            style={{
+              WebkitMaskImage: "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.85) 55%, #000 100%)",
+              maskImage: "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.85) 55%, #000 100%)",
+            }}
+          >
+            <img src={capa.src} alt={`Capa — ${capa.nome}`} className="h-full w-full object-cover" loading="lazy" />
+          </div>
+        )}
 
-            {/* Matéria — protagonista */}
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground mt-4 mb-1">Matéria</p>
+        <div className="relative z-10 sm:max-w-[66%]">
+          {/* Nº do processo */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-mono text-muted-foreground tracking-tight">
+              {form.numero_processo || (isNew ? "novo processo" : "—")}
+            </span>
+            {form.numero_processo && (
+              <button onClick={copiarNumero} className="text-muted-foreground/60 hover:text-primary transition-colors" title="Copiar número">
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Matéria — protagonista, com balança à esquerda */}
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mt-4 mb-1.5">Matéria</p>
+          <div className="flex items-center gap-3">
+            <Scale className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
             <h1 className="font-display text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
               {form.materia || <span className="text-muted-foreground font-normal">Matéria não informada</span>}
             </h1>
+          </div>
 
-            {/* Vara · Comarca */}
-            <p className="text-sm text-muted-foreground mt-3">
-              {localizacao || "Vara e comarca não informadas"}
-            </p>
-
-            {/* Cliente */}
-            <div className="flex items-center gap-3 mt-5">
-              <div className="h-10 w-10 rounded-full bg-primary/15 grid place-items-center shrink-0">
-                <User className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Cliente</p>
-                <p className="text-[15px] font-medium truncate leading-tight">
-                  {clienteSelecionado ? clienteSelecionado.nome : <span className="text-muted-foreground font-normal">Não vinculado</span>}
-                </p>
-              </div>
-              {clienteSelecionado && (
-                <Link to={`/clientes/${clienteSelecionado.id}`} className="ml-auto text-xs text-primary hover:underline shrink-0">
-                  Ver cliente →
+          {/* Vara e Cliente — mesma importância */}
+          <div className="mt-5 space-y-2.5">
+            <div className="flex items-center gap-2 text-[15px]">
+              <MapPin className="h-4 w-4 text-primary/70 shrink-0" />
+              <span className="font-medium">{localizacao || "Vara e comarca não informadas"}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[15px]">
+              <Link2 className="h-4 w-4 text-primary/70 shrink-0" />
+              {clienteSelecionado ? (
+                <Link
+                  to={`/clientes/${clienteSelecionado.id}`}
+                  className="font-medium text-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
+                >
+                  {clienteSelecionado.nome}
                 </Link>
+              ) : (
+                <span className="font-medium text-muted-foreground">Cliente não vinculado</span>
               )}
             </div>
           </div>
-
-          {/* Capa do produto (teste, só neste processo) */}
-          {capa && (
-            <div className="shrink-0 hidden sm:flex flex-col items-center gap-1.5">
-              <img
-                src={capa.src}
-                alt={`Capa — ${capa.nome}`}
-                className="w-28 md:w-32 aspect-[2/3] object-cover rounded-xl border border-white/10 shadow-lg"
-                loading="lazy"
-              />
-              <span className="text-[10px] text-muted-foreground text-center leading-tight max-w-28 md:max-w-32">{capa.nome}</span>
-            </div>
-          )}
         </div>
       </SpotlightCard>
 
