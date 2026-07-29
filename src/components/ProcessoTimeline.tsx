@@ -308,12 +308,20 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setAvancoPasso("tarefas");
   };
 
-  // Limpa qualquer trava de pointer-events deixada pelo Radix ao fechar tudo.
+  // O Radix às vezes trava o body com pointer-events:none (bug conhecido ao
+  // sobrepor popover/select/diálogo), engolindo cliques nos botões do popup.
+  // Enquanto qualquer popup estiver aberto, forçamos o body clicável; ao fechar
+  // tudo, devolvemos o controle ao Radix.
   useEffect(() => {
-    if (!avancar && !desfechoTask && !detalhe && !tipoDialog) {
-      const t = setTimeout(() => { document.body.style.pointerEvents = ""; }, 50);
-      return () => clearTimeout(t);
+    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog;
+    if (!algumAberto) {
+      document.body.style.pointerEvents = "";
+      return;
     }
+    const soltar = () => { if (document.body.style.pointerEvents === "none") document.body.style.pointerEvents = "auto"; };
+    soltar();
+    const id = window.setInterval(soltar, 120);
+    return () => window.clearInterval(id);
   }, [avancar, desfechoTask, detalhe, tipoDialog]);
 
   const aplicarAvanco = () => {

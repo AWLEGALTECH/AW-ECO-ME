@@ -327,12 +327,14 @@ html, body, #root {
   .flow-down { animation: flow-down 2.6s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .flow-down { animation: none; } }
 
-  /* Radix às vezes deixa pointer-events:none preso no body ao fechar
-     popover/select/diálogo, travando cliques. Garante que o conteúdo de
-     diálogos e poppers continue sempre clicável. */
+  /* Radix seta pointer-events:none INLINE no conteúdo do diálogo quando um
+     popover/select se sobrepõe e às vezes não restaura (bug de ref-count),
+     travando os cliques. Estilo inline vence CSS normal, então usamos
+     !important pra garantir que diálogos/poppers fiquem sempre clicáveis. */
   [role="dialog"],
   [role="menu"],
-  [data-radix-popper-content-wrapper] { pointer-events: auto; }
+  [role="listbox"],
+  [data-radix-popper-content-wrapper] { pointer-events: auto !important; }
 
   /* Status piscando de forma bem sutil (o que a etapa aguarda). */
   @keyframes status-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
