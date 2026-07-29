@@ -284,13 +284,13 @@ export default function ProcessoDetail() {
 
         <div className="relative z-10 max-w-[62%] sm:max-w-[66%]">
           {/* Nº do processo */}
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-muted-foreground tracking-tight">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm md:text-base text-foreground/80 tracking-tight">
               {form.numero_processo || (isNew ? "novo processo" : "sem número")}
             </span>
             {form.numero_processo && (
-              <button onClick={copiarNumero} className="text-muted-foreground/60 hover:text-primary transition-colors" title="Copiar número">
-                <Copy className="h-3.5 w-3.5" />
+              <button onClick={copiarNumero} className="text-muted-foreground/70 hover:text-primary transition-colors" title="Copiar número">
+                <Copy className="h-4 w-4" />
               </button>
             )}
           </div>
