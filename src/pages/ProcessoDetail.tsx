@@ -287,7 +287,7 @@ export default function ProcessoDetail() {
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Nº do processo</p>
           <div className="flex items-center gap-3">
             <Scale className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
-            <h1 className="font-mono text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
+            <h1 className="font-mono text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words text-primary">
               {form.numero_processo || (isNew ? "novo processo" : "sem número")}
             </h1>
             {form.numero_processo && (

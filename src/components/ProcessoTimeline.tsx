@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,7 +48,7 @@ export interface Task {
 export interface Etapa {
   id: string;
   titulo: string;
-  status: "concluida" | "atual" | "pendente";
+  status: "concluida" | "atual" | "pendente" | "pulada";
   inicio?: string;
   conclusao?: string;
   prazoAlvoDias?: number;
@@ -180,6 +180,29 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   );
 }
 
+// Versão minimizada da tarefa (etapas passadas) — ocupa pouco espaço.
+function TaskMini({ task, onClick }: { task: Task; onClick: () => void }) {
+  const Icon = task.tipo === "acao" ? Zap : Eye;
+  const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
+  const DIcon = d?.icon;
+  return (
+    <button
+      onClick={onClick}
+      className="group flex items-center gap-2 w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 hover:bg-white/[0.05] hover:border-primary/30 transition-colors"
+    >
+      <span className="h-5 w-5 rounded-md bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
+        <Icon className="h-3 w-3 text-primary" />
+      </span>
+      <span className="text-xs font-medium truncate flex-1">{task.titulo}</span>
+      {d && DIcon ? (
+        <DIcon className={cn("h-3.5 w-3.5 shrink-0", d.text)} />
+      ) : (
+        <StatusChip status={task.status} />
+      )}
+    </button>
+  );
+}
+
 const DRAFT_VAZIO = { titulo: "", conteudo: "", prazo: "", status: "" };
 
 export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Etapa[]; badge?: string }) {
@@ -234,6 +257,39 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setDesfechoTask(null);
   };
 
+  // ── Avanço de milestone (popup de 2 páginas) ──
+  const [avancar, setAvancar] = useState<string | null>(null);   // etapa sendo concluída
+  const [avancoPasso, setAvancoPasso] = useState<1 | 2>(1);
+  const [avancoData, setAvancoData] = useState("");              // yyyy-mm-dd
+  const [avancoAlvo, setAvancoAlvo] = useState("");              // etapa destino
+
+  const abrirAvanco = (etapaId: string) => {
+    const idx = etapas.findIndex((e) => e.id === etapaId);
+    setAvancar(etapaId);
+    setAvancoPasso(1);
+    setAvancoData(dateToYmd(new Date()));
+    setAvancoAlvo(etapas[idx + 1]?.id ?? "");
+  };
+  const aplicarAvanco = () => {
+    if (!avancar || !avancoAlvo || !avancoData) return;
+    const idxAtual = etapas.findIndex((e) => e.id === avancar);
+    const idxAlvo = etapas.findIndex((e) => e.id === avancoAlvo);
+    if (idxAlvo <= idxAtual) return;
+    const dataBR = fmtPrazo(avancoData);
+    setEtapas((prev) => prev.map((e, i) => {
+      if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR };
+      if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
+      if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR };
+      return e;
+    }));
+    setAvancar(null);
+  };
+
+  const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
+  const opcoesAvanco = idxAvancar >= 0 ? etapas.slice(idxAvancar + 1) : [];
+  const nomeEtapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar].titulo : "";
+  const avancoDataDate = ymdToDate(avancoData);
+
   const prazoDate = ymdToDate(draft.prazo);
 
   return (
@@ -256,14 +312,15 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         {etapas.map((e, i) => {
           const last = i === etapas.length - 1;
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
-          const podeAdicionar = e.status === "atual";
+          const temTasks = (e.tasks?.length ?? 0) > 0;
           const sub =
             e.status === "concluida"
               ? `iniciada em ${e.inicio ?? "sem data"} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
               : e.status === "atual"
                 ? `em curso desde ${e.inicio ?? "sem data"} · ${diffDias(e.inicio, hojeBR())} dia(s)`
-                : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
-          const temGrid = (e.tasks?.length ?? 0) > 0 || podeAdicionar;
+                : e.status === "pulada"
+                  ? "etapa pulada"
+                  : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
 
           return (
             <motion.div
@@ -297,6 +354,10 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card">
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
                   </span>
+                ) : e.status === "pulada" ? (
+                  <span title="Etapa pulada" className="relative z-10 mt-1 h-4 w-4 rounded-full bg-muted grid place-items-center ring-4 ring-card">
+                    <X className="h-2.5 w-2.5 text-muted-foreground" strokeWidth={3} />
+                  </span>
                 ) : (
                   <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-muted-foreground/30 bg-card ring-4 ring-card" />
                 )}
@@ -306,7 +367,11 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               <div className={cn(!last && "border-b border-border/40", last ? "pb-1" : "pb-6")}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className={cn("text-sm font-medium leading-tight", e.status === "pendente" ? "text-muted-foreground" : "text-foreground")}>
+                    <p className={cn(
+                      "text-sm font-medium leading-tight",
+                      (e.status === "pendente" || e.status === "pulada") ? "text-muted-foreground" : "text-foreground",
+                      e.status === "pulada" && "line-through",
+                    )}>
                       {e.titulo}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-1">{sub}</p>
@@ -318,32 +383,48 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                         <p className="text-sm font-medium tabular-nums mt-0.5">{e.conclusao}</p>
                       </>
                     )}
+                    {e.status === "pulada" && (
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pulada</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Tarefas lado a lado (3 por linha) + tile de adicionar */}
-                {temGrid && (
+                {/* Tarefas: grade cheia (atual) ou lista minimizada (passadas) */}
+                {e.status === "atual" ? (
                   <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     {(e.tasks ?? []).map((t) => (
                       <TaskCard key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
                     ))}
-                    {podeAdicionar && (
-                      <button
-                        onClick={() => setTipoDialog(e.id)}
-                        className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] min-h-[172px] text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <span className="h-9 w-9 rounded-xl bg-primary/10 grid place-items-center">
-                          <Plus className="h-5 w-5 text-primary" />
-                        </span>
-                        <span className="text-xs font-medium">Adicionar tarefa</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setTipoDialog(e.id)}
+                      className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] min-h-[172px] text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <span className="h-9 w-9 rounded-xl bg-primary/10 grid place-items-center">
+                        <Plus className="h-5 w-5 text-primary" />
+                      </span>
+                      <span className="text-xs font-medium">Adicionar tarefa</span>
+                    </button>
+                  </div>
+                ) : temTasks ? (
+                  <div className="mt-3 space-y-1.5">
+                    {(e.tasks ?? []).map((t) => (
+                      <TaskMini key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* Avançar etapa (acima do status piscante) */}
+                {e.status === "atual" && (
+                  <div className="mt-4 flex justify-center">
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
+                      <ArrowRight className="h-4 w-4" /> Avançar etapa
+                    </Button>
                   </div>
                 )}
 
                 {/* Status: última info antes da próxima milestone */}
                 {e.status === "atual" && (
-                  <div className="mt-4 flex justify-center">
+                  <div className="mt-3 flex justify-center">
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
                       <SelectTrigger
                         className={cn(
@@ -511,6 +592,91 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
             <Button variant="ghost" onClick={() => setDesfechoTask(null)}>Cancelar</Button>
             <Button disabled={!desfechoDraft.desfecho} onClick={salvarDesfecho}>Salvar desfecho</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Popup: avançar etapa (2 páginas) ── */}
+      <Dialog open={!!avancar} onOpenChange={(o) => !o && setAvancar(null)}>
+        <DialogContent className={PREMIUM_DIALOG}>
+          {avancoPasso === 1 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                    <ArrowRight className="h-4 w-4 text-primary" />
+                  </span>
+                  Avançar etapa · 1 de 2
+                </DialogTitle>
+                <DialogDescription>Quando esta etapa foi concluída?</DialogDescription>
+              </DialogHeader>
+
+              <Field label="Data de conclusão" hint={`Quando “${nomeEtapaAvancar}” foi efetivamente concluída no processo.`}>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !avancoData && "text-muted-foreground")}>
+                      <CalendarDays className="h-4 w-4" />
+                      {avancoDataDate ? format(avancoDataDate, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      locale={ptBR}
+                      selected={avancoDataDate}
+                      onSelect={(date) => setAvancoData(date ? dateToYmd(date) : "")}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </Field>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setAvancar(null)}>Cancelar</Button>
+                <Button disabled={!avancoData} onClick={() => setAvancoPasso(2)}>Próximo</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                    <ArrowRight className="h-4 w-4 text-primary" />
+                  </span>
+                  Avançar etapa · 2 de 2
+                </DialogTitle>
+                <DialogDescription>Para qual etapa o processo avança?</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-2 max-h-[46vh] overflow-y-auto pr-1">
+                {opcoesAvanco.map((op, idx) => {
+                  const ativo = avancoAlvo === op.id;
+                  return (
+                    <button
+                      key={op.id}
+                      onClick={() => setAvancoAlvo(op.id)}
+                      className={cn(
+                        "w-full text-left rounded-xl border p-3 transition-colors",
+                        ativo ? "border-primary/50 bg-primary/[0.06]" : "border-white/[0.08] bg-white/[0.02] hover:border-primary/30",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={cn("text-sm font-medium", ativo ? "text-foreground" : "text-muted-foreground")}>{op.titulo}</span>
+                        {idx === 0 && <span className="text-[10px] uppercase tracking-wider text-primary shrink-0">próxima</span>}
+                      </div>
+                      {idx > 0 && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">as etapas entre a atual e esta ficam marcadas como puladas</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setAvancoPasso(1)}>Voltar</Button>
+                <Button disabled={!avancoAlvo} onClick={aplicarAvanco}>Confirmar avanço</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
