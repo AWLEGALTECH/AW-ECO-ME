@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,9 @@ export interface Etapa {
   inicio?: string;        // dd/mm/aaaa
   conclusao?: string;     // dd/mm/aaaa
   prazoAlvoDias?: number;
+  // Marca o início de um bloco de fase (ex.: "Fase recursal", "Cumprimento").
+  // É o gancho que agrupa e puxa os atos de fases eventuais do processo.
+  secao?: string;
 }
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -31,9 +35,12 @@ function hojeBR(): string {
 }
 
 /**
- * Linha do tempo do processo como uma sequência de etapas "cravadas":
- * rail vertical à esquerda com o estado de cada etapa (concluída/atual/
- * pendente), título + subtítulo à esquerda e o status/data à direita.
+ * Linha do tempo do processo como sequência de etapas "cravadas" — pontos que
+ * NÃO dependem da gente (atos da vara/partes). Rail vertical à esquerda (na cor
+ * do tema) com o estado de cada etapa (concluída/atual/pendente); na etapa
+ * ATUAL um pulso desce pela linha, dando a sensação de continuidade aguardada.
+ * O campo `secao` abre um bloco de fase (ex.: recursal), servindo de gancho pra
+ * puxar os atos dessa fase quando ela existir.
  */
 export function ProcessoTimeline({ etapas, badge }: { etapas: Etapa[]; badge?: string }) {
   const concluidas = etapas.filter((e) => e.status === "concluida").length;
@@ -59,63 +66,76 @@ export function ProcessoTimeline({ etapas, badge }: { etapas: Etapa[]; badge?: s
       <div>
         {etapas.map((e, i) => {
           const last = i === etapas.length - 1;
-          const lineCls = e.status === "concluida" ? "bg-emerald-500/40" : "bg-border";
+          const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
           const sub =
             e.status === "concluida"
-              ? `iniciada em ${e.inicio ?? "—"} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
+              ? `iniciada em ${e.inicio ?? "sem data"} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
               : e.status === "atual"
-                ? `em curso desde ${e.inicio ?? "—"} · ${diffDias(e.inicio, hojeBR())} dia(s)`
+                ? `em curso desde ${e.inicio ?? "sem data"} · ${diffDias(e.inicio, hojeBR())} dia(s)`
                 : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
 
           return (
-            <motion.div
-              key={e.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, ease: EASE, delay: i * 0.05 }}
-              className="grid grid-cols-[1.5rem_1fr] gap-x-3"
-            >
-              {/* Rail à esquerda */}
-              <div className="relative flex justify-center">
-                {!last && <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />}
-                {e.status === "concluida" ? (
-                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full bg-emerald-500 grid place-items-center ring-4 ring-card">
-                    <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
-                  </span>
-                ) : e.status === "atual" ? (
-                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-emerald-400 bg-card ring-4 ring-card">
-                    <span className="absolute -inset-px rounded-full border-2 border-emerald-400 animate-ping opacity-60" />
-                  </span>
-                ) : (
-                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-muted-foreground/30 bg-card ring-4 ring-card" />
-                )}
-              </div>
-
-              {/* Conteúdo + status */}
-              <div className={cn("flex items-start justify-between gap-4", !last && "border-b border-border/40", last ? "pb-1" : "pb-6")}>
-                <div className="min-w-0">
-                  <p className={cn("text-sm font-medium leading-tight", e.status === "pendente" ? "text-muted-foreground" : "text-foreground")}>
-                    {e.titulo}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-1">{sub}</p>
+            <Fragment key={e.id}>
+              {/* Divisor de fase (ex.: recursal) — gancho pros atos da fase */}
+              {e.secao && (
+                <div className="flex items-center gap-3 pt-3 pb-4 pl-[2.25rem]">
+                  <span className="text-[10px] uppercase tracking-wider text-primary/80 font-medium">{e.secao}</span>
+                  <span className="flex-1 h-px bg-border/50" />
                 </div>
-                <div className="text-right shrink-0 max-w-[40%]">
+              )}
+
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: EASE, delay: i * 0.04 }}
+                className="grid grid-cols-[1.5rem_1fr] gap-x-3"
+              >
+                {/* Rail à esquerda (cor do tema) */}
+                <div className="relative flex justify-center">
+                  {!last && (
+                    e.status === "atual" ? (
+                      <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-border overflow-hidden">
+                        <span className="absolute inset-x-0 h-8 flow-down bg-gradient-to-b from-transparent via-primary to-transparent" />
+                      </div>
+                    ) : (
+                      <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
+                    )
+                  )}
                   {e.status === "concluida" ? (
-                    <>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Concluída em</p>
-                      <p className="text-sm font-medium tabular-nums mt-0.5">{e.conclusao}</p>
-                    </>
+                    <span className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card">
+                      <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
+                    </span>
                   ) : e.status === "atual" ? (
-                    <>
-                      <p className="text-[10px] uppercase tracking-wider text-emerald-400">Aguardando conclusão</p>
-                      <p className="text-sm text-muted-foreground mt-0.5">—</p>
-                    </>
+                    <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card">
+                      <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
+                    </span>
                   ) : (
-                    <p className="text-sm text-muted-foreground">—</p>
+                    <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-muted-foreground/30 bg-card ring-4 ring-card" />
                   )}
                 </div>
-              </div>
-            </motion.div>
+
+                {/* Conteúdo + status */}
+                <div className={cn("flex items-start justify-between gap-4", !last && "border-b border-border/40", last ? "pb-1" : "pb-6")}>
+                  <div className="min-w-0">
+                    <p className={cn("text-sm font-medium leading-tight", e.status === "pendente" ? "text-muted-foreground" : "text-foreground")}>
+                      {e.titulo}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{sub}</p>
+                  </div>
+                  <div className="text-right shrink-0 max-w-[42%]">
+                    {e.status === "concluida" && (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Concluída em</p>
+                        <p className="text-sm font-medium tabular-nums mt-0.5">{e.conclusao}</p>
+                      </>
+                    )}
+                    {e.status === "atual" && (
+                      <p className="text-[10px] uppercase tracking-wider text-primary">Aguardando conclusão</p>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </Fragment>
           );
         })}
       </div>

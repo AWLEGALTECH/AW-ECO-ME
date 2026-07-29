@@ -315,4 +315,15 @@ html, body, #root {
     background: linear-gradient(90deg, transparent, hsla(0,0%,100%,0.35), transparent);
     animation: fech-shimmer 1.6s ease-in-out infinite;
   }
+
+  /* Timeline — pulso que desce pela linha da etapa ATUAL, dando a sensação de
+     continuidade aguardada até a conclusão daquela etapa. */
+  @keyframes flow-down {
+    0%   { top: -2rem; opacity: 0; }
+    18%  { opacity: 1; }
+    82%  { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+  .flow-down { animation: flow-down 1.8s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .flow-down { animation: none; } }
 }

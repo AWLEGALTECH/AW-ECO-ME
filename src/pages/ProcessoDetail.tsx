@@ -80,14 +80,19 @@ const CAPA_TESTE: Record<string, { src: string; nome: string }> = {
 const TIMELINE_TESTE: Record<string, Etapa[]> = {
   "628eb627-377b-448e-b003-339e497bef44": [
     { id: "e1", titulo: "Distribuição da ação", status: "concluida", inicio: "15/02/2026", conclusao: "15/02/2026" },
-    { id: "e2", titulo: "Emenda à inicial", status: "concluida", inicio: "15/02/2026", conclusao: "28/02/2026" },
-    { id: "e3", titulo: "Decisão inicial — recebimento", status: "concluida", inicio: "28/02/2026", conclusao: "12/03/2026" },
-    { id: "e4", titulo: "Citação do réu", status: "concluida", inicio: "12/03/2026", conclusao: "02/04/2026" },
-    { id: "e5", titulo: "Contestação do Bradesco", status: "concluida", inicio: "02/04/2026", conclusao: "25/04/2026" },
-    { id: "e6", titulo: "Réplica", status: "concluida", inicio: "25/04/2026", conclusao: "20/05/2026" },
-    { id: "e7", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026" },
-    { id: "e8", titulo: "Sentença", status: "pendente", prazoAlvoDias: 90 },
-    { id: "e9", titulo: "Cumprimento de sentença", status: "pendente", prazoAlvoDias: 30 },
+    { id: "e2", titulo: "Decisão inicial (recebimento)", status: "concluida", inicio: "15/02/2026", conclusao: "12/03/2026" },
+    { id: "e3", titulo: "Citação do réu", status: "concluida", inicio: "12/03/2026", conclusao: "02/04/2026" },
+    { id: "e4", titulo: "Contestação do Bradesco", status: "concluida", inicio: "02/04/2026", conclusao: "25/04/2026" },
+    { id: "e5", titulo: "Réplica", status: "concluida", inicio: "25/04/2026", conclusao: "20/05/2026" },
+    { id: "e6", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026" },
+    { id: "e7", titulo: "Sentença", status: "pendente", prazoAlvoDias: 90 },
+    // Fase recursal — só entra quando houver recurso; o divisor `secao` é o
+    // gancho que agrupa e puxa esses atos quando existirem.
+    { id: "e8", titulo: "Recurso de apelação", status: "pendente", prazoAlvoDias: 15, secao: "Fase recursal" },
+    { id: "e9", titulo: "Contrarrazões", status: "pendente", prazoAlvoDias: 15 },
+    { id: "e10", titulo: "Julgamento em 2º grau (acórdão)", status: "pendente", prazoAlvoDias: 120 },
+    { id: "e11", titulo: "Trânsito em julgado", status: "pendente", prazoAlvoDias: 15 },
+    { id: "e12", titulo: "Cumprimento de sentença", status: "pendente", prazoAlvoDias: 30, secao: "Cumprimento" },
   ],
 };
 
@@ -326,7 +331,7 @@ export default function ProcessoDetail() {
           <div className="mt-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da causa</p>
             <p className="text-xl font-semibold text-emerald-400 tabular-nums mt-0.5">
-              {valorNum ? brl(valorNum) : "—"}
+              {valorNum ? brl(valorNum) : "Não informado"}
             </p>
           </div>
         </div>
