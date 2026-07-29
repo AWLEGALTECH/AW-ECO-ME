@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -59,7 +59,7 @@ export interface Etapa {
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const PREMIUM_DIALOG =
-  "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)]";
+  "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] pointer-events-auto";
 
 const DESFECHOS: Record<TaskDesfecho, { label: string; chip: string; text: string; icon: typeof Ban }> = {
   concluido: { label: "Concluído", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", text: "text-emerald-400", icon: CheckCircle2 },
@@ -258,12 +258,13 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   };
 
   // ── Avanço de milestone (popup em passos) ──
-  type PassoAvanco = "data" | "destino" | "tarefas" | "confirmar";
+  type PassoAvanco = "data" | "destino" | "tarefas" | "resolver" | "confirmar";
   const [avancar, setAvancar] = useState<string | null>(null);   // etapa sendo concluída
   const [avancoPasso, setAvancoPasso] = useState<PassoAvanco>("data");
   const [avancoData, setAvancoData] = useState("");              // yyyy-mm-dd
   const [avancoAlvo, setAvancoAlvo] = useState("");              // etapa destino
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
+  const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
 
   const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
   const etapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar] : null;
@@ -289,6 +290,31 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   const toggleMigrar = (id: string) =>
     setMigrar((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const irDoDestino = () => setAvancoPasso(tasksAbertas.length ? "tarefas" : "confirmar");
+
+  const resolverTaskObj = resolverId ? (etapaAvancar?.tasks ?? []).find((t) => t.id === resolverId) ?? null : null;
+  const abrirResolver = (id: string) => {
+    setResolverId(id);
+    setDesfechoDraft({ desfecho: "", obs: "" });
+    setAvancoPasso("resolver");
+  };
+  const resolverTarefa = () => {
+    if (!resolverId || !desfechoDraft.desfecho) return;
+    setEtapas((prev) => prev.map((e) => ({
+      ...e,
+      tasks: (e.tasks ?? []).map((t) =>
+        t.id === resolverId ? { ...t, desfecho: desfechoDraft.desfecho as TaskDesfecho, desfechoObs: desfechoDraft.obs.trim() } : t),
+    })));
+    setResolverId(null);
+    setAvancoPasso("tarefas");
+  };
+
+  // Limpa qualquer trava de pointer-events deixada pelo Radix ao fechar tudo.
+  useEffect(() => {
+    if (!avancar && !desfechoTask && !detalhe && !tipoDialog) {
+      const t = setTimeout(() => { document.body.style.pointerEvents = ""; }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [avancar, desfechoTask, detalhe, tipoDialog]);
 
   const aplicarAvanco = () => {
     if (!avancar || !avancoAlvo || !avancoData) return;
@@ -625,7 +651,8 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               {avancoPasso === "data" ? "Quando esta etapa foi concluída?"
                 : avancoPasso === "destino" ? "Para qual etapa o processo avança?"
                   : avancoPasso === "tarefas" ? "Há tarefas em aberto nesta etapa."
-                    : "Tem certeza que deseja avançar de etapa?"}
+                    : avancoPasso === "resolver" ? `Desfecho de “${resolverTaskObj?.titulo ?? ""}”`
+                      : "Tem certeza que deseja avançar de etapa?"}
             </DialogDescription>
           </DialogHeader>
 
@@ -713,7 +740,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                           </button>
                         ) : (
                           <>
-                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => abrirDesfecho(t)}>Resolver</Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => abrirResolver(t.id)}>Resolver</Button>
                             <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => toggleMigrar(t.id)}>
                               <CornerDownRight className="h-3.5 w-3.5" /> Levar p/ próxima
                             </Button>
@@ -730,6 +757,49 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setAvancoPasso("destino")}>Voltar</Button>
                 <Button disabled={!todasTratadas} onClick={() => setAvancoPasso("confirmar")}>Próximo</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Passo: resolver tarefa (inline, sem empilhar diálogo) */}
+          {avancoPasso === "resolver" && (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(DESFECHOS) as TaskDesfecho[]).map((k) => {
+                  const info = DESFECHOS[k];
+                  const DIcon = info.icon;
+                  const ativo = desfechoDraft.desfecho === k;
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setDesfechoDraft((d) => ({ ...d, desfecho: k }))}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-2xl border p-3.5 transition-all hover:-translate-y-0.5",
+                        ativo ? cn("ring-1", info.chip) : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
+                      )}
+                    >
+                      <DIcon className="h-5 w-5" />
+                      <span className="text-xs font-medium">{info.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <Field label="Observações" hint="Fica registrado na tarefa. Vamos reaproveitar esse histórico depois.">
+                <Textarea
+                  value={desfechoDraft.obs}
+                  onChange={(ev) => setDesfechoDraft((d) => ({ ...d, obs: ev.target.value }))}
+                  placeholder={
+                    desfechoDraft.desfecho === "concluido" ? "Como foi concluída…"
+                      : desfechoDraft.desfecho === "perdido" ? "Por que foi perdida…"
+                        : desfechoDraft.desfecho === "cancelado" ? "Por que foi cancelada…"
+                          : "Escolha um desfecho acima…"
+                  }
+                  rows={3}
+                />
+              </Field>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => { setResolverId(null); setAvancoPasso("tarefas"); }}>Voltar</Button>
+                <Button disabled={!desfechoDraft.desfecho} onClick={resolverTarefa}>Salvar desfecho</Button>
               </DialogFooter>
             </>
           )}
