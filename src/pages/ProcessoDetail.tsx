@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
-  Scale, MapPin, User, SquareArrowOutUpRight,
+  Scale, MapPin, User, SquareArrowOutUpRight, Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -283,29 +283,26 @@ export default function ProcessoDetail() {
         )}
 
         <div className="relative z-10 max-w-[62%] sm:max-w-[66%]">
-          {/* Nº do processo */}
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm md:text-base text-foreground/80 tracking-tight">
+          {/* Nº do processo — protagonista, com balança à esquerda */}
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Nº do processo</p>
+          <div className="flex items-center gap-3">
+            <Scale className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
+            <h1 className="font-mono text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
               {form.numero_processo || (isNew ? "novo processo" : "sem número")}
-            </span>
+            </h1>
             {form.numero_processo && (
-              <button onClick={copiarNumero} className="text-muted-foreground/70 hover:text-primary transition-colors" title="Copiar número">
+              <button onClick={copiarNumero} className="text-muted-foreground/70 hover:text-primary transition-colors shrink-0" title="Copiar número">
                 <Copy className="h-4 w-4" />
               </button>
             )}
           </div>
 
-          {/* Matéria — protagonista, com balança à esquerda */}
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mt-4 mb-1.5">Matéria</p>
-          <div className="flex items-center gap-3">
-            <Scale className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
-            <h1 className="font-display text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words">
-              {form.materia || <span className="text-muted-foreground font-normal">Matéria não informada</span>}
-            </h1>
-          </div>
-
-          {/* Vara e Cliente — mesma importância */}
+          {/* Matéria, Vara e Cliente — mesma importância */}
           <div className="mt-5 space-y-2.5">
+            <div className="flex items-center gap-2 text-[15px]">
+              <Package className="h-4 w-4 text-primary/70 shrink-0" />
+              <span className="font-medium">{form.materia || "Matéria não informada"}</span>
+            </div>
             <div className="flex items-center gap-2 text-[15px]">
               <MapPin className="h-4 w-4 text-primary/70 shrink-0" />
               <span className="font-medium">{localizacao || "Vara e comarca não informadas"}</span>
