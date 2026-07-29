@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -246,6 +246,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       e.id === detalhe.etapaId ? { ...e, tasks: [...(e.tasks ?? []), nova], statusProcessual: nova.status } : e
     )));
     setOrdem((o) => o + 1);
+    dispararPop(detalhe.tipo === "acao" ? Zap : Eye, "Tarefa adicionada · status atualizado", "bg-primary/15 text-primary ring-primary/30");
     setDetalhe(null);
     setDraft(DRAFT_VAZIO);
   };
@@ -256,12 +257,14 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   };
   const salvarDesfecho = () => {
     if (!desfechoTask || !desfechoDraft.desfecho) return;
+    const info = DESFECHOS[desfechoDraft.desfecho as TaskDesfecho];
     setEtapas((prev) => prev.map((e) => ({
       ...e,
       tasks: (e.tasks ?? []).map((t) =>
         t.id === desfechoTask.id ? { ...t, desfecho: desfechoDraft.desfecho as TaskDesfecho, desfechoObs: desfechoDraft.obs.trim() } : t),
     })));
     setDesfechoTask(null);
+    dispararPop(info.icon, `Tarefa ${info.label.toLowerCase()}`, info.chip);
   };
 
   // ── Avanço de milestone (popup em passos) ──
@@ -273,6 +276,13 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
   const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
   const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string } | null>(null);
+
+  // Pop dopaminérgico central (símbolo animado + texto, aparece e some).
+  const [pop, setPop] = useState<{ Icon: typeof Ban; texto: string; tom: string } | null>(null);
+  const dispararPop = (Icon: typeof Ban, texto: string, tom: string) => {
+    setPop({ Icon, texto, tom });
+    window.setTimeout(() => setPop(null), 1500);
+  };
 
   const idxAvancar = avancar ? etapas.findIndex((e) => e.id === avancar) : -1;
   const etapaAvancar = idxAvancar >= 0 ? etapas[idxAvancar] : null;
@@ -307,6 +317,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   };
   const resolverTarefa = () => {
     if (!resolverId || !desfechoDraft.desfecho) return;
+    const info = DESFECHOS[desfechoDraft.desfecho as TaskDesfecho];
     setEtapas((prev) => prev.map((e) => ({
       ...e,
       tasks: (e.tasks ?? []).map((t) =>
@@ -314,6 +325,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     })));
     setResolverId(null);
     setAvancoPasso("tarefas");
+    dispararPop(info.icon, `Tarefa ${info.label.toLowerCase()}`, info.chip);
   };
 
   // O Radix às vezes trava o body com pointer-events:none (bug conhecido ao
@@ -355,8 +367,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
         return e;
       }));
       setRecemAvancado({ concluida: idConcluida, nova: idNova });
-      window.setTimeout(() => setRecemAvancado(null), 1800);
-      toast.success(`Etapa avançada para ${alvoNome}.`);
+      window.setTimeout(() => setRecemAvancado(null), 2000);
+      // pop dopaminérgico só depois da linha encher + o ponto pulsar
+      window.setTimeout(() => dispararPop(Check, `Avançou para ${alvoNome}`, "bg-primary/15 text-primary ring-primary/30"), 900);
     }, 280);
   };
 
@@ -425,19 +438,22 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   )
                 )}
                 {e.status === "concluida" ? (
-                  <motion.span
-                    initial={recemAvancado?.concluida === e.id ? { scale: 0 } : false}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 380, damping: 13 }}
-                    className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card"
-                  >
-                    <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
-                  </motion.span>
+                  // círculo já visível durante o preenchimento; o check só dá
+                  // o pop DEPOIS da linha encher (delay ~0,72s).
+                  <span className="relative z-10 mt-1 h-4 w-4 rounded-full bg-primary grid place-items-center ring-4 ring-card">
+                    <motion.span
+                      initial={recemAvancado?.concluida === e.id ? { scale: 0 } : false}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 11, delay: recemAvancado?.concluida === e.id ? 0.72 : 0 }}
+                    >
+                      <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
+                    </motion.span>
+                  </span>
                 ) : e.status === "atual" ? (
                   <motion.span
                     initial={recemAvancado?.nova === e.id ? { scale: 0 } : false}
                     animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 12, delay: recemAvancado?.nova === e.id ? 0.75 : 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 12, delay: recemAvancado?.nova === e.id ? 0.85 : 0 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
                   >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
@@ -501,18 +517,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   </div>
                 ) : null}
 
-                {/* Avançar etapa (acima do status piscante) */}
+                {/* Status: aguardando (piscante) — logo após as tarefas */}
                 {e.status === "atual" && (
                   <div className="mt-4 flex justify-center">
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
-                      <ArrowRight className="h-4 w-4" /> Avançar etapa
-                    </Button>
-                  </div>
-                )}
-
-                {/* Status: última info antes da próxima milestone */}
-                {e.status === "atual" && (
-                  <div className="mt-3 flex justify-center">
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
                       <SelectTrigger
                         className={cn(
@@ -527,6 +534,15 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                         {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                )}
+
+                {/* Avançar etapa — mais abaixo, com respiro do status */}
+                {e.status === "atual" && (
+                  <div className="mt-8 flex justify-center">
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
+                      <ArrowRight className="h-4 w-4" /> Avançar etapa
+                    </Button>
                   </div>
                 )}
               </div>
@@ -877,6 +893,38 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           </div>
         </div>
       )}
+
+      {/* ── Pop dopaminérgico (símbolo animado + texto, aparece e some) ── */}
+      <AnimatePresence>
+        {pop && (
+          <motion.div
+            key="dopa-pop"
+            className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              initial={{ scale: 0.6, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 18 }}
+              className="flex flex-col items-center gap-3 rounded-3xl bg-card/95 backdrop-blur-xl border border-white/[0.08] px-9 py-7 shadow-[0_12px_50px_rgba(0,0,0,0.55)]"
+            >
+              <motion.span
+                initial={{ scale: 0, rotate: -25 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 260, damping: 11, delay: 0.06 }}
+                className={cn("h-16 w-16 rounded-2xl grid place-items-center ring-1", pop.tom)}
+              >
+                <pop.Icon className="h-8 w-8" />
+              </motion.span>
+              <span className="text-sm font-medium text-center max-w-[240px]">{pop.texto}</span>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
