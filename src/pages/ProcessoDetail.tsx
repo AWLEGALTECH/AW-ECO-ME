@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
-  Scale, MapPin, User, SquareArrowOutUpRight, Package,
+  FileText, MapPin, User, SquareArrowOutUpRight, Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -285,8 +285,8 @@ export default function ProcessoDetail() {
           {/* Nº do processo — protagonista, com balança à esquerda */}
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Nº do processo</p>
           <div className="flex items-center gap-3">
-            <Scale className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
-            <h1 className="font-mono text-2xl md:text-[1.9rem] font-semibold tracking-tight leading-tight break-words text-primary">
+            <FileText className="h-7 w-7 md:h-8 md:w-8 text-primary shrink-0" />
+            <h1 className="font-mono text-2xl md:text-[1.9rem] font-bold tracking-tight leading-tight break-words text-foreground">
               {form.numero_processo || (isNew ? "novo processo" : "sem número")}
             </h1>
             {form.numero_processo && (
