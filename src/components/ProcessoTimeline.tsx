@@ -495,9 +495,17 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   </div>
                 </div>
 
-                {/* Tarefas: grade cheia (atual) ou lista minimizada (passadas) */}
+                {/* Tarefas: grade cheia (atual) ou lista minimizada (passadas).
+                    No avanço, o novo espaço de foco abre DEPOIS do check (delay),
+                    e as antigas se minimizam logo em seguida — dá a sensação de
+                    "percorreu o caminho, concluiu, e então abriu o novo foco". */}
                 {e.status === "atual" ? (
-                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <motion.div
+                    className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5"
+                    initial={recemAvancado?.nova === e.id ? { opacity: 0, y: 14 } : false}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 1.0 : 0 }}
+                  >
                     {(e.tasks ?? []).map((t) => (
                       <TaskCard key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
                     ))}
@@ -510,18 +518,28 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                       </span>
                       <span className="text-xs font-medium">Adicionar tarefa</span>
                     </button>
-                  </div>
+                  </motion.div>
                 ) : temTasks ? (
-                  <div className="mt-3 space-y-1.5">
+                  <motion.div
+                    className="mt-3 space-y-1.5"
+                    initial={recemAvancado?.concluida === e.id ? { opacity: 0, scale: 0.98 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.9 : 0 }}
+                  >
                     {(e.tasks ?? []).map((t) => (
                       <TaskMini key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
                     ))}
-                  </div>
+                  </motion.div>
                 ) : null}
 
                 {/* Status: aguardando (piscante) — logo após as tarefas */}
                 {e.status === "atual" && (
-                  <div className="mt-4 flex justify-center">
+                  <motion.div
+                    className="mt-4 flex justify-center"
+                    initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 1.15 : 0 }}
+                  >
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
                       <SelectTrigger
                         className={cn(
@@ -536,16 +554,21 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                         {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </div>
+                  </motion.div>
                 )}
 
                 {/* Avançar etapa — mais abaixo, com respiro do status */}
                 {e.status === "atual" && (
-                  <div className="mt-8 flex justify-center">
+                  <motion.div
+                    className="mt-8 flex justify-center"
+                    initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 1.25 : 0 }}
+                  >
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
                       <ArrowRight className="h-4 w-4" /> Avançar etapa
                     </Button>
-                  </div>
+                  </motion.div>
                 )}
               </div>
             </motion.div>
