@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-  Plus, Search, Eye, Trash2, X, FileText, Activity, ListChecks, Gavel,
-  Layers, Filter, Check, ArrowRight,
+  Plus, Search, Eye, Trash2, X, FileText, ListChecks, Gavel,
+  Layers, Filter, Check, ArrowRight, PauseCircle,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -91,7 +91,7 @@ const FAIXAS = [
   { key: "m3", label: "Até 3 meses", desc: "sem mexer há 1 a 3 meses", min: 31, max: 90 },
   { key: "mais", label: "Mais de 3 meses", desc: "sem mexer há mais de 3 meses", min: 91, max: Infinity },
 ] as const;
-type FaixaKey = typeof FAIXAS[number]["key"] | "sem";
+type FaixaKey = typeof FAIXAS[number]["key"] | "sem" | "suspensos";
 
 // Colunas da lista (com filtro estilo Excel).
 const COLS = [
@@ -239,30 +239,35 @@ export default function Processos() {
     return out;
   }, [processos, colVal]);
 
-  // ── Painel (sobre todos os processos ativos) ──
-  const ativos = useMemo(() => processos.filter((p) => p.fase_processual !== "ARQUIVADO"), [processos]);
+  // ── Painel (só processos EM MOVIMENTO: exclui arquivados e suspensos, que
+  // estão parados de propósito e distorceriam a métrica de "sem mexer") ──
+  const emMovimento = useMemo(
+    () => processos.filter((p) => p.fase_processual !== "ARQUIVADO" && p.fase_processual !== "SUSPENSO"),
+    [processos],
+  );
+  const suspensos = useMemo(() => processos.filter((p) => p.fase_processual === "SUSPENSO"), [processos]);
 
   const painel = useMemo(() => {
-    const buckets: Record<FaixaKey, number> = { s1: 0, s2: 0, s3: 0, m1: 0, m3: 0, mais: 0, sem: 0 };
+    const buckets: Record<FaixaKey, number> = { s1: 0, s2: 0, s3: 0, m1: 0, m3: 0, mais: 0, sem: 0, suspensos: 0 };
     let soma = 0, comData = 0, maisAntigo = 0;
-    ativos.forEach((p) => {
+    emMovimento.forEach((p) => {
       const dias = diasDesde(p.data_ultimo_andamento);
       buckets[faixaDe(dias)] += 1;
       if (dias !== null) { soma += dias; comData += 1; maisAntigo = Math.max(maisAntigo, dias); }
     });
     return { buckets, media: comData ? Math.round(soma / comData) : 0, maisAntigo };
-  }, [ativos, diasDesde, faixaDe]);
+  }, [emMovimento, diasDesde, faixaDe]);
 
   // Curva acumulada: nº de processos com dias parados ≤ x.
   const curva = useMemo(() => {
-    const dd = ativos.map((p) => diasDesde(p.data_ultimo_andamento)).filter((d): d is number => d !== null);
+    const dd = emMovimento.map((p) => diasDesde(p.data_ultimo_andamento)).filter((d): d is number => d !== null);
     const max = Math.max(30, ...dd);
     const passo = max > 200 ? 3 : max > 90 ? 2 : 1;
     const pts: { dias: number; acum: number }[] = [];
     for (let d = 0; d <= max; d += passo) pts.push({ dias: d, acum: dd.filter((x) => x <= d).length });
     if (pts[pts.length - 1]?.dias !== max) pts.push({ dias: max, acum: dd.length });
     return pts;
-  }, [ativos, diasDesde]);
+  }, [emMovimento, diasDesde]);
 
   // Distribuição por status ordenada processualmente.
   const distStatus = useMemo(() => {
@@ -274,11 +279,13 @@ export default function Processos() {
   // Processos de uma faixa (para o modal), mais parados primeiro.
   const processosFaixa = useMemo(() => {
     if (!faixaAberta) return [];
-    return ativos
-      .filter((p) => faixaDe(diasDesde(p.data_ultimo_andamento)) === faixaAberta)
+    const base = faixaAberta === "suspensos"
+      ? suspensos
+      : emMovimento.filter((p) => faixaDe(diasDesde(p.data_ultimo_andamento)) === faixaAberta);
+    return base
       .map((p) => ({ p, dias: diasDesde(p.data_ultimo_andamento) }))
       .sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
-  }, [faixaAberta, ativos, diasDesde, faixaDe]);
+  }, [faixaAberta, emMovimento, suspensos, diasDesde, faixaDe]);
 
   const setCol = (key: ColKey, vals: string[]) =>
     setColFiltros((prev) => { const n = { ...prev }; if (vals.length) n[key] = vals; else delete n[key]; return n; });
@@ -343,11 +350,19 @@ export default function Processos() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.16em] text-primary/80">Movimentações</p>
-              <p className="text-xs text-muted-foreground mt-1">Há quanto tempo cada processo ativo está sem andamento · clique numa faixa para ver a lista</p>
+              <p className="text-xs text-muted-foreground mt-1">Há quanto tempo cada processo em movimento está sem andamento · exclui arquivados e suspensos · clique numa faixa para ver a lista</p>
             </div>
-            <span className="hidden sm:flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
-              <Activity className="h-6 w-6 text-primary" />
-            </span>
+            {/* Suspensos — métrica à parte (parados por decisão, fora da conta) */}
+            <button
+              onClick={() => setFaixaAberta("suspensos")}
+              className="shrink-0 rounded-xl border border-border/50 bg-white/[0.02] px-4 py-2.5 text-left hover:border-primary/40 hover:bg-white/[0.04] transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <PauseCircle className="h-4 w-4 text-primary/70" />
+                <span className="text-2xl font-semibold font-display tabular-nums">{suspensos.length}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">suspensos · fora da conta</p>
+            </button>
           </div>
 
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -554,10 +569,12 @@ export default function Processos() {
         <DialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              {faixaAberta === "sem" ? "Sem data de andamento" : faixaInfo?.label}
+              {faixaAberta === "sem" ? "Sem data de andamento" : faixaAberta === "suspensos" ? "Processos suspensos" : faixaInfo?.label}
             </DialogTitle>
             <DialogDescription>
-              {faixaAberta === "sem" ? "Processos ativos sem data de último andamento registrada." : faixaInfo?.desc}
+              {faixaAberta === "sem" ? "Processos em movimento sem data de último andamento registrada."
+                : faixaAberta === "suspensos" ? "Parados por decisão (fora da métrica de movimentação)."
+                  : faixaInfo?.desc}
               {" · "}{processosFaixa.length} processo(s)
             </DialogDescription>
           </DialogHeader>
