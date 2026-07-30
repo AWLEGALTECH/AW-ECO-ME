@@ -470,14 +470,24 @@ export function ProcessoTimeline({
           const last = i === etapas.length - 1;
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
           const temTasks = (e.tasks?.length ?? 0) > 0;
+          // Datas anteriores ao sistema não têm data real: exibimos "pré-sistema"
+          // sem inventar duração.
+          const inicioValido = !!parseBR(e.inicio);
+          const conclusaoValida = !!parseBR(e.conclusao);
           const sub =
             e.status === "concluida"
-              ? `iniciada em ${e.inicio ?? "sem data"} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
+              ? (inicioValido && conclusaoValida
+                  ? `iniciada em ${e.inicio} · levou ${diffDias(e.inicio, e.conclusao)} dia(s)`
+                  : "registro anterior ao sistema")
               : e.status === "atual"
-                ? `em curso desde ${e.inicio ?? "sem data"} · ${diffDias(e.inicio, hojeBR())} dia(s)`
+                ? (inicioValido
+                    ? `em curso desde ${e.inicio} · ${diffDias(e.inicio, hojeBR())} dia(s)`
+                    : "em curso")
                 : e.status === "pulada"
                   ? "etapa pulada"
-                  : `prazo-alvo de ${e.prazoAlvoDias ?? 0} dias`;
+                  : e.prazoAlvoDias
+                    ? `prazo-alvo de ${e.prazoAlvoDias} dias`
+                    : "etapa futura";
 
           return (
             <motion.div

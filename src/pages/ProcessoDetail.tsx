@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { parseMoneyBR } from "@/lib/money";
@@ -127,27 +127,6 @@ function capaParaMateria(materia?: string | null): { src: string; nome: string }
   return undefined;
 }
 
-// SIMULAÇÃO — etapas cravadas por MATÉRIA (enquanto não vem do banco). Todo
-// processo com essa matéria exibe a timeline pra validarmos o formato.
-const TIMELINE_POR_MATERIA: Record<string, Etapa[]> = {
-  "BX ANT FINAN/PARC CRED/GASTOS CARTÃO": [
-    { id: "e1", titulo: "Distribuição da ação", status: "concluida", inicio: "15/02/2026", conclusao: "15/02/2026" },
-    { id: "e2", titulo: "Decisão inicial (recebimento)", status: "concluida", inicio: "15/02/2026", conclusao: "12/03/2026" },
-    { id: "e3", titulo: "Citação do réu", status: "concluida", inicio: "12/03/2026", conclusao: "02/04/2026" },
-    { id: "e4", titulo: "Contestação do Bradesco", status: "concluida", inicio: "02/04/2026", conclusao: "25/04/2026" },
-    { id: "e5", titulo: "Réplica", status: "concluida", inicio: "25/04/2026", conclusao: "20/05/2026" },
-    { id: "e6", titulo: "Saneamento do processo", status: "atual", inicio: "20/05/2026", statusProcessual: "AG. DECISÃO PROVAS" },
-    { id: "e7", titulo: "Sentença", status: "pendente", prazoAlvoDias: 90 },
-    // Fase recursal — só entra quando houver recurso; `secao` fica como gancho
-    // (metadado) pra agrupar/puxar esses atos quando existirem, sem quebrar o
-    // visual da linha.
-    { id: "e8", titulo: "Recurso de apelação", status: "pendente", prazoAlvoDias: 15, secao: "Fase recursal" },
-    { id: "e9", titulo: "Julgamento", status: "pendente", prazoAlvoDias: 120 },
-    { id: "e10", titulo: "Trânsito em julgado", status: "pendente", prazoAlvoDias: 15 },
-    { id: "e11", titulo: "Cumprimento de sentença", status: "pendente", prazoAlvoDias: 30, secao: "Cumprimento" },
-  ],
-};
-
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (d: string) => {
   if (!d) return "não informado";
@@ -195,9 +174,11 @@ export default function ProcessoDetail() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(isNew);
   const [fichaOpen, setFichaOpen] = useState(isNew);
-  // Etapas da timeline vivem aqui (estado elevado) pra alimentar o card de
-  // situação (contadores de tarefas/pendências e status). Semeadas pela matéria.
+  // Etapas da timeline vivem aqui (estado elevado): alimentam o card de situação
+  // e são carregadas/persistidas na coluna `linha_temporal` do banco.
   const [etapas, setEtapas] = useState<Etapa[]>([]);
+  // Snapshot do que já está salvo, pra não regravar no carregamento inicial.
+  const linhaSalvaRef = useRef<string>("");
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -226,6 +207,10 @@ export default function ProcessoDetail() {
       };
       setForm(f);
       setSaved(f);
+      const lt = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
+      const semeada = lt.map((e) => ({ ...e, tasks: e.tasks ?? [] }));
+      setEtapas(semeada);
+      linhaSalvaRef.current = JSON.stringify(semeada);
     }
     setLoading(false);
   }, [id, isNew]);
@@ -236,12 +221,18 @@ export default function ProcessoDetail() {
     loadProcesso();
   }, [loadClientes, loadProcesso, isNew]);
 
-  // Semeia (ou re-semeia) a timeline quando a matéria muda.
+  // Persiste a linha temporal no banco sempre que as etapas mudam (tarefa nova,
+  // pendência, avanço, status). Debounce curto; ignora se nada mudou vs o salvo.
   useEffect(() => {
-    const chave = form.materia?.trim().toUpperCase() ?? "";
-    const t = TIMELINE_POR_MATERIA[chave];
-    setEtapas(t ? t.map((e) => ({ ...e, tasks: e.tasks ?? [] })) : []);
-  }, [form.materia]);
+    if (isNew || !id) return;
+    const atual = JSON.stringify(etapas);
+    if (atual === linhaSalvaRef.current) return;
+    const t = window.setTimeout(async () => {
+      const { error } = await supabase.from("processos").update({ linha_temporal: etapas }).eq("id", id);
+      if (!error) linhaSalvaRef.current = atual;
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [etapas, id, isNew]);
 
   const handleSave = async () => {
     if (!form.numero_processo.trim()) { toast.error("Número do processo é obrigatório"); return; }
@@ -321,19 +312,17 @@ export default function ProcessoDetail() {
   const clienteSelecionado = clientes.find((c) => c.id === form.cliente_id);
   const valorNum = form.valor_causa ? parseMoneyBR(form.valor_causa) : 0;
   const localizacao = [form.vara_juizo_origem, form.comarca_uf].filter(Boolean).join(" · ");
-  const materiaChave = form.materia?.trim().toUpperCase() ?? "";
   const capa = capaParaMateria(form.materia);
-  const timeline = TIMELINE_POR_MATERIA[materiaChave];
 
   // ── Card de situação — dados derivados da timeline (estado elevado) ──
   const etapaAtual = etapas.find((e) => e.status === "atual");
   const statusProcValue = etapaAtual?.statusProcessual ?? form.fase_processual ?? "";
   const setStatusProc = (v: string) => {
+    // mantém timeline e ficha em sincronia: atualiza a etapa atual e o campo.
     if (etapaAtual) {
       setEtapas((prev) => prev.map((e) => (e.id === etapaAtual.id ? { ...e, statusProcessual: v } : e)));
-    } else {
-      patchProcesso({ fase_processual: v });
     }
+    patchProcesso({ fase_processual: v });
   };
   const allTasks = etapas.flatMap((e) => e.tasks ?? []);
   const nTarefas = allTasks.filter((t) => t.tipo !== "pendencia" && !t.desfecho).length;
@@ -523,10 +512,10 @@ export default function ProcessoDetail() {
 
       {/* Movimentações & demandas — timeline (simulada neste processo) */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
-        {timeline ? (
+        {etapas.length > 0 ? (
           <Card>
             <CardContent className="pt-6">
-              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} badge="Simulação" />
+              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} />
             </CardContent>
           </Card>
         ) : (
