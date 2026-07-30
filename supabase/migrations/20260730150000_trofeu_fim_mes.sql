@@ -31,8 +31,8 @@ begin
                   'Agosto','Setembro','Outubro','Novembro','Dezembro'])[extract(month from p_ref)::int];
 
   v_titulo := '🏆 Fechamento de ' || v_mes;
-  v_corpo := 'Parabéns! ' || v_rubricas || ' novas rúbricas ajuizáveis e ' || public.fn_fmt_brl(v_valor)
-             || ' em valor ajuizado no mês. 🎉';
+  v_corpo := 'Parabéns, time! ' || v_rubricas || ' novas rúbricas ajuizáveis e ' || public.fn_fmt_brl(v_valor)
+             || ' em valor ajuizado no mês.';
 
   perform net.http_post(
     url := 'https://wvltdjspytysuoybcfgb.supabase.co/functions/v1/send-trofeu',
