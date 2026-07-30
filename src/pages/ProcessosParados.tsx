@@ -5,9 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, FileText, Loader2, MapPin, User, Clock, SquareArrowOutUpRight } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, MapPin, User, Clock, SquareArrowOutUpRight, X } from "lucide-react";
 import { motion } from "framer-motion";
+import { ColunaFiltro } from "@/components/ColunaFiltro";
 import { diasSemMov, faixaDe, infoParados, type ParadoKey } from "@/lib/parados";
+
+// Colunas com filtro estilo planilha na página de parados.
+const COLS_PARADOS = [
+  { key: "cliente", label: "Cliente" },
+  { key: "materia", label: "Matéria" },
+  { key: "fase", label: "Fase" },
+  { key: "comarca", label: "Comarca" },
+  { key: "valor", label: "Valor" },
+  { key: "numero", label: "Nº" },
+] as const;
+type ColParadoKey = typeof COLS_PARADOS[number]["key"];
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -38,6 +50,7 @@ export default function ProcessosParados() {
 
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [colFiltros, setColFiltros] = useState<Record<string, string[]>>({});
 
   useEffect(() => { document.title = `${info.titulo} · AW ECO ME`; }, [info.titulo]);
 
@@ -51,15 +64,47 @@ export default function ProcessosParados() {
     })();
   }, []);
 
-  const lista = useMemo(() => {
+  const colVal: Record<ColParadoKey, (p: Processo) => string> = useMemo(() => ({
+    cliente: (p) => p.clientes?.nome ?? "não vinculado",
+    materia: (p) => p.materia ?? "—",
+    fase: (p) => p.fase_processual ?? "—",
+    comarca: (p) => p.comarca_uf ?? "—",
+    valor: (p) => fmtBRL(p.valor_causa),
+    numero: (p) => p.numero_processo,
+  }), []);
+
+  // Processos da faixa (antes dos filtros de coluna), mais parados primeiro.
+  const base = useMemo(() => {
     const emMovimento = processos.filter((p) => p.fase_processual !== "ARQUIVADO" && p.fase_processual !== "SUSPENSO");
-    let base: Processo[];
-    if (key === "suspensos") base = processos.filter((p) => p.fase_processual === "SUSPENSO");
-    else base = emMovimento.filter((p) => faixaDe(diasSemMov(p.data_ultimo_andamento)) === key);
-    return base
+    let arr: Processo[];
+    if (key === "suspensos") arr = processos.filter((p) => p.fase_processual === "SUSPENSO");
+    else arr = emMovimento.filter((p) => faixaDe(diasSemMov(p.data_ultimo_andamento)) === key);
+    return arr
       .map((p) => ({ p, dias: diasSemMov(p.data_ultimo_andamento) }))
       .sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
   }, [processos, key]);
+
+  const opcoes = useMemo(() => {
+    const out = {} as Record<ColParadoKey, string[]>;
+    COLS_PARADOS.forEach((c) => {
+      const set = new Set<string>();
+      base.forEach(({ p }) => set.add(colVal[c.key](p)));
+      out[c.key] = Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    });
+    return out;
+  }, [base, colVal]);
+
+  const setCol = (key: ColParadoKey, vals: string[]) =>
+    setColFiltros((prev) => { const n = { ...prev }; if (vals.length) n[key] = vals; else delete n[key]; return n; });
+  const nColFiltros = Object.values(colFiltros).filter((v) => v.length).length;
+
+  const lista = useMemo(() => base.filter(({ p }) => {
+    for (const c of COLS_PARADOS) {
+      const sel = colFiltros[c.key];
+      if (sel?.length && !sel.includes(colVal[c.key](p))) return false;
+    }
+    return true;
+  }), [base, colFiltros, colVal]);
 
   const resumo = useMemo(() => {
     const comData = lista.filter((x) => x.dias !== null);
@@ -110,6 +155,34 @@ export default function ProcessosParados() {
         </SpotlightCard>
       </motion.div>
 
+      {/* ── Barra de filtros (estilo planilha, por coluna) ── */}
+      {!loading && base.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.08 }}
+          className="flex items-center gap-2 flex-wrap"
+        >
+          <span className="text-xs text-muted-foreground mr-1">Filtrar:</span>
+          {COLS_PARADOS.map((c) => (
+            <ColunaFiltro
+              key={c.key}
+              chip
+              label={c.label}
+              options={opcoes[c.key]}
+              selected={colFiltros[c.key] ?? []}
+              onChange={(v) => setCol(c.key, v)}
+            />
+          ))}
+          {nColFiltros > 0 && (
+            <button onClick={() => setColFiltros({})} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-3 w-3" /> limpar ({nColFiltros})
+            </button>
+          )}
+          {nColFiltros > 0 && (
+            <span className="text-xs text-muted-foreground ml-auto">{lista.length} de {base.length}</span>
+          )}
+        </motion.div>
+      )}
+
       {/* ── Lista ── */}
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-16 justify-center">
@@ -117,7 +190,9 @@ export default function ProcessosParados() {
         </div>
       ) : lista.length === 0 ? (
         <Card className="border-dashed">
-          <div className="py-16 text-center text-muted-foreground">Nenhum processo nesta faixa.</div>
+          <div className="py-16 text-center text-muted-foreground">
+            {nColFiltros > 0 ? "Nenhum processo com esses filtros." : "Nenhum processo nesta faixa."}
+          </div>
         </Card>
       ) : (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.1 }}>
