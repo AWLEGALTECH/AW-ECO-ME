@@ -63,15 +63,61 @@ const EMPTY: ProcessoForm = {
   parceiro: "",
 };
 
-// Capa do produto do Writer por MATÉRIA. "BX ANT FINAN/PARC CRED/GASTOS CARTÃO"
-// casa com o produto "Débitos Automáticos" (rubricas GASTOS CARTÃO / PARCELA
-// CRÉDITO / BX.ANT.FINANC). Qualquer processo com essa matéria mostra a capa.
-const CAPA_POR_MATERIA: Record<string, { src: string; nome: string }> = {
-  "BX ANT FINAN/PARC CRED/GASTOS CARTÃO": {
-    src: "/processo-capas/debitos-automaticos.jpg",
-    nome: "Débitos Automáticos",
-  },
-};
+// Capas dos produtos do Writer (Bradesco). Cada processo herda a capa do
+// produto correspondente à sua MATÉRIA. Como as matérias têm dezenas de
+// variações e erros de digitação ("SAQUE TEMRINAL", "CAPTALIZAÇÃO"...), o
+// casamento é por PALAVRA-CHAVE normalizada, não por string exata.
+const CAPAS = {
+  debitos: { src: "/processo-capas/debitos-automaticos.jpg", nome: "Débitos Automáticos" },
+  tarifas: { src: "/processo-capas/tarifas-bancarias.jpg", nome: "Tarifas Bancárias" },
+  juros: { src: "/processo-capas/juros-encargos.jpg", nome: "Juros e Encargos Indevidos" },
+  prestamista: { src: "/processo-capas/seguro-prestamista.jpg", nome: "Seguro Prestamista" },
+  vidaPrev: { src: "/processo-capas/vida-previdencia.jpg", nome: "Vida e Previdência" },
+  capitalizacao: { src: "/processo-capas/titulo-capitalizacao.jpg", nome: "Título de Capitalização" },
+  cesta: { src: "/processo-capas/cesta-servicos.jpg", nome: "Cesta de Serviços" },
+  anuidade: { src: "/processo-capas/anuidade-cartao.jpg", nome: "Anuidade Cartão" },
+  cartaoProtegido: { src: "/processo-capas/seguro-cartao-protegido.jpg", nome: "Seguro Cartão Protegido" },
+} as const;
+
+// Remove acentos, sobe pra maiúsculo e colapsa espaços — deixa a matéria pronta
+// pra comparação por substring.
+const normMateria = (m?: string | null) =>
+  (m ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ") // "/", ".", "-", "+" viram espaço p/ casar rubricas
+    .replace(/\s+/g, " ")
+    .trim();
+
+// Retorna a capa do produto Bradesco correspondente à matéria — ou undefined
+// quando não há produto seguro pra associar (aí o processo fica sem capa).
+// Ordem das regras importa: da mais específica pra mais genérica.
+function capaParaMateria(materia?: string | null): { src: string; nome: string } | undefined {
+  const t = normMateria(materia);
+  if (!t) return undefined;
+  const has = (...ks: string[]) => ks.some((k) => t.includes(k));
+
+  if (has("CAPITALIZ", "CAPTALIZ")) return CAPAS.capitalizacao;
+  if (has("PRESTAMISTA")) return CAPAS.prestamista;
+  if (has("VIDA E PREVID", "PREVIDENCIA")) return CAPAS.vidaPrev;
+  if (has("CARTAO PROTEGIDO", "CREDITO PROTEGIDO") || (t.includes("SEGURO") && t.includes("CARTAO")))
+    return CAPAS.cartaoProtegido;
+  if (has("ANUIDADE")) return CAPAS.anuidade;
+  if (has("CESTA", "PACOTE")) return CAPAS.cesta;
+  if (has("SAQUE TERMINAL", "SAQUE TEMRINAL", "EMISSAO EXTRATO", "EXTRATO MOVIMENTO")) return CAPAS.tarifas;
+  if (has("MORA", "ENCARGO") || (t.includes("JUROS") && t.includes("ABUSIV"))) return CAPAS.juros;
+  if (
+    has(
+      "BX ANT", "BX.ANT", "BXANT", "ANT FINAN", "ANTECIPACAO FINAN",
+      "PARC CRED", "PARCELA CRED", "PARCELA DE CRED", "PARCELA CREDITO",
+      "GASTOS CARTAO", "GASTOS COM CARTAO", "GASTOS DE CARTAO", "ADIANT",
+    )
+  )
+    return CAPAS.debitos;
+
+  return undefined;
+}
 
 // SIMULAÇÃO — etapas cravadas por MATÉRIA (enquanto não vem do banco). Todo
 // processo com essa matéria exibe a timeline pra validarmos o formato.
@@ -237,7 +283,7 @@ export default function ProcessoDetail() {
   const valorNum = form.valor_causa ? parseMoneyBR(form.valor_causa) : 0;
   const localizacao = [form.vara_juizo_origem, form.comarca_uf].filter(Boolean).join(" · ");
   const materiaChave = form.materia?.trim().toUpperCase() ?? "";
-  const capa = CAPA_POR_MATERIA[materiaChave];
+  const capa = capaParaMateria(form.materia);
   const timeline = TIMELINE_POR_MATERIA[materiaChave];
 
   return (
