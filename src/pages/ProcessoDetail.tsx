@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
-import { ProcessoTimeline, type Etapa } from "@/components/ProcessoTimeline";
+import {
+  ProcessoTimeline, STATUS_PROCESSUAIS, ICONE_TIPO, LABEL_TIPO, type Etapa,
+} from "@/components/ProcessoTimeline";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -18,11 +20,17 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { ptBR } from "date-fns/locale";
+import { motion } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
   FileText, MapPin, User, SquareArrowOutUpRight, Package,
+  Handshake, Activity, ListTodo, Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -146,6 +154,14 @@ const fmtData = (d: string) => {
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
 };
+const ymdToDate = (s?: string): Date | undefined => {
+  if (!s) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return undefined;
+  return new Date(y, m - 1, d);
+};
+const dateToYmd = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /* Linha da tabela read-only (rótulo → valor). */
 function Row({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
@@ -178,6 +194,10 @@ export default function ProcessoDetail() {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(isNew);
+  const [fichaOpen, setFichaOpen] = useState(isNew);
+  // Etapas da timeline vivem aqui (estado elevado) pra alimentar o card de
+  // situação (contadores de tarefas/pendências e status). Semeadas pela matéria.
+  const [etapas, setEtapas] = useState<Etapa[]>([]);
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -215,6 +235,13 @@ export default function ProcessoDetail() {
     loadClientes();
     loadProcesso();
   }, [loadClientes, loadProcesso, isNew]);
+
+  // Semeia (ou re-semeia) a timeline quando a matéria muda.
+  useEffect(() => {
+    const chave = form.materia?.trim().toUpperCase() ?? "";
+    const t = TIMELINE_POR_MATERIA[chave];
+    setEtapas(t ? t.map((e) => ({ ...e, tasks: e.tasks ?? [] })) : []);
+  }, [form.materia]);
 
   const handleSave = async () => {
     if (!form.numero_processo.trim()) { toast.error("Número do processo é obrigatório"); return; }
@@ -261,6 +288,18 @@ export default function ProcessoDetail() {
     setEditing(false);
   };
 
+  // Edição rápida (inline) de um campo direto no card de situação, persistindo
+  // só aquele campo. String vazia vira null no banco.
+  const patchProcesso = async (patch: Partial<Pick<ProcessoForm, "data_ultimo_andamento" | "fase_processual">>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    if (isNew || !id) return;
+    const dbPatch: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(patch)) dbPatch[k] = v ? v : null;
+    const { error } = await supabase.from("processos").update(dbPatch).eq("id", id);
+    if (error) { toast.error("Não foi possível salvar a alteração"); return; }
+    setSaved((s) => ({ ...s, ...patch }));
+  };
+
   const copiarNumero = async () => {
     if (!form.numero_processo) return;
     try {
@@ -286,6 +325,20 @@ export default function ProcessoDetail() {
   const capa = capaParaMateria(form.materia);
   const timeline = TIMELINE_POR_MATERIA[materiaChave];
 
+  // ── Card de situação — dados derivados da timeline (estado elevado) ──
+  const etapaAtual = etapas.find((e) => e.status === "atual");
+  const statusProcValue = etapaAtual?.statusProcessual ?? form.fase_processual ?? "";
+  const setStatusProc = (v: string) => {
+    if (etapaAtual) {
+      setEtapas((prev) => prev.map((e) => (e.id === etapaAtual.id ? { ...e, statusProcessual: v } : e)));
+    } else {
+      patchProcesso({ fase_processual: v });
+    }
+  };
+  const allTasks = etapas.flatMap((e) => e.tasks ?? []);
+  const nTarefas = allTasks.filter((t) => t.tipo !== "pendencia" && !t.desfecho).length;
+  const nPendencias = allTasks.filter((t) => t.tipo === "pendencia" && !t.desfecho).length;
+
   return (
     <div className="space-y-5">
       {/* ── Barra de ações ── */}
@@ -293,21 +346,9 @@ export default function ProcessoDetail() {
         <Button variant="ghost" onClick={() => navigate("/processos")} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Button>
-        {editing ? (
-          <div className="flex items-center gap-2">
-            {!isNew && (
-              <Button variant="ghost" onClick={cancelarEdicao} disabled={saving}>Cancelar</Button>
-            )}
-            <Button onClick={handleSave} disabled={saving} className="gap-2">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {saving ? "Salvando…" : "Salvar"}
-            </Button>
-          </div>
-        ) : (
-          <Button variant="outline" onClick={() => setEditing(true)} className="gap-2">
-            <Pencil className="h-4 w-4" /> Editar
-          </Button>
-        )}
+        <Button variant="outline" onClick={() => setFichaOpen(true)} className="gap-2">
+          <Pencil className="h-4 w-4" /> Editar
+        </Button>
       </div>
 
       {/* ── HERO — identidade estática do processo ── */}
@@ -367,6 +408,13 @@ export default function ProcessoDetail() {
                 </Link>
               )}
             </div>
+
+            {form.parceiro && (
+              <div className="flex items-center gap-2 text-[15px] min-w-0">
+                <Handshake className="h-4 w-4 text-primary/70 shrink-0" />
+                <span className="font-medium truncate">Parceria com {form.parceiro}</span>
+              </div>
+            )}
           </div>
 
           {/* Valor da causa — destaque em verde, abaixo das infos */}
@@ -380,29 +428,141 @@ export default function ProcessoDetail() {
       </SpotlightCard>
       </motion.div>
 
-      {/* ── Informações do processo — tabela read-only / edição via lápis ── */}
+      {/* ── Situação atual — infos prioritárias (1 e 2 editáveis) + ícones das tarefas ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}>
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-2 pb-3">
+        <CardHeader className="pb-3">
           <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">
-            Informações do processo
+            Situação atual
           </CardTitle>
-          {!editing && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="gap-1.5 h-8 text-muted-foreground hover:text-foreground">
-              <Pencil className="h-3.5 w-3.5" /> Editar
-            </Button>
-          )}
         </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* 1. Última movimentação — editável (calendário) */}
+            <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <History className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-[10px] uppercase tracking-wider">Última movimentação</span>
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="mt-1.5 text-sm font-semibold tabular-nums text-left hover:text-primary transition-colors">
+                    {form.data_ultimo_andamento ? fmtData(form.data_ultimo_andamento) : "definir"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    locale={ptBR}
+                    selected={ymdToDate(form.data_ultimo_andamento)}
+                    onSelect={(d) => patchProcesso({ data_ultimo_andamento: d ? dateToYmd(d) : "" })}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
 
-        <CardContent>
-          <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={editing ? "edit" : "view"}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: EASE }}
-          >
+            {/* 2. Status processual — editável (segue o status da etapa atual) */}
+            <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Activity className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-[10px] uppercase tracking-wider">Status processual</span>
+              </div>
+              <Select value={statusProcValue} onValueChange={setStatusProc}>
+                <SelectTrigger className="mt-1 h-auto border-0 bg-transparent shadow-none px-0 py-0 text-sm font-semibold text-primary focus:ring-0 focus:ring-offset-0 [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:opacity-50">
+                  <SelectValue placeholder="definir" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 3. Tarefas pendentes (ação + monitoramento em aberto) */}
+            <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <ListTodo className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-[10px] uppercase tracking-wider">Tarefas pendentes</span>
+              </div>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{nTarefas}</p>
+            </div>
+
+            {/* 4. Pendências (documentos/providências em aberto) */}
+            <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Paperclip className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-[10px] uppercase tracking-wider">Pendências</span>
+              </div>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{nPendencias}</p>
+            </div>
+          </div>
+
+          {/* Ícones minimizados de cada tarefa do processo */}
+          {allTasks.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-3">
+              {allTasks.map((t) => {
+                const TaskIcon = ICONE_TIPO[t.tipo];
+                return (
+                  <span
+                    key={t.id}
+                    title={`${LABEL_TIPO[t.tipo]}: ${t.titulo}`}
+                    className={cn(
+                      "h-7 w-7 rounded-lg grid place-items-center ring-1 shrink-0",
+                      t.desfecho ? "bg-white/[0.02] ring-white/10 opacity-50" : "bg-primary/10 ring-primary/20",
+                    )}
+                  >
+                    <TaskIcon className={cn("h-3.5 w-3.5", t.desfecho ? "text-muted-foreground" : "text-primary")} />
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      </motion.div>
+
+      {/* Movimentações & demandas — timeline (simulada neste processo) */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
+        {timeline ? (
+          <Card>
+            <CardContent className="pt-6">
+              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} badge="Simulação" />
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-dashed">
+            <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
+                <History className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Movimentações & demandas</p>
+                <p className="text-xs">As informações móveis do processo (andamentos, prazos e demandas) chegam na próxima atualização.</p>
+              </div>
+              <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
+            </CardContent>
+          </Card>
+        )}
+      </motion.div>
+
+      {/* ── Ficha completa do processo — ver e editar (popzão) ── */}
+      <Dialog open={fichaOpen} onOpenChange={(o) => { setFichaOpen(o); if (!o && editing && !isNew) cancelarEdicao(); }}>
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Ficha do processo</DialogTitle>
+            <DialogDescription>
+              {editing ? "Edite os campos e salve as alterações." : "Todos os dados do processo."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!editing && (
+            <div className="flex justify-end -mt-1">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" /> Editar
+              </Button>
+            </div>
+          )}
+
           {editing ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Nº do Processo *">
@@ -469,7 +629,7 @@ export default function ProcessoDetail() {
                 <Input inputMode="decimal" value={form.valor_causa} onChange={(e) => setForm({ ...form, valor_causa: e.target.value })} placeholder="0,00" />
               </Field>
               <Field label="Parceiro">
-                <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} />
+                <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} placeholder="Nome do parceiro" />
               </Field>
               <Field label="Observações" full>
                 <Textarea rows={4} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Anotações internas sobre o processo…" />
@@ -494,35 +654,18 @@ export default function ProcessoDetail() {
               </Row>
             </div>
           )}
-          </motion.div>
-          </AnimatePresence>
-        </CardContent>
-      </Card>
-      </motion.div>
 
-      {/* Movimentações & demandas — timeline (simulada neste processo) */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
-        {timeline ? (
-          <Card>
-            <CardContent className="pt-6">
-              <ProcessoTimeline etapas={timeline} badge="Simulação" />
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-dashed">
-            <CardContent className="flex items-center gap-3 py-5 text-muted-foreground">
-              <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
-                <History className="h-4 w-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">Movimentações & demandas</p>
-                <p className="text-xs">As informações móveis do processo (andamentos, prazos e demandas) chegam na próxima atualização.</p>
-              </div>
-              <span className="ml-auto text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-1 shrink-0">Em breve</span>
-            </CardContent>
-          </Card>
-        )}
-      </motion.div>
+          {editing && (
+            <DialogFooter>
+              {!isNew && <Button variant="ghost" onClick={cancelarEdicao} disabled={saving}>Cancelar</Button>}
+              <Button onClick={handleSave} disabled={saving} className="gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {saving ? "Salvando…" : "Salvar"}
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

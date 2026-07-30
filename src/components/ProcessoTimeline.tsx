@@ -1,10 +1,10 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,8 +32,24 @@ export const STATUS_PROCESSUAIS: string[] = [
   "COMPARECER AO FÓRUM", "AG. REAJUIZAMENTO", "REAJUIZAR", "SUSPENSO", "ARQUIVADO",
 ];
 
-export type TaskTipo = "acao" | "monitoramento";
+export type TaskTipo = "acao" | "monitoramento" | "pendencia";
 export type TaskDesfecho = "concluido" | "perdido" | "cancelado";
+
+// Ícone e rótulo por tipo de tarefa (⚡ ação · 👁 monitoramento · 📎 pendência),
+// sempre na cor do tema.
+export const ICONE_TIPO = { acao: Zap, monitoramento: Eye, pendencia: Paperclip } as const;
+export const LABEL_TIPO = { acao: "Ação", monitoramento: "Monitoramento", pendencia: "Pendência" } as const;
+
+// Pendências mais comuns oferecidas na caixa de seleção (documentos/providências
+// que costumam faltar). No fim, o usuário ainda adiciona uma personalizada.
+export const PENDENCIAS_COMUNS = [
+  "Comprovante de residência",
+  "Comprovante de renda",
+  "Contrato",
+  "Procuração assinada",
+  "Documento com foto (RG/CNH)",
+  "Extrato bancário",
+] as const;
 
 export interface Task {
   id: string;
@@ -146,7 +162,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 // Card da tarefa: estética premium do dash, ícone na cor do tema, clicável.
 function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
-  const Icon = task.tipo === "acao" ? Zap : Eye;
+  const Icon = ICONE_TIPO[task.tipo];
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
   const DIcon = d?.icon;
   const prazo = prazoInfo(task.prazo);
@@ -166,7 +182,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
         {d && DIcon && <DIcon className={cn("h-5 w-5", d.text)} />}
       </div>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">
-        {task.tipo === "acao" ? "Ação" : "Monitoramento"}
+        {LABEL_TIPO[task.tipo]}
       </p>
       <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{task.titulo}</p>
       {task.conteudo && <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{task.conteudo}</p>}
@@ -176,9 +192,9 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
             <DIcon className="h-3 w-3" /> {d.label}
           </span>
         ) : (
-          <StatusChip status={task.status} />
+          <StatusChip status={task.tipo === "pendencia" ? "Pendente" : task.status} />
         )}
-        {!d && (
+        {!d && task.tipo !== "pendencia" && (
           <p className={cn("flex items-center gap-1.5 text-[11px] leading-snug", prazo.cls)}>
             <CalendarDays className="h-3 w-3 shrink-0" /> {prazo.label}
           </p>
@@ -190,7 +206,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
 
 // Versão minimizada da tarefa (etapas passadas) — ocupa pouco espaço.
 function TaskMini({ task, onClick }: { task: Task; onClick: () => void }) {
-  const Icon = task.tipo === "acao" ? Zap : Eye;
+  const Icon = ICONE_TIPO[task.tipo];
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
   const DIcon = d?.icon;
   return (
@@ -213,13 +229,24 @@ function TaskMini({ task, onClick }: { task: Task; onClick: () => void }) {
 
 const DRAFT_VAZIO = { titulo: "", conteudo: "", prazo: "", status: "" };
 
-export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Etapa[]; badge?: string }) {
-  const [etapas, setEtapas] = useState<Etapa[]>(() => etapasIniciais.map((e) => ({ ...e, tasks: e.tasks ?? [] })));
+export function ProcessoTimeline({
+  etapas,
+  setEtapas,
+  badge,
+}: {
+  etapas: Etapa[];
+  setEtapas: Dispatch<SetStateAction<Etapa[]>>;
+  badge?: string;
+}) {
   const [ordem, setOrdem] = useState(1);
 
   const [tipoDialog, setTipoDialog] = useState<string | null>(null);
   const [detalhe, setDetalhe] = useState<{ etapaId: string; tipo: TaskTipo } | null>(null);
   const [draft, setDraft] = useState(DRAFT_VAZIO);
+  // Estado da pendência (multi-seleção de documentos comuns + personalizadas).
+  const [pendSel, setPendSel] = useState<string[]>([]);
+  const [pendExtra, setPendExtra] = useState<string[]>([]);
+  const [pendInput, setPendInput] = useState("");
 
   const [desfechoTask, setDesfechoTask] = useState<Task | null>(null);
   const [desfechoDraft, setDesfechoDraft] = useState<{ desfecho: TaskDesfecho | ""; obs: string }>({ desfecho: "", obs: "" });
@@ -234,6 +261,42 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setDetalhe({ etapaId: tipoDialog, tipo });
     setTipoDialog(null);
     setDraft(DRAFT_VAZIO);
+    setPendSel([]);
+    setPendExtra([]);
+    setPendInput("");
+  };
+
+  const togglePend = (doc: string) =>
+    setPendSel((prev) => (prev.includes(doc) ? prev.filter((x) => x !== doc) : [...prev, doc]));
+  const addPendExtra = () => {
+    const v = pendInput.trim();
+    if (!v) return;
+    if (![...PENDENCIAS_COMUNS, ...pendExtra].some((x) => x.toLowerCase() === v.toLowerCase()))
+      setPendExtra((prev) => [...prev, v]);
+    setPendInput("");
+  };
+  const removerPendExtra = (doc: string) => setPendExtra((prev) => prev.filter((x) => x !== doc));
+
+  // Cria uma pendência por documento selecionado. Pendência NÃO altera o status
+  // processual da etapa (é providência interna, não andamento do juízo).
+  const criarPendencias = () => {
+    if (!detalhe) return;
+    const docs = [...pendSel, ...pendExtra].map((s) => s.trim()).filter(Boolean);
+    if (!docs.length) return;
+    const base = ordem;
+    const novas: Task[] = docs.map((doc, i) => ({
+      id: `t${base + i}`, ordem: base + i, tipo: "pendencia",
+      titulo: doc, conteudo: "", prazo: "", status: "Pendente",
+    }));
+    setEtapas((prev) => prev.map((e) => (
+      e.id === detalhe.etapaId ? { ...e, tasks: [...(e.tasks ?? []), ...novas] } : e
+    )));
+    setOrdem((o) => o + docs.length);
+    dispararPop(Paperclip, docs.length === 1 ? "Pendência adicionada" : `${docs.length} pendências adicionadas`, "bg-primary/15 text-primary ring-primary/30");
+    setDetalhe(null);
+    setPendSel([]);
+    setPendExtra([]);
+    setPendInput("");
   };
 
   const criarTask = () => {
@@ -391,7 +454,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
       {/* Cabeçalho */}
       <div className="flex items-baseline justify-between gap-3 mb-5">
         <h3 className="font-display text-lg font-medium tracking-tight flex items-center gap-2">
-          Linha do tempo do processo
+          Linha do tempo &amp; Tarefas
           {badge && (
             <span className="text-[10px] uppercase tracking-wider bg-primary/10 text-primary rounded-full px-2 py-0.5 font-sans font-normal">
               {badge}
@@ -597,24 +660,29 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
             <DialogTitle>Nova tarefa</DialogTitle>
             <DialogDescription>Escolha o tipo. Isso muda como a tarefa é acompanhada.</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            {(["acao", "monitoramento"] as const).map((tp) => (
-              <button
-                key={tp}
-                onClick={() => escolherTipo(tp)}
-                className="group flex flex-col items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] hover:border-primary/50 hover:bg-primary/[0.06] p-5 transition-all hover:-translate-y-0.5"
-              >
-                <span className="h-12 w-12 rounded-2xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                  {tp === "acao" ? <Zap className="h-6 w-6 text-primary" /> : <Eye className="h-6 w-6 text-primary" />}
-                </span>
-                <span className="text-sm font-medium">{tp === "acao" ? "Ação" : "Monitoramento"}</span>
-                <span className="text-[11px] text-muted-foreground text-center leading-snug">
-                  {tp === "acao"
-                    ? "Algo que a gente precisa fazer: protocolar, peticionar, juntar documento."
-                    : "Só acompanhar ou aguardar um ato, sem ação nossa imediata."}
-                </span>
-              </button>
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(["acao", "monitoramento", "pendencia"] as const).map((tp) => {
+              const TipoIcon = ICONE_TIPO[tp];
+              const desc =
+                tp === "acao"
+                  ? "Algo que a gente precisa fazer: protocolar, peticionar, juntar documento."
+                  : tp === "monitoramento"
+                    ? "Só acompanhar ou aguardar um ato, sem ação nossa imediata."
+                    : "Um documento ou providência que falta: procuração, contrato, comprovante.";
+              return (
+                <button
+                  key={tp}
+                  onClick={() => escolherTipo(tp)}
+                  className="group flex flex-col items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] hover:border-primary/50 hover:bg-primary/[0.06] p-5 transition-all hover:-translate-y-0.5"
+                >
+                  <span className="h-12 w-12 rounded-2xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                    <TipoIcon className="h-6 w-6 text-primary" />
+                  </span>
+                  <span className="text-sm font-medium">{LABEL_TIPO[tp]}</span>
+                  <span className="text-[11px] text-muted-foreground text-center leading-snug">{desc}</span>
+                </button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
@@ -625,58 +693,127 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                {detalhe?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
+                {detalhe && (() => { const I = ICONE_TIPO[detalhe.tipo]; return <I className="h-4 w-4 text-primary" />; })()}
               </span>
-              Nova {detalhe?.tipo === "acao" ? "ação" : "tarefa de monitoramento"}
+              {detalhe?.tipo === "acao" ? "Nova ação" : detalhe?.tipo === "monitoramento" ? "Nova tarefa de monitoramento" : "Novas pendências"}
             </DialogTitle>
-            <DialogDescription>Preencha os detalhes. O status vira o que o processo passa a aguardar.</DialogDescription>
+            <DialogDescription>
+              {detalhe?.tipo === "pendencia"
+                ? "Marque os documentos ou providências que faltam. Cada item vira uma pendência."
+                : "Preencha os detalhes. O status vira o que o processo passa a aguardar."}
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <Field label="Título" hint="Um resumo curto. Ex.: “Protocolar réplica”, “Acompanhar decisão de provas”.">
-              <Input value={draft.titulo} onChange={(ev) => setDraft((d) => ({ ...d, titulo: ev.target.value }))} placeholder="Título da tarefa" />
-            </Field>
+          {detalhe?.tipo === "pendencia" ? (
+            <>
+              <div className="space-y-4">
+                <Field label="Pendências mais comuns" hint="Marque quantas precisar. Cada uma vira um card que você resolve depois.">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {PENDENCIAS_COMUNS.map((doc) => {
+                      const ativo = pendSel.includes(doc);
+                      return (
+                        <button
+                          key={doc}
+                          type="button"
+                          onClick={() => togglePend(doc)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all",
+                            ativo ? "border-primary/50 bg-primary/[0.06]" : "border-white/[0.08] bg-white/[0.02] hover:border-primary/30",
+                          )}
+                        >
+                          <span className={cn("h-5 w-5 rounded-md grid place-items-center shrink-0 ring-1", ativo ? "bg-primary/20 ring-primary/40" : "ring-white/15")}>
+                            {ativo && <Check className="h-3 w-3 text-primary" strokeWidth={3} />}
+                          </span>
+                          <span className="text-sm">{doc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
 
-            <Field label="Descrição" hint="Detalhe o que precisa ser feito, com referências (peças, prazos, links).">
-              <Textarea value={draft.conteudo} onChange={(ev) => setDraft((d) => ({ ...d, conteudo: ev.target.value }))} placeholder="Sobre a tarefa…" rows={3} />
-            </Field>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Prazo" hint="Data limite da tarefa. A contagem regressiva no card usa essa data.">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !draft.prazo && "text-muted-foreground")}>
-                      <CalendarDays className="h-4 w-4" />
-                      {prazoDate ? format(prazoDate, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      locale={ptBR}
-                      selected={prazoDate}
-                      onSelect={(date) => setDraft((d) => ({ ...d, prazo: date ? dateToYmd(date) : "" }))}
-                      initialFocus
+                <Field label="Adicionar personalizada" hint="Alguma pendência específica deste processo? Escreva e adicione.">
+                  <div className="flex gap-2">
+                    <Input
+                      value={pendInput}
+                      onChange={(e) => setPendInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPendExtra(); } }}
+                      placeholder="Ex.: Laudo médico, boletim de ocorrência…"
                     />
-                  </PopoverContent>
-                </Popover>
-              </Field>
+                    <Button type="button" variant="outline" onClick={addPendExtra} disabled={!pendInput.trim()} className="shrink-0 gap-1.5">
+                      <Plus className="h-4 w-4" /> Adicionar
+                    </Button>
+                  </div>
+                  {pendExtra.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {pendExtra.map((doc) => (
+                        <span key={doc} className="inline-flex items-center gap-1 rounded-full bg-primary/12 text-primary ring-1 ring-primary/25 px-2.5 py-1 text-xs">
+                          {doc}
+                          <button type="button" onClick={() => removerPendExtra(doc)} className="hover:text-foreground" aria-label="Remover">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Field>
+              </div>
 
-              <Field label="Status processual" hint="O que o processo passa a aguardar. Vira o status que pisca na etapa atual.">
-                <Select value={draft.status} onValueChange={(v) => setDraft((d) => ({ ...d, status: v }))}>
-                  <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório" /></SelectTrigger>
-                  <SelectContent>
-                    {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setDetalhe(null)}>Cancelar</Button>
+                <Button disabled={pendSel.length + pendExtra.length === 0} onClick={criarPendencias}>
+                  {pendSel.length + pendExtra.length > 1 ? `Criar ${pendSel.length + pendExtra.length} pendências` : "Criar pendência"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <Field label="Título" hint="Um resumo curto. Ex.: “Protocolar réplica”, “Acompanhar decisão de provas”.">
+                  <Input value={draft.titulo} onChange={(ev) => setDraft((d) => ({ ...d, titulo: ev.target.value }))} placeholder="Título da tarefa" />
+                </Field>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setDetalhe(null)}>Cancelar</Button>
-            <Button disabled={!draft.titulo.trim() || !draft.status} onClick={criarTask}>Criar tarefa</Button>
-          </DialogFooter>
+                <Field label="Descrição" hint="Detalhe o que precisa ser feito, com referências (peças, prazos, links).">
+                  <Textarea value={draft.conteudo} onChange={(ev) => setDraft((d) => ({ ...d, conteudo: ev.target.value }))} placeholder="Sobre a tarefa…" rows={3} />
+                </Field>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Prazo" hint="Data limite da tarefa. A contagem regressiva no card usa essa data.">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !draft.prazo && "text-muted-foreground")}>
+                          <CalendarDays className="h-4 w-4" />
+                          {prazoDate ? format(prazoDate, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          locale={ptBR}
+                          selected={prazoDate}
+                          onSelect={(date) => setDraft((d) => ({ ...d, prazo: date ? dateToYmd(date) : "" }))}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </Field>
+
+                  <Field label="Status processual" hint="O que o processo passa a aguardar. Vira o status que pisca na etapa atual.">
+                    <Select value={draft.status} onValueChange={(v) => setDraft((d) => ({ ...d, status: v }))}>
+                      <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório" /></SelectTrigger>
+                      <SelectContent>
+                        {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setDetalhe(null)}>Cancelar</Button>
+                <Button disabled={!draft.titulo.trim() || !draft.status} onClick={criarTask}>Criar tarefa</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -686,7 +823,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                {desfechoTask?.tipo === "acao" ? <Zap className="h-4 w-4 text-primary" /> : <Eye className="h-4 w-4 text-primary" />}
+                {desfechoTask && (() => { const I = ICONE_TIPO[desfechoTask.tipo]; return <I className="h-4 w-4 text-primary" />; })()}
               </span>
               <span className="truncate">{desfechoTask?.titulo}</span>
             </DialogTitle>
@@ -829,7 +966,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               </div>
               <div className="space-y-2 max-h-[42vh] overflow-y-auto pr-1">
                 {tasksAbertas.map((t) => {
-                  const Icon = t.tipo === "acao" ? Zap : Eye;
+                  const Icon = ICONE_TIPO[t.tipo];
                   const levar = migrar.includes(t.id);
                   return (
                     <div key={t.id} className={cn("rounded-xl border p-2.5", levar ? "border-primary/40 bg-primary/[0.05]" : "border-white/[0.08] bg-white/[0.02]")}>
