@@ -31,7 +31,7 @@ begin
                   'Agosto','Setembro','Outubro','Novembro','Dezembro'])[extract(month from p_ref)::int];
 
   v_titulo := '🏆 Fechamento de ' || v_mes;
-  v_corpo := v_rubricas || ' novas rúbricas ajuizadas e ' || public.fn_fmt_brl(v_valor)
+  v_corpo := 'Parabéns! ' || v_rubricas || ' novas rúbricas ajuizáveis e ' || public.fn_fmt_brl(v_valor)
              || ' em valor ajuizado no mês. 🎉';
 
   perform net.http_post(
