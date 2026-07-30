@@ -222,18 +222,23 @@ export default function ProcessoDetail() {
       const sr = sent as { valor?: number; data_sentenca?: string; honorarios?: number | null; observacoes?: string | null } | null;
       if (sr) {
         const idx = base.findIndex((e) => e.titulo === "Sentença");
+        // Ter sentença NÃO conclui a milestone sozinho: ela vira a etapa atual
+        // (com o card) e as seguintes voltam a pendente — só o usuário avança
+        // (recurso/trânsito). Só aplica se ainda não há card registrado.
         if (idx >= 0 && !base[idx].sentenca) {
-          const inj: Etapa = {
-            ...base[idx],
-            sentenca: {
-              resultado: "procedente",
-              valor: Number(sr.valor) || 0,
-              data: sr.data_sentenca ?? "",
-              honorarios: sr.honorarios != null ? Number(sr.honorarios) : undefined,
-              obs: sr.observacoes ?? undefined,
-            },
+          const dataBR = sr.data_sentenca ? sr.data_sentenca.split("-").reverse().join("/") : undefined;
+          const sentenca: SentencaEtapa = {
+            resultado: "procedente",
+            valor: Number(sr.valor) || 0,
+            data: sr.data_sentenca ?? "",
+            honorarios: sr.honorarios != null ? Number(sr.honorarios) : undefined,
+            obs: sr.observacoes ?? undefined,
           };
-          semeada = base.map((e, i) => (i === idx ? inj : e));
+          semeada = base.map((e, i) => {
+            if (i < idx) return { ...e, status: "concluida" as const, inicio: e.inicio ?? "pré-sistema", conclusao: e.conclusao ?? "pré-sistema" };
+            if (i === idx) return { ...e, status: "atual" as const, inicio: dataBR ?? e.inicio ?? "pré-sistema", conclusao: undefined, statusProcessual: undefined, sentenca };
+            return { ...e, status: "pendente" as const, inicio: undefined, conclusao: undefined, statusProcessual: undefined };
+          });
         }
       }
       setEtapas(semeada);
