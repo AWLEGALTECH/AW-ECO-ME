@@ -324,6 +324,19 @@ export default function ProcessoDetail() {
     }
     patchProcesso({ fase_processual: v });
   };
+  // Dias no status atual — contados da última movimentação (não guardamos a data
+  // exata em que o processo entrou no status).
+  const diasNoStatus = (() => {
+    const base = ymdToDate(form.data_ultimo_andamento);
+    if (!base) return null;
+    base.setHours(0, 0, 0, 0);
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((hoje.getTime() - base.getTime()) / 86400000));
+  })();
+  const textoDias =
+    diasNoStatus === null ? null
+      : diasNoStatus === 0 ? "há menos de 1 dia"
+        : diasNoStatus === 1 ? "há 1 dia" : `há ${diasNoStatus} dias`;
   const allTasks = etapas.flatMap((e) => e.tasks ?? []);
   const nTarefas = allTasks.filter((t) => t.tipo !== "pendencia" && !t.desfecho).length;
   const nPendencias = allTasks.filter((t) => t.tipo === "pendencia" && !t.desfecho).length;
@@ -465,6 +478,9 @@ export default function ProcessoDetail() {
                   {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {textoDias && (
+                <p className="mt-1 text-[11px] text-muted-foreground">{textoDias} neste status</p>
+              )}
             </div>
 
             {/* 3. Tarefas pendentes (ação + monitoramento em aberto) */}
