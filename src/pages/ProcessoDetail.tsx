@@ -345,7 +345,7 @@ export default function ProcessoDetail() {
     <div className="space-y-5">
       {/* ── Barra de ações ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Button variant="ghost" onClick={() => navigate("/processos")} className="gap-2">
+        <Button variant="ghost" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/processos"))} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Button>
         <Button variant="outline" onClick={() => setFichaOpen(true)} className="gap-2">
