@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -29,6 +29,7 @@ const navItems: NavItem[] = [
   { title: "Esteira",       url: "/esteira",       icon: Workflow,        module: "esteira",      badgeKey: "esteira" },
   { title: "Publicações",   url: "/publicacoes",   icon: Newspaper,       module: "publicacoes",  badgeKey: "publicacoes" },
   { title: "Processos",     url: "/processos",     icon: Briefcase,       module: "processos" },
+  { title: "Tarefas",       url: "/tarefas",       icon: ListTodo,        module: "processos" },
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
   { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },

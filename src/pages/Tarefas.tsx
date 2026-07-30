@@ -1,0 +1,286 @@
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
+import { SpotlightCard } from "@/components/SpotlightCard";
+import { Input } from "@/components/ui/input";
+import { motion } from "framer-motion";
+import { Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  ICONE_TIPO, LABEL_TIPO, DESFECHOS, prazoInfo,
+  type Task, type Etapa, type TaskTipo,
+} from "@/components/ProcessoTimeline";
+
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+// Espinha canônica do processo (mesma ordem gerada na linha temporal). As tasks
+// são distribuídas ao longo dela conforme a etapa em que se encontram.
+const ETAPAS_ORDEM = [
+  "Distribuição da ação", "Decisão inicial (recebimento)", "Citação do réu",
+  "Contestação", "Réplica", "Audiência de conciliação", "Instrução e provas",
+  "Sentença", "Recurso", "Julgamento em 2º grau", "Trânsito em julgado",
+  "Cumprimento de sentença",
+];
+const ordemEtapa = (t: string) => { const i = ETAPAS_ORDEM.indexOf(t); return i === -1 ? 99 : i; };
+
+interface Proc { id: string; numero_processo: string; linha_temporal: unknown; clientes?: { nome: string } | null }
+interface Item extends Task { etapaTitulo: string; processoId: string; processoNumero: string; clienteNome: string | null }
+
+// Chip de status na cor do tema (mesmo do card de tarefa no processo).
+function StatusChip({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 bg-primary/15 text-primary ring-primary/30 whitespace-nowrap max-w-full truncate">
+      {label}
+    </span>
+  );
+}
+
+// Card de tarefa agregada: mesma estética do processo + referência do processo.
+function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
+  const Icon = ICONE_TIPO[it.tipo];
+  const d = it.desfecho ? DESFECHOS[it.desfecho] : null;
+  const DIcon = d?.icon;
+  const prazo = it.tipo !== "pendencia" && !d ? prazoInfo(it.prazo) : null;
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "group flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-3.5 min-h-[188px]",
+        "shadow-[0_4px_20px_rgba(0,0,0,0.25)] transition-all hover:border-primary/40 hover:bg-white/[0.05] hover:-translate-y-0.5",
+        d && "opacity-75",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="h-8 w-8 rounded-xl bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0">
+          <Icon className="h-4 w-4 text-primary" />
+        </span>
+        {d && DIcon && <DIcon className={cn("h-5 w-5", d.text)} />}
+      </div>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">{LABEL_TIPO[it.tipo]}</p>
+      <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{it.titulo}</p>
+      {it.conteudo && <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{it.conteudo}</p>}
+      <div className="mt-2.5 pt-2.5 border-t border-white/[0.06] space-y-1.5">
+        {d && DIcon ? (
+          <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1", d.chip)}>
+            <DIcon className="h-3 w-3" /> {d.label}
+          </span>
+        ) : (
+          <StatusChip label={it.tipo === "pendencia" ? "Pendente" : it.status} />
+        )}
+        {prazo && (
+          <p className={cn("flex items-center gap-1.5 text-[11px] leading-snug", prazo.cls)}>
+            <CalendarDays className="h-3 w-3 shrink-0" /> {prazo.label}
+          </p>
+        )}
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground pt-0.5">
+          <FileText className="h-3 w-3 text-primary/60 shrink-0" />
+          <span className="font-mono truncate">{it.processoNumero}</span>
+          {it.clienteNome && <span className="truncate">· {it.clienteNome}</span>}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+export default function Tarefas() {
+  useEffect(() => { document.title = "Tarefas · AW ECO ME"; }, []);
+  const navigate = useNavigate();
+  const [procs, setProcs] = useState<Proc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tipo, setTipo] = useState<"todos" | TaskTipo>("todos");
+  const [situacao, setSituacao] = useState<"todas" | "aberto" | "finalizada">("todas");
+  const [busca, setBusca] = useState("");
+  const [view, setView] = useState<"cards" | "linha">("cards");
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("processos")
+        .select("id, numero_processo, linha_temporal, clientes(nome)");
+      if (data) setProcs(data as unknown as Proc[]);
+      setLoading(false);
+    })();
+  }, []);
+
+  // Achata todas as tasks de todos os processos, com contexto.
+  const allTasks = useMemo(() => {
+    const out: Item[] = [];
+    for (const p of procs) {
+      const lt = Array.isArray(p.linha_temporal) ? (p.linha_temporal as Etapa[]) : [];
+      for (const e of lt) {
+        for (const t of e.tasks ?? []) {
+          out.push({ ...t, etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo, clienteNome: p.clientes?.nome ?? null });
+        }
+      }
+    }
+    return out;
+  }, [procs]);
+
+  const stats = useMemo(() => {
+    const total = allTasks.length;
+    const abertas = allTasks.filter((t) => !t.desfecho).length;
+    const porTipo = { acao: 0, monitoramento: 0, pendencia: 0 } as Record<TaskTipo, number>;
+    allTasks.forEach((t) => { porTipo[t.tipo] += 1; });
+    return { total, abertas, finalizadas: total - abertas, porTipo };
+  }, [allTasks]);
+
+  const filtered = useMemo(() => allTasks.filter((t) => {
+    if (tipo !== "todos" && t.tipo !== tipo) return false;
+    if (situacao === "aberto" && t.desfecho) return false;
+    if (situacao === "finalizada" && !t.desfecho) return false;
+    if (busca) {
+      const s = busca.toLowerCase();
+      if (!t.titulo.toLowerCase().includes(s) && !(t.conteudo ?? "").toLowerCase().includes(s)
+        && !t.processoNumero.toLowerCase().includes(s) && !(t.clienteNome ?? "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  }), [allTasks, tipo, situacao, busca]);
+
+  // Agrupa as tasks filtradas por etapa (para a linha do tempo compartilhada).
+  const porEtapa = useMemo(() => {
+    const m = new Map<string, Item[]>();
+    filtered.forEach((t) => { const k = t.etapaTitulo; m.set(k, [...(m.get(k) ?? []), t]); });
+    return m;
+  }, [filtered]);
+
+  const irProcesso = (id: string) => navigate(`/processos/${id}`);
+
+  const TIPOS: { key: "todos" | TaskTipo; label: string }[] = [
+    { key: "todos", label: "Todos" },
+    { key: "acao", label: "Ações" },
+    { key: "monitoramento", label: "Monitoramento" },
+    { key: "pendencia", label: "Pendências" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* ── Cabeçalho ── */}
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
+        <h2 className="font-display text-3xl font-medium tracking-tight">Tarefas</h2>
+        <p className="text-sm text-muted-foreground mt-1">Todas as tarefas e pendências de todos os processos, num lugar só.</p>
+      </motion.div>
+
+      {/* ── Dashzinho: total / em aberto / finalizadas ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
+        className="grid grid-cols-3 gap-3"
+      >
+        {[
+          { k: "todas" as const, label: "Total", value: stats.total },
+          { k: "aberto" as const, label: "Em aberto", value: stats.abertas },
+          { k: "finalizada" as const, label: "Finalizadas", value: stats.finalizadas },
+        ].map((s) => (
+          <SpotlightCard
+            key={s.k}
+            onClick={() => setSituacao(s.k)}
+            className={cn("cursor-pointer transition-colors", situacao === s.k && "border-primary/40")}
+          >
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>
+            <p className="text-3xl sm:text-4xl font-semibold font-display mt-1 tabular-nums">{s.value}</p>
+          </SpotlightCard>
+        ))}
+      </motion.div>
+
+      {/* ── Filtros + alternância de visão ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.1 }}
+        className="flex items-center gap-3 flex-wrap"
+      >
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Buscar por título, processo ou cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} className="pl-10" />
+        </div>
+
+        <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+          {TIPOS.map((tp) => (
+            <button
+              key={tp.key}
+              onClick={() => setTipo(tp.key)}
+              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                tipo === tp.key ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}
+            >
+              {tp.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+          <button onClick={() => setView("cards")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "cards" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+            <LayoutGrid className="h-3.5 w-3.5" /> Cards
+          </button>
+          <button onClick={() => setView("linha")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "linha" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+            <GitBranchPlus className="h-3.5 w-3.5" /> Linha do tempo
+          </button>
+        </div>
+      </motion.div>
+
+      {/* ── Conteúdo ── */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-20 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
+        </div>
+      ) : allTasks.length === 0 ? (
+        <Card className="border-dashed">
+          <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <span className="h-12 w-12 rounded-2xl bg-primary/10 grid place-items-center"><ListTodo className="h-6 w-6 text-primary" /></span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Nenhuma tarefa ainda</p>
+              <p className="text-xs mt-0.5">As tarefas e pendências criadas dentro dos processos aparecem aqui, todas juntas.</p>
+            </div>
+          </div>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card className="border-dashed"><div className="py-16 text-center text-muted-foreground text-sm">Nenhuma tarefa com esses filtros.</div></Card>
+      ) : view === "cards" ? (
+        /* Grade de cards */
+        <motion.div
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}
+          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+        >
+          {filtered.map((it) => (
+            <TarefaCard key={`${it.processoId}-${it.id}`} it={it} onClick={() => irProcesso(it.processoId)} />
+          ))}
+        </motion.div>
+      ) : (
+        /* Linha do tempo compartilhada: todas as tasks ao longo da espinha do processo */
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}>
+          <Card>
+            <CardContent className="pt-6">
+              <div>
+                {ETAPAS_ORDEM.map((etapa, i) => {
+                  const tasksAqui = (porEtapa.get(etapa) ?? []).sort((a, b) => a.ordem - b.ordem);
+                  const temTasks = tasksAqui.length > 0;
+                  const last = i === ETAPAS_ORDEM.length - 1;
+                  return (
+                    <div key={etapa} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
+                      {/* Rail */}
+                      <div className="relative flex justify-center">
+                        {!last && <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", temTasks ? "bg-primary/30" : "bg-border")} />}
+                        <span className={cn("relative z-10 mt-1 h-4 w-4 rounded-full ring-4 ring-card grid place-items-center",
+                          temTasks ? "bg-primary" : "border-2 border-muted-foreground/25 bg-card")}>
+                          {temTasks && <span className="text-[9px] font-semibold text-primary-foreground tabular-nums leading-none">{tasksAqui.length}</span>}
+                        </span>
+                      </div>
+                      {/* Conteúdo */}
+                      <div className={cn(!last && "border-b border-border/40", temTasks ? "pb-6" : "pb-4")}>
+                        <p className={cn("text-sm font-medium leading-tight", temTasks ? "text-foreground" : "text-muted-foreground/60")}>{etapa}</p>
+                        {temTasks && (
+                          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                            {tasksAqui.map((it) => (
+                              <TarefaCard key={`${it.processoId}-${it.id}`} it={it} onClick={() => irProcesso(it.processoId)} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+    </div>
+  );
+}

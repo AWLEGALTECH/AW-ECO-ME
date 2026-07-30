@@ -288,7 +288,7 @@ export default function Processos() {
           <p className="text-sm text-muted-foreground mt-1">Painel de controle · aba ADV</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => toast("Central de tarefas chegando: todas as tarefas e pendências de todos os processos num lugar só.")}>
+          <Button variant="outline" className="gap-2" onClick={() => navigate("/tarefas")}>
             <Layers className="h-4 w-4" /> Tarefas
           </Button>
           <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>

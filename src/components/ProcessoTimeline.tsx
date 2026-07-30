@@ -79,7 +79,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 const PREMIUM_DIALOG =
   "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] pointer-events-auto";
 
-const DESFECHOS: Record<TaskDesfecho, { label: string; chip: string; text: string; icon: typeof Ban }> = {
+export const DESFECHOS: Record<TaskDesfecho, { label: string; chip: string; text: string; icon: typeof Ban }> = {
   concluido: { label: "Concluído", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", text: "text-emerald-400", icon: CheckCircle2 },
   perdido: { label: "Perdido", chip: "bg-red-500/15 text-red-400 ring-red-500/30", text: "text-red-400", icon: XCircle },
   cancelado: { label: "Cancelado", chip: "bg-white/10 text-muted-foreground ring-white/15", text: "text-muted-foreground", icon: Ban },
@@ -136,7 +136,7 @@ function StatusChip({ status, blink }: { status: string; blink?: boolean }) {
 }
 
 // Texto explicativo do prazo (cor por urgência).
-function prazoInfo(prazo?: string): { label: string; cls: string } {
+export function prazoInfo(prazo?: string): { label: string; cls: string } {
   const dias = diasAtePrazo(prazo);
   if (dias === null) return { label: "Sem prazo definido", cls: "text-muted-foreground" };
   if (dias < 0) {
