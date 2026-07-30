@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,22 +11,20 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Plus, Search, Eye, Trash2, X, FileText, ListChecks, Gavel,
-  Layers, Filter, Check, ArrowRight, PauseCircle,
+  Layers, Filter, Check, ArrowRight, PauseCircle, ChevronDown,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
   BarChart, Bar, LabelList,
 } from "recharts";
 import { useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
+import { FAIXAS, diasSemMov, faixaDe } from "@/lib/parados";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const MotionRow = motion(TableRow);
@@ -81,17 +79,6 @@ const ordemStatus = (s: string) => {
   const i = STATUS_ORDEM.indexOf(s);
   return i === -1 ? 999 : i;
 };
-
-// Faixas de tempo sem movimentação.
-const FAIXAS = [
-  { key: "s1", label: "Até 1 semana", desc: "sem mexer há até 7 dias", min: 0, max: 7 },
-  { key: "s2", label: "Até 2 semanas", desc: "sem mexer há 8 a 14 dias", min: 8, max: 14 },
-  { key: "s3", label: "Até 3 semanas", desc: "sem mexer há 15 a 21 dias", min: 15, max: 21 },
-  { key: "m1", label: "Até 1 mês", desc: "sem mexer há 22 a 30 dias", min: 22, max: 30 },
-  { key: "m3", label: "Até 3 meses", desc: "sem mexer há 1 a 3 meses", min: 31, max: 90 },
-  { key: "mais", label: "Mais de 3 meses", desc: "sem mexer há mais de 3 meses", min: 91, max: Infinity },
-] as const;
-type FaixaKey = typeof FAIXAS[number]["key"] | "sem" | "suspensos";
 
 // Colunas da lista (com filtro estilo Excel).
 const COLS = [
@@ -170,7 +157,7 @@ export default function Processos() {
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [colFiltros, setColFiltros] = useState<Record<string, string[]>>({});
-  const [faixaAberta, setFaixaAberta] = useState<FaixaKey | null>(null);
+  const [statusAberto, setStatusAberto] = useState(false);
 
   // Filtros vindos do dashboard que não têm coluna própria.
   const filtroParceiro = searchParams.get("parceiro");
@@ -202,19 +189,6 @@ export default function Processos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Dias sem movimentação.
-  const hojeMs = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
-  const diasDesde = useCallback((d: string | null): number | null => {
-    if (!d) return null;
-    const t = new Date(`${d}T00:00:00`).getTime();
-    if (Number.isNaN(t)) return null;
-    return Math.max(0, Math.floor((hojeMs - t) / 86400000));
-  }, [hojeMs]);
-  const faixaDe = useCallback((dias: number | null): FaixaKey => {
-    if (dias === null) return "sem";
-    return (FAIXAS.find((f) => dias >= f.min && dias <= f.max)?.key ?? "mais") as FaixaKey;
-  }, []);
-
   // Valor por coluna (para filtro e distinct).
   const colVal: Record<ColKey, (p: Processo) => string> = useMemo(() => ({
     numero: (p) => p.numero_processo,
@@ -239,35 +213,36 @@ export default function Processos() {
     return out;
   }, [processos, colVal]);
 
-  // ── Painel (só processos EM MOVIMENTO: exclui arquivados e suspensos, que
-  // estão parados de propósito e distorceriam a métrica de "sem mexer") ──
+  // ── Painel (só processos EM MOVIMENTO: exclui arquivados e suspensos) ──
   const emMovimento = useMemo(
     () => processos.filter((p) => p.fase_processual !== "ARQUIVADO" && p.fase_processual !== "SUSPENSO"),
     [processos],
   );
-  const suspensos = useMemo(() => processos.filter((p) => p.fase_processual === "SUSPENSO"), [processos]);
+  const nSuspensos = useMemo(() => processos.filter((p) => p.fase_processual === "SUSPENSO").length, [processos]);
 
   const painel = useMemo(() => {
-    const buckets: Record<FaixaKey, number> = { s1: 0, s2: 0, s3: 0, m1: 0, m3: 0, mais: 0, sem: 0, suspensos: 0 };
+    const buckets: Record<string, number> = { s1: 0, s2: 0, s3: 0, m1: 0, m3: 0, mais: 0, sem: 0 };
     let soma = 0, comData = 0, maisAntigo = 0;
     emMovimento.forEach((p) => {
-      const dias = diasDesde(p.data_ultimo_andamento);
+      const dias = diasSemMov(p.data_ultimo_andamento);
       buckets[faixaDe(dias)] += 1;
       if (dias !== null) { soma += dias; comData += 1; maisAntigo = Math.max(maisAntigo, dias); }
     });
     return { buckets, media: comData ? Math.round(soma / comData) : 0, maisAntigo };
-  }, [emMovimento, diasDesde, faixaDe]);
+  }, [emMovimento]);
 
-  // Curva acumulada: nº de processos com dias parados ≤ x.
+  // Curva acumulada: nº de processos com dias parados ≤ x. Eixo x vai até o máximo real.
   const curva = useMemo(() => {
-    const dd = emMovimento.map((p) => diasDesde(p.data_ultimo_andamento)).filter((d): d is number => d !== null);
+    const dd = emMovimento.map((p) => diasSemMov(p.data_ultimo_andamento)).filter((d): d is number => d !== null);
     const max = Math.max(30, ...dd);
     const passo = max > 200 ? 3 : max > 90 ? 2 : 1;
     const pts: { dias: number; acum: number }[] = [];
     for (let d = 0; d <= max; d += passo) pts.push({ dias: d, acum: dd.filter((x) => x <= d).length });
     if (pts[pts.length - 1]?.dias !== max) pts.push({ dias: max, acum: dd.length });
-    return pts;
-  }, [emMovimento, diasDesde]);
+    const ticks = [0, 7, 14, 21, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300].filter((t) => t <= max);
+    if (ticks[ticks.length - 1] !== max) ticks.push(max);
+    return { pts, max, ticks };
+  }, [emMovimento]);
 
   // Distribuição por status ordenada processualmente.
   const distStatus = useMemo(() => {
@@ -275,17 +250,6 @@ export default function Processos() {
     processos.forEach((p) => { if (p.fase_processual) m.set(p.fase_processual, (m.get(p.fase_processual) ?? 0) + 1); });
     return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => ordemStatus(a.name) - ordemStatus(b.name));
   }, [processos]);
-
-  // Processos de uma faixa (para o modal), mais parados primeiro.
-  const processosFaixa = useMemo(() => {
-    if (!faixaAberta) return [];
-    const base = faixaAberta === "suspensos"
-      ? suspensos
-      : emMovimento.filter((p) => faixaDe(diasDesde(p.data_ultimo_andamento)) === faixaAberta);
-    return base
-      .map((p) => ({ p, dias: diasDesde(p.data_ultimo_andamento) }))
-      .sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
-  }, [faixaAberta, emMovimento, suspensos, diasDesde, faixaDe]);
 
   const setCol = (key: ColKey, vals: string[]) =>
     setColFiltros((prev) => { const n = { ...prev }; if (vals.length) n[key] = vals; else delete n[key]; return n; });
@@ -323,7 +287,7 @@ export default function Processos() {
   const hasFilters = !!(nColFiltros || search || filtroParceiro || filtroVara || filtroStatusTarefa || filtroPendencia);
   const clearAllFilters = () => { setColFiltros({}); setSearch(""); setSearchParams({}); };
 
-  const faixaInfo = faixaAberta && faixaAberta !== "sem" ? FAIXAS.find((f) => f.key === faixaAberta) : null;
+  const abrirParados = (k: string) => navigate(`/processos/parados/${k}`);
 
   return (
     <div className="space-y-5">
@@ -344,34 +308,21 @@ export default function Processos() {
         </div>
       </motion.div>
 
-      {/* ── Movimentações (faixas + curva acumulada) ── */}
+      {/* ── Movimentações (faixas + suspensos + curva acumulada) ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}>
         <SpotlightCard className="border-primary/20">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.16em] text-primary/80">Movimentações</p>
-              <p className="text-xs text-muted-foreground mt-1">Há quanto tempo cada processo em movimento está sem andamento · exclui arquivados e suspensos · clique numa faixa para ver a lista</p>
-            </div>
-            {/* Suspensos — métrica à parte (parados por decisão, fora da conta) */}
-            <button
-              onClick={() => setFaixaAberta("suspensos")}
-              className="shrink-0 rounded-xl border border-border/50 bg-white/[0.02] px-4 py-2.5 text-left hover:border-primary/40 hover:bg-white/[0.04] transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <PauseCircle className="h-4 w-4 text-primary/70" />
-                <span className="text-2xl font-semibold font-display tabular-nums">{suspensos.length}</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">suspensos · fora da conta</p>
-            </button>
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-primary/80">Movimentações</p>
+            <p className="text-xs text-muted-foreground mt-1">Há quanto tempo cada processo em movimento está sem andamento · exclui arquivados e suspensos · clique numa faixa para abrir a lista</p>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {FAIXAS.map((f, i) => {
+          <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            {FAIXAS.map((f) => {
               const critico = f.key === "mais";
               return (
                 <button
                   key={f.key}
-                  onClick={() => setFaixaAberta(f.key)}
+                  onClick={() => abrirParados(f.key)}
                   className={cn(
                     "group rounded-2xl border p-3.5 text-left transition-all hover:-translate-y-0.5",
                     critico ? "border-primary/40 bg-primary/[0.07]" : "border-border/50 bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04]",
@@ -386,6 +337,18 @@ export default function Processos() {
                 </button>
               );
             })}
+            {/* Suspensos — métrica à parte, última posição da fileira */}
+            <button
+              onClick={() => abrirParados("suspensos")}
+              className="group rounded-2xl border border-dashed border-border/60 bg-white/[0.01] p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-3xl font-semibold font-display tabular-nums text-muted-foreground">{nSuspensos}</p>
+                <PauseCircle className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary transition-colors" />
+              </div>
+              <p className="text-sm font-medium mt-1.5">Suspensos</p>
+              <p className="text-[11px] text-muted-foreground leading-snug">parados por decisão · fora da conta</p>
+            </button>
           </div>
 
           {/* Curva de processos acumulados por dias parados */}
@@ -396,27 +359,27 @@ export default function Processos() {
             </div>
             <div className="h-[180px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={curva} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+                <AreaChart data={curva.pts} margin={{ top: 6, right: 14, left: 4, bottom: 0 }}>
                   <defs>
                     <linearGradient id="areaMov" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={primary} stopOpacity={0.35} />
                       <stop offset="100%" stopColor={primary} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  {[7, 14, 21, 30, 90].map((d) => (
+                  {[7, 14, 21, 30, 90].filter((d) => d <= curva.max).map((d) => (
                     <ReferenceLine key={d} x={d} stroke="currentColor" strokeOpacity={0.12} strokeDasharray="3 3" className="text-muted-foreground" />
                   ))}
-                  <XAxis dataKey="dias" type="number" domain={[0, "dataMax"]} ticks={[0, 7, 14, 21, 30, 60, 90, 120, 150, 180]}
+                  <XAxis dataKey="dias" type="number" domain={[0, curva.max]} ticks={curva.ticks}
                     tickFormatter={(d) => `${d}d`} tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
                     axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={36} allowDecimals={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={40} allowDecimals={false} />
                   <Tooltip content={<ChartTip render={(l: number, v: number) => (<><p className="font-medium">até {l} dias parados</p><p className="text-muted-foreground">{v} processos</p></>)} />} />
                   <Area type="monotone" dataKey="acum" stroke={primary} strokeWidth={2} fill="url(#areaMov)" animationDuration={700} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             {painel.buckets.sem > 0 && (
-              <button onClick={() => setFaixaAberta("sem")} className="mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+              <button onClick={() => abrirParados("sem")} className="mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                 {painel.buckets.sem} processos sem data de andamento
               </button>
             )}
@@ -424,30 +387,45 @@ export default function Processos() {
         </SpotlightCard>
       </motion.div>
 
-      {/* ── Distribuição por status (ordem processual) ── */}
+      {/* ── Distribuição por status (expansível, ordem processual) ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.1 }}>
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-primary" /> Distribuição por status
-              <span className="ml-auto text-xs font-normal text-muted-foreground">ordem de acontecimento · {distStatus.length} status</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div style={{ height: Math.max(320, distStatus.length * 26) }} className="w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={distStatus} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }} barCategoryGap={6}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} interval={0} />
-                  <Tooltip cursor={{ fill: "currentColor", opacity: 0.05 }} content={<ChartTip render={(l: string, v: number) => (<><p className="font-medium">{l}</p><p className="text-muted-foreground">{v} processos</p></>)} />} />
-                  <Bar dataKey="value" fill={primary} radius={[0, 5, 5, 0]} maxBarSize={16} animationDuration={700}
-                    onClick={(d: any) => setCol("fase", [d.name])} className="cursor-pointer">
-                    <LabelList dataKey="value" position="right" className="fill-muted-foreground" style={{ fontSize: 11 }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
+          <button onClick={() => setStatusAberto((o) => !o)} className="w-full text-left">
+            <CardHeader className="flex-row items-center gap-2 py-4">
+              <CardTitle className="text-base flex items-center gap-2 flex-1">
+                <ListChecks className="h-4 w-4 text-primary" /> Distribuição por status
+              </CardTitle>
+              <span className="text-xs text-muted-foreground">{distStatus.length} status · ordem processual</span>
+              <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", statusAberto && "rotate-180")} />
+            </CardHeader>
+          </button>
+          <AnimatePresence initial={false}>
+            {statusAberto && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.35, ease: EASE }}
+                className="overflow-hidden"
+              >
+                <CardContent>
+                  <div style={{ height: Math.max(320, distStatus.length * 26) }} className="w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={distStatus} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }} barCategoryGap={6}>
+                        <XAxis type="number" hide />
+                        <YAxis type="category" dataKey="name" width={196} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} interval={0} />
+                        <Tooltip cursor={{ fill: "currentColor", opacity: 0.05 }} content={<ChartTip render={(l: string, v: number) => (<><p className="font-medium">{l}</p><p className="text-muted-foreground">{v} processos</p></>)} />} />
+                        <Bar dataKey="value" fill={primary} radius={[0, 5, 5, 0]} maxBarSize={16} animationDuration={700}
+                          onClick={(d: any) => setCol("fase", [d.name])} className="cursor-pointer">
+                          <LabelList dataKey="value" position="right" className="fill-muted-foreground" style={{ fontSize: 11 }} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </Card>
       </motion.div>
 
@@ -563,42 +541,6 @@ export default function Processos() {
         </CardContent>
       </Card>
       </motion.div>
-
-      {/* ── Modal: lista de processos da faixa clicada ── */}
-      <Dialog open={!!faixaAberta} onOpenChange={(o) => !o && setFaixaAberta(null)}>
-        <DialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {faixaAberta === "sem" ? "Sem data de andamento" : faixaAberta === "suspensos" ? "Processos suspensos" : faixaInfo?.label}
-            </DialogTitle>
-            <DialogDescription>
-              {faixaAberta === "sem" ? "Processos em movimento sem data de último andamento registrada."
-                : faixaAberta === "suspensos" ? "Parados por decisão (fora da métrica de movimentação)."
-                  : faixaInfo?.desc}
-              {" · "}{processosFaixa.length} processo(s)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto -mx-2 px-2 divide-y divide-border/40">
-            {processosFaixa.map(({ p, dias }) => (
-              <button
-                key={p.id}
-                onClick={() => { setFaixaAberta(null); navigate(`/processos/${p.id}`); }}
-                className="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-left hover:bg-white/[0.03] rounded"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-mono truncate">{p.numero_processo}</p>
-                  <p className="text-xs text-muted-foreground truncate">{p.clientes?.nome ?? "—"} · {p.fase_processual ?? "—"}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-medium tabular-nums">{dias !== null ? `${dias} dias` : "sem data"}</p>
-                  <p className="text-[11px] text-muted-foreground">{p.materia ?? ""}</p>
-                </div>
-              </button>
-            ))}
-            {processosFaixa.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">Nenhum processo nesta faixa.</p>}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
         <AlertDialogContent>

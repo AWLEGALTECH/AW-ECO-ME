@@ -15,6 +15,7 @@ import Dashboard from "./pages/Dashboard";
 import Clientes from "./pages/Clientes";
 import ClienteDetail from "./pages/ClienteDetail";
 import Processos from "./pages/Processos";
+import ProcessosParados from "./pages/ProcessosParados";
 import ProcessoDetail from "./pages/ProcessoDetail";
 import Writer from "./pages/Writer";
 import Finder from "./pages/Finder";
@@ -70,6 +71,7 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="processos" />}>
                   <Route path="/processos" element={<Processos />} />
+                  <Route path="/processos/parados/:faixa" element={<ProcessosParados />} />
                   <Route path="/processos/:id" element={<ProcessoDetail />} />
                 </Route>
                 <Route element={<RequireModule module="writer" />}>
