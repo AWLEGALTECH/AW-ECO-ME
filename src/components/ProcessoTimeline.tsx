@@ -277,6 +277,9 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
   const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
   const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string } | null>(null);
+  // Fase "fita": a linha longa (etapa ainda atual, com as tasks grandes) se
+  // preenche por inteiro ANTES de recolher/trocar o estado.
+  const [avancando, setAvancando] = useState<{ concluida: string; nova: string } | null>(null);
 
   // Pop dopaminérgico central (símbolo animado + texto, aparece e some).
   const [pop, setPop] = useState<{ Icon: typeof Ban; texto: string; tom: string } | null>(null);
@@ -361,17 +364,23 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
     setAvancar(null);
     dispararPop(Check, `Avançou para ${alvoNome}`, "bg-primary/15 text-primary ring-primary/30");
 
-    // 2) Só DEPOIS do pop fechar (fundo já limpo) é que aplica o avanço e
-    //    anima a linha do tempo — senão a animação fica escondida atrás do pop.
+    // 2) Pop fechou → começa a FITA: a linha longa (etapa ainda atual, com as
+    //    tasks grandes) se preenche por inteiro, de cima até o próximo ponto.
     window.setTimeout(() => {
-      setEtapas((prev) => prev.map((e, i) => {
-        if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
-        if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
-        if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
-        return e;
-      }));
-      setRecemAvancado({ concluida: idConcluida, nova: idNova });
-      window.setTimeout(() => setRecemAvancado(null), 2000);
+      setAvancando({ concluida: idConcluida, nova: idNova });
+
+      // 3) Fita completou → troca o estado: recolhe as antigas e abre o novo foco.
+      window.setTimeout(() => {
+        setAvancando(null);
+        setEtapas((prev) => prev.map((e, i) => {
+          if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
+          if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
+          if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
+          return e;
+        }));
+        setRecemAvancado({ concluida: idConcluida, nova: idNova });
+        window.setTimeout(() => setRecemAvancado(null), 1600);
+      }, 1150);
     }, 1750);
   };
 
@@ -419,23 +428,28 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
               <div className="relative flex justify-center">
                 {!last && (
                   e.status === "atual" ? (
-                    <>
-                      {/* trilho discreto na cor do tema + partícula recortada
-                          no trecho (não vaza da milestone) */}
-                      <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/20" />
-                      <div className="absolute top-5 bottom-0 w-1.5 left-1/2 -translate-x-1/2 overflow-hidden">
-                        <span className="absolute inset-x-0 h-10 flow-down bg-gradient-to-b from-transparent via-primary/45 to-transparent" />
-                      </div>
-                    </>
-                  ) : recemAvancado?.concluida === e.id ? (
-                    // linha enche de cima pra baixo ao avançar
-                    <motion.div
-                      className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/60 origin-top"
-                      initial={{ scaleY: 0 }}
-                      animate={{ scaleY: 1 }}
-                      transition={{ duration: 0.7, ease: "easeInOut" }}
-                    />
+                    avancando?.concluida === e.id ? (
+                      // FITA: a linha longa se preenche por inteiro (cima → baixo)
+                      <>
+                        <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-border" />
+                        <motion.div
+                          className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary origin-top"
+                          initial={{ scaleY: 0 }}
+                          animate={{ scaleY: 1 }}
+                          transition={{ duration: 1.1, ease: "easeInOut" }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {/* trilho discreto + partícula recortada no trecho */}
+                        <div className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/20" />
+                        <div className="absolute top-5 bottom-0 w-1.5 left-1/2 -translate-x-1/2 overflow-hidden">
+                          <span className="absolute inset-x-0 h-10 flow-down bg-gradient-to-b from-transparent via-primary/45 to-transparent" />
+                        </div>
+                      </>
+                    )
                   ) : (
+                    // concluída/pulada: linha estática (a fita já preencheu na fase 1)
                     <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
                   )
                 )}
@@ -446,7 +460,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     <motion.span
                       initial={recemAvancado?.concluida === e.id ? { scale: 0, opacity: 0 } : false}
                       animate={{ scale: 1, opacity: 1 }}
-                      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.72 : 0 }}
+                      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.1 : 0 }}
                     >
                       <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
                     </motion.span>
@@ -455,7 +469,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                   <motion.span
                     initial={recemAvancado?.nova === e.id ? { scale: 0, opacity: 0 } : false}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.85 : 0 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.2 : 0 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
                   >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
@@ -501,10 +515,10 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     "percorreu o caminho, concluiu, e então abriu o novo foco". */}
                 {e.status === "atual" ? (
                   <motion.div
-                    className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5"
-                    initial={recemAvancado?.nova === e.id ? { opacity: 0, y: 14 } : false}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 1.0 : 0 }}
+                    className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5 overflow-hidden"
+                    initial={recemAvancado?.nova === e.id ? { height: 0, opacity: 0 } : false}
+                    animate={{ height: "auto", opacity: 1 }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.35 : 0 }}
                   >
                     {(e.tasks ?? []).map((t) => (
                       <TaskCard key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
@@ -524,7 +538,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     className="mt-3 space-y-1.5"
                     initial={recemAvancado?.concluida === e.id ? { opacity: 0, scale: 0.98 } : false}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.9 : 0 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.15 : 0 }}
                   >
                     {(e.tasks ?? []).map((t) => (
                       <TaskMini key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
@@ -538,7 +552,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     className="mt-4 flex justify-center"
                     initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 1.15 : 0 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.55 : 0 }}
                   >
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
                       <SelectTrigger
@@ -563,7 +577,7 @@ export function ProcessoTimeline({ etapas: etapasIniciais, badge }: { etapas: Et
                     className="mt-8 flex justify-center"
                     initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 1.25 : 0 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.65 : 0 }}
                   >
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
                       <ArrowRight className="h-4 w-4" /> Avançar etapa
