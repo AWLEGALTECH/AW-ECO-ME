@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { parseMoneyBR } from "@/lib/money";
+import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -164,6 +166,7 @@ function Field({ label, children, full }: { label: string; children: React.React
 export default function ProcessoDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const isNew = id === "novo";
 
   const [form, setForm] = useState<ProcessoForm>(EMPTY);
@@ -179,6 +182,8 @@ export default function ProcessoDetail() {
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   // Snapshot do que já está salvo, pra não regravar no carregamento inicial.
   const linhaSalvaRef = useRef<string>("");
+  const [fixadoGeral, setFixadoGeral] = useState(false);
+  const [fixadoPessoal, setFixadoPessoal] = useState(false);
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -211,9 +216,31 @@ export default function ProcessoDetail() {
       const semeada = lt.map((e) => ({ ...e, tasks: e.tasks ?? [] }));
       setEtapas(semeada);
       linhaSalvaRef.current = JSON.stringify(semeada);
+      setFixadoGeral(!!(data as { fixado_geral?: boolean }).fixado_geral);
+      const { data: pin } = await supabase.from("processo_fixados").select("processo_id").eq("processo_id", data.id).maybeSingle();
+      setFixadoPessoal(!!pin);
     }
     setLoading(false);
   }, [id, isNew]);
+
+  const togglePinPessoal = async () => {
+    if (!id || isNew) return;
+    if (fixadoPessoal) {
+      setFixadoPessoal(false);
+      await supabase.from("processo_fixados").delete().eq("processo_id", id);
+    } else {
+      if (!user) { toast.error("Faça login para fixar."); return; }
+      setFixadoPessoal(true);
+      await supabase.from("processo_fixados").insert({ user_id: user.id, processo_id: id });
+    }
+  };
+  const togglePinGeral = async () => {
+    if (!id || isNew) return;
+    const novo = !fixadoGeral;
+    setFixadoGeral(novo);
+    const { error } = await supabase.from("processos").update({ fixado_geral: novo }).eq("id", id);
+    if (error) { toast.error("Não foi possível fixar"); setFixadoGeral(!novo); }
+  };
 
   useEffect(() => {
     document.title = isNew ? "Novo Processo · AW ECO ME" : "Processo · AW ECO ME";
@@ -348,9 +375,19 @@ export default function ProcessoDetail() {
         <Button variant="ghost" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/processos"))} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Button>
-        <Button variant="outline" onClick={() => setFichaOpen(true)} className="gap-2">
-          <Pencil className="h-4 w-4" /> Editar
-        </Button>
+        <div className="flex items-center gap-2">
+          {!isNew && (
+            <PinButton
+              fixadoPessoal={fixadoPessoal}
+              fixadoGeral={fixadoGeral}
+              onTogglePessoal={togglePinPessoal}
+              onToggleGeral={togglePinGeral}
+            />
+          )}
+          <Button variant="outline" onClick={() => setFichaOpen(true)} className="gap-2">
+            <Pencil className="h-4 w-4" /> Editar
+          </Button>
+        </div>
       </div>
 
       {/* ── HERO — identidade estática do processo ── */}

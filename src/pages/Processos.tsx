@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   Plus, Search, Eye, Trash2, X, FileText, ListChecks, Gavel,
-  Layers, ArrowRight, PauseCircle, ChevronDown,
+  Layers, ArrowRight, PauseCircle, ChevronDown, Pin, Users,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,8 +22,10 @@ import {
   BarChart, Bar, LabelList,
 } from "recharts";
 import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { ColunaFiltro } from "@/components/ColunaFiltro";
+import { PinButton } from "@/components/PinButton";
 import { FAIXAS, diasSemMov, faixaDe } from "@/lib/parados";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -52,6 +54,7 @@ interface Processo {
   valor_causa: number | null;
   comarca_uf: string | null;
   parceiro: string | null;
+  fixado_geral: boolean;
   clientes?: { nome: string } | null;
 }
 
@@ -106,7 +109,9 @@ export default function Processos() {
   useEffect(() => { document.title = "Processos · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const { palette } = useTheme();
+  const { user } = useAuth();
   const primary = PRIMARY_HSL[palette] ?? PRIMARY_HSL.default;
+  const [meusPins, setMeusPins] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [search, setSearch] = useState("");
@@ -123,11 +128,35 @@ export default function Processos() {
   const fetchAll = useCallback(async () => {
     const { data } = await supabase
       .from("processos")
-      .select("id, numero_processo, cliente_id, materia, data_ultimo_andamento, prazo_processual, fase_processual, tipo_pendencia, status_tarefa, vara_juizo_origem, valor_causa, comarca_uf, parceiro, clientes(nome)")
+      .select("id, numero_processo, cliente_id, materia, data_ultimo_andamento, prazo_processual, fase_processual, tipo_pendencia, status_tarefa, vara_juizo_origem, valor_causa, comarca_uf, parceiro, fixado_geral, clientes(nome)")
       .order("data_ultimo_andamento", { ascending: false, nullsFirst: false });
     if (data) setProcessos(data as unknown as Processo[]);
   }, []);
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Pins pessoais do usuário (RLS já restringe aos próprios).
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("processo_fixados").select("processo_id");
+      if (data) setMeusPins(new Set(data.map((d: { processo_id: string }) => d.processo_id)));
+    })();
+  }, []);
+
+  const togglePinPessoal = async (id: string) => {
+    if (meusPins.has(id)) {
+      setMeusPins((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      await supabase.from("processo_fixados").delete().eq("processo_id", id);
+    } else {
+      if (!user) { toast.error("Faça login para fixar."); return; }
+      setMeusPins((prev) => new Set(prev).add(id));
+      await supabase.from("processo_fixados").insert({ user_id: user.id, processo_id: id });
+    }
+  };
+  const togglePinGeral = async (id: string, atual: boolean) => {
+    setProcessos((prev) => prev.map((p) => (p.id === id ? { ...p, fixado_geral: !atual } : p)));
+    const { error } = await supabase.from("processos").update({ fixado_geral: !atual }).eq("id", id);
+    if (error) { toast.error("Não foi possível fixar"); setProcessos((prev) => prev.map((p) => (p.id === id ? { ...p, fixado_geral: atual } : p))); }
+  };
 
   // Deep-links do dashboard (fase/materia/comarca) viram filtro de coluna.
   useEffect(() => {
@@ -231,6 +260,9 @@ export default function Processos() {
 
   const valorTotal = useMemo(() => filtered.reduce((s, p) => s + (Number(p.valor_causa) || 0), 0), [filtered]);
 
+  // Fixados = pin geral (todos) ou pin pessoal do usuário.
+  const fixados = useMemo(() => processos.filter((p) => p.fixado_geral || meusPins.has(p.id)), [processos, meusPins]);
+
   const handleDelete = async () => {
     if (!deleteId) return;
     const { error } = await supabase.from("processos").delete().eq("id", deleteId);
@@ -272,26 +304,20 @@ export default function Processos() {
           </div>
 
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-            {FAIXAS.map((f) => {
-              const critico = f.key === "mais";
-              return (
-                <button
-                  key={f.key}
-                  onClick={() => abrirParados(f.key)}
-                  className={cn(
-                    "group rounded-2xl border p-3.5 text-left transition-all hover:-translate-y-0.5",
-                    critico ? "border-primary/40 bg-primary/[0.07]" : "border-border/50 bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04]",
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-3xl font-semibold font-display tabular-nums">{painel.buckets[f.key]}</p>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
-                  </div>
-                  <p className="text-sm font-medium mt-1.5">{f.label}</p>
-                  <p className="text-[11px] text-muted-foreground leading-snug">{f.desc}</p>
-                </button>
-              );
-            })}
+            {FAIXAS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => abrirParados(f.key)}
+                className="group rounded-2xl border border-border/50 bg-white/[0.02] p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-white/[0.04]"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-3xl font-semibold font-display tabular-nums">{painel.buckets[f.key]}</p>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
+                </div>
+                <p className="text-sm font-medium mt-1.5">{f.label}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">{f.desc}</p>
+              </button>
+            ))}
             {/* Suspensos — métrica à parte, última posição da fileira */}
             <button
               onClick={() => abrirParados("suspensos")}
@@ -405,6 +431,56 @@ export default function Processos() {
         )}
       </motion.div>
 
+      {/* ── Fixados (acesso rápido) — antes da planilha geral ── */}
+      {fixados.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.18 }}>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Pin className="h-4 w-4 fill-yellow-400 text-yellow-400" /> Fixados
+                <span className="ml-auto text-xs font-normal text-muted-foreground">{fixados.length} de fácil acesso</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {fixados.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => navigate(`/processos/${p.id}`)}
+                    className="group rounded-xl border border-yellow-400/20 bg-yellow-400/[0.03] p-3 cursor-pointer hover:border-yellow-400/40 hover:bg-yellow-400/[0.05] transition-colors"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="h-10 w-10 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 grid place-items-center">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-xs font-medium truncate">{p.numero_processo}</p>
+                        <p className="text-xs text-muted-foreground truncate">{p.clientes?.nome ?? "—"}</p>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {p.fase_processual && <Badge variant="secondary" className="text-[9px]">{p.fase_processual}</Badge>}
+                          {p.fixado_geral && (
+                            <span title="Fixado para todos" className="inline-flex items-center gap-0.5 text-[9px] text-yellow-400/80"><Users className="h-2.5 w-2.5" /> todos</span>
+                          )}
+                        </div>
+                      </div>
+                      <div onClick={(e) => e.stopPropagation()} className="shrink-0 -mr-1 -mt-1">
+                        <PinButton
+                          size="sm"
+                          fixadoPessoal={meusPins.has(p.id)}
+                          fixadoGeral={p.fixado_geral}
+                          onTogglePessoal={() => togglePinPessoal(p.id)}
+                          onToggleGeral={() => togglePinGeral(p.id, p.fixado_geral)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* ── Lista de processos (filtro por coluna) ── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}>
       <Card>
@@ -482,6 +558,13 @@ export default function Processos() {
                   <TableCell className="text-right">{fmtBRL(p.valor_causa)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1">
+                      <PinButton
+                        size="sm"
+                        fixadoPessoal={meusPins.has(p.id)}
+                        fixadoGeral={p.fixado_geral}
+                        onTogglePessoal={() => togglePinPessoal(p.id)}
+                        onToggleGeral={() => togglePinGeral(p.id, p.fixado_geral)}
+                      />
                       <Button size="icon" variant="ghost" onClick={() => navigate(`/processos/${p.id}`)}><Eye className="h-4 w-4" /></Button>
                       <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
