@@ -10,20 +10,35 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Plus, Search, Eye, Trash2, X, FileText, Activity, ListChecks, Gavel,
-  PlayCircle, PauseCircle, CalendarClock, AlertCircle, Layers,
+  Layers, Filter, Check, ArrowRight,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
+  BarChart, Bar, LabelList,
+} from "recharts";
+import { useTheme } from "@/hooks/useTheme";
+import { cn } from "@/lib/utils";
 
-// Easing suave (ease-out-expo-ish) reutilizado nas transições.
 const EASE = [0.22, 1, 0.36, 1] as const;
 const MotionRow = motion(TableRow);
+
+// Cor primária literal por paleta (Recharts precisa de hsl fixo no SVG).
+const PRIMARY_HSL: Record<string, string> = {
+  default: "hsl(270, 100%, 62%)",
+  "midnight-blue": "hsl(222, 90%, 58%)",
+  vermelho: "hsl(0, 84%, 58%)",
+  "space-gray": "hsl(215, 18%, 62%)",
+  sei: "hsl(270, 100%, 62%)",
+};
 
 interface Processo {
   id: string;
@@ -44,106 +59,124 @@ interface Processo {
 
 const fmtBRL = (v: number | null) =>
   v == null ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-const fmtBRLcompact = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
-
 const fmtDate = (d: string | null) => {
   if (!d) return "—";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
 };
 
-// Contagem por chave (ignora nulos), ordenada desc — igual ao dashboard.
-function countBy(items: Processo[], key: (p: Processo) => string | null | undefined) {
-  const m = new Map<string, number>();
-  items.forEach((it) => {
-    const k = key(it);
-    if (!k) return;
-    m.set(k, (m.get(k) ?? 0) + 1);
-  });
-  return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-}
+// Ordem de acontecimento processual (1º grau → recursal → cumprimento → estados).
+const STATUS_ORDEM = [
+  "AG. DISTRIBUIÇÃO", "AG. DECISÃO INICIAL", "AG. EMENDA À INICIAL",
+  "AUDIÊNCIA DESIGNADA", "COMPARECR AO FÓRUM", "AG. CONTESTAÇÃO", "AG. RÉPLICA",
+  "AG. DECISÃO PROVAS", "AG. MANIFESTAÇÃO", "AG. MOV CONCLUSO DECISÃO",
+  "AG. MOV CONCLUSO SENTENÇA", "AG. SENTENÇA", "AG. RECURSO INOMINADO",
+  "AG. CONTRARRAZOES", "AG. REMESSA AO 2º GRAU", "AG. DISTRIBUIÇÃO 2º GRAU",
+  "AG. DESPACHO INICIAL 2º GRAU", "AG. MANDADO SEGURANÇA", "AG. TJ SENTENÇA",
+  "AG. TJ ACÓRDÃO", "AG. ACÓRDÃO", "AG. PAGAMENTO VOLUNTÁRIO",
+  "AG. EXPEDIÇÃO ALVARÁ", "AG. DECISÃO PENHORA", "AG. REAJUIZAMENTO", "REAJUIZAR",
+  "SUSPENSO", "ARQUIVADO", "Inicial",
+];
+const ordemStatus = (s: string) => {
+  const i = STATUS_ORDEM.indexOf(s);
+  return i === -1 ? 999 : i;
+};
 
-// Lista de barras (share%), clicável — mesma linguagem do dashboard.
-function BarList({
-  data, total, onItemClick, max = 12, emptyMessage = "Sem dados.",
-}: {
-  data: { name: string; value: number }[];
-  total: number;
-  onItemClick?: (name: string) => void;
-  max?: number;
-  emptyMessage?: string;
-}) {
-  const items = data.slice(0, max);
-  const peak = items[0]?.value ?? 1;
-  if (!items.length) return <p className="text-sm text-muted-foreground text-center py-4">{emptyMessage}</p>;
+// Faixas de tempo sem movimentação.
+const FAIXAS = [
+  { key: "s1", label: "Até 1 semana", desc: "sem mexer há até 7 dias", min: 0, max: 7 },
+  { key: "s2", label: "Até 2 semanas", desc: "sem mexer há 8 a 14 dias", min: 8, max: 14 },
+  { key: "s3", label: "Até 3 semanas", desc: "sem mexer há 15 a 21 dias", min: 15, max: 21 },
+  { key: "m1", label: "Até 1 mês", desc: "sem mexer há 22 a 30 dias", min: 22, max: 30 },
+  { key: "m3", label: "Até 3 meses", desc: "sem mexer há 1 a 3 meses", min: 31, max: 90 },
+  { key: "mais", label: "Mais de 3 meses", desc: "sem mexer há mais de 3 meses", min: 91, max: Infinity },
+] as const;
+type FaixaKey = typeof FAIXAS[number]["key"] | "sem";
+
+// Colunas da lista (com filtro estilo Excel).
+const COLS = [
+  { key: "numero", label: "Nº Processo" },
+  { key: "cliente", label: "Cliente" },
+  { key: "materia", label: "Matéria" },
+  { key: "fase", label: "Fase" },
+  { key: "comarca", label: "Comarca/UF" },
+  { key: "andamento", label: "Últ. Andamento" },
+  { key: "valor", label: "Valor" },
+] as const;
+type ColKey = typeof COLS[number]["key"];
+
+// Tooltip escuro reutilizado nos gráficos.
+function ChartTip({ active, payload, label, render }: any) {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="space-y-1.5">
-      {items.map((it) => {
-        const pct = (it.value / peak) * 100;
-        const sharePct = total > 0 ? ((it.value / total) * 100).toFixed(0) : "0";
-        return (
-          <div
-            key={it.name}
-            className={`group relative overflow-hidden rounded-md px-2.5 py-1.5 ${onItemClick ? "cursor-pointer hover:bg-white/[0.04]" : ""}`}
-            onClick={() => onItemClick?.(it.name)}
-          >
-            <div className="absolute inset-y-0 left-0 bg-primary/15 transition-all" style={{ width: `${pct}%` }} />
-            <div className="relative flex items-center justify-between gap-3">
-              <span className="text-sm truncate" title={it.name}>{it.name}</span>
-              <span className="text-xs font-mono text-muted-foreground tabular-nums shrink-0">
-                {it.value} <span className="opacity-60">({sharePct}%)</span>
-              </span>
-            </div>
-          </div>
-        );
-      })}
+    <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur px-2.5 py-1.5 text-xs shadow-lg">
+      {render(label, payload[0].value)}
     </div>
   );
 }
 
-// KPI compacto (rótulo + número + ícone).
-function MiniKpi({ label, value, icon, onClick }: { label: string; value: ReactNode; icon: ReactNode; onClick?: () => void }) {
+// Filtro de coluna: busca + checklist multi-seleção (autofilter tipo planilha).
+function ColunaFiltro({ label, options, selected, onChange }: {
+  label: string; options: string[]; selected: string[]; onChange: (v: string[]) => void;
+}) {
+  const [q, setQ] = useState("");
+  const active = selected.length > 0;
+  const shown = q ? options.filter((o) => o.toLowerCase().includes(q.toLowerCase())) : options;
+  const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
   return (
-    <button
-      onClick={onClick}
-      disabled={!onClick}
-      className={`flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-white/[0.02] p-3 text-left ${onClick ? "hover:border-primary/40 hover:bg-white/[0.04] transition-colors" : ""}`}
-    >
-      <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{label}</p>
-        <p className="text-lg font-semibold font-display mt-0.5">{value}</p>
-      </div>
-      <span className="text-primary/60 shrink-0">{icon}</span>
-    </button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn("relative ml-1 inline-flex h-5 w-5 items-center justify-center rounded transition-colors align-middle",
+            active ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Filtrar ${label}`}
+        >
+          <Filter className="h-3 w-3" />
+          {active && <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 p-0" onClick={(e) => e.stopPropagation()}>
+        <div className="p-2 border-b border-border/60">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Filtrar ${label}…`} className="h-8 text-xs" />
+        </div>
+        <div className="max-h-60 overflow-y-auto p-1">
+          {shown.length === 0 && <p className="text-xs text-muted-foreground text-center py-3">nada encontrado</p>}
+          {shown.slice(0, 300).map((o) => (
+            <button key={o} onClick={() => toggle(o)} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-white/[0.05]">
+              <span className={cn("h-3.5 w-3.5 rounded border grid place-items-center shrink-0", selected.includes(o) ? "bg-primary border-primary" : "border-border")}>
+                {selected.includes(o) && <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />}
+              </span>
+              <span className="truncate" title={o}>{o}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between p-2 border-t border-border/60">
+          <span className="text-[11px] text-muted-foreground">{active ? `${selected.length} selecionado(s)` : "todos"}</span>
+          {active && <button onClick={() => onChange([])} className="text-[11px] text-primary hover:underline">limpar</button>}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
-
-// ── Buckets de "parado" (dias desde o último andamento) ──
-type ParadoKey = "em_dia" | "atencao" | "parado" | "critico" | "sem";
-const PARADO_INFO: Record<Exclude<ParadoKey, "sem">, { label: string; hint: string; num: string; ring: string }> = {
-  em_dia:  { label: "Em dia",   hint: "até 30 dias",  num: "text-emerald-400", ring: "ring-emerald-500/40 bg-emerald-500/[0.06]" },
-  atencao: { label: "Atenção",  hint: "31 a 60 dias", num: "text-sky-400",     ring: "ring-sky-500/40 bg-sky-500/[0.06]" },
-  parado:  { label: "Parado",   hint: "61 a 90 dias", num: "text-amber-400",   ring: "ring-amber-500/40 bg-amber-500/[0.06]" },
-  critico: { label: "Crítico",  hint: "mais de 90 dias", num: "text-red-400",  ring: "ring-red-500/40 bg-red-500/[0.06]" },
-};
 
 export default function Processos() {
   useEffect(() => { document.title = "Processos · AW ECO ME"; }, []);
   const navigate = useNavigate();
+  const { palette } = useTheme();
+  const primary = PRIMARY_HSL[palette] ?? PRIMARY_HSL.default;
   const [searchParams, setSearchParams] = useSearchParams();
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [colFiltros, setColFiltros] = useState<Record<string, string[]>>({});
+  const [faixaAberta, setFaixaAberta] = useState<FaixaKey | null>(null);
 
-  const filtroFase = searchParams.get("fase");
-  const filtroMateria = searchParams.get("materia");
+  // Filtros vindos do dashboard que não têm coluna própria.
   const filtroParceiro = searchParams.get("parceiro");
-  const filtroComarca = searchParams.get("comarca");
   const filtroVara = searchParams.get("vara");
-  const filtroStatus = searchParams.get("status");
+  const filtroStatusTarefa = searchParams.get("status");
   const filtroPendencia = searchParams.get("pendencia");
-  const filtroParado = searchParams.get("parado") as ParadoKey | null;
 
   const fetchAll = useCallback(async () => {
     const { data } = await supabase
@@ -152,10 +185,24 @@ export default function Processos() {
       .order("data_ultimo_andamento", { ascending: false, nullsFirst: false });
     if (data) setProcessos(data as unknown as Processo[]);
   }, []);
-
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Hoje (00:00) pra medir dias sem movimentação.
+  // Deep-links do dashboard (fase/materia/comarca) viram filtro de coluna.
+  useEffect(() => {
+    const seed: Record<string, string[]> = {};
+    (["fase", "materia", "comarca"] as const).forEach((k) => {
+      const v = searchParams.get(k);
+      if (v) seed[k] = [v];
+    });
+    if (Object.keys(seed).length) {
+      setColFiltros((prev) => ({ ...prev, ...seed }));
+      ["fase", "materia", "comarca"].forEach((k) => searchParams.delete(k));
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Dias sem movimentação.
   const hojeMs = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
   const diasDesde = useCallback((d: string | null): number | null => {
     if (!d) return null;
@@ -163,90 +210,100 @@ export default function Processos() {
     if (Number.isNaN(t)) return null;
     return Math.max(0, Math.floor((hojeMs - t) / 86400000));
   }, [hojeMs]);
-  const bucketParado = useCallback((dias: number | null): ParadoKey => {
+  const faixaDe = useCallback((dias: number | null): FaixaKey => {
     if (dias === null) return "sem";
-    if (dias <= 30) return "em_dia";
-    if (dias <= 60) return "atencao";
-    if (dias <= 90) return "parado";
-    return "critico";
+    return (FAIXAS.find((f) => dias >= f.min && dias <= f.max)?.key ?? "mais") as FaixaKey;
   }, []);
 
-  const fasesUnicas = useMemo(() => {
-    const set = new Set<string>();
-    processos.forEach((p) => p.fase_processual && set.add(p.fase_processual));
-    return Array.from(set).sort();
-  }, [processos]);
-  const materiasUnicas = useMemo(() => {
-    const set = new Set<string>();
-    processos.forEach((p) => p.materia && set.add(p.materia));
-    return Array.from(set).sort();
-  }, [processos]);
-  const parceirosUnicos = useMemo(() => {
-    const set = new Set<string>();
-    processos.forEach((p) => p.parceiro && set.add(p.parceiro));
-    return Array.from(set).sort();
-  }, [processos]);
+  // Valor por coluna (para filtro e distinct).
+  const colVal: Record<ColKey, (p: Processo) => string> = useMemo(() => ({
+    numero: (p) => p.numero_processo,
+    cliente: (p) => p.clientes?.nome ?? "—",
+    materia: (p) => p.materia ?? "—",
+    fase: (p) => p.fase_processual ?? "—",
+    comarca: (p) => p.comarca_uf ?? "—",
+    andamento: (p) => fmtDate(p.data_ultimo_andamento),
+    valor: (p) => fmtBRL(p.valor_causa),
+  }), []);
 
-  // ── Painel (visão geral, sobre TODOS os processos) ──
-  const painel = useMemo(() => {
-    const total = processos.length;
-    const ativosNaoArq = processos.filter((p) => p.fase_processual !== "ARQUIVADO");
-    const suspensos = processos.filter((p) => p.fase_processual === "SUSPENSO").length;
-    const arquivados = processos.filter((p) => p.fase_processual === "ARQUIVADO").length;
-    const emAndamento = total - suspensos - arquivados;
-    const valorAjuizado = ativosNaoArq.reduce((s, p) => s + (Number(p.valor_causa) || 0), 0);
-    const comPendencia = processos.filter((p) => p.tipo_pendencia && p.tipo_pendencia.trim() !== "").length;
-
-    const hojeStr = new Date(hojeMs).toISOString().slice(0, 10);
-    const em30 = new Date(hojeMs + 30 * 86400000).toISOString().slice(0, 10);
-    const prazosProximos = ativosNaoArq.filter((p) => p.prazo_processual && p.prazo_processual >= hojeStr && p.prazo_processual <= em30).length;
-
-    // Movimentações: buckets de dias parados (só ativos/não arquivados).
-    const buckets: Record<ParadoKey, number> = { em_dia: 0, atencao: 0, parado: 0, critico: 0, sem: 0 };
-    let somaDias = 0, comData = 0, maisAntigo = 0;
-    ativosNaoArq.forEach((p) => {
-      const dias = diasDesde(p.data_ultimo_andamento);
-      buckets[bucketParado(dias)] += 1;
-      if (dias !== null) { somaDias += dias; comData += 1; maisAntigo = Math.max(maisAntigo, dias); }
+  // Opções distintas por coluna (fase segue a ordem processual; demais alfabético).
+  const opcoesCol = useMemo(() => {
+    const out = {} as Record<ColKey, string[]>;
+    COLS.forEach((c) => {
+      const set = new Set<string>();
+      processos.forEach((p) => set.add(colVal[c.key](p)));
+      const arr = Array.from(set);
+      arr.sort((a, b) => c.key === "fase" ? ordemStatus(a) - ordemStatus(b) : a.localeCompare(b, "pt-BR"));
+      out[c.key] = arr;
     });
-    const mediaDias = comData ? Math.round(somaDias / comData) : 0;
+    return out;
+  }, [processos, colVal]);
 
-    return { total, suspensos, arquivados, emAndamento, valorAjuizado, comPendencia, prazosProximos, buckets, mediaDias, maisAntigo, ativos: ativosNaoArq.length };
-  }, [processos, hojeMs, diasDesde, bucketParado]);
+  // ── Painel (sobre todos os processos ativos) ──
+  const ativos = useMemo(() => processos.filter((p) => p.fase_processual !== "ARQUIVADO"), [processos]);
 
-  const distFase = useMemo(() => countBy(processos, (p) => p.fase_processual), [processos]);
+  const painel = useMemo(() => {
+    const buckets: Record<FaixaKey, number> = { s1: 0, s2: 0, s3: 0, m1: 0, m3: 0, mais: 0, sem: 0 };
+    let soma = 0, comData = 0, maisAntigo = 0;
+    ativos.forEach((p) => {
+      const dias = diasDesde(p.data_ultimo_andamento);
+      buckets[faixaDe(dias)] += 1;
+      if (dias !== null) { soma += dias; comData += 1; maisAntigo = Math.max(maisAntigo, dias); }
+    });
+    return { buckets, media: comData ? Math.round(soma / comData) : 0, maisAntigo };
+  }, [ativos, diasDesde, faixaDe]);
+
+  // Curva acumulada: nº de processos com dias parados ≤ x.
+  const curva = useMemo(() => {
+    const dd = ativos.map((p) => diasDesde(p.data_ultimo_andamento)).filter((d): d is number => d !== null);
+    const max = Math.max(30, ...dd);
+    const passo = max > 200 ? 3 : max > 90 ? 2 : 1;
+    const pts: { dias: number; acum: number }[] = [];
+    for (let d = 0; d <= max; d += passo) pts.push({ dias: d, acum: dd.filter((x) => x <= d).length });
+    if (pts[pts.length - 1]?.dias !== max) pts.push({ dias: max, acum: dd.length });
+    return pts;
+  }, [ativos, diasDesde]);
+
+  // Distribuição por status ordenada processualmente.
+  const distStatus = useMemo(() => {
+    const m = new Map<string, number>();
+    processos.forEach((p) => { if (p.fase_processual) m.set(p.fase_processual, (m.get(p.fase_processual) ?? 0) + 1); });
+    return Array.from(m, ([name, value]) => ({ name, value })).sort((a, b) => ordemStatus(a.name) - ordemStatus(b.name));
+  }, [processos]);
+
+  // Processos de uma faixa (para o modal), mais parados primeiro.
+  const processosFaixa = useMemo(() => {
+    if (!faixaAberta) return [];
+    return ativos
+      .filter((p) => faixaDe(diasDesde(p.data_ultimo_andamento)) === faixaAberta)
+      .map((p) => ({ p, dias: diasDesde(p.data_ultimo_andamento) }))
+      .sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
+  }, [faixaAberta, ativos, diasDesde, faixaDe]);
+
+  const setCol = (key: ColKey, vals: string[]) =>
+    setColFiltros((prev) => { const n = { ...prev }; if (vals.length) n[key] = vals; else delete n[key]; return n; });
 
   const filtered = useMemo(() => {
-    const out = processos.filter((p) => {
-      if (filtroFase && p.fase_processual !== filtroFase) return false;
-      if (filtroMateria && p.materia !== filtroMateria) return false;
+    return processos.filter((p) => {
       if (filtroParceiro && p.parceiro !== filtroParceiro) return false;
-      if (filtroComarca && p.comarca_uf !== filtroComarca) return false;
       if (filtroVara && p.vara_juizo_origem !== filtroVara) return false;
-      if (filtroStatus && p.status_tarefa !== filtroStatus) return false;
+      if (filtroStatusTarefa && p.status_tarefa !== filtroStatusTarefa) return false;
       if (filtroPendencia && p.tipo_pendencia !== filtroPendencia) return false;
-      if (filtroParado) {
-        if (p.fase_processual === "ARQUIVADO") return false; // parado só entre ativos
-        if (bucketParado(diasDesde(p.data_ultimo_andamento)) !== filtroParado) return false;
+      for (const c of COLS) {
+        const sel = colFiltros[c.key];
+        if (sel?.length && !sel.includes(colVal[c.key](p))) return false;
       }
       if (search) {
         const s = search.toLowerCase();
-        const inNumero = p.numero_processo.toLowerCase().includes(s);
-        const inCliente = (p.clientes?.nome ?? "").toLowerCase().includes(s);
-        const inMateria = (p.materia ?? "").toLowerCase().includes(s);
-        if (!inNumero && !inCliente && !inMateria) return false;
+        if (!p.numero_processo.toLowerCase().includes(s)
+          && !(p.clientes?.nome ?? "").toLowerCase().includes(s)
+          && !(p.materia ?? "").toLowerCase().includes(s)) return false;
       }
       return true;
     });
-    // Ao filtrar por "parado", mostra os mais parados primeiro (andamento mais antigo).
-    if (filtroParado) {
-      out.sort((a, b) => (a.data_ultimo_andamento ?? "0").localeCompare(b.data_ultimo_andamento ?? "0"));
-    }
-    return out;
-  }, [processos, filtroFase, filtroMateria, filtroParceiro, filtroComarca, filtroVara, filtroStatus, filtroPendencia, filtroParado, search, bucketParado, diasDesde]);
+  }, [processos, colFiltros, colVal, search, filtroParceiro, filtroVara, filtroStatusTarefa, filtroPendencia]);
 
-  const valorTotal = useMemo(() =>
-    filtered.reduce((sum, p) => sum + (Number(p.valor_causa) || 0), 0), [filtered]);
+  const valorTotal = useMemo(() => filtered.reduce((s, p) => s + (Number(p.valor_causa) || 0), 0), [filtered]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -255,15 +312,11 @@ export default function Processos() {
     toast.success("Processo removido"); setDeleteId(null); fetchAll();
   };
 
-  const setFilter = (key: string, value: string | null) => {
-    if (value && value !== "__all__") searchParams.set(key, value);
-    else searchParams.delete(key);
-    setSearchParams(searchParams);
-  };
-  const toggleParado = (key: ParadoKey) => setFilter("parado", filtroParado === key ? null : key);
+  const nColFiltros = Object.values(colFiltros).filter((v) => v.length).length;
+  const hasFilters = !!(nColFiltros || search || filtroParceiro || filtroVara || filtroStatusTarefa || filtroPendencia);
+  const clearAllFilters = () => { setColFiltros({}); setSearch(""); setSearchParams({}); };
 
-  const clearAllFilters = () => { setSearchParams({}); setSearch(""); };
-  const hasFilters = !!(filtroFase || filtroMateria || filtroParceiro || filtroComarca || filtroVara || filtroStatus || filtroPendencia || filtroParado || search);
+  const faixaInfo = faixaAberta && faixaAberta !== "sem" ? FAIXAS.find((f) => f.key === faixaAberta) : null;
 
   return (
     <div className="space-y-5">
@@ -277,89 +330,110 @@ export default function Processos() {
           <p className="text-sm text-muted-foreground mt-1">Painel de controle · aba ADV</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => toast("Central de tarefas chegando: aqui você verá todas as tarefas e pendências de todos os processos agrupadas num lugar só.")}>
+          <Button variant="outline" className="gap-2" onClick={() => toast("Central de tarefas chegando: todas as tarefas e pendências de todos os processos num lugar só.")}>
             <Layers className="h-4 w-4" /> Tarefas
           </Button>
           <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>
         </div>
       </motion.div>
 
-      {/* ── Movimentações — o que está parado (protagonista) ── */}
+      {/* ── Movimentações (faixas + curva acumulada) ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}>
         <SpotlightCard className="border-primary/20">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.16em] text-primary/80">Movimentações</p>
-              <p className="text-xs text-muted-foreground mt-1">Dias desde o último andamento · {painel.ativos} processos ativos (exclui arquivados)</p>
+              <p className="text-xs text-muted-foreground mt-1">Há quanto tempo cada processo ativo está sem andamento · clique numa faixa para ver a lista</p>
             </div>
             <span className="hidden sm:flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
               <Activity className="h-6 w-6 text-primary" />
             </span>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {(["em_dia", "atencao", "parado", "critico"] as const).map((k) => {
-              const info = PARADO_INFO[k];
-              const ativo = filtroParado === k;
+          <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {FAIXAS.map((f, i) => {
+              const critico = f.key === "mais";
               return (
                 <button
-                  key={k}
-                  onClick={() => toggleParado(k)}
-                  className={`rounded-xl border p-3.5 text-left transition-all hover:-translate-y-0.5 ${ativo ? `ring-1 ${info.ring} border-transparent` : "border-border/50 bg-white/[0.02] hover:border-primary/30"}`}
+                  key={f.key}
+                  onClick={() => setFaixaAberta(f.key)}
+                  className={cn(
+                    "group rounded-2xl border p-3.5 text-left transition-all hover:-translate-y-0.5",
+                    critico ? "border-primary/40 bg-primary/[0.07]" : "border-border/50 bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04]",
+                  )}
                 >
-                  <p className={`text-3xl font-semibold font-display tabular-nums ${info.num}`}>{painel.buckets[k]}</p>
-                  <p className="text-sm font-medium mt-1">{info.label}</p>
-                  <p className="text-[11px] text-muted-foreground">{info.hint}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-3xl font-semibold font-display tabular-nums">{painel.buckets[f.key]}</p>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
+                  </div>
+                  <p className="text-sm font-medium mt-1.5">{f.label}</p>
+                  <p className="text-[11px] text-muted-foreground leading-snug">{f.desc}</p>
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-3 flex-wrap text-[11px] text-muted-foreground">
-            <button
-              onClick={() => toggleParado("sem")}
-              className={`hover:text-foreground transition-colors ${filtroParado === "sem" ? "text-foreground font-medium" : ""}`}
-            >
-              {painel.buckets.sem} sem data de andamento
-            </button>
-            <span>mais antigo: <span className="text-foreground font-medium">{painel.maisAntigo} dias</span> · média <span className="text-foreground font-medium">{painel.mediaDias} dias</span></span>
+          {/* Curva de processos acumulados por dias parados */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+              <span>Processos acumulados por dias sem andamento</span>
+              <span>mais antigo <span className="text-foreground font-medium">{painel.maisAntigo}d</span> · média <span className="text-foreground font-medium">{painel.media}d</span></span>
+            </div>
+            <div className="h-[180px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={curva} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="areaMov" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={primary} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={primary} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  {[7, 14, 21, 30, 90].map((d) => (
+                    <ReferenceLine key={d} x={d} stroke="currentColor" strokeOpacity={0.12} strokeDasharray="3 3" className="text-muted-foreground" />
+                  ))}
+                  <XAxis dataKey="dias" type="number" domain={[0, "dataMax"]} ticks={[0, 7, 14, 21, 30, 60, 90, 120, 150, 180]}
+                    tickFormatter={(d) => `${d}d`} tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                    axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={36} allowDecimals={false} />
+                  <Tooltip content={<ChartTip render={(l: number, v: number) => (<><p className="font-medium">até {l} dias parados</p><p className="text-muted-foreground">{v} processos</p></>)} />} />
+                  <Area type="monotone" dataKey="acum" stroke={primary} strokeWidth={2} fill="url(#areaMov)" animationDuration={700} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            {painel.buckets.sem > 0 && (
+              <button onClick={() => setFaixaAberta("sem")} className="mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                {painel.buckets.sem} processos sem data de andamento
+              </button>
+            )}
           </div>
         </SpotlightCard>
       </motion.div>
 
-      {/* ── Distribuição por status + KPIs ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.1 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-      >
+      {/* ── Distribuição por status (ordem processual) ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.1 }}>
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <ListChecks className="h-4 w-4 text-primary" /> Distribuição por status
-              <span className="ml-auto text-xs font-normal text-muted-foreground">{distFase.length} status</span>
+              <span className="ml-auto text-xs font-normal text-muted-foreground">ordem de acontecimento · {distStatus.length} status</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <BarList
-              data={distFase}
-              total={painel.total}
-              max={12}
-              onItemClick={(name) => setFilter("fase", filtroFase === name ? null : name)}
-            />
+            <div style={{ height: Math.max(320, distStatus.length * 26) }} className="w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={distStatus} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }} barCategoryGap={6}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} interval={0} />
+                  <Tooltip cursor={{ fill: "currentColor", opacity: 0.05 }} content={<ChartTip render={(l: string, v: number) => (<><p className="font-medium">{l}</p><p className="text-muted-foreground">{v} processos</p></>)} />} />
+                  <Bar dataKey="value" fill={primary} radius={[0, 5, 5, 0]} maxBarSize={16} animationDuration={700}
+                    onClick={(d: any) => setCol("fase", [d.name])} className="cursor-pointer">
+                    <LabelList dataKey="value" position="right" className="fill-muted-foreground" style={{ fontSize: 11 }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
-
-        <div className="grid grid-cols-2 gap-3 content-start">
-          <SpotlightCard className="col-span-2">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor ajuizado</p>
-            <p className="text-[10px] text-muted-foreground/70 mt-0.5">causas ativas · exclui arquivados</p>
-            <p className="text-3xl font-semibold font-display mt-2 text-primary tabular-nums">{fmtBRLcompact(painel.valorAjuizado)}</p>
-          </SpotlightCard>
-          <MiniKpi label="Em andamento" value={painel.emAndamento} icon={<PlayCircle className="h-6 w-6" />} onClick={() => clearAllFilters()} />
-          <MiniKpi label="Suspensos" value={painel.suspensos} icon={<PauseCircle className="h-6 w-6" />} onClick={() => setFilter("fase", "SUSPENSO")} />
-          <MiniKpi label="Prazos ≤ 30 dias" value={painel.prazosProximos} icon={<CalendarClock className="h-6 w-6" />} />
-          <MiniKpi label="Com pendência" value={painel.comPendencia} icon={<AlertCircle className="h-6 w-6" />} />
-        </div>
       </motion.div>
 
       {/* ── Chips de contexto da lista ── */}
@@ -378,67 +452,69 @@ export default function Processos() {
         </div>
         {hasFilters && (
           <Button variant="outline" size="sm" onClick={clearAllFilters} className="gap-2">
-            <X className="h-3.5 w-3.5" />Limpar filtros
+            <X className="h-3.5 w-3.5" />Limpar filtros{nColFiltros ? ` (${nColFiltros})` : ""}
           </Button>
         )}
       </motion.div>
 
-      {/* ── Lista de processos ── */}
+      {/* ── Lista de processos (filtro por coluna) ── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}>
       <Card>
-        <CardHeader className="space-y-3">
+        <CardHeader>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Buscar por nº, cliente ou matéria..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <Select value={filtroFase ?? "__all__"} onValueChange={(v) => setFilter("fase", v)}>
-              <SelectTrigger><SelectValue placeholder="Fase" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Todas as fases</SelectItem>
-                {fasesUnicas.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filtroMateria ?? "__all__"} onValueChange={(v) => setFilter("materia", v)}>
-              <SelectTrigger><SelectValue placeholder="Matéria" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Todas as matérias</SelectItem>
-                {materiasUnicas.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filtroParceiro ?? "__all__"} onValueChange={(v) => setFilter("parceiro", v)}>
-              <SelectTrigger><SelectValue placeholder="Parceiro" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Todos os parceiros</SelectItem>
-                {parceirosUnicos.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectContent>
-            </Select>
           </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nº Processo</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead className="hidden md:table-cell">Matéria</TableHead>
-                <TableHead>Fase</TableHead>
-                <TableHead className="hidden lg:table-cell">Comarca/UF</TableHead>
-                <TableHead className="hidden lg:table-cell">Últ. Andamento</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">Nº Processo
+                    <ColunaFiltro label="Nº" options={opcoesCol.numero} selected={colFiltros.numero ?? []} onChange={(v) => setCol("numero", v)} />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">Cliente
+                    <ColunaFiltro label="Cliente" options={opcoesCol.cliente} selected={colFiltros.cliente ?? []} onChange={(v) => setCol("cliente", v)} />
+                  </span>
+                </TableHead>
+                <TableHead className="hidden md:table-cell">
+                  <span className="inline-flex items-center">Matéria
+                    <ColunaFiltro label="Matéria" options={opcoesCol.materia} selected={colFiltros.materia ?? []} onChange={(v) => setCol("materia", v)} />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center">Fase
+                    <ColunaFiltro label="Fase" options={opcoesCol.fase} selected={colFiltros.fase ?? []} onChange={(v) => setCol("fase", v)} />
+                  </span>
+                </TableHead>
+                <TableHead className="hidden lg:table-cell">
+                  <span className="inline-flex items-center">Comarca/UF
+                    <ColunaFiltro label="Comarca" options={opcoesCol.comarca} selected={colFiltros.comarca ?? []} onChange={(v) => setCol("comarca", v)} />
+                  </span>
+                </TableHead>
+                <TableHead className="hidden lg:table-cell">
+                  <span className="inline-flex items-center">Últ. Andamento
+                    <ColunaFiltro label="Andamento" options={opcoesCol.andamento} selected={colFiltros.andamento ?? []} onChange={(v) => setCol("andamento", v)} />
+                  </span>
+                </TableHead>
+                <TableHead className="text-right">
+                  <span className="inline-flex items-center">Valor
+                    <ColunaFiltro label="Valor" options={opcoesCol.valor} selected={colFiltros.valor ?? []} onChange={(v) => setCol("valor", v)} />
+                  </span>
+                </TableHead>
                 <TableHead className="w-16">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p, i) => {
-                const dias = p.fase_processual === "ARQUIVADO" ? null : diasDesde(p.data_ultimo_andamento);
-                const bk = dias === null ? null : bucketParado(dias);
-                return (
+              {filtered.map((p, i) => (
                 <MotionRow
                   key={p.id}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, ease: EASE, delay: Math.min(i, 14) * 0.025 }}
+                  transition={{ duration: 0.3, ease: EASE, delay: Math.min(i, 14) * 0.02 }}
                   className="cursor-pointer transition-colors hover:bg-primary/[0.05]"
                   onClick={() => navigate(`/processos/${p.id}`)}
                 >
@@ -454,14 +530,7 @@ export default function Processos() {
                   <TableCell className="hidden md:table-cell text-muted-foreground">{p.materia || "—"}</TableCell>
                   <TableCell>{p.fase_processual ? <Badge variant="secondary" className="text-[10px]">{p.fase_processual}</Badge> : "—"}</TableCell>
                   <TableCell className="hidden lg:table-cell text-muted-foreground">{p.comarca_uf || "—"}</TableCell>
-                  <TableCell className="hidden lg:table-cell text-muted-foreground">
-                    <span className="inline-flex items-center gap-2">
-                      {fmtDate(p.data_ultimo_andamento)}
-                      {bk && bk !== "em_dia" && (
-                        <span className={`h-1.5 w-1.5 rounded-full ${bk === "critico" ? "bg-red-400" : bk === "parado" ? "bg-amber-400" : "bg-sky-400"}`} title={`${dias} dias sem andamento`} />
-                      )}
-                    </span>
-                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-muted-foreground">{fmtDate(p.data_ultimo_andamento)}</TableCell>
                   <TableCell className="text-right">{fmtBRL(p.valor_causa)}</TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1">
@@ -470,8 +539,7 @@ export default function Processos() {
                     </div>
                   </TableCell>
                 </MotionRow>
-                );
-              })}
+              ))}
               {filtered.length === 0 && (
                 <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhum processo encontrado.</TableCell></TableRow>
               )}
@@ -480,6 +548,40 @@ export default function Processos() {
         </CardContent>
       </Card>
       </motion.div>
+
+      {/* ── Modal: lista de processos da faixa clicada ── */}
+      <Dialog open={!!faixaAberta} onOpenChange={(o) => !o && setFaixaAberta(null)}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              {faixaAberta === "sem" ? "Sem data de andamento" : faixaInfo?.label}
+            </DialogTitle>
+            <DialogDescription>
+              {faixaAberta === "sem" ? "Processos ativos sem data de último andamento registrada." : faixaInfo?.desc}
+              {" · "}{processosFaixa.length} processo(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto -mx-2 px-2 divide-y divide-border/40">
+            {processosFaixa.map(({ p, dias }) => (
+              <button
+                key={p.id}
+                onClick={() => { setFaixaAberta(null); navigate(`/processos/${p.id}`); }}
+                className="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-left hover:bg-white/[0.03] rounded"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-mono truncate">{p.numero_processo}</p>
+                  <p className="text-xs text-muted-foreground truncate">{p.clientes?.nome ?? "—"} · {p.fase_processual ?? "—"}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-medium tabular-nums">{dias !== null ? `${dias} dias` : "sem data"}</p>
+                  <p className="text-[11px] text-muted-foreground">{p.materia ?? ""}</p>
+                </div>
+              </button>
+            ))}
+            {processosFaixa.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">Nenhum processo nesta faixa.</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(v) => !v && setDeleteId(null)}>
         <AlertDialogContent>
