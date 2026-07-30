@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { DonutChart } from "@/components/DonutChart";
 import {
-  Eye, Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
+  Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
   CalendarDays, Loader2, Hash, ExternalLink, Check, Layers, MapPin, BarChart3, CalendarRange,
 } from "lucide-react";
 
@@ -84,7 +84,7 @@ function CountUp({ value, format, className }: { value: number; format?: (n: num
 
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Tracker() {
-  useEffect(() => { document.title = `AW Tracker · ${appConfig.name}`; }, []);
+  useEffect(() => { document.title = `Tracker · ${appConfig.name}`; }, []);
   const { user } = useAuth();
 
   const [novoOpen, setNovoOpen] = useState(false);
@@ -194,10 +194,8 @@ export default function Tracker() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight flex items-center gap-2">
-            <Eye className="h-7 w-7 text-primary" /> AW Tracker
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes — o que já foi ganho em 1º grau.</p>
+          <h2 className="font-display text-3xl font-medium tracking-tight">Tracker</h2>
+          <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes: o que já foi ganho em 1º grau.</p>
         </div>
         <Button onClick={() => setNovoOpen(true)} className="gap-1.5">
           <Plus className="h-4 w-4" /> Nova sentença

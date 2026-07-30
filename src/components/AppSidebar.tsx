@@ -34,7 +34,7 @@ const navItems: NavItem[] = [
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
   { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },
   { title: "Fechamentos",   url: "/fechamentos",   icon: Trophy,          module: "fechamentos",  beta: true },
-  { title: "AW Tracker",    url: "/tracker",       icon: Eye,             module: "tracker",      beta: true },
+  { title: "Tracker",       url: "/tracker",       icon: Eye,             module: "tracker",      beta: true },
 ];
 
 export function AppSidebar() {

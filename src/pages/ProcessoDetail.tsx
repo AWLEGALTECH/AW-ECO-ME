@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import {
-  ProcessoTimeline, STATUS_PROCESSUAIS, ICONE_TIPO, LABEL_TIPO, type Etapa,
+  ProcessoTimeline, STATUS_PROCESSUAIS, ICONE_TIPO, LABEL_TIPO, type Etapa, type SentencaEtapa,
 } from "@/components/ProcessoTimeline";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -213,9 +213,30 @@ export default function ProcessoDetail() {
       setForm(f);
       setSaved(f);
       const lt = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
-      const semeada = lt.map((e) => ({ ...e, tasks: e.tasks ?? [] }));
+      const base = lt.map((e) => ({ ...e, tasks: e.tasks ?? [] }));
+      linhaSalvaRef.current = JSON.stringify(base);
+      // Mescla a sentença já registrada no Tracker na milestone "Sentença"
+      // (backfill dos processos já sentenciados e mencionados no tracker).
+      const { data: sent } = await supabase.from("sentencas" as never).select("valor, data_sentenca, honorarios, observacoes").eq("processo_id", data.id as never).maybeSingle();
+      let semeada = base;
+      const sr = sent as { valor?: number; data_sentenca?: string; honorarios?: number | null; observacoes?: string | null } | null;
+      if (sr) {
+        const idx = base.findIndex((e) => e.titulo === "Sentença");
+        if (idx >= 0 && !base[idx].sentenca) {
+          const inj: Etapa = {
+            ...base[idx],
+            sentenca: {
+              resultado: "procedente",
+              valor: Number(sr.valor) || 0,
+              data: sr.data_sentenca ?? "",
+              honorarios: sr.honorarios != null ? Number(sr.honorarios) : undefined,
+              obs: sr.observacoes ?? undefined,
+            },
+          };
+          semeada = base.map((e, i) => (i === idx ? inj : e));
+        }
+      }
       setEtapas(semeada);
-      linhaSalvaRef.current = JSON.stringify(semeada);
       setFixadoGeral(!!(data as { fixado_geral?: boolean }).fixado_geral);
       const { data: pin } = await supabase.from("processo_fixados").select("processo_id").eq("processo_id", data.id).maybeSingle();
       setFixadoPessoal(!!pin);
@@ -240,6 +261,25 @@ export default function ProcessoDetail() {
     setFixadoGeral(novo);
     const { error } = await supabase.from("processos").update({ fixado_geral: novo }).eq("id", id);
     if (error) { toast.error("Não foi possível fixar"); setFixadoGeral(!novo); }
+  };
+
+  // Registra a sentença no Tracker (só vitórias). Chamado pela timeline ao
+  // preencher a milestone "Sentença".
+  const registrarSentenca = async (s: SentencaEtapa) => {
+    if (isNew || !id || s.resultado === "improcedente") return;
+    const campos = {
+      valor: s.valor,
+      data_sentenca: s.data,
+      honorarios: s.honorarios ?? null,
+      observacoes: s.obs ?? null,
+    };
+    const sb = supabase.from("sentencas" as never);
+    const { data: existente } = await sb.select("id").eq("processo_id", id as never).maybeSingle();
+    const { error } = existente
+      ? await supabase.from("sentencas" as never).update({ ...campos, updated_at: new Date().toISOString() } as never).eq("processo_id", id as never)
+      : await supabase.from("sentencas" as never).insert({ ...campos, processo_id: id, status: "ganha", created_by: user?.id ?? null } as never);
+    if (error) toast.error("Não foi possível registrar no Tracker");
+    else toast.success("Sentença registrada no Tracker 🏆");
   };
 
   useEffect(() => {
@@ -568,7 +608,7 @@ export default function ProcessoDetail() {
         {etapas.length > 0 ? (
           <Card>
             <CardContent className="pt-6">
-              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} />
+              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca} />
             </CardContent>
           </Card>
         ) : (

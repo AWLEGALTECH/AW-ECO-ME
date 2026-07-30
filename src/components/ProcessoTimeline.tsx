@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -63,6 +63,15 @@ export interface Task {
   desfechoObs?: string;
 }
 
+export type ResultadoSentenca = "procedente" | "parcial" | "improcedente";
+export interface SentencaEtapa {
+  resultado: ResultadoSentenca;
+  valor: number;
+  data: string;        // yyyy-mm-dd
+  honorarios?: number;
+  obs?: string;
+}
+
 export interface Etapa {
   id: string;
   titulo: string;
@@ -73,7 +82,20 @@ export interface Etapa {
   secao?: string;
   statusProcessual?: string;
   tasks?: Task[];
+  sentenca?: SentencaEtapa;   // preenchido na milestone "Sentença"
 }
+
+// Nome da milestone que exige registro de sentença para avançar.
+export const ETAPA_SENTENCA = "Sentença";
+
+const RESULTADO_SENTENCA: Record<ResultadoSentenca, { label: string; chip: string; icon: typeof Ban }> = {
+  procedente:   { label: "Procedente", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", icon: Trophy },
+  parcial:      { label: "Parcialmente procedente", chip: "bg-amber-500/15 text-amber-400 ring-amber-500/30", icon: Scale },
+  improcedente: { label: "Improcedente", chip: "bg-red-500/15 text-red-400 ring-red-500/30", icon: XCircle },
+};
+
+const brlFmt = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const parseMoney = (s: string) => parseFloat(String(s).replace(/\./g, "").replace(",", ".")) || 0;
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const PREMIUM_DIALOG =
@@ -227,18 +249,87 @@ function TaskMini({ task, onClick }: { task: Task; onClick: () => void }) {
   );
 }
 
+// Card da sentença registrada, exibido na milestone "Sentença".
+function SentencaCard({ s, onEdit }: { s: SentencaEtapa; onEdit?: () => void }) {
+  const info = RESULTADO_SENTENCA[s.resultado];
+  const RIcon = info.icon;
+  return (
+    <div className="mt-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1", info.chip)}>
+          <RIcon className="h-3.5 w-3.5" /> {info.label}
+        </span>
+        {onEdit && <button onClick={onEdit} className="text-[11px] text-muted-foreground hover:text-primary transition-colors">editar</button>}
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da condenação</p>
+          <p className="text-sm font-semibold text-emerald-400 tabular-nums mt-0.5">{brlFmt(s.valor)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Data da sentença</p>
+          <p className="text-sm font-medium tabular-nums mt-0.5">{fmtPrazo(s.data)}</p>
+        </div>
+        {s.honorarios != null && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Honorários</p>
+            <p className="text-sm font-medium tabular-nums mt-0.5">{brlFmt(s.honorarios)}</p>
+          </div>
+        )}
+      </div>
+      {s.obs && <p className="text-[11px] text-muted-foreground mt-2 leading-snug">{s.obs}</p>}
+    </div>
+  );
+}
+
 const DRAFT_VAZIO = { titulo: "", conteudo: "", prazo: "", status: "" };
+const SENT_VAZIA = { resultado: "procedente" as ResultadoSentenca, valor: "", data: "", honorarios: "", obs: "" };
 
 export function ProcessoTimeline({
   etapas,
   setEtapas,
   badge,
+  onRegistrarSentenca,
 }: {
   etapas: Etapa[];
   setEtapas: Dispatch<SetStateAction<Etapa[]>>;
   badge?: string;
+  onRegistrarSentenca?: (s: SentencaEtapa) => void;
 }) {
   const [ordem, setOrdem] = useState(1);
+  const [sentencaDialog, setSentencaDialog] = useState<string | null>(null);
+  const [sentDraft, setSentDraft] = useState<{ resultado: ResultadoSentenca; valor: string; data: string; honorarios: string; obs: string }>(SENT_VAZIA);
+
+  const abrirSentenca = (etapaId: string, existente?: SentencaEtapa) => {
+    setSentencaDialog(etapaId);
+    setSentDraft(existente
+      ? {
+          resultado: existente.resultado,
+          valor: existente.valor ? String(existente.valor).replace(".", ",") : "",
+          data: existente.data,
+          honorarios: existente.honorarios != null ? String(existente.honorarios).replace(".", ",") : "",
+          obs: existente.obs ?? "",
+        }
+      : { ...SENT_VAZIA });
+  };
+  const salvarSentenca = () => {
+    if (!sentencaDialog) return;
+    const improc = sentDraft.resultado === "improcedente";
+    const valorNum = parseMoney(sentDraft.valor);
+    if (!improc && valorNum <= 0) { toast.error("Informe o valor da condenação."); return; }
+    if (!sentDraft.data) { toast.error("Informe a data da sentença."); return; }
+    const s: SentencaEtapa = {
+      resultado: sentDraft.resultado,
+      valor: improc ? 0 : valorNum,
+      data: sentDraft.data,
+      honorarios: sentDraft.honorarios ? parseMoney(sentDraft.honorarios) : undefined,
+      obs: sentDraft.obs.trim() || undefined,
+    };
+    setEtapas((prev) => prev.map((e) => (e.id === sentencaDialog ? { ...e, sentenca: s } : e)));
+    onRegistrarSentenca?.(s);
+    setSentencaDialog(null);
+    dispararPop(RESULTADO_SENTENCA[s.resultado].icon, "Sentença registrada", "bg-primary/15 text-primary ring-primary/30");
+  };
 
   const [tipoDialog, setTipoDialog] = useState<string | null>(null);
   const [detalhe, setDetalhe] = useState<{ etapaId: string; tipo: TaskTipo } | null>(null);
@@ -400,7 +491,7 @@ export function ProcessoTimeline({
   // Enquanto qualquer popup estiver aberto, forçamos o body clicável; ao fechar
   // tudo, devolvemos o controle ao Radix.
   useEffect(() => {
-    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog;
+    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog || !!sentencaDialog;
     if (!algumAberto) {
       document.body.style.pointerEvents = "";
       return;
@@ -409,7 +500,7 @@ export function ProcessoTimeline({
     soltar();
     const id = window.setInterval(soltar, 120);
     return () => window.clearInterval(id);
-  }, [avancar, desfechoTask, detalhe, tipoDialog]);
+  }, [avancar, desfechoTask, detalhe, tipoDialog, sentencaDialog]);
 
   const aplicarAvanco = () => {
     if (!avancar || !avancoAlvo || !avancoData) { toast.error("Avanço: faltam dados (data/destino)."); return; }
@@ -619,6 +710,11 @@ export function ProcessoTimeline({
                   </motion.div>
                 ) : null}
 
+                {/* Sentença registrada — card na milestone "Sentença" */}
+                {e.titulo === ETAPA_SENTENCA && e.sentenca && (
+                  <SentencaCard s={e.sentenca} onEdit={e.status === "atual" ? () => abrirSentenca(e.id, e.sentenca) : undefined} />
+                )}
+
                 {/* Status: aguardando (piscante) — logo após as tarefas */}
                 {e.status === "atual" && (
                   <motion.div
@@ -644,7 +740,7 @@ export function ProcessoTimeline({
                   </motion.div>
                 )}
 
-                {/* Avançar etapa — mais abaixo, com respiro do status */}
+                {/* Avançar etapa — na milestone Sentença, exige a sentença antes */}
                 {e.status === "atual" && (
                   <motion.div
                     className="mt-8 flex justify-center"
@@ -652,9 +748,18 @@ export function ProcessoTimeline({
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.65 : 0 }}
                   >
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
-                      <ArrowRight className="h-4 w-4" /> Avançar etapa
-                    </Button>
+                    {e.titulo === ETAPA_SENTENCA && !e.sentenca ? (
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Button size="sm" className="gap-1.5" onClick={() => abrirSentenca(e.id)}>
+                          <Trophy className="h-4 w-4" /> Registrar sentença
+                        </Button>
+                        <p className="text-[11px] text-muted-foreground">Registre a sentença para poder avançar.</p>
+                      </div>
+                    ) : (
+                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
+                        <ArrowRight className="h-4 w-4" /> Avançar etapa
+                      </Button>
+                    )}
                   </motion.div>
                 )}
               </div>
@@ -881,6 +986,80 @@ export function ProcessoTimeline({
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDesfechoTask(null)}>Cancelar</Button>
             <Button disabled={!desfechoDraft.desfecho} onClick={salvarDesfecho}>Salvar desfecho</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Popup: registrar sentença (obrigatório p/ avançar a milestone) ── */}
+      <Dialog open={!!sentencaDialog} onOpenChange={(o) => !o && setSentencaDialog(null)}>
+        <DialogContent className={PREMIUM_DIALOG}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                <Trophy className="h-4 w-4 text-primary" />
+              </span>
+              Registrar sentença
+            </DialogTitle>
+            <DialogDescription>Obrigatório para avançar a etapa. As vitórias alimentam o Tracker.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Field label="Resultado" hint="Como o juízo decidiu em 1º grau.">
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.keys(RESULTADO_SENTENCA) as ResultadoSentenca[]).map((k) => {
+                  const info = RESULTADO_SENTENCA[k];
+                  const RIcon = info.icon;
+                  const ativo = sentDraft.resultado === k;
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setSentDraft((d) => ({ ...d, resultado: k }))}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-2xl border p-3 transition-all hover:-translate-y-0.5",
+                        ativo ? cn("ring-1", info.chip) : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
+                      )}
+                    >
+                      <RIcon className="h-5 w-5" />
+                      <span className="text-[11px] font-medium text-center leading-tight">{info.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
+            {sentDraft.resultado !== "improcedente" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Valor da condenação" hint="Total reconhecido na sentença.">
+                  <Input inputMode="decimal" value={sentDraft.valor} onChange={(e) => setSentDraft((d) => ({ ...d, valor: e.target.value }))} placeholder="0,00" />
+                </Field>
+                <Field label="Honorários (opcional)" hint="Se fixados na sentença.">
+                  <Input inputMode="decimal" value={sentDraft.honorarios} onChange={(e) => setSentDraft((d) => ({ ...d, honorarios: e.target.value }))} placeholder="0,00" />
+                </Field>
+              </div>
+            )}
+
+            <Field label="Data da sentença" hint="Data em que a sentença foi proferida.">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !sentDraft.data && "text-muted-foreground")}>
+                    <CalendarDays className="h-4 w-4" />
+                    {ymdToDate(sentDraft.data) ? format(ymdToDate(sentDraft.data)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" locale={ptBR} selected={ymdToDate(sentDraft.data)} onSelect={(d) => setSentDraft((dr) => ({ ...dr, data: d ? dateToYmd(d) : "" }))} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </Field>
+
+            <Field label="Observações (opcional)" hint="Pontos relevantes da decisão.">
+              <Textarea value={sentDraft.obs} onChange={(e) => setSentDraft((d) => ({ ...d, obs: e.target.value }))} rows={3} placeholder="Sobre a sentença…" />
+            </Field>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSentencaDialog(null)}>Cancelar</Button>
+            <Button onClick={salvarSentenca}>Registrar sentença</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
