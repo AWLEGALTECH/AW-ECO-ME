@@ -306,6 +306,17 @@ export default function ProcessoDetail() {
     return () => window.clearTimeout(t);
   }, [etapas, id, isNew]);
 
+  // Status é UMA coisa só: o status da etapa ATUAL (timeline) manda no
+  // fase_processual do processo (ficha + lista). Se mudou embaixo (ex.: ao
+  // adicionar uma tarefa), reflete no card e no status real. A ficha, ao
+  // editar a fase, alinha a etapa (em handleSave), então não há reversão.
+  useEffect(() => {
+    if (isNew || !id) return;
+    const s = etapas.find((e) => e.status === "atual")?.statusProcessual;
+    if (s && s !== form.fase_processual) patchProcesso({ fase_processual: s });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etapas, form.fase_processual]);
+
   const handleSave = async () => {
     if (!form.numero_processo.trim()) { toast.error("Número do processo é obrigatório"); return; }
     if (!form.cliente_id) { toast.error("Cliente é obrigatório"); return; }
@@ -344,6 +355,8 @@ export default function ProcessoDetail() {
     toast.success("Processo atualizado");
     setSaved(form);
     setEditing(false);
+    // Editou a fase na ficha → alinha o status da etapa atual (mesma coisa).
+    setEtapas((prev) => prev.map((e) => (e.status === "atual" ? { ...e, statusProcessual: form.fase_processual.trim() || undefined } : e)));
   };
 
   const cancelarEdicao = () => {
