@@ -17,7 +17,7 @@ import {
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
   ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
-  ClipboardList, ListChecks, PiggyBank, ArrowUpRight, ArrowDownLeft,
+  ClipboardList, ListChecks, PiggyBank, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -253,7 +253,7 @@ function AnelMeta({ pct, bateu, size = 150, stroke = 13 }: { pct: number; bateu:
           initial={{ strokeDashoffset: circ }}
           animate={{ strokeDashoffset: circ - (alvo / 100) * circ }}
           transition={{ duration: 1.1, ease: "easeOut" }}
-          style={{ filter: `drop-shadow(0 0 7px ${bateu ? "hsl(152 60% 45% / 0.55)" : "hsl(var(--primary) / 0.5)"})` }}
+          style={{ filter: `drop-shadow(0 0 ${bateu ? "10px hsl(152 66% 48% / 0.8)" : "7px hsl(var(--primary) / 0.5)"})` }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
@@ -615,7 +615,7 @@ export default function Fechamentos() {
                 </CardTitle>
                 {excedList.recebido.length > 0 && (
                   <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
-                    <ArrowDownLeft className="h-3 w-3 text-amber-400" />
+                    <ArrowDown className="h-3 w-3 text-amber-400" />
                     {excedList.recebido.length} {excedList.recebido.length === 1 ? "veio" : "vieram"} de excedente de {mesAnteriorExt} ({intBR(totalCarregado)} rubricas)
                   </p>
                 )}
@@ -667,10 +667,10 @@ export default function Fechamentos() {
                           <div className="flex items-center gap-2 shrink-0">
                             {bolsaFechMap[f.id] > 0 && (
                               <span
-                                className="inline-flex items-center text-amber-400/90"
+                                className="inline-flex items-center text-emerald-400"
                                 title={`${bolsaFechMap[f.id]} ${bolsaFechMap[f.id] === 1 ? "rubrica vai" : "rubricas vão"} para ${mesProximoExt}`}
                               >
-                                <ArrowUpRight className="h-4 w-4" />
+                                <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
                               </span>
                             )}
                             <button
@@ -717,7 +717,7 @@ export default function Fechamentos() {
                                 )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 flex-wrap">
-                                <ArrowDownLeft className="h-3 w-3 text-amber-400" /> excedente de {mesAnteriorExt}
+                                <ArrowDown className="h-3 w-3 text-amber-400" /> excedente de {mesAnteriorExt}
                                 <span className="text-muted-foreground/50">·</span>
                                 {c.rubricas.length} {c.rubricas.length === 1 ? "rubrica válida" : "rubricas válidas"}
                               </div>
@@ -730,8 +730,8 @@ export default function Fechamentos() {
                               </div>
                             </div>
                           </div>
-                          <span className="inline-flex items-center text-amber-400/90 shrink-0" title={`Recebido de ${mesAnteriorExt}`}>
-                            <ArrowDownLeft className="h-4 w-4" />
+                          <span className="inline-flex items-center text-amber-400 shrink-0" title={`Recebido de ${mesAnteriorExt}`}>
+                            <ArrowDown className="h-4 w-4" strokeWidth={2.5} />
                           </span>
                         </div>
                       </div>
@@ -851,10 +851,11 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
             </span>
             {retido > 0 && (
               <span
-                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground mb-1.5"
-                title={`${intBR(retido)} excedentes retidas vão para ${excedente?.mesProximo}`}
+                className="inline-flex items-center gap-1 text-xl font-semibold text-emerald-400 mb-0.5"
+                title={`${intBR(retido)} excedentes vão para ${excedente?.mesProximo}`}
               >
-                <ArrowUpRight className="h-4 w-4 text-amber-400" /> +{intBR(retido)} excedentes
+                <ArrowUp className="h-5 w-5" strokeWidth={2.5} /> +{intBR(retido)}
+                <span className="text-sm font-normal text-muted-foreground">excedentes · {excedente?.mesProximo}</span>
               </span>
             )}
           </div>
@@ -864,20 +865,11 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
               : "Meta do mês ainda não definida"}
           </p>
 
-          {/* Camadas de excedente — deixa claro o que vem de onde e pra onde vai */}
-          {(retido > 0 || recebido > 0) && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] text-muted-foreground">
-              {recebido > 0 && (
-                <span className="inline-flex items-center gap-1">
-                  <ArrowDownLeft className="h-3.5 w-3.5 text-amber-400" /> {intBR(recebido)} recebidas de {excedente?.mesAnterior}
-                </span>
-              )}
-              {retido > 0 && (
-                <span className="inline-flex items-center gap-1">
-                  <ArrowUpRight className="h-3.5 w-3.5 text-amber-400" /> {intBR(retido)} excedentes vão para {excedente?.mesProximo}
-                </span>
-              )}
-            </div>
+          {/* Recebidas do mês anterior — seta amarela pra baixo (recepcionando) */}
+          {recebido > 0 && (
+            <p className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground">
+              <ArrowDown className="h-3.5 w-3.5 text-amber-400" /> {intBR(recebido)} recebidas de {excedente?.mesAnterior}
+            </p>
           )}
 
           {meta > 0 && <div className="mt-4"><BarraMarcos value={acoes} max={meta} bateu={bateu} /></div>}
