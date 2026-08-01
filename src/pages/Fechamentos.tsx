@@ -17,7 +17,7 @@ import {
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
   ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
-  ClipboardList, ListChecks, PiggyBank, ArrowUpLeft, ArrowDownRight,
+  ClipboardList, ListChecks, PiggyBank, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -670,7 +670,7 @@ export default function Fechamentos() {
                                 className="inline-flex items-center text-emerald-400"
                                 title={`${bolsaFechMap[f.id]} ${bolsaFechMap[f.id] === 1 ? "rubrica vai" : "rubricas vão"} para ${mesProximoExt}`}
                               >
-                                <ArrowUpLeft className="h-4 w-4" strokeWidth={2.5} />
+                                <ArrowUpRight className="h-4 w-4" strokeWidth={2.5} />
                               </span>
                             )}
                             <button
@@ -854,7 +854,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
                 className="inline-flex items-center gap-1 text-xl font-semibold text-emerald-400 mb-0.5"
                 title={`${intBR(retido)} excedentes vão para ${excedente?.mesProximo}`}
               >
-                <ArrowUpLeft className="h-5 w-5" strokeWidth={2.5} /> +{intBR(retido)}
+                <ArrowUpRight className="h-5 w-5" strokeWidth={2.5} /> +{intBR(retido)}
                 <span className="text-sm font-normal text-muted-foreground">excedentes · {excedente?.mesProximo}</span>
               </span>
             )}
