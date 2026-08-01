@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,11 +64,20 @@ export interface Task {
 }
 
 export type ResultadoSentenca = "procedente" | "parcial" | "improcedente";
+export type TipoDecisao2Grau = "monocratica" | "acordao";
 export interface SentencaEtapa {
   resultado: ResultadoSentenca;
   valor: number;
   data: string;        // yyyy-mm-dd
   honorarios?: number;
+  obs?: string;
+  tipoDecisao?: TipoDecisao2Grau;   // usado no "Julgamento em 2º grau"
+}
+// Valor executado (atualizado) na fase de cumprimento — vem de acordo ou de
+// sentença e sempre chega com algum acréscimo/atualização.
+export interface ExecucaoEtapa {
+  valor: number;       // valor executado / atualizado
+  data: string;        // yyyy-mm-dd
   obs?: string;
 }
 
@@ -83,10 +92,14 @@ export interface Etapa {
   statusProcessual?: string;
   tasks?: Task[];
   sentenca?: SentencaEtapa;   // preenchido na milestone "Sentença"
+  julgamento?: SentencaEtapa; // preenchido na milestone "Julgamento em 2º grau"
+  execucao?: ExecucaoEtapa;   // preenchido na milestone "Cumprimento de sentença"
 }
 
-// Nome da milestone que exige registro de sentença para avançar.
+// Milestones com registro obrigatório de teor/valor antes de avançar.
 export const ETAPA_SENTENCA = "Sentença";
+export const ETAPA_JULGAMENTO = "Julgamento em 2º grau";
+export const ETAPA_CUMPRIMENTO = "Cumprimento de sentença";
 
 // ── Espinha canônica do processo ─────────────────────────────────────────────
 // Mesma ordem usada na geração da linha temporal. Serve para montar uma linha
@@ -305,25 +318,39 @@ function TaskMini({ task, onClick }: { task: Task; onClick: () => void }) {
   );
 }
 
-// Card da sentença registrada, exibido na milestone "Sentença".
-function SentencaCard({ s, onEdit }: { s: SentencaEtapa; onEdit?: () => void }) {
+const LABEL_DECISAO_2G: Record<TipoDecisao2Grau, string> = {
+  monocratica: "Decisão monocrática",
+  acordao: "Acórdão",
+};
+
+// Card do teor registrado (sentença de 1º grau ou julgamento de 2º grau).
+function SentencaCard({ s, dataLabel, onEdit }: { s: SentencaEtapa; dataLabel?: string; onEdit?: () => void }) {
   const info = RESULTADO_SENTENCA[s.resultado];
   const RIcon = info.icon;
   return (
     <div className="mt-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1", info.chip)}>
-          <RIcon className="h-3.5 w-3.5" /> {info.label}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1", info.chip)}>
+            <RIcon className="h-3.5 w-3.5" /> {info.label}
+          </span>
+          {s.tipoDecisao && (
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 bg-primary/12 text-primary ring-primary/25">
+              {LABEL_DECISAO_2G[s.tipoDecisao]}
+            </span>
+          )}
+        </div>
         {onEdit && <button onClick={onEdit} className="text-[11px] text-muted-foreground hover:text-primary transition-colors">editar</button>}
       </div>
       <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {s.resultado !== "improcedente" && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da condenação</p>
+            <p className="text-sm font-semibold text-emerald-400 tabular-nums mt-0.5">{brlFmt(s.valor)}</p>
+          </div>
+        )}
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da condenação</p>
-          <p className="text-sm font-semibold text-emerald-400 tabular-nums mt-0.5">{brlFmt(s.valor)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Data da sentença</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{dataLabel ?? "Data da sentença"}</p>
           <p className="text-sm font-medium tabular-nums mt-0.5">{fmtPrazo(s.data)}</p>
         </div>
         {s.honorarios != null && (
@@ -338,8 +365,35 @@ function SentencaCard({ s, onEdit }: { s: SentencaEtapa; onEdit?: () => void }) 
   );
 }
 
+// Card do valor executado (fase de cumprimento) — estética reforçada, valor em
+// destaque, porque é a marcação de valor atualizado (o quanto será executado).
+function ExecucaoCard({ ex, onEdit }: { ex: ExecucaoEtapa; onEdit?: () => void }) {
+  return (
+    <div className="mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4 shadow-[0_4px_24px_rgba(16,185,129,0.12)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 bg-emerald-500/15 text-emerald-400 ring-emerald-500/30">
+          <Coins className="h-3.5 w-3.5" /> Valor executado
+        </span>
+        {onEdit && <button onClick={onEdit} className="text-[11px] text-muted-foreground hover:text-primary transition-colors">editar</button>}
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor atualizado em execução</p>
+          <p className="text-2xl font-semibold text-emerald-400 tabular-nums mt-0.5">{brlFmt(ex.valor)}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Atualizado em</p>
+          <p className="text-sm font-medium tabular-nums mt-0.5">{fmtPrazo(ex.data)}</p>
+        </div>
+      </div>
+      {ex.obs && <p className="text-[11px] text-muted-foreground mt-2 leading-snug">{ex.obs}</p>}
+    </div>
+  );
+}
+
 const DRAFT_VAZIO = { titulo: "", conteudo: "", prazo: "", status: "" };
-const SENT_VAZIA = { resultado: "procedente" as ResultadoSentenca, valor: "", data: "", honorarios: "", obs: "" };
+const SENT_VAZIA = { resultado: "procedente" as ResultadoSentenca, valor: "", data: "", honorarios: "", obs: "", tipoDecisao: "" as TipoDecisao2Grau | "" };
+const EXEC_VAZIA = { valor: "", data: "", obs: "" };
 
 export function ProcessoTimeline({
   etapas,
@@ -353,11 +407,13 @@ export function ProcessoTimeline({
   onRegistrarSentenca?: (s: SentencaEtapa) => void;
 }) {
   const [ordem, setOrdem] = useState(1);
-  const [sentencaDialog, setSentencaDialog] = useState<string | null>(null);
-  const [sentDraft, setSentDraft] = useState<{ resultado: ResultadoSentenca; valor: string; data: string; honorarios: string; obs: string }>(SENT_VAZIA);
+  // Registro de teor/valor: serve tanto para a Sentença (1º grau) quanto para o
+  // Julgamento em 2º grau (decisão monocrática ou acórdão).
+  const [decisaoDialog, setDecisaoDialog] = useState<{ etapaId: string; kind: "sentenca" | "julgamento" } | null>(null);
+  const [sentDraft, setSentDraft] = useState<{ resultado: ResultadoSentenca; valor: string; data: string; honorarios: string; obs: string; tipoDecisao: TipoDecisao2Grau | "" }>(SENT_VAZIA);
 
-  const abrirSentenca = (etapaId: string, existente?: SentencaEtapa) => {
-    setSentencaDialog(etapaId);
+  const abrirDecisao = (etapaId: string, kind: "sentenca" | "julgamento", existente?: SentencaEtapa) => {
+    setDecisaoDialog({ etapaId, kind });
     setSentDraft(existente
       ? {
           resultado: existente.resultado,
@@ -365,26 +421,52 @@ export function ProcessoTimeline({
           data: existente.data,
           honorarios: existente.honorarios != null ? String(existente.honorarios).replace(".", ",") : "",
           obs: existente.obs ?? "",
+          tipoDecisao: existente.tipoDecisao ?? "",
         }
       : { ...SENT_VAZIA });
   };
-  const salvarSentenca = () => {
-    if (!sentencaDialog) return;
+  const salvarDecisao = () => {
+    if (!decisaoDialog) return;
+    const isJulg = decisaoDialog.kind === "julgamento";
     const improc = sentDraft.resultado === "improcedente";
     const valorNum = parseMoney(sentDraft.valor);
+    if (isJulg && !sentDraft.tipoDecisao) { toast.error("Informe o tipo de decisão (monocrática ou acórdão)."); return; }
     if (!improc && valorNum <= 0) { toast.error("Informe o valor da condenação."); return; }
-    if (!sentDraft.data) { toast.error("Informe a data da sentença."); return; }
+    if (!sentDraft.data) { toast.error(`Informe a data ${isJulg ? "da decisão" : "da sentença"}.`); return; }
     const s: SentencaEtapa = {
       resultado: sentDraft.resultado,
       valor: improc ? 0 : valorNum,
       data: sentDraft.data,
       honorarios: sentDraft.honorarios ? parseMoney(sentDraft.honorarios) : undefined,
       obs: sentDraft.obs.trim() || undefined,
+      tipoDecisao: isJulg && sentDraft.tipoDecisao ? sentDraft.tipoDecisao : undefined,
     };
-    setEtapas((prev) => prev.map((e) => (e.id === sentencaDialog ? { ...e, sentenca: s } : e)));
-    onRegistrarSentenca?.(s);
-    setSentencaDialog(null);
-    dispararPop(RESULTADO_SENTENCA[s.resultado].icon, "Sentença registrada", "bg-primary/15 text-primary ring-primary/30");
+    setEtapas((prev) => prev.map((e) => (
+      e.id === decisaoDialog.etapaId ? { ...e, [isJulg ? "julgamento" : "sentenca"]: s } : e
+    )));
+    if (!isJulg) onRegistrarSentenca?.(s);   // só a sentença de 1º grau alimenta o Tracker
+    setDecisaoDialog(null);
+    dispararPop(RESULTADO_SENTENCA[s.resultado].icon, isJulg ? "Julgamento registrado" : "Sentença registrada", "bg-primary/15 text-primary ring-primary/30");
+  };
+
+  // Registro do valor executado (fase de cumprimento).
+  const [execDialog, setExecDialog] = useState<string | null>(null);
+  const [execDraft, setExecDraft] = useState<{ valor: string; data: string; obs: string }>(EXEC_VAZIA);
+  const abrirExec = (etapaId: string, existente?: ExecucaoEtapa) => {
+    setExecDialog(etapaId);
+    setExecDraft(existente
+      ? { valor: existente.valor ? String(existente.valor).replace(".", ",") : "", data: existente.data, obs: existente.obs ?? "" }
+      : { ...EXEC_VAZIA });
+  };
+  const salvarExec = () => {
+    if (!execDialog) return;
+    const valorNum = parseMoney(execDraft.valor);
+    if (valorNum <= 0) { toast.error("Informe o valor executado."); return; }
+    if (!execDraft.data) { toast.error("Informe a data da atualização."); return; }
+    const ex: ExecucaoEtapa = { valor: valorNum, data: execDraft.data, obs: execDraft.obs.trim() || undefined };
+    setEtapas((prev) => prev.map((e) => (e.id === execDialog ? { ...e, execucao: ex } : e)));
+    setExecDialog(null);
+    dispararPop(Coins, "Valor executado registrado", "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30");
   };
 
   const [tipoDialog, setTipoDialog] = useState<string | null>(null);
@@ -484,6 +566,7 @@ export function ProcessoTimeline({
   const [avancoPasso, setAvancoPasso] = useState<PassoAvanco>("data");
   const [avancoData, setAvancoData] = useState("");              // yyyy-mm-dd
   const [avancoAlvo, setAvancoAlvo] = useState("");              // etapa destino
+  const [avancoStatus, setAvancoStatus] = useState("");          // novo status do processo (obrigatório)
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
   const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
   const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string } | null>(null);
@@ -517,6 +600,7 @@ export function ProcessoTimeline({
     setAvancoPasso("data");
     setAvancoData(dateToYmd(new Date()));
     setAvancoAlvo(etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
+    setAvancoStatus("");                         // status é obrigatório a cada avanço
     setMigrar([]);
   };
   const toggleMigrar = (id: string) =>
@@ -547,7 +631,7 @@ export function ProcessoTimeline({
   // Enquanto qualquer popup estiver aberto, forçamos o body clicável; ao fechar
   // tudo, devolvemos o controle ao Radix.
   useEffect(() => {
-    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog || !!sentencaDialog;
+    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog || !!decisaoDialog || !!execDialog;
     if (!algumAberto) {
       document.body.style.pointerEvents = "";
       return;
@@ -556,10 +640,11 @@ export function ProcessoTimeline({
     soltar();
     const id = window.setInterval(soltar, 120);
     return () => window.clearInterval(id);
-  }, [avancar, desfechoTask, detalhe, tipoDialog, sentencaDialog]);
+  }, [avancar, desfechoTask, detalhe, tipoDialog, decisaoDialog, execDialog]);
 
   const aplicarAvanco = () => {
     if (!avancar || !avancoAlvo || !avancoData) { toast.error("Avanço: faltam dados (data/destino)."); return; }
+    if (!avancoStatus) { toast.error("Defina o novo status do processo para avançar."); return; }
     const idxAtual = etapas.findIndex((e) => e.id === avancar);
     const idxAlvo = etapas.findIndex((e) => e.id === avancoAlvo);
     if (idxAlvo <= idxAtual) { toast.error(`Avanço: destino inválido (${idxAtual} → ${idxAlvo}).`); return; }
@@ -567,6 +652,7 @@ export function ProcessoTimeline({
     const dataBR = fmtPrazo(avancoData);
     const migradas = (etapas[idxAtual].tasks ?? []).filter((t) => migrar.includes(t.id));
     const migrarSnap = [...migrar];
+    const statusSnap = avancoStatus;
     const idConcluida = avancar;
     const idNova = avancoAlvo;
 
@@ -585,7 +671,7 @@ export function ProcessoTimeline({
         setEtapas((prev) => prev.map((e, i) => {
           if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
           if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
-          if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, tasks: [...(e.tasks ?? []), ...migradas] };
+          if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, statusProcessual: statusSnap || e.statusProcessual, tasks: [...(e.tasks ?? []), ...migradas] };
           return e;
         }));
         setRecemAvancado({ concluida: idConcluida, nova: idNova });
@@ -768,7 +854,34 @@ export function ProcessoTimeline({
 
                 {/* Sentença registrada — card na milestone "Sentença" */}
                 {e.titulo === ETAPA_SENTENCA && e.sentenca && (
-                  <SentencaCard s={e.sentenca} onEdit={e.status === "atual" ? () => abrirSentenca(e.id, e.sentenca) : undefined} />
+                  <SentencaCard s={e.sentenca} onEdit={e.status === "atual" ? () => abrirDecisao(e.id, "sentenca", e.sentenca) : undefined} />
+                )}
+
+                {/* Julgamento (2º grau) registrado — card na milestone "Julgamento em 2º grau" */}
+                {e.titulo === ETAPA_JULGAMENTO && e.julgamento && (
+                  <SentencaCard s={e.julgamento} dataLabel="Data da decisão" onEdit={e.status === "atual" ? () => abrirDecisao(e.id, "julgamento", e.julgamento) : undefined} />
+                )}
+
+                {/* Valor executado — card na milestone "Cumprimento de sentença" */}
+                {e.titulo === ETAPA_CUMPRIMENTO && e.execucao && (
+                  <ExecucaoCard ex={e.execucao} onEdit={e.status === "atual" ? () => abrirExec(e.id, e.execucao) : undefined} />
+                )}
+
+                {/* Cumprimento sem valor executado ainda: convite reforçado a registrar */}
+                {e.titulo === ETAPA_CUMPRIMENTO && e.status === "atual" && !e.execucao && (
+                  <button
+                    onClick={() => abrirExec(e.id)}
+                    className="mt-3 w-full flex items-center gap-3 rounded-2xl border border-dashed border-emerald-500/40 bg-emerald-500/[0.05] p-4 text-left hover:bg-emerald-500/[0.09] transition-colors"
+                  >
+                    <span className="h-10 w-10 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
+                      <Coins className="h-5 w-5 text-emerald-400" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">Registrar valor executado</span>
+                      <span className="block text-[11px] text-muted-foreground leading-snug">O valor atualizado que será executado (venha de acordo ou de sentença, sempre com acréscimo).</span>
+                    </span>
+                    <Plus className="h-4 w-4 text-emerald-400 ml-auto shrink-0" />
+                  </button>
                 )}
 
                 {/* Status: aguardando (piscante) — logo após as tarefas */}
@@ -796,7 +909,7 @@ export function ProcessoTimeline({
                   </motion.div>
                 )}
 
-                {/* Avançar etapa — na milestone Sentença, exige a sentença antes */}
+                {/* Avançar etapa — Sentença e Julgamento 2º grau exigem o teor antes */}
                 {e.status === "atual" && (
                   <motion.div
                     className="mt-8 flex justify-center"
@@ -806,10 +919,17 @@ export function ProcessoTimeline({
                   >
                     {e.titulo === ETAPA_SENTENCA && !e.sentenca ? (
                       <div className="flex flex-col items-center gap-1.5">
-                        <Button size="sm" className="gap-1.5" onClick={() => abrirSentenca(e.id)}>
+                        <Button size="sm" className="gap-1.5" onClick={() => abrirDecisao(e.id, "sentenca")}>
                           <Trophy className="h-4 w-4" /> Registrar sentença
                         </Button>
                         <p className="text-[11px] text-muted-foreground">Registre a sentença para poder avançar.</p>
+                      </div>
+                    ) : e.titulo === ETAPA_JULGAMENTO && !e.julgamento ? (
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Button size="sm" className="gap-1.5" onClick={() => abrirDecisao(e.id, "julgamento")}>
+                          <Gavel className="h-4 w-4" /> Registrar julgamento
+                        </Button>
+                        <p className="text-[11px] text-muted-foreground">Registre a decisão (monocrática ou acórdão) para poder avançar.</p>
                       </div>
                     ) : (
                       <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
@@ -1046,76 +1166,153 @@ export function ProcessoTimeline({
         </DialogContent>
       </Dialog>
 
-      {/* ── Popup: registrar sentença (obrigatório p/ avançar a milestone) ── */}
-      <Dialog open={!!sentencaDialog} onOpenChange={(o) => !o && setSentencaDialog(null)}>
+      {/* ── Popup: registrar teor (sentença 1º grau ou julgamento 2º grau) ── */}
+      <Dialog open={!!decisaoDialog} onOpenChange={(o) => !o && setDecisaoDialog(null)}>
+        <DialogContent className={PREMIUM_DIALOG}>
+          {(() => {
+            const isJulg = decisaoDialog?.kind === "julgamento";
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
+                      {isJulg ? <Gavel className="h-4 w-4 text-primary" /> : <Trophy className="h-4 w-4 text-primary" />}
+                    </span>
+                    {isJulg ? "Registrar julgamento (2º grau)" : "Registrar sentença"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {isJulg
+                      ? "Obrigatório para avançar. Decisão monocrática ou acórdão, com o resultado e o valor."
+                      : "Obrigatório para avançar a etapa. As vitórias alimentam o Tracker."}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  {isJulg && (
+                    <Field label="Tipo de decisão" hint="Como o 2º grau se pronunciou.">
+                      <div className="grid grid-cols-2 gap-2">
+                        {(Object.keys(LABEL_DECISAO_2G) as TipoDecisao2Grau[]).map((k) => {
+                          const ativo = sentDraft.tipoDecisao === k;
+                          return (
+                            <button
+                              key={k}
+                              onClick={() => setSentDraft((d) => ({ ...d, tipoDecisao: k }))}
+                              className={cn(
+                                "flex items-center justify-center gap-1.5 rounded-2xl border p-3 text-sm transition-all hover:-translate-y-0.5",
+                                ativo ? "border-primary/50 bg-primary/[0.08] text-foreground" : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
+                              )}
+                            >
+                              <Gavel className="h-4 w-4" /> {LABEL_DECISAO_2G[k]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Field>
+                  )}
+
+                  <Field label="Resultado" hint={isJulg ? "Como o 2º grau decidiu." : "Como o juízo decidiu em 1º grau."}>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(Object.keys(RESULTADO_SENTENCA) as ResultadoSentenca[]).map((k) => {
+                        const info = RESULTADO_SENTENCA[k];
+                        const RIcon = info.icon;
+                        const ativo = sentDraft.resultado === k;
+                        return (
+                          <button
+                            key={k}
+                            onClick={() => setSentDraft((d) => ({ ...d, resultado: k }))}
+                            className={cn(
+                              "flex flex-col items-center gap-1.5 rounded-2xl border p-3 transition-all hover:-translate-y-0.5",
+                              ativo ? cn("ring-1", info.chip) : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
+                            )}
+                          >
+                            <RIcon className="h-5 w-5" />
+                            <span className="text-[11px] font-medium text-center leading-tight">{info.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+
+                  {sentDraft.resultado !== "improcedente" && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Field label="Valor da condenação" hint={isJulg ? "Total reconhecido no 2º grau." : "Total reconhecido na sentença."}>
+                        <Input inputMode="decimal" value={sentDraft.valor} onChange={(e) => setSentDraft((d) => ({ ...d, valor: e.target.value }))} placeholder="0,00" />
+                      </Field>
+                      <Field label="Honorários (opcional)" hint="Se fixados na decisão.">
+                        <Input inputMode="decimal" value={sentDraft.honorarios} onChange={(e) => setSentDraft((d) => ({ ...d, honorarios: e.target.value }))} placeholder="0,00" />
+                      </Field>
+                    </div>
+                  )}
+
+                  <Field label={isJulg ? "Data da decisão" : "Data da sentença"} hint={isJulg ? "Data em que o 2º grau decidiu." : "Data em que a sentença foi proferida."}>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !sentDraft.data && "text-muted-foreground")}>
+                          <CalendarDays className="h-4 w-4" />
+                          {ymdToDate(sentDraft.data) ? format(ymdToDate(sentDraft.data)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar mode="single" locale={ptBR} selected={ymdToDate(sentDraft.data)} onSelect={(d) => setSentDraft((dr) => ({ ...dr, data: d ? dateToYmd(d) : "" }))} initialFocus />
+                      </PopoverContent>
+                    </Popover>
+                  </Field>
+
+                  <Field label="Observações (opcional)" hint="Pontos relevantes da decisão.">
+                    <Textarea value={sentDraft.obs} onChange={(e) => setSentDraft((d) => ({ ...d, obs: e.target.value }))} rows={3} placeholder="Sobre a decisão…" />
+                  </Field>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="ghost" onClick={() => setDecisaoDialog(null)}>Cancelar</Button>
+                  <Button onClick={salvarDecisao}>{isJulg ? "Registrar julgamento" : "Registrar sentença"}</Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Popup: registrar valor executado (fase de cumprimento) ── */}
+      <Dialog open={!!execDialog} onOpenChange={(o) => !o && setExecDialog(null)}>
         <DialogContent className={PREMIUM_DIALOG}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center">
-                <Trophy className="h-4 w-4 text-primary" />
+              <span className="h-7 w-7 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center">
+                <Coins className="h-4 w-4 text-emerald-400" />
               </span>
-              Registrar sentença
+              Valor executado
             </DialogTitle>
-            <DialogDescription>Obrigatório para avançar a etapa. As vitórias alimentam o Tracker.</DialogDescription>
+            <DialogDescription>O valor atualizado que será executado. Venha de acordo ou de sentença, sempre chega com algum acréscimo.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <Field label="Resultado" hint="Como o juízo decidiu em 1º grau.">
-              <div className="grid grid-cols-3 gap-2">
-                {(Object.keys(RESULTADO_SENTENCA) as ResultadoSentenca[]).map((k) => {
-                  const info = RESULTADO_SENTENCA[k];
-                  const RIcon = info.icon;
-                  const ativo = sentDraft.resultado === k;
-                  return (
-                    <button
-                      key={k}
-                      onClick={() => setSentDraft((d) => ({ ...d, resultado: k }))}
-                      className={cn(
-                        "flex flex-col items-center gap-1.5 rounded-2xl border p-3 transition-all hover:-translate-y-0.5",
-                        ativo ? cn("ring-1", info.chip) : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
-                      )}
-                    >
-                      <RIcon className="h-5 w-5" />
-                      <span className="text-[11px] font-medium text-center leading-tight">{info.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+            <Field label="Valor executado (atualizado)" hint="Total que será cobrado na execução, já atualizado.">
+              <Input inputMode="decimal" value={execDraft.valor} onChange={(e) => setExecDraft((d) => ({ ...d, valor: e.target.value }))} placeholder="0,00" />
             </Field>
 
-            {sentDraft.resultado !== "improcedente" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Valor da condenação" hint="Total reconhecido na sentença.">
-                  <Input inputMode="decimal" value={sentDraft.valor} onChange={(e) => setSentDraft((d) => ({ ...d, valor: e.target.value }))} placeholder="0,00" />
-                </Field>
-                <Field label="Honorários (opcional)" hint="Se fixados na sentença.">
-                  <Input inputMode="decimal" value={sentDraft.honorarios} onChange={(e) => setSentDraft((d) => ({ ...d, honorarios: e.target.value }))} placeholder="0,00" />
-                </Field>
-              </div>
-            )}
-
-            <Field label="Data da sentença" hint="Data em que a sentença foi proferida.">
+            <Field label="Data da atualização" hint="Data-base do valor atualizado.">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !sentDraft.data && "text-muted-foreground")}>
+                  <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !execDraft.data && "text-muted-foreground")}>
                     <CalendarDays className="h-4 w-4" />
-                    {ymdToDate(sentDraft.data) ? format(ymdToDate(sentDraft.data)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                    {ymdToDate(execDraft.data) ? format(ymdToDate(execDraft.data)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" locale={ptBR} selected={ymdToDate(sentDraft.data)} onSelect={(d) => setSentDraft((dr) => ({ ...dr, data: d ? dateToYmd(d) : "" }))} initialFocus />
+                  <Calendar mode="single" locale={ptBR} selected={ymdToDate(execDraft.data)} onSelect={(d) => setExecDraft((dr) => ({ ...dr, data: d ? dateToYmd(d) : "" }))} initialFocus />
                 </PopoverContent>
               </Popover>
             </Field>
 
-            <Field label="Observações (opcional)" hint="Pontos relevantes da decisão.">
-              <Textarea value={sentDraft.obs} onChange={(e) => setSentDraft((d) => ({ ...d, obs: e.target.value }))} rows={3} placeholder="Sobre a sentença…" />
+            <Field label="Observações (opcional)" hint="Origem do valor (acordo/sentença), índices, etc.">
+              <Textarea value={execDraft.obs} onChange={(e) => setExecDraft((d) => ({ ...d, obs: e.target.value }))} rows={3} placeholder="Sobre o valor executado…" />
             </Field>
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setSentencaDialog(null)}>Cancelar</Button>
-            <Button onClick={salvarSentenca}>Registrar sentença</Button>
+            <Button variant="ghost" onClick={() => setExecDialog(null)}>Cancelar</Button>
+            <Button onClick={salvarExec}>Registrar valor executado</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1155,7 +1352,7 @@ export function ProcessoTimeline({
                       {avancoDataDate ? format(avancoDataDate, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
+                  <PopoverContent className="w-auto p-0 z-[130]" align="start">
                     <Calendar mode="single" locale={ptBR} selected={avancoDataDate} onSelect={(d) => setAvancoData(d ? dateToYmd(d) : "")} initialFocus />
                   </PopoverContent>
                 </Popover>
@@ -1305,9 +1502,20 @@ export function ProcessoTimeline({
                   <p className="text-muted-foreground text-[12px]">{migrar.length} tarefa(s) serão levadas para a nova etapa.</p>
                 )}
               </div>
+
+              {/* Todo avanço atualiza o status do processo — obrigatório. */}
+              <Field label={`Novo status do processo em “${nomeAlvo}”`} hint="O que o processo passa a aguardar. Atualiza o card, a ficha e a lista.">
+                <Select value={avancoStatus} onValueChange={setAvancoStatus}>
+                  <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório: escolha o novo status" /></SelectTrigger>
+                  <SelectContent className="z-[130]">
+                    {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setAvancoPasso(tasksAbertas.length ? "tarefas" : "destino")}>Voltar</Button>
-                <Button type="button" onClick={aplicarAvanco}>Confirmar avanço</Button>
+                <Button type="button" disabled={!avancoStatus} onClick={aplicarAvanco}>Confirmar avanço</Button>
               </DialogFooter>
             </>
           )}
