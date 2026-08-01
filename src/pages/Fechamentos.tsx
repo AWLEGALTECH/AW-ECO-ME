@@ -423,21 +423,32 @@ export default function Fechamentos() {
   const focoValorAcao = valorAcaoVigente(focoPagas, focoRegra);
   const focoComissao = comissaoDe(focoPagas, focoRegra, focoBonus);
 
-  // Totais de excedentes do time (aba geral).
-  const teamExced = useMemo(() => {
-    if (focoId) return null;
-    let bolsa = 0, recebido = 0, recebidoValor = 0;
-    for (const m of equipe) {
-      const info = excedInfoPessoa(fechamentos, m.id, mesAtivo, regraDe, metaDe);
-      bolsa += info.bolsa.total;
-      recebido += info.carregado.total;
-      if (info.carregado.total > 0) {
-        const { regra: rr } = regraDoFoco(regra, metasMap[m.id]);
-        recebidoValor += info.carregado.total * valorAcaoVigente(info.rubricasPagas, rr);
-      }
+  // Linhas de excedente pro rodapé da lista (contexto: foco ou time inteiro).
+  //  · recebido = excedente do mês anterior, paga aqui (conta como fechamento).
+  //  · bolsa    = retido neste mês, sem valor, vai pro próximo mês.
+  const excedList = useMemo(() => {
+    const alvos = focoId ? [focoId] : equipe.map((mm) => mm.id);
+    const recebido: (ExcedenteCliente & { userId: string; valor: number })[] = [];
+    const bolsa: (ExcedenteCliente & { userId: string })[] = [];
+    for (const uid of alvos) {
+      const info = excedInfoPessoa(fechamentos, uid, mesAtivo, regraDe, metaDe);
+      const { regra: rr } = regraDoFoco(regraDe(mesAtivo), metaDe(mesAtivo, uid));
+      const rate = valorAcaoVigente(info.rubricasPagas, rr);
+      for (const c of info.carregado.porCliente) recebido.push({ ...c, userId: uid, valor: c.rubricas.length * rate });
+      for (const c of info.bolsa.porCliente) bolsa.push({ ...c, userId: uid });
     }
-    return { bolsa, recebido, recebidoValor };
-  }, [focoId, equipe, fechamentos, mesAtivo, regraDe, metaDe, regra, metasMap]);
+    return { recebido, bolsa };
+  }, [focoId, equipe, fechamentos, mesAtivo, regraDe, metaDe]);
+  const mesAnteriorExt = mesExtenso(addMes(mesAtivo, -1));
+  const mesProximoExt = mesExtenso(addMes(mesAtivo, 1));
+
+  // Rubricas que PAGAM por pessoa (própria capada na meta + carregadas) —
+  // base da comissão no ranking do time.
+  const pagasDe = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const mm of equipe) map[mm.id] = excedInfoPessoa(fechamentos, mm.id, mesAtivo, regraDe, metaDe).rubricasPagas;
+    return map;
+  }, [equipe, fechamentos, mesAtivo, regraDe, metaDe]);
 
   // Nº de pessoas da equipe com ao menos 1 ação no mês
   const pessoasContribuindo = useMemo(
@@ -539,46 +550,21 @@ export default function Fechamentos() {
                 <CardValorAcao regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
                 <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
               </div>
-              {focoExced && (focoExced.carregado.total > 0 || focoExced.bolsa.total > 0) && (
-                <ExcedentesIndividual
-                  info={focoExced}
-                  mes={mesAtivo}
-                  valorAcao={focoValorAcao}
-                  nome={primeiroNome(focoNome)}
-                />
-              )}
             </>
           ) : (
             /* Aba geral (admin ou liberado): painel de meta do time + ranking. */
-            <>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="lg:col-span-2">
-                  <PainelMeta
-                    titulo={`Quadro geral · ${mesExtenso(mesAtivo)}`}
-                    icon={Users}
-                    acoes={teamAcoes}
-                    meta={regra.meta_geral}
-                    nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
-                  />
-                </div>
-                <RankingMes equipe={equipe} acoesDe={acoesDe} regra={regra} metasMap={metasMap} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
+                <PainelMeta
+                  titulo={`Quadro geral · ${mesExtenso(mesAtivo)}`}
+                  icon={Users}
+                  acoes={teamAcoes}
+                  meta={regra.meta_geral}
+                  nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
+                />
               </div>
-              {teamExced && (teamExced.bolsa > 0 || teamExced.recebido > 0) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <ExcedenteResumo
-                    tom="recebido"
-                    titulo={`Excedente recebido de ${mesExtenso(addMes(mesAtivo, -1))}`}
-                    total={teamExced.recebido}
-                    valor={teamExced.recebidoValor}
-                  />
-                  <ExcedenteResumo
-                    tom="bolsa"
-                    titulo={`Bolsa deste mês → ${mesExtenso(addMes(mesAtivo, 1))}`}
-                    total={teamExced.bolsa}
-                  />
-                </div>
-              )}
-            </>
+              <RankingMes equipe={equipe} acoesDe={acoesDe} pagasDe={pagasDe} regra={regra} metasMap={metasMap} />
+            </div>
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -588,15 +574,16 @@ export default function Fechamentos() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <ClipboardList className="h-4 w-4 text-primary" />
                   {focoNome ? `Fechamentos de ${primeiroNome(focoNome)}` : "Todos os fechamentos"}
-                  <span className="ml-auto text-xs font-normal text-muted-foreground">{listaMes.length} no mês</span>
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">{listaMes.length + excedList.recebido.length} no mês</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {listaMes.length === 0 ? (
+                {listaMes.length === 0 && excedList.recebido.length === 0 && excedList.bolsa.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     Nenhum fechamento neste mês. Clique em <strong>Novo fechamento</strong> pra começar.
                   </p>
                 ) : (
+                  <>
                   <div className="divide-y divide-border/40">
                     {listaMes.map((f) => (
                       <div key={f.id} className="py-2.5 first:pt-0 last:pb-0 group">
@@ -653,7 +640,72 @@ export default function Fechamentos() {
                         )}
                       </div>
                     ))}
+
+                    {/* Excedente recebido do mês anterior — conta como fechamento e
+                        entra na comissão deste mês (cor de aviso, discreto). */}
+                    {excedList.recebido.map((c, i) => (
+                      <div key={`rec-${c.userId}-${c.cliente_id || c.cliente_nome}-${i}`} className="py-2.5 first:pt-0 last:pb-0">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-400/10 text-amber-400 mt-0.5">
+                            <PiggyBank className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium">{c.cliente_nome}</span>
+                              {!focoId && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {primeiroNome(equipe.find((m) => m.id === c.userId)?.nome)}
+                                </span>
+                              )}
+                              {c.cliente_id && (
+                                <a href={`/clientes/${c.cliente_id}`} className="text-[10px] text-primary hover:underline">ver ficha</a>
+                              )}
+                              <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-full px-1.5 py-0.5">
+                                excedente de {mesAnteriorExt}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 flex-wrap">
+                              {c.rubricas.length} {c.rubricas.length === 1 ? "rubrica válida" : "rubricas válidas"}
+                              <span className="text-muted-foreground/50">·</span>
+                              <span className="text-emerald-400">{brl(c.valor)} nesta comissão</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {c.rubricas.map((r, idx) => (
+                                <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded border border-amber-400/30 bg-amber-400/[0.06] text-foreground/80" title={RUBRICA_LABEL[r] || r}>
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+
+                  {/* Bolsa retida neste mês — sem valor, vai pro próximo mês (aviso discreto) */}
+                  {excedList.bolsa.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/[0.05] p-3">
+                      <p className="text-[11px] uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <ArrowRight className="h-3.5 w-3.5" /> Excedentes deste mês vão para {mesProximoExt}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Passaram da meta e ficam retidas (sem valor). Em {mesProximoExt} entram como fechamento e pagam pela regra de lá.
+                      </p>
+                      <div className="mt-2 space-y-1">
+                        {excedList.bolsa.map((c, i) => (
+                          <div key={`bol-${c.userId}-${c.cliente_id || c.cliente_nome}-${i}`} className="flex items-center justify-between gap-2 text-[12px]">
+                            <span className="inline-flex items-center gap-1.5 min-w-0">
+                              <User className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{c.cliente_nome}</span>
+                              {!focoId && <span className="text-[10px] text-muted-foreground shrink-0">· {primeiroNome(equipe.find((m) => m.id === c.userId)?.nome)}</span>}
+                            </span>
+                            <span className="text-[11px] tabular-nums text-amber-400/80 shrink-0">{c.rubricas.length} {c.rubricas.length === 1 ? "rubrica" : "rubricas"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -782,14 +834,15 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
 
 /* Ranking do mês (aba geral) — placar do time por descontos, com pódio pros
    três primeiros e barrinha proporcional ao líder. */
-function RankingMes({ equipe, acoesDe, regra, metasMap }: {
-  equipe: Membro[]; acoesDe: Record<string, number>; regra: Regra; metasMap: Record<string, MetaUser>;
+function RankingMes({ equipe, acoesDe, pagasDe, regra, metasMap }: {
+  equipe: Membro[]; acoesDe: Record<string, number>; pagasDe: Record<string, number>; regra: Regra; metasMap: Record<string, MetaUser>;
 }) {
   const linhas = equipe
     .map((m) => {
       const acoes = acoesDe[m.id] || 0;
+      const pagas = pagasDe[m.id] ?? acoes;
       const { regra: r } = regraDoFoco(regra, metasMap[m.id]);
-      const comissao = comissaoDe(acoes, r, metasMap[m.id]?.bonus || 0);
+      const comissao = comissaoDe(pagas, r, metasMap[m.id]?.bonus || 0);
       return { id: m.id, nome: m.nome, acoes, comissao };
     })
     .sort((a, b) => b.acoes - a.acoes || b.comissao - a.comissao);
@@ -952,100 +1005,6 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
           </p>
         </div>
       )}
-    </SpotlightCard>
-  );
-}
-
-/* ─────────────────────── Excedentes (bolsa) ───────────────────────
-   Individual: o que a pessoa recebeu do mês anterior (com valor, pela regra
-   deste mês) + o que está retendo neste mês (só contagem, vai pro próximo). */
-function ListaClientesExced({ porCliente }: { porCliente: ExcedenteCliente[] }) {
-  return (
-    <div className="mt-3 space-y-1.5">
-      {porCliente.map((c, i) => (
-        <div key={(c.cliente_id || c.cliente_nome) + i} className="flex items-center justify-between gap-2 text-sm">
-          <span className="inline-flex items-center gap-1.5 min-w-0">
-            <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            {c.cliente_id
-              ? <a href={`/clientes/${c.cliente_id}`} className="truncate hover:text-primary hover:underline">{c.cliente_nome}</a>
-              : <span className="truncate">{c.cliente_nome}</span>}
-          </span>
-          <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
-            {c.rubricas.length} {c.rubricas.length === 1 ? "rubrica" : "rubricas"}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ExcedentesIndividual({ info, mes, valorAcao, nome }: {
-  info: ExcedInfo; mes: string; valorAcao: number; nome: string;
-}) {
-  const mesAnt = mesExtenso(addMes(mes, -1));
-  const mesProx = mesExtenso(addMes(mes, 1));
-  const valorRecebido = info.carregado.total * valorAcao;
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {info.carregado.total > 0 && (
-        <SpotlightCard className="border-emerald-500/25">
-          <p className="text-xs uppercase tracking-wider text-emerald-400/90 flex items-center gap-1.5">
-            <PiggyBank className="h-3.5 w-3.5" /> Excedente recebido de {mesAnt}
-          </p>
-          <div className="mt-1.5 flex items-end gap-2">
-            <CountUp value={valorRecebido} format={brl} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
-            <span className="text-[11px] text-muted-foreground mb-1">{intBR(info.carregado.total)} rubricas × {brl(valorAcao)}</span>
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1.5">Já entra na comissão deste mês, pela regra atual.</p>
-          <ListaClientesExced porCliente={info.carregado.porCliente} />
-        </SpotlightCard>
-      )}
-      {info.bolsa.total > 0 && (
-        <SpotlightCard className="border-amber-400/40 fech-glow">
-          <p className="text-xs uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-            <ArrowRight className="h-3.5 w-3.5" /> Bolsa de excedentes deste mês
-          </p>
-          <div className="mt-1.5 flex items-end gap-2">
-            <CountUp value={info.bolsa.total} className="text-3xl font-semibold font-display tabular-nums leading-none text-amber-400" />
-            <span className="text-[11px] text-muted-foreground mb-1">rubricas retidas</span>
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1.5">
-            {nome} passou da meta ({intBR(info.meta)}). Sem valor até {mesProx} — lá elas pagam pela regra do mês.
-          </p>
-          <ListaClientesExced porCliente={info.bolsa.porCliente} />
-        </SpotlightCard>
-      )}
-    </div>
-  );
-}
-
-/* Geral: cartão-resumo do time (só total; o detalhe por cliente fica no
-   quadro individual de cada pessoa). */
-function ExcedenteResumo({ tom, titulo, total, valor }: {
-  tom: "recebido" | "bolsa"; titulo: string; total: number; valor?: number;
-}) {
-  const recebido = tom === "recebido";
-  return (
-    <SpotlightCard className={recebido ? "border-emerald-500/25" : "border-amber-400/40"}>
-      <p className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${recebido ? "text-emerald-400/90" : "text-amber-400"}`}>
-        {recebido ? <PiggyBank className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />} {titulo}
-      </p>
-      <div className="mt-1.5 flex items-end gap-2">
-        {recebido && valor != null ? (
-          <>
-            <CountUp value={valor} format={brl} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
-            <span className="text-[11px] text-muted-foreground mb-1">{intBR(total)} rubricas</span>
-          </>
-        ) : (
-          <>
-            <CountUp value={total} className="text-3xl font-semibold font-display tabular-nums leading-none text-amber-400" />
-            <span className="text-[11px] text-muted-foreground mb-1">rubricas retidas · sem valor</span>
-          </>
-        )}
-      </div>
-      <p className="text-[11px] text-muted-foreground mt-1.5">
-        {recebido ? "Somado à comissão do time neste mês." : "Passam pro mês seguinte e pagam pela regra de lá."}
-      </p>
     </SpotlightCard>
   );
 }
