@@ -480,6 +480,8 @@ export default function Fechamentos() {
     return out;
   }, [focoId, equipe, fechamentos, mesAtivo, regraDe, metaDe]);
   const totalCarregado = useMemo(() => excedList.recebido.reduce((a, c) => a + c.rubricas.length, 0), [excedList]);
+  const totalRetido = useMemo(() => excedList.bolsa.reduce((a, c) => a + c.rubricas.length, 0), [excedList]);
+  const excedenteInfo = { retido: totalRetido, recebido: totalCarregado, mesAnterior: mesAnteriorExt, mesProximo: mesProximoExt };
 
   // Nº de pessoas da equipe com ao menos 1 ação no mês
   const pessoasContribuindo = useMemo(
@@ -577,7 +579,7 @@ export default function Fechamentos() {
                 icon={Target}
                 acoes={focoPagas}
                 meta={focoMeta}
-                nota={totalCarregado > 0 ? `Inclui ${intBR(totalCarregado)} rubricas de excedente de ${mesAnteriorExt}.` : undefined}
+                excedente={excedenteInfo}
               />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <CardDinamica regra={focoRegra} acoes={focoPagas} />
@@ -594,7 +596,8 @@ export default function Fechamentos() {
                   icon={Users}
                   acoes={teamPagas}
                   meta={regra.meta_geral}
-                  nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês${totalCarregado > 0 ? ` · inclui ${intBR(totalCarregado)} de excedente de ${mesAnteriorExt}` : ""}`}
+                  excedente={excedenteInfo}
+                  nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
                 />
               </div>
               <RankingMes equipe={equipe} acoesDe={acoesDe} pagasDe={pagasDe} regra={regra} metasMap={metasMap} />
@@ -812,12 +815,18 @@ function ScopePill({ active, onClick, icon: Icon, label }: { active: boolean; on
 /* Painel GRANDE de meta (geral ou individual) — anel circular à esquerda,
    contagem + régua de marcos + mini-stats à direita. Estado esmeralda quando
    a meta é batida. É o centro do dashboard, inspirado no anel de referência. */
-function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
+function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
   titulo: string; icon: any; acoes: number; meta: number; nota?: string;
+  excedente?: { retido: number; recebido: number; mesAnterior: string; mesProximo: string };
 }) {
   const bateu = meta > 0 && acoes >= meta;
   const pct = meta > 0 ? Math.min(100, Math.round((acoes / meta) * 100)) : 0;
   const faltam = Math.max(0, meta - acoes);
+  const retido = excedente?.retido ?? 0;
+  const recebido = excedente?.recebido ?? 0;
+  // Produção própria do mês = o que contou pra meta menos o recebido de fora,
+  // mais o que ficou retido. Assim as excedentes do mês nunca somem do controle.
+  const fechadasNoMes = acoes - recebido + retido;
   return (
     <SpotlightCard className={`h-full ${bateu ? "border-emerald-500/25" : "border-primary/20"}`}>
       <div className="flex items-center justify-between gap-2 mb-5">
@@ -835,11 +844,19 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
         <AnelMeta pct={pct} bateu={bateu} />
 
         <div className="flex-1 min-w-[220px]">
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 flex-wrap">
             <CountUp value={acoes} className="text-5xl font-semibold font-display tabular-nums leading-none" />
             <span className="text-base text-muted-foreground mb-1">
               / {meta > 0 ? intBR(meta) : "—"} rubricas válidas
             </span>
+            {retido > 0 && (
+              <span
+                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground mb-1.5"
+                title={`${intBR(retido)} excedentes retidas vão para ${excedente?.mesProximo}`}
+              >
+                <ArrowUpRight className="h-4 w-4 text-amber-400" /> +{intBR(retido)} excedentes
+              </span>
+            )}
           </div>
           <p className={`text-xs mt-1.5 ${bateu ? "text-emerald-400/90" : "text-muted-foreground"}`}>
             {meta > 0
@@ -847,11 +864,27 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota }: {
               : "Meta do mês ainda não definida"}
           </p>
 
+          {/* Camadas de excedente — deixa claro o que vem de onde e pra onde vai */}
+          {(retido > 0 || recebido > 0) && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] text-muted-foreground">
+              {recebido > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  <ArrowDownLeft className="h-3.5 w-3.5 text-amber-400" /> {intBR(recebido)} recebidas de {excedente?.mesAnterior}
+                </span>
+              )}
+              {retido > 0 && (
+                <span className="inline-flex items-center gap-1">
+                  <ArrowUpRight className="h-3.5 w-3.5 text-amber-400" /> {intBR(retido)} excedentes vão para {excedente?.mesProximo}
+                </span>
+              )}
+            </div>
+          )}
+
           {meta > 0 && <div className="mt-4"><BarraMarcos value={acoes} max={meta} bateu={bateu} /></div>}
 
           <div className="grid grid-cols-2 gap-2 mt-4">
             <MiniStat label="Meta do mês" value={meta > 0 ? intBR(meta) : "—"} sub="rubricas válidas" />
-            <MiniStat label="Desempenho" value={intBR(acoes)} sub="rubricas válidas" />
+            <MiniStat label="Fechadas no mês" value={intBR(fechadasNoMes)} sub="rubricas válidas" />
           </div>
 
           {nota && <p className="text-[11px] text-muted-foreground mt-3">{nota}</p>}
