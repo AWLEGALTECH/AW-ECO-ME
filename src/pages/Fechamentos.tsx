@@ -17,7 +17,7 @@ import {
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
   ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
-  ClipboardList, ListChecks,
+  ClipboardList, ListChecks, PiggyBank, ArrowRight,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -41,6 +41,7 @@ interface Regra {
   especial_limite: number | null;   // base vale ATÉ X ações; acima disso vale o especial
   meta_geral: number;
   bonus: number;
+  permitir_excedentes: boolean;     // geral do mês: false retém o que passa da meta
 }
 interface Membro { id: string; nome: string | null; email: string | null }
 
@@ -77,6 +78,7 @@ function toRegra(mes: string, row: any): Regra {
     especial_limite: r.mult_especial_min == null ? null : Number(r.mult_especial_min),
     meta_geral: Number(r.meta_geral ?? 0),
     bonus: Number(r.bonus ?? 0),
+    permitir_excedentes: r.permitir_excedentes == null ? true : !!r.permitir_excedentes,
   };
 }
 /**
@@ -97,6 +99,7 @@ interface MetaUser {
   especialAtivo: boolean;
   valorEspecial: number;
   especialLimite: number | null;
+  permitirExcedentes: boolean | null;   // null = segue o geral do mês
 }
 /**
  * Regra vigente pra uma pessoa: se ela tem faixa especial PRÓPRIA ativa,
@@ -120,6 +123,82 @@ function valorAcaoVigente(acoes: number, r: Regra) {
 /** Comissão = ações × valor_por_ação_vigente + bônus individual. */
 function comissaoDe(acoes: number, r: Regra, bonusIndiv: number) {
   return acoes * valorAcaoVigente(acoes, r) + bonusIndiv;
+}
+
+/* ─────────────────────── excedentes (bolsa) ───────────────────────
+   Quando "permitir excedentes" está OFF pra pessoa, o que passa da meta no mês
+   NÃO paga: vira bolsa (só contagem, por cliente). Na virada, entra no mês
+   seguinte e paga pela regra do novo mês. Tudo derivado dos fechamentos. */
+interface ExcedenteCliente { cliente_nome: string; cliente_id: string | null; rubricas: string[] }
+interface Bolsa { total: number; porCliente: ExcedenteCliente[] }
+const BOLSA_VAZIA: Bolsa = { total: 0, porCliente: [] };
+
+/** Permitir excedentes vigente pra pessoa: override próprio > geral do mês. */
+function permiteExcedentes(regraMes: Regra, mu?: MetaUser): boolean {
+  if (mu && (mu.permitirExcedentes === true || mu.permitirExcedentes === false)) return mu.permitirExcedentes;
+  return regraMes.permitir_excedentes;
+}
+
+/** Fechamentos de uma pessoa num mês, em ordem cronológica estável. */
+function fechsPessoaMes(fechs: Fechamento[], userId: string, mes: string) {
+  return fechs
+    .filter((f) => f.user_id === userId && (f.data || "").slice(0, 7) === mes)
+    .sort((a, b) => (a.data || "").localeCompare(b.data || "") || a.id.localeCompare(b.id));
+}
+const contaRubricas = (fs: Fechamento[]) => fs.reduce((a, f) => a + (f.rubricas?.length || 0), 0);
+
+/** Bolsa gerada: achata (cliente, rubrica) em ordem e pega o que passa da meta. */
+function calcBolsa(fs: Fechamento[], meta: number): Bolsa {
+  if (meta <= 0) return BOLSA_VAZIA;
+  const flat: { cliente_nome: string; cliente_id: string | null; rubrica: string }[] = [];
+  for (const f of fs) for (const r of f.rubricas || []) flat.push({ cliente_nome: f.cliente_nome, cliente_id: f.cliente_id, rubrica: r });
+  if (flat.length <= meta) return BOLSA_VAZIA;
+  const excedentes = flat.slice(meta);
+  const map = new Map<string, ExcedenteCliente>();
+  for (const e of excedentes) {
+    const key = e.cliente_id || e.cliente_nome;
+    const cur = map.get(key) || { cliente_nome: e.cliente_nome, cliente_id: e.cliente_id, rubricas: [] };
+    cur.rubricas.push(e.rubrica);
+    map.set(key, cur);
+  }
+  return { total: excedentes.length, porCliente: [...map.values()] };
+}
+
+interface ExcedInfo {
+  producao: number;        // rubricas próprias no mês
+  meta: number;
+  retendo: boolean;        // retém o que passou da meta neste mês
+  bolsa: Bolsa;            // gerada neste mês → vai pro próximo
+  carregado: Bolsa;        // recebida do mês anterior → paga neste mês
+  pagasProprias: number;   // rubricas próprias que pagam neste mês (capadas na meta se retém)
+  rubricasPagas: number;   // pagasProprias + carregado.total (base da comissão)
+}
+/** Tudo que a pessoa retém/recebe num mês, derivado dos fechamentos + regras. */
+function excedInfoPessoa(
+  fechs: Fechamento[], userId: string, mes: string,
+  regraDe: (m: string) => Regra, metaDe: (m: string, u: string) => MetaUser | undefined,
+): ExcedInfo {
+  const fs = fechsPessoaMes(fechs, userId, mes);
+  const producao = contaRubricas(fs);
+  const rMes = regraDe(mes);
+  const muMes = metaDe(mes, userId);
+  const meta = muMes?.meta || 0;
+  const permite = permiteExcedentes(rMes, muMes);
+  const retendo = !permite && meta > 0 && producao > meta;
+  const bolsa = retendo ? calcBolsa(fs, meta) : BOLSA_VAZIA;
+
+  // Carregado do mês anterior: só a produção PRÓPRIA do mês anterior que passou
+  // da meta (excedente carregado não gera nova bolsa — paga e encerra).
+  const mesAnt = addMes(mes, -1);
+  const fsAnt = fechsPessoaMes(fechs, userId, mesAnt);
+  const muAnt = metaDe(mesAnt, userId);
+  const metaAnt = muAnt?.meta || 0;
+  const permiteAnt = permiteExcedentes(regraDe(mesAnt), muAnt);
+  const reteveAnt = !permiteAnt && metaAnt > 0 && contaRubricas(fsAnt) > metaAnt;
+  const carregado = reteveAnt ? calcBolsa(fsAnt, metaAnt) : BOLSA_VAZIA;
+
+  const pagasProprias = retendo ? meta : producao;
+  return { producao, meta, retendo, bolsa, carregado, pagasProprias, rubricasPagas: pagasProprias + carregado.total };
 }
 
 /* ─────────────────────── mini-componentes ─────────────────────── */
@@ -277,20 +356,33 @@ export default function Fechamentos() {
   // formatos antigos (ex.: objeto no lugar de array) e não pode derrubar a tela.
   const fechamentos = Array.isArray(fechRes.data) ? fechRes.data : [];
   const equipe = Array.isArray(equipeRes.data) ? equipeRes.data : [];
-  const regra = useMemo(() => {
+
+  // Acessores por mês qualquer (pra calcular o carregado do mês anterior).
+  const toMetaUser = (r: any): MetaUser => ({
+    meta: Number(r.meta) || 0,
+    bonus: Number(r.bonus) || 0,
+    especialAtivo: !!r.especial_ativo,
+    valorEspecial: Number(r.valor_especial) || 0,
+    especialLimite: r.especial_limite == null ? null : Number(r.especial_limite),
+    permitirExcedentes: r.permitir_excedentes == null ? null : !!r.permitir_excedentes,
+  });
+  const regraDe = useMemo(() => {
     const rows = Array.isArray(regrasRes.data) ? regrasRes.data : [];
-    return toRegra(mesAtivo, rows.find((r) => r.mes === mesAtivo));
-  }, [regrasRes.data, mesAtivo]);
+    return (mes: string) => toRegra(mes, rows.find((r) => r.mes === mes));
+  }, [regrasRes.data]);
+  const metaDe = useMemo(() => {
+    const rows = Array.isArray(metasRes.data) ? metasRes.data : [];
+    return (mes: string, userId: string) => {
+      const r = rows.find((x) => x.mes === mes && x.user_id === userId);
+      return r ? toMetaUser(r) : undefined;
+    };
+  }, [metasRes.data]);
+
+  const regra = useMemo(() => regraDe(mesAtivo), [regraDe, mesAtivo]);
   const metasMap = useMemo(() => {
     const m: Record<string, MetaUser> = {};
     const rows = Array.isArray(metasRes.data) ? metasRes.data : [];
-    for (const r of rows) if (r.mes === mesAtivo) m[r.user_id] = {
-      meta: Number(r.meta) || 0,
-      bonus: Number(r.bonus) || 0,
-      especialAtivo: !!r.especial_ativo,
-      valorEspecial: Number(r.valor_especial) || 0,
-      especialLimite: r.especial_limite == null ? null : Number(r.especial_limite),
-    };
+    for (const r of rows) if (r.mes === mesAtivo) m[r.user_id] = toMetaUser(r);
     return m;
   }, [metasRes.data, mesAtivo]);
 
@@ -320,9 +412,32 @@ export default function Fechamentos() {
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
   // Regra vigente pro foco: faixa especial individual sobrepõe a geral do mês.
   const { regra: focoRegra } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
-  const focoEspecialAtivo = especialAtivoPara(focoAcoes, focoRegra);
-  const focoValorAcao = valorAcaoVigente(focoAcoes, focoRegra);
-  const focoComissao = comissaoDe(focoAcoes, focoRegra, focoBonus);
+  // Excedentes: o que a pessoa retém (bolsa) e o que recebe do mês anterior.
+  const focoExced = useMemo(
+    () => (focoId ? excedInfoPessoa(fechamentos, focoId, mesAtivo, regraDe, metaDe) : null),
+    [focoId, fechamentos, mesAtivo, regraDe, metaDe],
+  );
+  // Comissão paga = rubricas próprias (capadas na meta se retém) + carregadas.
+  const focoPagas = focoExced ? focoExced.rubricasPagas : focoAcoes;
+  const focoEspecialAtivo = especialAtivoPara(focoPagas, focoRegra);
+  const focoValorAcao = valorAcaoVigente(focoPagas, focoRegra);
+  const focoComissao = comissaoDe(focoPagas, focoRegra, focoBonus);
+
+  // Totais de excedentes do time (aba geral).
+  const teamExced = useMemo(() => {
+    if (focoId) return null;
+    let bolsa = 0, recebido = 0, recebidoValor = 0;
+    for (const m of equipe) {
+      const info = excedInfoPessoa(fechamentos, m.id, mesAtivo, regraDe, metaDe);
+      bolsa += info.bolsa.total;
+      recebido += info.carregado.total;
+      if (info.carregado.total > 0) {
+        const { regra: rr } = regraDoFoco(regra, metasMap[m.id]);
+        recebidoValor += info.carregado.total * valorAcaoVigente(info.rubricasPagas, rr);
+      }
+    }
+    return { bolsa, recebido, recebidoValor };
+  }, [focoId, equipe, fechamentos, mesAtivo, regraDe, metaDe, regra, metasMap]);
 
   // Nº de pessoas da equipe com ao menos 1 ação no mês
   const pessoasContribuindo = useMemo(
@@ -420,25 +535,50 @@ export default function Fechamentos() {
                 meta={focoMeta}
               />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardDinamica regra={focoRegra} acoes={focoAcoes} />
-                <CardValorAcao regra={focoRegra} acoes={focoAcoes} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
-                <CardComissao acoes={focoAcoes} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
+                <CardDinamica regra={focoRegra} acoes={focoPagas} />
+                <CardValorAcao regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
+                <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
               </div>
+              {focoExced && (focoExced.carregado.total > 0 || focoExced.bolsa.total > 0) && (
+                <ExcedentesIndividual
+                  info={focoExced}
+                  mes={mesAtivo}
+                  valorAcao={focoValorAcao}
+                  nome={primeiroNome(focoNome)}
+                />
+              )}
             </>
           ) : (
             /* Aba geral (admin ou liberado): painel de meta do time + ranking. */
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2">
-                <PainelMeta
-                  titulo={`Quadro geral · ${mesExtenso(mesAtivo)}`}
-                  icon={Users}
-                  acoes={teamAcoes}
-                  meta={regra.meta_geral}
-                  nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
-                />
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2">
+                  <PainelMeta
+                    titulo={`Quadro geral · ${mesExtenso(mesAtivo)}`}
+                    icon={Users}
+                    acoes={teamAcoes}
+                    meta={regra.meta_geral}
+                    nota={`${pessoasContribuindo} ${pessoasContribuindo === 1 ? "pessoa contribuindo" : "pessoas contribuindo"} este mês`}
+                  />
+                </div>
+                <RankingMes equipe={equipe} acoesDe={acoesDe} regra={regra} metasMap={metasMap} />
               </div>
-              <RankingMes equipe={equipe} acoesDe={acoesDe} regra={regra} metasMap={metasMap} />
-            </div>
+              {teamExced && (teamExced.bolsa > 0 || teamExced.recebido > 0) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <ExcedenteResumo
+                    tom="recebido"
+                    titulo={`Excedente recebido de ${mesExtenso(addMes(mesAtivo, -1))}`}
+                    total={teamExced.recebido}
+                    valor={teamExced.recebidoValor}
+                  />
+                  <ExcedenteResumo
+                    tom="bolsa"
+                    titulo={`Bolsa deste mês → ${mesExtenso(addMes(mesAtivo, 1))}`}
+                    total={teamExced.bolsa}
+                  />
+                </div>
+              )}
+            </>
           )}
 
           {/* ── LISTA + RUBRICAS ── */}
@@ -816,6 +956,100 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
   );
 }
 
+/* ─────────────────────── Excedentes (bolsa) ───────────────────────
+   Individual: o que a pessoa recebeu do mês anterior (com valor, pela regra
+   deste mês) + o que está retendo neste mês (só contagem, vai pro próximo). */
+function ListaClientesExced({ porCliente }: { porCliente: ExcedenteCliente[] }) {
+  return (
+    <div className="mt-3 space-y-1.5">
+      {porCliente.map((c, i) => (
+        <div key={(c.cliente_id || c.cliente_nome) + i} className="flex items-center justify-between gap-2 text-sm">
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            {c.cliente_id
+              ? <a href={`/clientes/${c.cliente_id}`} className="truncate hover:text-primary hover:underline">{c.cliente_nome}</a>
+              : <span className="truncate">{c.cliente_nome}</span>}
+          </span>
+          <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
+            {c.rubricas.length} {c.rubricas.length === 1 ? "rubrica" : "rubricas"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExcedentesIndividual({ info, mes, valorAcao, nome }: {
+  info: ExcedInfo; mes: string; valorAcao: number; nome: string;
+}) {
+  const mesAnt = mesExtenso(addMes(mes, -1));
+  const mesProx = mesExtenso(addMes(mes, 1));
+  const valorRecebido = info.carregado.total * valorAcao;
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {info.carregado.total > 0 && (
+        <SpotlightCard className="border-emerald-500/25">
+          <p className="text-xs uppercase tracking-wider text-emerald-400/90 flex items-center gap-1.5">
+            <PiggyBank className="h-3.5 w-3.5" /> Excedente recebido de {mesAnt}
+          </p>
+          <div className="mt-1.5 flex items-end gap-2">
+            <CountUp value={valorRecebido} format={brl} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
+            <span className="text-[11px] text-muted-foreground mb-1">{intBR(info.carregado.total)} rubricas × {brl(valorAcao)}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">Já entra na comissão deste mês, pela regra atual.</p>
+          <ListaClientesExced porCliente={info.carregado.porCliente} />
+        </SpotlightCard>
+      )}
+      {info.bolsa.total > 0 && (
+        <SpotlightCard className="border-amber-400/40 fech-glow">
+          <p className="text-xs uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <ArrowRight className="h-3.5 w-3.5" /> Bolsa de excedentes deste mês
+          </p>
+          <div className="mt-1.5 flex items-end gap-2">
+            <CountUp value={info.bolsa.total} className="text-3xl font-semibold font-display tabular-nums leading-none text-amber-400" />
+            <span className="text-[11px] text-muted-foreground mb-1">rubricas retidas</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            {nome} passou da meta ({intBR(info.meta)}). Sem valor até {mesProx} — lá elas pagam pela regra do mês.
+          </p>
+          <ListaClientesExced porCliente={info.bolsa.porCliente} />
+        </SpotlightCard>
+      )}
+    </div>
+  );
+}
+
+/* Geral: cartão-resumo do time (só total; o detalhe por cliente fica no
+   quadro individual de cada pessoa). */
+function ExcedenteResumo({ tom, titulo, total, valor }: {
+  tom: "recebido" | "bolsa"; titulo: string; total: number; valor?: number;
+}) {
+  const recebido = tom === "recebido";
+  return (
+    <SpotlightCard className={recebido ? "border-emerald-500/25" : "border-amber-400/40"}>
+      <p className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${recebido ? "text-emerald-400/90" : "text-amber-400"}`}>
+        {recebido ? <PiggyBank className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />} {titulo}
+      </p>
+      <div className="mt-1.5 flex items-end gap-2">
+        {recebido && valor != null ? (
+          <>
+            <CountUp value={valor} format={brl} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
+            <span className="text-[11px] text-muted-foreground mb-1">{intBR(total)} rubricas</span>
+          </>
+        ) : (
+          <>
+            <CountUp value={total} className="text-3xl font-semibold font-display tabular-nums leading-none text-amber-400" />
+            <span className="text-[11px] text-muted-foreground mb-1">rubricas retidas · sem valor</span>
+          </>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        {recebido ? "Somado à comissão do time neste mês." : "Passam pro mês seguinte e pagam pela regra de lá."}
+      </p>
+    </SpotlightCard>
+  );
+}
+
 /* ─────────────────────── Novo fechamento ─────────────────────── */
 function NovoFechamentoDialog({
   open, onClose, clientes, equipe, defaultUserId, onSaved,
@@ -960,7 +1194,8 @@ function RegrasDialog({
   const [espLimite, setEspLimite] = useState("");
   const [metaGeral, setMetaGeral] = useState("");
   const [bonus, setBonus] = useState("");
-  type MetaForm = { meta: string; bonus: string; espAtivo: boolean; espLimite: string; valorEsp: string };
+  const [permitirExc, setPermitirExc] = useState(true);   // geral do mês
+  type MetaForm = { meta: string; bonus: string; espAtivo: boolean; espLimite: string; valorEsp: string; permitirExc: string };
   const [metas, setMetas] = useState<Record<string, MetaForm>>({});
   const [saving, setSaving] = useState(false);
 
@@ -973,6 +1208,7 @@ function RegrasDialog({
     setEspLimite(regra.especial_limite == null ? "" : String(regra.especial_limite));
     setMetaGeral(regra.meta_geral ? String(regra.meta_geral) : "");
     setBonus(regra.bonus ? String(regra.bonus) : "");
+    setPermitirExc(regra.permitir_excedentes);
     const m: Record<string, MetaForm> = {};
     for (const mem of equipe) {
       const cur = metasMap[mem.id];
@@ -982,6 +1218,7 @@ function RegrasDialog({
         espAtivo: !!cur?.especialAtivo,
         espLimite: cur?.especialLimite == null ? "" : String(cur.especialLimite),
         valorEsp: cur?.valorEspecial ? String(cur.valorEspecial) : "",
+        permitirExc: cur?.permitirExcedentes == null ? "" : String(cur.permitirExcedentes),
       };
     }
     setMetas(m);
@@ -1004,6 +1241,7 @@ function RegrasDialog({
       mult_especial_min: especialAtivo ? espLim : null,
       meta_geral: int(metaGeral),
       bonus: num(bonus),
+      permitir_excedentes: permitirExc,
       updated_at: new Date().toISOString(),
     }, { onConflict: "mes" });
     if (e1) { setSaving(false); toast.error("Erro ao salvar regras: " + e1.message); return; }
@@ -1019,6 +1257,7 @@ function RegrasDialog({
         especial_ativo: espOn,
         valor_especial: espOn ? num(f?.valorEsp || "") : 0,
         especial_limite: espOn ? (f?.espLimite?.trim() ? int(f.espLimite) : null) : null,
+        permitir_excedentes: !f?.permitirExc ? null : f.permitirExc === "true",
         updated_at: new Date().toISOString(),
       };
     });
@@ -1066,6 +1305,21 @@ function RegrasDialog({
                 </p>
               </>
             )}
+          </div>
+
+          {/* Permitir excedentes GERAL — quando OFF, o que passa da meta vira bolsa */}
+          <div className={`rounded-lg border p-3 ${!permitirExc ? "border-emerald-500/30 bg-emerald-500/5" : "border-border"}`}>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <Checkbox checked={permitirExc} onCheckedChange={() => setPermitirExc((v) => !v)} />
+              <PiggyBank className={`h-4 w-4 ${!permitirExc ? "text-emerald-400" : "text-muted-foreground"}`} />
+              Permitir excedentes neste mês
+              <span className="text-[10px] font-normal text-muted-foreground">· vale pra todos (quem tiver o próprio sobrepõe)</span>
+            </label>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              {permitirExc
+                ? "Ligado: tudo que a pessoa fechar paga no mês, mesmo passando da meta."
+                : <>Desligado: ao bater a meta, o que passar <strong>não paga este mês</strong> — vira bolsa e entra em {mesExtenso(addMes(mes, 1))} pela regra de lá.</>}
+            </p>
           </div>
 
           <div>
@@ -1118,11 +1372,37 @@ function RegrasDialog({
                         </p>
                       </>
                     )}
+
+                    {/* Excedentes próprios — sobrepõe o geral do mês só pra esta pessoa */}
+                    <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                      <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1"><PiggyBank className="h-3.5 w-3.5" /> Excedentes:</span>
+                      {([
+                        { v: "", label: "Segue geral" },
+                        { v: "true", label: "Permitir" },
+                        { v: "false", label: "Reter" },
+                      ] as const).map((opt) => {
+                        const on = (f?.permitirExc || "") === opt.v;
+                        return (
+                          <button
+                            key={opt.v || "geral"}
+                            type="button"
+                            onClick={() => patchMeta(m.id, { permitirExc: opt.v })}
+                            className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                              on
+                                ? (opt.v === "false" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : "bg-primary/15 text-primary border-primary/30")
+                                : "border-border text-muted-foreground hover:border-primary/40"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1.5">Campos: meta de rubricas válidas · bônus individual (R$) · faixa especial própria (opcional, sobrepõe a geral).</p>
+            <p className="text-[11px] text-muted-foreground mt-1.5">Campos: meta de rubricas válidas · bônus individual (R$) · faixa especial própria · excedentes (segue o geral, ou força permitir/reter).</p>
           </div>
         </div>
 
