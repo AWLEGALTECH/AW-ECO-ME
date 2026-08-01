@@ -17,7 +17,7 @@ import {
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
   ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
-  ClipboardList, ListChecks, PiggyBank, Send, Inbox,
+  ClipboardList, ListChecks, PiggyBank, ArrowUpLeft, ArrowDownRight,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 
@@ -615,7 +615,7 @@ export default function Fechamentos() {
                 </CardTitle>
                 {excedList.recebido.length > 0 && (
                   <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
-                    <Inbox className="h-3 w-3 text-amber-400" />
+                    <ArrowDownRight className="h-3 w-3 text-amber-400" />
                     {excedList.recebido.length} {excedList.recebido.length === 1 ? "veio" : "vieram"} de excedente de {mesAnteriorExt} ({intBR(totalCarregado)} rubricas)
                   </p>
                 )}
@@ -670,7 +670,7 @@ export default function Fechamentos() {
                                 className="inline-flex items-center text-emerald-400"
                                 title={`${bolsaFechMap[f.id]} ${bolsaFechMap[f.id] === 1 ? "rubrica vai" : "rubricas vão"} para ${mesProximoExt}`}
                               >
-                                <Send className="h-4 w-4" strokeWidth={2.5} />
+                                <ArrowUpLeft className="h-4 w-4" strokeWidth={2.5} />
                               </span>
                             )}
                             <button
@@ -717,7 +717,7 @@ export default function Fechamentos() {
                                 )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 flex-wrap">
-                                <Inbox className="h-3 w-3 text-amber-400" /> excedente de {mesAnteriorExt}
+                                <ArrowDownRight className="h-3 w-3 text-amber-400" /> excedente de {mesAnteriorExt}
                                 <span className="text-muted-foreground/50">·</span>
                                 {c.rubricas.length} {c.rubricas.length === 1 ? "rubrica válida" : "rubricas válidas"}
                               </div>
@@ -731,7 +731,7 @@ export default function Fechamentos() {
                             </div>
                           </div>
                           <span className="inline-flex items-center text-amber-400 shrink-0" title={`Recebido de ${mesAnteriorExt}`}>
-                            <Inbox className="h-4 w-4" strokeWidth={2.5} />
+                            <ArrowDownRight className="h-4 w-4" strokeWidth={2.5} />
                           </span>
                         </div>
                       </div>
@@ -854,7 +854,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
                 className="inline-flex items-center gap-1 text-xl font-semibold text-emerald-400 mb-0.5"
                 title={`${intBR(retido)} excedentes vão para ${excedente?.mesProximo}`}
               >
-                <Send className="h-5 w-5" strokeWidth={2.5} /> +{intBR(retido)}
+                <ArrowUpLeft className="h-5 w-5" strokeWidth={2.5} /> +{intBR(retido)}
                 <span className="text-sm font-normal text-muted-foreground">excedentes · {excedente?.mesProximo}</span>
               </span>
             )}
@@ -868,7 +868,7 @@ function PainelMeta({ titulo, icon: Icon, acoes, meta, nota, excedente }: {
           {/* Recebidas do mês anterior — seta amarela pra baixo (recepcionando) */}
           {recebido > 0 && (
             <p className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground">
-              <Inbox className="h-3.5 w-3.5 text-amber-400" /> {intBR(recebido)} recebidas de {excedente?.mesAnterior}
+              <ArrowDownRight className="h-3.5 w-3.5 text-amber-400" /> {intBR(recebido)} recebidas de {excedente?.mesAnterior}
             </p>
           )}
 
