@@ -2,70 +2,77 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, animate } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
 import { DonutChart } from "@/components/DonutChart";
 import {
-  Trophy, Scale, Hammer, FileText, Coins, Plus, Search, Trash2,
-  CalendarDays, Loader2, Hash, ExternalLink, Check, Layers, MapPin, BarChart3, CalendarRange,
+  Trophy, Scale, Hammer, Coins, Search, Gavel, Milestone,
+  CalendarDays, Loader2, Hash, ExternalLink, Layers, MapPin, BarChart3, CalendarRange,
 } from "lucide-react";
 
-/* ─────────────────────────── tipos ─────────────────────────── */
-interface Sentenca {
+/* ─────────────────────────── tipos ───────────────────────────
+   O Tracker é um REFLEXO do System: tudo vem da linha_temporal dos
+   processos. Não há registro manual (trânsito/cumprimento) nem status
+   editável só aqui — a fase é lida de onde o processo realmente está. */
+type ResultadoSentenca = "procedente" | "parcial" | "improcedente";
+interface Decisao { resultado?: ResultadoSentenca; valor?: number; data?: string; honorarios?: number; tipoDecisao?: string }
+interface Execucao { valor?: number; data?: string }
+interface EtapaLT {
+  titulo?: string; status?: string;
+  sentenca?: Decisao; julgamento?: Decisao; execucao?: Execucao;
+}
+interface ProcRow {
   id: string;
-  valor: number;
-  data_sentenca: string;
-  status: StatusKey;
-  data_recebimento: string | null;
-  honorarios: number | null;
-  observacoes: string | null;
-  processo: {
-    id: string;
-    numero_processo: string | null;
-    materia: string | null;
-    comarca_uf: string | null;
-    fase_processual: string | null;
-    cliente: { id: string; nome: string | null } | null;
-  } | null;
+  numero_processo: string | null;
+  materia: string | null;
+  comarca_uf: string | null;
+  fase_processual: string | null;
+  linha_temporal: EtapaLT[] | null;
+  cliente: { id: string; nome: string | null } | null;
 }
 
-/* ─────────────────────── funil pós-vitória ─────────────────────── */
-type StatusKey = "ganha" | "transitada" | "cumprimento" | "alvara" | "recebido";
-interface StatusDef {
-  key: StatusKey; label: string; short: string; icon: any;
-  dot: string; text: string; chip: string;
+/* Vitória derivada do System (processo com sentença procedente/parcial). */
+interface Vitoria {
+  id: string;
+  numero_processo: string | null;
+  materia: string | null;
+  comarca_uf: string | null;
+  cliente_nome: string | null;
+  valor: number;             // valor da condenação (1º grau)
+  data: string | null;       // data da sentença
+  faseAtual: string;         // etapa em que o processo se encontra hoje
+  emCumprimento: boolean;    // chegou ao cumprimento (valor quase certo)
+  valorCumprimento: number;  // valor executado (ou o mais recente conhecido)
 }
-const STATUS: StatusDef[] = [
-  { key: "ganha",       label: "Sentença procedente", short: "Ganha",       icon: Trophy,   dot: "bg-primary",      text: "text-primary",      chip: "bg-primary/10 text-primary border-primary/25" },
-  { key: "transitada",  label: "Trânsito em julgado", short: "Transitada",  icon: Scale,    dot: "bg-violet-400",   text: "text-violet-400",   chip: "bg-violet-400/10 text-violet-300 border-violet-400/25" },
-  { key: "cumprimento", label: "Cumprimento de sentença", short: "Cumprimento", icon: Hammer, dot: "bg-amber-400", text: "text-amber-400",  chip: "bg-amber-400/10 text-amber-300 border-amber-400/25" },
-  { key: "alvara",      label: "Alvará / RPV expedido", short: "Alvará",     icon: FileText, dot: "bg-sky-400",      text: "text-sky-400",      chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
-  { key: "recebido",    label: "Recebido",            short: "Recebido",    icon: Coins,    dot: "bg-emerald-400",  text: "text-emerald-400",  chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
+
+const ETAPA_SENTENCA = "Sentença";
+const ETAPA_JULGAMENTO = "Julgamento em 2º grau";
+const ETAPA_CUMPRIMENTO = "Cumprimento de sentença";
+
+/* ─── fases pós-vitória (só leitura, na ordem processual) ─── */
+const FASES_POS: { key: string; label: string; short: string; icon: any; dot: string; text: string; chip: string }[] = [
+  { key: ETAPA_SENTENCA,    label: "Sentença (1º grau)",     short: "Sentença",    icon: Trophy,    dot: "bg-primary",     text: "text-primary",     chip: "bg-primary/10 text-primary border-primary/25" },
+  { key: "Recurso",         label: "Fase recursal",          short: "Recurso",     icon: Scale,     dot: "bg-violet-400",  text: "text-violet-300",  chip: "bg-violet-400/10 text-violet-300 border-violet-400/25" },
+  { key: ETAPA_JULGAMENTO,  label: "Julgamento em 2º grau",  short: "2º grau",     icon: Gavel,     dot: "bg-sky-400",     text: "text-sky-300",     chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
+  { key: "Trânsito em julgado", label: "Trânsito em julgado", short: "Trânsito",   icon: Milestone, dot: "bg-fuchsia-400", text: "text-fuchsia-300", chip: "bg-fuchsia-400/10 text-fuchsia-300 border-fuchsia-400/25" },
+  { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Hammer,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
 ];
-const STATUS_BY = Object.fromEntries(STATUS.map((s) => [s.key, s])) as Record<StatusKey, StatusDef>;
+const FASE_BY = Object.fromEntries(FASES_POS.map((f) => [f.key, f])) as Record<string, typeof FASES_POS[number]>;
+const faseInfo = (k: string) => FASE_BY[k] ?? FASES_POS[0];
 
 /* ─────────────────────────── helpers ─────────────────────────── */
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const intBR = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const fmtData = (iso: string | null | undefined) => {
-  if (!iso) return "—";
+  if (!iso) return "pré-sistema";
   const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return "pré-sistema";
   return `${d}/${m}/${y}`;
 };
-const primeiroNome = (n: string | null | undefined) => (n || "").trim().split(/\s+/)[0] || "—";
-const hoje = () => new Date().toISOString().slice(0, 10);
 
-/** Agrupa a cauda longa: mantém os `n` maiores e soma o resto em "Outras".
- *  Espera `items` já ordenado por value desc. */
+/** Agrupa a cauda longa: mantém os `n` maiores e soma o resto em "Outras". */
 function topSlices(items: { name: string; value: number }[], n: number) {
   if (items.length <= n) return items;
   const top = items.slice(0, n);
@@ -82,112 +89,120 @@ function CountUp({ value, format, className }: { value: number; format?: (n: num
   return <span className={className}>{format ? format(disp) : intBR(disp)}</span>;
 }
 
+/* Extrai a etapa por título da linha temporal. */
+const acharEtapa = (lt: EtapaLT[] | null, titulo: string) => (lt ?? []).find((e) => e.titulo === titulo);
+const etapaAtual = (lt: EtapaLT[] | null) => (lt ?? []).find((e) => e.status === "atual")?.titulo ?? "";
+
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Tracker() {
   useEffect(() => { document.title = `Tracker · ${appConfig.name}`; }, []);
-  const { user } = useAuth();
 
-  const [novoOpen, setNovoOpen] = useState(false);
-  const [filtroStatus, setFiltroStatus] = useState<StatusKey | null>(null);
   const [busca, setBusca] = useState("");
+  const [faseFiltro, setFaseFiltro] = useState<string | null>(null);
 
-  const sentRes = useQuery({
-    queryKey: ["sentencas"],
-    queryFn: async (): Promise<Sentenca[]> => {
+  const procRes = useQuery({
+    queryKey: ["tracker_processos"],
+    queryFn: async (): Promise<ProcRow[]> => {
       const { data, error } = await supabase
-        .from("sentencas" as any)
-        .select(`
-          id, valor, data_sentenca, status, data_recebimento, honorarios, observacoes,
-          processo:processos (
-            id, numero_processo, materia, comarca_uf, fase_processual,
-            cliente:clientes ( id, nome )
-          )
-        `)
-        .order("data_sentenca", { ascending: false });
+        .from("processos")
+        .select(`id, numero_processo, materia, comarca_uf, fase_processual, linha_temporal, cliente:clientes ( id, nome )`)
+        .order("data_ultimo_andamento", { ascending: false });
       if (error) throw error;
-      return (data || []) as unknown as Sentenca[];
+      return (data || []) as unknown as ProcRow[];
     },
     refetchInterval: 60_000,
   });
 
-  const sentencas = Array.isArray(sentRes.data) ? sentRes.data : [];
+  const processos = Array.isArray(procRes.data) ? procRes.data : [];
 
-  /* ── métricas ── */
-  const m = useMemo(() => {
-    const totalGanho = sentencas.reduce((a, s) => a + Number(s.valor || 0), 0);
-    const recebido = sentencas.filter((s) => s.status === "recebido").reduce((a, s) => a + Number(s.valor || 0), 0);
-    const aReceber = totalGanho - recebido;
-    const nRecebidas = sentencas.filter((s) => s.status === "recebido").length;
-    const porStatus: Record<string, { n: number; valor: number }> = {};
-    for (const s of STATUS) porStatus[s.key] = { n: 0, valor: 0 };
-    for (const s of sentencas) {
-      const b = porStatus[s.status] || (porStatus[s.status] = { n: 0, valor: 0 });
-      b.n += 1; b.valor += Number(s.valor || 0);
+  /* ── deriva as vitórias (sentença procedente/parcial) do System ── */
+  const vitorias = useMemo<Vitoria[]>(() => {
+    const out: Vitoria[] = [];
+    for (const p of processos) {
+      const lt = Array.isArray(p.linha_temporal) ? p.linha_temporal : null;
+      const sent = acharEtapa(lt, ETAPA_SENTENCA)?.sentenca;
+      if (!sent || sent.resultado === "improcedente") continue;
+      const valor = Number(sent.valor || 0);
+      if (valor <= 0) continue;
+
+      const fase = etapaAtual(lt) || ETAPA_SENTENCA;
+      const emCumprimento = fase === ETAPA_CUMPRIMENTO;
+      const exec = acharEtapa(lt, ETAPA_CUMPRIMENTO)?.execucao;
+      const julg = acharEtapa(lt, ETAPA_JULGAMENTO)?.julgamento;
+      // valor quase certo em cumprimento: executado > 2º grau procedente > sentença
+      const valorCumprimento = Number(
+        exec?.valor ||
+        (julg && julg.resultado !== "improcedente" ? julg.valor : 0) ||
+        valor
+      );
+
+      out.push({
+        id: p.id,
+        numero_processo: p.numero_processo,
+        materia: p.materia,
+        comarca_uf: p.comarca_uf,
+        cliente_nome: p.cliente?.nome ?? null,
+        valor,
+        data: sent.data ?? null,
+        faseAtual: fase,
+        emCumprimento,
+        valorCumprimento,
+      });
     }
-    return { totalGanho, recebido, aReceber, nRecebidas, porStatus };
-  }, [sentencas]);
+    return out.sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+  }, [processos]);
+
+  /* ── métricas principais ── */
+  const m = useMemo(() => {
+    const totalGanho = vitorias.reduce((a, v) => a + v.valor, 0);
+    const emCumprimento = vitorias.filter((v) => v.emCumprimento);
+    const valorCumprimento = emCumprimento.reduce((a, v) => a + v.valorCumprimento, 0);
+    const ticket = vitorias.length ? totalGanho / vitorias.length : 0;
+    const porFase: Record<string, { n: number; valor: number }> = {};
+    for (const f of FASES_POS) porFase[f.key] = { n: 0, valor: 0 };
+    for (const v of vitorias) {
+      const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 });
+      b.n += 1; b.valor += v.valor;
+    }
+    return { totalGanho, valorCumprimento, nCumprimento: emCumprimento.length, ticket, porFase, emCumprimento };
+  }, [vitorias]);
 
   /* ── agregações pros gráficos ── */
   const analytics = useMemo(() => {
-    // acumula {n, valor} por chave textual (matéria / comarca)
-    const acc = (pick: (s: Sentenca) => string | null | undefined) => {
+    const acc = (pick: (v: Vitoria) => string | null | undefined) => {
       const map = new Map<string, { n: number; valor: number }>();
-      for (const s of sentencas) {
-        const k = (pick(s) || "").trim() || "Não informado";
+      for (const v of vitorias) {
+        const k = (pick(v) || "").trim() || "Não informado";
         const cur = map.get(k) || { n: 0, valor: 0 };
-        cur.n += 1; cur.valor += Number(s.valor || 0);
+        cur.n += 1; cur.valor += v.valor;
         map.set(k, cur);
       }
-      return [...map.entries()].map(([name, v]) => ({ name, ...v }));
+      return [...map.entries()].map(([name, val]) => ({ name, ...val }));
     };
-    const materias = acc((s) => s.processo?.materia).sort((a, b) => b.n - a.n);
-    const comarcas = acc((s) => s.processo?.comarca_uf).sort((a, b) => b.n - a.n);
+    const materias = acc((v) => v.materia).sort((a, b) => b.n - a.n);
+    const comarcas = acc((v) => v.comarca_uf).sort((a, b) => b.n - a.n);
 
-    // valor ganho por mês (YYYY-MM), em ordem cronológica
     const mesMap = new Map<string, number>();
-    for (const s of sentencas) {
-      const mes = (s.data_sentenca || "").slice(0, 7);
+    for (const v of vitorias) {
+      const mes = (v.data || "").slice(0, 7);
       if (!mes) continue;
-      mesMap.set(mes, (mesMap.get(mes) || 0) + Number(s.valor || 0));
+      mesMap.set(mes, (mesMap.get(mes) || 0) + v.valor);
     }
-    const meses = [...mesMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([mes, valor]) => ({ mes, valor }));
-
-    // matérias por VALOR (ranking em R$), top 8
+    const meses = [...mesMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, valor]) => ({ mes, valor }));
     const materiasValor = [...materias].sort((a, b) => b.valor - a.valor).slice(0, 8);
     return { materias, comarcas, meses, materiasValor };
-  }, [sentencas]);
+  }, [vitorias]);
 
   /* ── lista filtrada ── */
   const lista = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return sentencas.filter((s) => {
-      if (filtroStatus && s.status !== filtroStatus) return false;
+    return vitorias.filter((v) => {
+      if (faseFiltro && v.faseAtual !== faseFiltro) return false;
       if (!q) return true;
-      const alvo = `${s.processo?.cliente?.nome || ""} ${s.processo?.numero_processo || ""} ${s.processo?.materia || ""} ${s.processo?.comarca_uf || ""}`.toLowerCase();
+      const alvo = `${v.cliente_nome || ""} ${v.numero_processo || ""} ${v.materia || ""} ${v.comarca_uf || ""}`.toLowerCase();
       return alvo.includes(q);
     });
-  }, [sentencas, filtroStatus, busca]);
-
-  const atualizarStatus = async (s: Sentenca, novo: StatusKey) => {
-    const patch: any = { status: novo, updated_at: new Date().toISOString() };
-    // quando chega em "recebido", carimba a data; se sair, limpa.
-    if (novo === "recebido") patch.data_recebimento = hoje();
-    else if (s.status === "recebido") patch.data_recebimento = null;
-    const { error } = await supabase.from("sentencas" as any).update(patch).eq("id", s.id);
-    if (error) { toast.error("Erro ao atualizar: " + error.message); return; }
-    if (novo === "recebido") toast.success(`Recebido! ${brl(Number(s.valor))} 💰`);
-    sentRes.refetch();
-  };
-
-  const excluir = async (s: Sentenca) => {
-    const nome = s.processo?.cliente?.nome || s.processo?.numero_processo || "sentença";
-    if (!window.confirm(`Remover a sentença de ${nome}?`)) return;
-    const { error } = await supabase.from("sentencas" as any).delete().eq("id", s.id);
-    if (error) { toast.error("Erro ao remover: " + error.message); return; }
-    toast.success("Sentença removida");
-    sentRes.refetch();
-  };
+  }, [vitorias, faseFiltro, busca]);
 
   return (
     <div className="space-y-6">
@@ -195,25 +210,62 @@ export default function Tracker() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-medium tracking-tight">Tracker</h2>
-          <p className="text-sm text-muted-foreground mt-1">Sentenças procedentes: o que já foi ganho em 1º grau.</p>
+          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que já foi ganho e o valor quase certo em cumprimento.</p>
         </div>
-        <Button onClick={() => setNovoOpen(true)} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Nova sentença
-        </Button>
       </div>
 
-      {sentRes.isLoading ? (
+      {procRes.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
         </div>
       ) : (
         <>
-          {/* ── KPIs ── */}
+          {/* ── KPIs: ganho em 1º grau + cumprimento voluntário (mesmo protagonismo) ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Kpi icon={Trophy}    label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
-              sub={`${sentencas.length} ${sentencas.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
-            <Kpi icon={Coins}     label="Ticket médio" value={sentencas.length ? m.totalGanho / sentencas.length : 0} accent="text-foreground" big sub="por sentença" />
+            <Kpi icon={Trophy} label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
+              sub={`${vitorias.length} ${vitorias.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
+            <Kpi icon={Hammer} label="Em cumprimento voluntário" value={m.valorCumprimento} accent="text-emerald-400" big
+              border="ring-1 ring-emerald-500/25"
+              sub={`${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo`} />
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Kpi icon={Coins} label="Ticket médio" value={m.ticket} accent="text-foreground"
+              sub="por sentença procedente" />
+            <Kpi icon={Scale} label="Já transitou / em execução" value={m.porFase[ETAPA_CUMPRIMENTO].valor + (m.porFase["Trânsito em julgado"]?.valor || 0)} accent="text-foreground"
+              sub="condenações rumo ao recebimento" />
+          </div>
+
+          {/* ── Cumprimento voluntário em destaque (valor quase certo) ── */}
+          {m.emCumprimento.length > 0 && (
+            <Card className="ring-1 ring-emerald-500/25">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Hammer className="h-4 w-4 text-emerald-400" /> Em cumprimento voluntário
+                  <span className="ml-auto text-sm font-semibold text-emerald-400 tabular-nums">{brl(m.valorCumprimento)}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {m.emCumprimento.map((v) => (
+                    <a
+                      key={v.id}
+                      href={`/processos/${v.id}`}
+                      className="group flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-3 hover:bg-emerald-500/[0.09] transition-colors"
+                    >
+                      <span className="h-9 w-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
+                        <Hammer className="h-4 w-4 text-emerald-400" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{v.materia || "Matéria não informada"}{v.comarca_uf ? ` · ${v.comarca_uf}` : ""}</p>
+                      </div>
+                      <span className="text-base font-semibold font-display tabular-nums text-emerald-400 shrink-0">{brl(v.valorCumprimento)}</span>
+                    </a>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* ── Gráficos dos ganhos ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -276,13 +328,13 @@ export default function Tracker() {
             </Card>
           </div>
 
-          {/* ── Funil (clicável = filtro) ── */}
+          {/* ── Distribuição por fase atual (lida do System, só leitura/filtro) ── */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Scale className="h-4 w-4 text-primary" /> Funil pós-vitória
-                {filtroStatus && (
-                  <button onClick={() => setFiltroStatus(null)} className="ml-auto text-xs font-normal text-primary hover:underline">
+                <Milestone className="h-4 w-4 text-primary" /> Onde estão as vitórias hoje
+                {faseFiltro && (
+                  <button onClick={() => setFaseFiltro(null)} className="ml-auto text-xs font-normal text-primary hover:underline">
                     limpar filtro
                   </button>
                 )}
@@ -290,22 +342,20 @@ export default function Tracker() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-                {STATUS.map((st) => {
-                  const b = m.porStatus[st.key] || { n: 0, valor: 0 };
-                  const ativo = filtroStatus === st.key;
+                {FASES_POS.map((f) => {
+                  const b = m.porFase[f.key] || { n: 0, valor: 0 };
+                  const ativo = faseFiltro === f.key;
                   return (
                     <button
-                      key={st.key}
-                      onClick={() => setFiltroStatus(ativo ? null : st.key)}
-                      className={`text-left rounded-xl border p-3 transition-colors ${
-                        ativo ? `${st.chip}` : "border-border bg-muted/20 hover:border-primary/40"
-                      }`}
+                      key={f.key}
+                      onClick={() => setFaseFiltro(ativo ? null : f.key)}
+                      className={`text-left rounded-xl border p-3 transition-colors ${ativo ? f.chip : "border-border bg-muted/20 hover:border-primary/40"}`}
                     >
                       <div className="flex items-center gap-1.5">
-                        <span className={`h-2 w-2 rounded-full ${st.dot}`} />
-                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground truncate">{st.short}</span>
+                        <span className={`h-2 w-2 rounded-full ${f.dot}`} />
+                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground truncate">{f.short}</span>
                       </div>
-                      <p className={`text-2xl font-semibold font-display tabular-nums mt-1 ${ativo ? st.text : ""}`}>{b.n}</p>
+                      <p className={`text-2xl font-semibold font-display tabular-nums mt-1 ${ativo ? f.text : ""}`}>{b.n}</p>
                       <p className="text-[11px] text-muted-foreground tabular-nums">{brl(b.valor)}</p>
                     </button>
                   );
@@ -314,12 +364,12 @@ export default function Tracker() {
             </CardContent>
           </Card>
 
-          {/* ── Lista ── */}
+          {/* ── Lista de vitórias (só leitura, fase lida do System) ── */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary" />
-                {filtroStatus ? `Sentenças · ${STATUS_BY[filtroStatus].label}` : "Todas as sentenças"}
+                {faseFiltro ? `Vitórias · ${faseInfo(faseFiltro).label}` : "Todas as vitórias"}
                 <span className="ml-auto text-xs font-normal text-muted-foreground">{lista.length}</span>
               </CardTitle>
               <div className="relative mt-2">
@@ -335,74 +385,49 @@ export default function Tracker() {
             <CardContent>
               {lista.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  {sentencas.length === 0
-                    ? <>Nenhuma sentença ainda. Clique em <strong>Nova sentença</strong> pra registrar uma vitória.</>
-                    : "Nenhuma sentença com esse filtro."}
+                  {vitorias.length === 0
+                    ? <>Nenhuma vitória ainda. Registre a sentença dentro do processo, no System.</>
+                    : "Nenhuma vitória com esse filtro."}
                 </p>
               ) : (
                 <div className="divide-y divide-border/40">
-                  {lista.map((s) => {
-                    const st = STATUS_BY[s.status] || STATUS[0];
+                  {lista.map((v) => {
+                    const f = faseInfo(v.faseAtual);
                     return (
-                      <div key={s.id} className="py-3 first:pt-0 last:pb-0 group">
+                      <div key={v.id} className="py-3 first:pt-0 last:pb-0 group">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2.5 min-w-0">
-                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${st.chip} border mt-0.5`}>
-                              <st.icon className="h-4 w-4" />
+                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${f.chip} border mt-0.5`}>
+                              <f.icon className="h-4 w-4" />
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-medium truncate">{s.processo?.cliente?.nome || "—"}</span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${st.chip}`}>{st.label}</span>
+                                <span className="text-sm font-medium truncate">{v.cliente_nome || "Cliente não informado"}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${f.chip}`}>{f.label}</span>
+                                {v.emCumprimento && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-400/10 text-emerald-300 border-emerald-400/25">valor quase certo</span>
+                                )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                {s.processo?.numero_processo && (
-                                  <span className="inline-flex items-center gap-1"><Hash className="h-3 w-3" />{s.processo.numero_processo}</span>
+                                {v.numero_processo && (
+                                  <span className="inline-flex items-center gap-1"><Hash className="h-3 w-3" />{v.numero_processo}</span>
                                 )}
-                                {s.processo?.materia && <><span className="text-muted-foreground/40">·</span><span>{s.processo.materia}</span></>}
-                                {s.processo?.comarca_uf && <><span className="text-muted-foreground/40">·</span><span>{s.processo.comarca_uf}</span></>}
+                                {v.materia && <><span className="text-muted-foreground/40">·</span><span>{v.materia}</span></>}
+                                {v.comarca_uf && <><span className="text-muted-foreground/40">·</span><span>{v.comarca_uf}</span></>}
                                 <span className="text-muted-foreground/40">·</span>
-                                <span className="inline-flex items-center gap-1"><CalendarDays className="h-3 w-3" />{fmtData(s.data_sentenca)}</span>
-                                {s.status === "recebido" && s.data_recebimento && (
-                                  <><span className="text-muted-foreground/40">·</span>
-                                  <span className="inline-flex items-center gap-1 text-emerald-400"><Check className="h-3 w-3" />recebido em {fmtData(s.data_recebimento)}</span></>
-                                )}
-                                {s.processo?.id && (
-                                  <a href={`/processos/${s.processo.id}`} className="inline-flex items-center gap-0.5 text-primary hover:underline">
-                                    <ExternalLink className="h-3 w-3" />ver processo
-                                  </a>
-                                )}
+                                <span className="inline-flex items-center gap-1"><CalendarDays className="h-3 w-3" />{fmtData(v.data)}</span>
+                                <a href={`/processos/${v.id}`} className="inline-flex items-center gap-0.5 text-primary hover:underline">
+                                  <ExternalLink className="h-3 w-3" />ver processo
+                                </a>
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-base font-semibold font-display tabular-nums ${st.key === "recebido" ? "text-emerald-400" : ""}`}>{brl(Number(s.valor))}</span>
-                            <button
-                              onClick={() => excluir(s)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/60 hover:text-red-400"
-                              title="Remover"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                          <div className="text-right shrink-0">
+                            <span className="block text-base font-semibold font-display tabular-nums">{brl(v.valor)}</span>
+                            {v.emCumprimento && v.valorCumprimento !== v.valor && (
+                              <span className="block text-[11px] text-emerald-400 tabular-nums">exec. {brl(v.valorCumprimento)}</span>
+                            )}
                           </div>
-                        </div>
-                        {/* Trilha de status — clique pra avançar/voltar a etapa */}
-                        <div className="flex flex-wrap gap-1 mt-2 ml-[42px]">
-                          {STATUS.map((opt) => {
-                            const on = opt.key === s.status;
-                            return (
-                              <button
-                                key={opt.key}
-                                onClick={() => !on && atualizarStatus(s, opt.key)}
-                                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                                  on ? opt.chip : "border-border text-muted-foreground/70 hover:border-primary/40 hover:text-foreground"
-                                }`}
-                                title={`Marcar como ${opt.label}`}
-                              >
-                                {opt.short}
-                              </button>
-                            );
-                          })}
                         </div>
                       </div>
                     );
@@ -413,13 +438,6 @@ export default function Tracker() {
           </Card>
         </>
       )}
-
-      <NovaSentencaDialog
-        open={novoOpen}
-        onClose={() => setNovoOpen(false)}
-        userId={user?.id || null}
-        onSaved={() => { setNovoOpen(false); sentRes.refetch(); }}
-      />
     </div>
   );
 }
@@ -439,8 +457,7 @@ function Kpi({ icon: Icon, label, value, accent, sub, border, big }: {
   );
 }
 
-/* Barras horizontais de VALOR por mês (cronológico). Barra proporcional ao
-   maior mês; rótulo mês/ano abreviado + valor em R$. */
+/* Barras horizontais de VALOR por mês (cronológico). */
 const MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 function rotuloMes(mes: string) {
   const [y, m] = mes.split("-").map(Number);
@@ -474,8 +491,7 @@ function MesesBars({ data }: { data: { mes: string; valor: number }[] }) {
   );
 }
 
-/* Lista de barras genérica (ranking). Barra proporcional ao topo; opcional
-   clique pra filtrar e uma dica (hint) à direita. */
+/* Lista de barras genérica (ranking). */
 function BarList({ data, format, onItemClick }: {
   data: { label: string; value: number; hint?: string }[];
   format?: (n: number) => string;
@@ -505,130 +521,5 @@ function BarList({ data, format, onItemClick }: {
         );
       })}
     </div>
-  );
-}
-
-/* ─────────────────────── Nova sentença ─────────────────────── */
-interface ProcOpc { id: string; numero_processo: string | null; cliente_nome: string | null }
-
-function NovaSentencaDialog({ open, onClose, userId, onSaved }: {
-  open: boolean; onClose: () => void; userId: string | null; onSaved: () => void;
-}) {
-  const [numero, setNumero] = useState("");
-  const [valor, setValor] = useState("");
-  const [data, setData] = useState(hoje());
-  const [status, setStatus] = useState<StatusKey>("ganha");
-  const [saving, setSaving] = useState(false);
-
-  const procRes = useQuery({
-    queryKey: ["tracker_processos_lookup"],
-    enabled: open,
-    queryFn: async (): Promise<ProcOpc[]> => {
-      const { data, error } = await supabase
-        .from("processos")
-        .select("id, numero_processo, cliente:clientes(nome)")
-        .order("numero_processo");
-      if (error) throw error;
-      return ((data || []) as any[]).map((p) => ({
-        id: p.id, numero_processo: p.numero_processo, cliente_nome: p.cliente?.nome || null,
-      }));
-    },
-  });
-  const processos = Array.isArray(procRes.data) ? procRes.data : [];
-
-  const reset = () => { setNumero(""); setValor(""); setData(hoje()); setStatus("ganha"); };
-  const num = (s: string) => parseFloat(String(s).replace(/\./g, "").replace(",", ".")) || 0;
-
-  const salvar = async () => {
-    // casa o número digitado com um processo (por dígitos, ignora pontuação)
-    const soDigitos = (x: string) => x.replace(/\D/g, "");
-    const alvo = soDigitos(numero);
-    const proc = processos.find((p) => soDigitos(p.numero_processo || "") === alvo);
-    if (!proc) { toast.error("Processo não encontrado. Escolha um número da lista."); return; }
-    if (num(valor) <= 0) { toast.error("Informe o valor da sentença."); return; }
-    if (!data) { toast.error("Informe a data da sentença."); return; }
-    setSaving(true);
-    const { error } = await supabase.from("sentencas" as any).insert({
-      processo_id: proc.id,
-      valor: num(valor),
-      data_sentenca: data,
-      status,
-      data_recebimento: status === "recebido" ? data : null,
-      created_by: userId,
-    });
-    setSaving(false);
-    if (error) {
-      if (error.code === "23505") toast.error("Esse processo já tem uma sentença registrada.");
-      else toast.error("Erro ao salvar: " + error.message);
-      return;
-    }
-    toast.success("Sentença registrada 🏆");
-    reset();
-    onSaved();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setTimeout(reset, 200); } }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-400" /> Nova sentença procedente</DialogTitle>
-          <DialogDescription>Vincule a um processo existente e informe o valor ganho.</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-1">
-          <div>
-            <Label>Processo</Label>
-            <Input
-              list="tracker-processos"
-              value={numero}
-              onChange={(e) => setNumero(e.target.value)}
-              placeholder={procRes.isLoading ? "Carregando processos…" : "Número do processo"}
-            />
-            <datalist id="tracker-processos">
-              {processos.map((p) => (
-                <option key={p.id} value={p.numero_processo || ""}>
-                  {p.cliente_nome || ""}
-                </option>
-              ))}
-            </datalist>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Valor (R$)</Label>
-              <Input value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="0,00" inputMode="decimal" className="tabular-nums" />
-            </div>
-            <div>
-              <Label>Data da sentença</Label>
-              <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <Label>Etapa</Label>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {STATUS.map((st) => {
-                const on = st.key === status;
-                return (
-                  <button
-                    key={st.key}
-                    type="button"
-                    onClick={() => setStatus(st.key)}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors inline-flex items-center gap-1 ${
-                      on ? st.chip : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    <st.icon className="h-3 w-3" /> {st.short}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => { onClose(); setTimeout(reset, 200); }} disabled={saving}>Cancelar</Button>
-          <Button onClick={salvar} disabled={saving}>{saving ? "Salvando…" : "Salvar sentença"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
