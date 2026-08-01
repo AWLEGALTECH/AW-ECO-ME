@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import {
-  ProcessoTimeline, STATUS_PROCESSUAIS, ICONE_TIPO, LABEL_TIPO, type Etapa, type SentencaEtapa,
+  ProcessoTimeline, STATUS_PROCESSUAIS, ICONE_TIPO, LABEL_TIPO, montarEtapasPadrao, type Etapa, type SentencaEtapa,
 } from "@/components/ProcessoTimeline";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -212,9 +212,14 @@ export default function ProcessoDetail() {
       };
       setForm(f);
       setSaved(f);
-      const lt = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
-      const base = lt.map((e) => ({ ...e, tasks: e.tasks ?? [] }));
-      linhaSalvaRef.current = JSON.stringify(base);
+      const ltRaw = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
+      // Todo processo mostra as "Movimentações & demandas": se ainda não há uma
+      // linha salva, monta a padrão a partir do status atual. O efeito de
+      // persistência então grava a linha no banco (ref abaixo reflete o vazio).
+      const base = ltRaw.length > 0
+        ? ltRaw.map((e) => ({ ...e, tasks: e.tasks ?? [] }))
+        : montarEtapasPadrao(data.fase_processual);
+      linhaSalvaRef.current = JSON.stringify(ltRaw.map((e) => ({ ...e, tasks: e.tasks ?? [] })));
       // Mescla a sentença já registrada no Tracker na milestone "Sentença"
       // (backfill dos processos já sentenciados e mencionados no tracker).
       const { data: sent } = await supabase.from("sentencas" as never).select("valor, data_sentenca, honorarios, observacoes").eq("processo_id", data.id as never).maybeSingle();

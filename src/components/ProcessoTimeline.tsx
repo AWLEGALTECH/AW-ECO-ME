@@ -88,6 +88,62 @@ export interface Etapa {
 // Nome da milestone que exige registro de sentença para avançar.
 export const ETAPA_SENTENCA = "Sentença";
 
+// ── Espinha canônica do processo ─────────────────────────────────────────────
+// Mesma ordem usada na geração da linha temporal. Serve para montar uma linha
+// padrão quando o processo ainda não tem uma, garantindo que TODO processo
+// mostre "Movimentações & demandas".
+export const ETAPAS_TITULOS = [
+  "Distribuição da ação", "Decisão inicial (recebimento)", "Citação do réu",
+  "Contestação", "Réplica", "Audiência de conciliação", "Instrução e provas",
+  "Sentença", "Recurso", "Julgamento em 2º grau", "Trânsito em julgado",
+  "Cumprimento de sentença",
+] as const;
+
+const SECAO_ETAPA: Record<string, string> = {
+  "Recurso": "Fase recursal",
+  "Julgamento em 2º grau": "Fase recursal",
+  "Cumprimento de sentença": "Cumprimento",
+};
+
+// Deduz em qual etapa o processo se encontra a partir do status processual.
+// (Mesma dedução usada na geração em massa da base.)
+const IDX_POR_STATUS: Record<string, number> = {
+  "AG. DISTRIBUIÇÃO": 0, "AG. REAJUIZAMENTO": 0, "REAJUIZAR": 0, "INICIAL": 0,
+  "AG. DECISÃO INICIAL": 1, "AG. EMENDA À INICIAL": 1, "SUSPENSO": 1,
+  "AG. CONTESTAÇÃO": 3,
+  "AG. RÉPLICA": 4,
+  "AG. AUDIÊNCIA": 5, "AUDIÊNCIA DESIGNADA": 5, "COMPARECER AO FÓRUM": 5, "COMPARECR AO FÓRUM": 5,
+  "AG. DECISÃO PROVAS": 6, "AG. MANIFESTAÇÃO": 6, "AG. MOV CONCLUSO DECISÃO": 6,
+  "AG. MOV CONCLUSO SENTENÇA": 7, "AG. SENTENÇA": 7, "AG. TJ SENTENÇA": 7,
+  "JULGADO (SENTENÇA)": 7, "AG. EXPEDIÇÃO ALVARÁ": 7,
+  "AG. APELAÇÃO": 8, "AG. CONTRARAZOES": 8, "AG. CONTRARRAZOES": 8, "AG. REMESSA AO 2º GRAU": 8,
+  "AG. DISTRIBUIÇÃO 2º GRAU": 8, "AG. DESPACHO INICIAL 2º GRAU": 8, "AG. RECURSO INOMINADO": 8,
+  "AG. MANDADO SEGURANÇA": 8,
+  "AG. TJ ACÓRDÃO": 9, "AG. ACÓRDÃO": 9, "JULGADO ACÓRDÃO": 9, "AG. EMBARGOS": 9,
+  "AG. CUMPRIMENTO SENTENÇA": 11, "AG. PAGAMENTO VOLUNTÁRIO": 11, "AG. DECISÃO PENHORA": 11,
+  "AG. DECISÃO CS": 11, "ALVARÁ EXPEDIDO": 11,
+};
+
+// Monta uma linha temporal padrão (12 etapas) a partir do status atual do
+// processo. Etapas anteriores ficam "pré-sistema", a atual carrega o status e
+// as seguintes ficam pendentes. Usada quando `linha_temporal` está vazia.
+export function montarEtapasPadrao(fase?: string | null): Etapa[] {
+  const f = (fase ?? "").trim();
+  const idx = IDX_POR_STATUS[f.toUpperCase()] ?? 0;
+  return ETAPAS_TITULOS.map((titulo, i) => {
+    let e: Etapa;
+    if (i < idx) {
+      e = { id: `e${i + 1}`, titulo, status: "concluida", inicio: "pré-sistema", conclusao: "pré-sistema", tasks: [] };
+    } else if (i === idx) {
+      e = { id: `e${i + 1}`, titulo, status: "atual", inicio: "pré-sistema", statusProcessual: f || undefined, tasks: [] };
+    } else {
+      e = { id: `e${i + 1}`, titulo, status: "pendente", tasks: [] };
+    }
+    if (SECAO_ETAPA[titulo]) e.secao = SECAO_ETAPA[titulo];
+    return e;
+  });
+}
+
 const RESULTADO_SENTENCA: Record<ResultadoSentenca, { label: string; chip: string; icon: typeof Ban }> = {
   procedente:   { label: "Procedente", chip: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30", icon: Trophy },
   parcial:      { label: "Parcialmente procedente", chip: "bg-amber-500/15 text-amber-400 ring-amber-500/30", icon: Scale },
