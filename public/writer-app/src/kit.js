@@ -643,40 +643,43 @@ function prosseguirDoKitForm() {
   navegarPara('kitDescontos');
 }
 
+// Lista das rubricas atreladas ao pré-cliente. Cada item = { rubrica, detalhe }.
+// Permite a MESMA rubrica mais de uma vez (ex.: um seguro por banco). Migra do
+// formato antigo (_descontos_sel objeto + _descontos_outros array), se existir.
+function _kitLista() {
+  const d = state.dadosKit;
+  if (!d) return [];
+  if (!Array.isArray(d._descontos_lista)) {
+    const legado = []
+      .concat(Object.keys(d._descontos_sel || {}))
+      .concat(d._descontos_outros || []);
+    d._descontos_lista = legado.map((l) => ({ rubrica: l, detalhe: '' }));
+  }
+  return d._descontos_lista;
+}
+function _kitContagem() {
+  const cont = {};
+  for (const it of _kitLista()) cont[it.rubrica] = (cont[it.rubrica] || 0) + 1;
+  return cont;
+}
+
 function renderKitDescontos(view) {
   const produto = state.produtoSelecionado;
   const modalidade = state.modalidadeSelecionada;
   if (!produto || !modalidade || !state.dadosKit) { navegarPara('pacoteKit'); return; }
-  const d = state.dadosKit;
-  if (!d._descontos_sel) d._descontos_sel = {};
-  if (!d._descontos_outros) d._descontos_outros = [];
-
-  const chips = DESCONTOS_KIT.map(label => {
-    const sel = !!d._descontos_sel[label];
-    return `
-      <button type="button" class="kit-desc-chip ${sel ? 'sel' : ''}"
-              data-label="${escapeAttr(label)}" onclick="toggleKitDesconto(this)">
-        <span class="kit-desc-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-               stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-        </span>
-        <span class="kit-desc-label">${escapeHtml(label)}</span>
-      </button>`;
-  }).join('');
+  _kitLista();
 
   view.innerHTML = `
     <div class="kit-form-page kit-desc-page">
       <div class="kit-form-header">
         <div class="kit-form-eyebrow">${escapeHtml(produto.nome)} · ${escapeHtml(modalidade.nome)}</div>
         <h1>Descontos <span class="accent">ajuizáveis</span></h1>
-        <div class="kit-form-sub">Marque quais descontos este instrumento procuratório contesta. Some os que faltarem em <strong>Outros</strong>.</div>
+        <div class="kit-form-sub">Clique nos descontos que este instrumento contesta — pode adicionar o mesmo <strong>mais de uma vez</strong> (ex.: um seguro por banco). Some os que faltarem em <strong>Outros</strong>.</div>
       </div>
 
       <section class="kit-section">
         <div class="kit-section-title">Selecione os descontos <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
-        <div class="kit-desc-grid">
-          ${chips}
-        </div>
+        <div class="kit-desc-grid" id="kitDescGrid"></div>
       </section>
 
       <section class="kit-section">
@@ -687,7 +690,11 @@ function renderKitDescontos(view) {
                  onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarDescontoOutro();}">
           <button type="button" class="btn btn-ghost" onclick="adicionarDescontoOutro()">Adicionar</button>
         </div>
-        <div class="kit-desc-outros-list" id="kitDescOutrosList"></div>
+      </section>
+
+      <section class="kit-section" id="kitDescAtreladasSection">
+        <div class="kit-section-title">Rubricas atreladas <span class="kit-desc-counter">(<span id="kitDescAtreladasCount">0</span>)</span></div>
+        <div class="kit-desc-atreladas" id="kitDescAtreladas"></div>
       </section>
 
       <div class="kit-form-actions">
@@ -696,72 +703,112 @@ function renderKitDescontos(view) {
       </div>
     </div>
   `;
-  renderKitDescontosOutrosChips();
-  atualizarContadorDescontos();
+  renderKitDescChips();
+  renderKitDescAtreladas();
 }
 
-function toggleKitDesconto(el) {
-  const label = el.getAttribute('data-label');
-  if (!label || !state.dadosKit) return;
-  if (!state.dadosKit._descontos_sel) state.dadosKit._descontos_sel = {};
-  const novo = !state.dadosKit._descontos_sel[label];
-  if (novo) state.dadosKit._descontos_sel[label] = true;
-  else delete state.dadosKit._descontos_sel[label];
-  el.classList.toggle('sel', novo);
-  atualizarContadorDescontos();
+// Grade de descontos do catálogo. Clicar ATRELA uma instância (pode repetir);
+// o chip mostra um badge com a quantidade já atrelada daquele desconto.
+function renderKitDescChips() {
+  const box = document.getElementById('kitDescGrid');
+  if (!box) return;
+  const cont = _kitContagem();
+  box.innerHTML = DESCONTOS_KIT.map((label) => {
+    const n = cont[label] || 0;
+    return `
+      <button type="button" class="kit-desc-chip ${n > 0 ? 'sel' : ''}"
+              data-label="${escapeAttr(label)}" onclick="addKitDesconto(this)" title="Clique para atrelar (pode repetir)">
+        <span class="kit-desc-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        </span>
+        <span class="kit-desc-label">${escapeHtml(label)}</span>
+        ${n > 0 ? `<span class="kit-desc-badge">${n}</span>` : ''}
+      </button>`;
+  }).join('');
+}
+
+function addKitDesconto(el) {
+  const label = el && el.getAttribute('data-label');
+  if (!label) return;
+  _kitLista().push({ rubrica: label, detalhe: '' });
+  renderKitDescChips();
+  renderKitDescAtreladas();
 }
 
 function adicionarDescontoOutro() {
   const inp = document.getElementById('kitDescOutroInput');
-  if (!inp || !state.dadosKit) return;
+  if (!inp) return;
   const v = (inp.value || '').trim();
   if (!v) return;
-  if (!state.dadosKit._descontos_outros) state.dadosKit._descontos_outros = [];
-  const jaTem = state.dadosKit._descontos_outros.some(x => x.toLowerCase() === v.toLowerCase())
-    || DESCONTOS_KIT.some(x => x.toLowerCase() === v.toLowerCase());
-  if (!jaTem) state.dadosKit._descontos_outros.push(v);
+  _kitLista().push({ rubrica: v, detalhe: '' });
   inp.value = '';
   inp.focus();
-  renderKitDescontosOutrosChips();
-  atualizarContadorDescontos();
+  renderKitDescChips();      // se o "outro" bater com um do catálogo, atualiza o badge
+  renderKitDescAtreladas();
 }
 
-function removerDescontoOutro(idx) {
-  if (!state.dadosKit || !state.dadosKit._descontos_outros) return;
-  state.dadosKit._descontos_outros.splice(idx, 1);
-  renderKitDescontosOutrosChips();
-  atualizarContadorDescontos();
+function removerKitDesconto(idx) {
+  const lista = _kitLista();
+  if (idx < 0 || idx >= lista.length) return;
+  lista.splice(idx, 1);
+  renderKitDescChips();
+  renderKitDescAtreladas();
 }
 
-function renderKitDescontosOutrosChips() {
-  const box = document.getElementById('kitDescOutrosList');
-  if (!box || !state.dadosKit) return;
-  const arr = state.dadosKit._descontos_outros || [];
-  box.innerHTML = arr.map((x, i) => `
-    <span class="kit-desc-outro-chip">${escapeHtml(x)}
-      <button type="button" onclick="removerDescontoOutro(${i})" aria-label="remover">×</button>
-    </span>`).join('');
+// Sem re-render: preserva o foco do input enquanto o user digita o detalhe.
+function setKitDescDetalhe(idx, valor) {
+  const lista = _kitLista();
+  if (lista[idx]) lista[idx].detalhe = valor;
+}
+
+// Lista EMPILHADA das rubricas atreladas, no mesmo visual verde do card do
+// pré-cliente, cada uma com um campo de detalhamento (litigante/banco/etc.).
+function renderKitDescAtreladas() {
+  const lista = _kitLista();
+  const elCount = document.getElementById('kitDescCount');
+  if (elCount) elCount.textContent = lista.length;
+  const elAtr = document.getElementById('kitDescAtreladasCount');
+  if (elAtr) elAtr.textContent = lista.length;
+  const box = document.getElementById('kitDescAtreladas');
+  if (!box) return;
+  if (lista.length === 0) {
+    box.innerHTML = `<div class="kit-desc-atreladas-vazio">Clique nos descontos acima para atrelá-los. Eles aparecem aqui empilhados.</div>`;
+    return;
+  }
+  box.innerHTML = lista.map((it, i) => `
+    <div class="kit-desc-atrelada">
+      <span class="kit-desc-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="kit-desc-pill-ic"><path d="M20 6L9 17l-5-5"/></svg>
+        ${escapeHtml(it.rubrica)}
+      </span>
+      <input type="text" class="kit-desc-detalhe" placeholder="detalhe (ex.: litigante / banco)"
+             value="${escapeAttr(it.detalhe || '')}" oninput="setKitDescDetalhe(${i}, this.value)">
+      <button type="button" class="kit-desc-atrelada-x" onclick="removerKitDesconto(${i})" aria-label="remover">×</button>
+    </div>`).join('');
 }
 
 function atualizarContadorDescontos() {
-  if (!state.dadosKit) return;
-  const n = Object.keys(state.dadosKit._descontos_sel || {}).length
-    + (state.dadosKit._descontos_outros || []).length;
+  const n = _kitLista().length;
   const el = document.getElementById('kitDescCount');
   if (el) el.textContent = n;
+  const cnt = document.getElementById('kitDescAtreladasCount');
+  if (cnt) cnt.textContent = n;
 }
 
 function confirmarDescontosEGerar() {
   if (!state.dadosKit) { navegarPara('pacoteKit'); return; }
-  const sel = Object.keys(state.dadosKit._descontos_sel || {});
-  const outros = (state.dadosKit._descontos_outros || []).filter(Boolean);
-  const labels = sel.concat(outros);
-  if (labels.length === 0) {
-    if (!confirm('Nenhum desconto ajuizável selecionado. Continuar mesmo assim?')) return;
+  const lista = _kitLista();
+  if (lista.length === 0) {
+    if (!confirm('Nenhum desconto ajuizável atrelado. Continuar mesmo assim?')) return;
   }
   state.dadosKit._analise_comercial = {
     origem: 'writer_manual',
-    rubricas: labels.map(l => ({ rubrica: l, valor: null, bloqueada: false, motivo: null })),
+    rubricas: lista.map((it) => ({
+      rubrica: it.rubrica,
+      detalhe: (it.detalhe || '').trim() || null,
+      valor: null, bloqueada: false, motivo: null,
+    })),
   };
   gerarKitPecas();
 }

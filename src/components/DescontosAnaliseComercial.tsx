@@ -6,7 +6,7 @@ import { Lock, CheckCircle2, ClipboardList } from "lucide-react";
 // selecionável") pra impedir que a análise primária reconsidere um desconto
 // já descartado no comercial. Os ajuizáveis aparecem em verde.
 
-interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null }
+interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null; detalhe: string | null }
 
 const MOTIVO_LABEL: Record<string, string> = {
   ja_ajuizada: "Já ajuizada",
@@ -27,6 +27,7 @@ export function rubricasDaAnalise(ac: any): RubricaAC[] {
       valor: r?.valor ?? null,
       bloqueada: !!r?.bloqueada,
       motivo: r?.motivo ?? null,
+      detalhe: (r?.detalhe && String(r.detalhe).trim()) || null,
     }))
     .filter((r: RubricaAC) => r.rubrica);
 }
@@ -72,6 +73,7 @@ export function DescontosAnaliseComercial({ analise, className }: { analise: any
               }`}
             >
               {r.rubrica}
+              {r.detalhe && <span className="text-muted-foreground font-normal"> · {r.detalhe}</span>}
             </span>
             {fmtBRL(r.valor) && (
               <span className="text-[12px] tabular-nums text-muted-foreground shrink-0">{fmtBRL(r.valor)}</span>

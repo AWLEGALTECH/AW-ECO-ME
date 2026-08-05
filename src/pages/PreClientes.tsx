@@ -62,13 +62,13 @@ const voluntarioDe = (p: any): string | null => {
 // Rubricas da análise comercial vinculada ao pré-cliente que NÃO foram
 // bloqueadas (as ajuizáveis). Fica no próprio registro
 // (dados_completos.dadosKit._analise_comercial.rubricas) — sem casar por nome.
-interface RubricaPre { rubrica: string; valor: number | null }
+interface RubricaPre { rubrica: string; valor: number | null; detalhe: string | null }
 const rubricasNaoBloqueadas = (p: any): RubricaPre[] => {
   const arr = p?.dados_completos?.dadosKit?._analise_comercial?.rubricas;
   if (!Array.isArray(arr)) return [];
   return arr
     .filter((r: any) => r && !r.bloqueada)
-    .map((r: any) => ({ rubrica: String(r.rubrica || "").trim(), valor: r.valor ?? null }))
+    .map((r: any) => ({ rubrica: String(r.rubrica || "").trim(), valor: r.valor ?? null, detalhe: (r.detalhe && String(r.detalhe).trim()) || null }))
     .filter((r: RubricaPre) => r.rubrica);
 };
 const rubricasBloqueadasCount = (p: any): number => {
@@ -946,6 +946,7 @@ export default function PreClientes() {
               {rubricas.map((r, i) => (
                 <span key={i} className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2 py-0.5">
                   <CheckCircle2 className="h-2.5 w-2.5" /> {r.rubrica}
+                  {r.detalhe && <span className="text-emerald-300/70">· {r.detalhe}</span>}
                 </span>
               ))}
             </div>

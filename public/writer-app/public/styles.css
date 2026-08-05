@@ -3242,3 +3242,75 @@ select:has(option[value=""]:checked) {
   padding: 0 0.15rem;
 }
 .kit-desc-outro-chip button:hover { color: var(--red); }
+
+/* Badge de quantidade no chip do catálogo (quantas vezes já foi atrelado) */
+.kit-desc-chip { position: relative; }
+.kit-desc-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(16,185,129,0.16);
+  border: 1px solid rgba(16,185,129,0.40);
+  color: #34d399;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rubricas atreladas — EMPILHADAS, no visual verde do card do pré-cliente */
+.kit-desc-atreladas { display: flex; flex-direction: column; gap: 0.45rem; }
+.kit-desc-atreladas-vazio {
+  font-size: 0.8rem;
+  color: var(--text-mute);
+  border: 1px dashed var(--line);
+  border-radius: 0.7rem;
+  padding: 0.8rem;
+  text-align: center;
+}
+.kit-desc-atrelada {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.kit-desc-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(16,185,129,0.10);
+  border: 1px solid rgba(16,185,129,0.30);
+  color: #34d399;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.kit-desc-pill-ic { width: 12px; height: 12px; flex: 0 0 auto; }
+.kit-desc-detalhe {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+.kit-desc-detalhe:focus { outline: none; border-color: rgba(16,185,129,0.45); }
+.kit-desc-atrelada-x {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+.kit-desc-atrelada-x:hover { color: var(--red); }
