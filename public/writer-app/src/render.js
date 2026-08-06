@@ -169,10 +169,18 @@ function renderLobby(view) {
           <circle cx="11" cy="11" r="8"/>
           <path d="m21 21-4.35-4.35"/>
         </svg>
+        <!-- Iscas invisíveis: o gestor de senhas do Chrome preenche estas (fora
+             da tela) em vez de tratar a busca como campo de e-mail/usuário. -->
+        <input type="text" name="fakeuser" tabindex="-1" aria-hidden="true" autocomplete="username"
+               style="position:absolute;left:-9999px;top:-9999px;width:120px;height:20px;opacity:0;pointer-events:none">
+        <input type="password" name="fakepass" tabindex="-1" aria-hidden="true" autocomplete="new-password"
+               style="position:absolute;left:-9999px;top:-9999px;width:120px;height:20px;opacity:0;pointer-events:none">
         <input
           id="buscaLobby"
-          type="search"
+          type="text"
           name="aw-writer-search"
+          role="searchbox"
+          inputmode="search"
           class="search-bar-input"
           placeholder="Buscar ação..."
           value="${escapeHtml(busca)}"
