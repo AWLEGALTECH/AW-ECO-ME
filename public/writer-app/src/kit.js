@@ -461,8 +461,10 @@ function renderKitForm(view) {
                      placeholder="000.000.000-00" inputmode="numeric">
             </label>
 
-            <label class="kit-field">
-              <span>CEP <em class="kit-hint">preenche o endereço</em></span>
+            <!-- ENDEREÇO — CEP isolado no topo (preencha primeiro: autocompleta o resto) -->
+            <div class="kit-endereco-titulo span-3">Endereço</div>
+            <label class="kit-field span-3">
+              <span>CEP <em class="kit-hint">preencha primeiro — completa o endereço sozinho</em></span>
               <input type="text" id="kitEndCep" value="${escapeAttr(d.cliente_end_cep)}"
                      oninput="onKitCepInput(this)"
                      placeholder="00000-000" inputmode="numeric" maxlength="9" autocomplete="off">
@@ -481,12 +483,6 @@ function renderKitForm(view) {
                      placeholder="123">
             </label>
             <label class="kit-field">
-              <span>Complemento <em class="kit-hint">opcional</em></span>
-              <input type="text" id="kitEndComplemento" value="${escapeAttr(d.cliente_end_complemento)}"
-                     onchange="onKitEndChange('cliente_end_complemento', this.value)"
-                     placeholder="Apto, bloco, casa...">
-            </label>
-            <label class="kit-field">
               <span>Bairro</span>
               <input type="text" id="kitEndBairro" value="${escapeAttr(d.cliente_end_bairro)}"
                      onchange="onKitEndChange('cliente_end_bairro', this.value)"
@@ -498,19 +494,27 @@ function renderKitForm(view) {
                      onchange="onKitEndChange('cliente_end_municipio', this.value)"
                      placeholder="Manaus">
             </label>
-            <label class="kit-field span-2">
-              <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
-              <input type="text" list="kit-comarcas" value="${escapeAttr(d.cliente_comarca)}"
-                     onchange="onKitChange('cliente_comarca', this.value)"
-                     placeholder="Ex.: Manaus">
-              <datalist id="kit-comarcas">${optionsComarcas}</datalist>
-            </label>
             <label class="kit-field">
               <span>Estado (UF) <em class="kit-hint">do endereço</em></span>
               <input type="text" id="kitClienteUf" maxlength="2" value="${escapeAttr(d.cliente_uf)}"
                      oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitEndChange('cliente_uf', this.value)"
                      onchange="onKitEndChange('cliente_uf', this.value)"
                      placeholder="AM">
+            </label>
+            <label class="kit-field">
+              <span>Complemento <em class="kit-hint">opcional</em></span>
+              <input type="text" id="kitEndComplemento" value="${escapeAttr(d.cliente_end_complemento)}"
+                     onchange="onKitEndChange('cliente_end_complemento', this.value)"
+                     placeholder="Apto, bloco, casa...">
+            </label>
+
+            <!-- Foro + contato (não fazem parte do endereço do cliente) -->
+            <label class="kit-field span-2">
+              <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
+              <input type="text" list="kit-comarcas" value="${escapeAttr(d.cliente_comarca)}"
+                     onchange="onKitChange('cliente_comarca', this.value)"
+                     placeholder="Ex.: Manaus">
+              <datalist id="kit-comarcas">${optionsComarcas}</datalist>
             </label>
             <label class="kit-field">
               <span>WhatsApp do cliente</span>
