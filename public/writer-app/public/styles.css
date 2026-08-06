@@ -2768,6 +2768,20 @@ select:has(option[value=""]:checked) {
   border-top: 1px solid var(--line);
 }
 
+/* Status da busca por CEP (cor 100% conforme o estado, sem herdar o cinza do hint) */
+.kit-cep-status { display: block; min-height: 14px; margin-top: 4px; font-size: 11px; font-weight: 600; }
+.kit-cep-status.is-loading { color: var(--text-mute); }
+.kit-cep-status.is-ok { color: #34d399; }
+.kit-cep-status.is-err { color: #f59e0b; }
+
+/* Campo preenchido automaticamente pelo CEP fica VERDE até o usuário editar */
+.kit-field input.kit-autofilled {
+  border-color: rgba(16,185,129,0.55);
+  background: rgba(16,185,129,0.08);
+  color: #d7f5e8;
+}
+.kit-field input.kit-autofilled:focus { border-color: rgba(16,185,129,0.85); }
+
 /* Cliente: 3 colunas é o default; alguns campos ocupam span-2 ou span-3. */
 .kit-fields-cliente,
 .kit-fields-causa,

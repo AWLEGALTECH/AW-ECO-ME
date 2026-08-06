@@ -183,10 +183,12 @@ function recomporEnderecoKit() {
     .filter(Boolean).join(', ');
 }
 
-// onChange dos campos de endereço → grava a parte e recompõe.
-function onKitEndChange(k, v) {
+// onChange dos campos de endereço → grava a parte e recompõe. Se o usuário
+// editar um campo que veio do CEP, ele deixa de ser "auto" (tira o verde).
+function onKitEndChange(k, v, el) {
   if (!state.dadosKit) return;
   state.dadosKit[k] = v;
+  if (el && el.classList) el.classList.remove('kit-autofilled');
   recomporEnderecoKit();
 }
 
@@ -206,25 +208,27 @@ async function buscarCepKit() {
   const d = state.dadosKit; if (!d) return;
   const cep = String(d.cliente_end_cep || '').replace(/\D/g, '');
   const status = document.getElementById('kitCepStatus');
-  const setStatus = (txt, cor) => { if (status) { status.textContent = txt; status.style.color = cor; } };
+  const setStatus = (txt, estado) => { if (status) { status.textContent = txt; status.className = 'kit-cep-status ' + estado; } };
   if (cep.length !== 8) return;
-  setStatus('Buscando CEP…', 'var(--text-mute)');
+  setStatus('Buscando CEP…', 'is-loading');
 
   const aplicar = (info) => {
     const set = (id, key, val) => {
       if (val == null || String(val).trim() === '') return;
       d[key] = val;
       const el = document.getElementById(id);
-      if (el) el.value = val;
+      if (el) { el.value = val; el.classList.add('kit-autofilled'); }  // fica verde
     };
     set('kitEndLogradouro', 'cliente_end_logradouro', info.logradouro);
     set('kitEndBairro', 'cliente_end_bairro', info.bairro);
     set('kitEndMunicipio', 'cliente_end_municipio', info.municipio);
     set('kitClienteUf', 'cliente_uf', (info.uf || '').toUpperCase());
+    // Comarca/foro = município (autopreenche junto; editável depois).
+    if (info.municipio) { d.cliente_comarca = info.municipio; const cel = document.getElementById('kitClienteComarca'); if (cel) { cel.value = info.municipio; cel.classList.add('kit-autofilled'); } }
     recomporEnderecoKit();
     const numEl = document.getElementById('kitEndNumero');
     if (numEl) numEl.focus();
-    setStatus('Endereço preenchido pelo CEP ✓', '#34d399');
+    setStatus('Endereço preenchido pelo CEP ✓', 'is-ok');
   };
 
   try {
@@ -246,7 +250,7 @@ async function buscarCepKit() {
         return;
       }
     } catch (_e2) { /* ignora, cai no aviso */ }
-    setStatus('CEP não encontrado — preencha na mão.', '#f59e0b');
+    setStatus('CEP não encontrado — preencha na mão.', 'is-err');
   }
 }
 
@@ -468,54 +472,58 @@ function renderKitForm(view) {
               <input type="text" id="kitEndCep" value="${escapeAttr(d.cliente_end_cep)}"
                      oninput="onKitCepInput(this)"
                      placeholder="00000-000" inputmode="numeric" maxlength="9" autocomplete="off">
-              <span id="kitCepStatus" class="kit-hint" style="display:block;min-height:13px"></span>
+              <span id="kitCepStatus" class="kit-cep-status"></span>
             </label>
+
+            <!-- Preenchidos pelo CEP (ficam verdes) -->
             <label class="kit-field span-2">
               <span>Logradouro</span>
               <input type="text" id="kitEndLogradouro" value="${escapeAttr(d.cliente_end_logradouro)}"
-                     onchange="onKitEndChange('cliente_end_logradouro', this.value)"
+                     onchange="onKitEndChange('cliente_end_logradouro', this.value, this)"
                      placeholder="Rua / Avenida ...">
-            </label>
-            <label class="kit-field">
-              <span>Número</span>
-              <input type="text" id="kitEndNumero" value="${escapeAttr(d.cliente_end_numero)}"
-                     onchange="onKitEndChange('cliente_end_numero', this.value)"
-                     placeholder="123">
             </label>
             <label class="kit-field">
               <span>Bairro</span>
               <input type="text" id="kitEndBairro" value="${escapeAttr(d.cliente_end_bairro)}"
-                     onchange="onKitEndChange('cliente_end_bairro', this.value)"
+                     onchange="onKitEndChange('cliente_end_bairro', this.value, this)"
                      placeholder="Centro">
             </label>
             <label class="kit-field">
               <span>Município</span>
               <input type="text" id="kitEndMunicipio" value="${escapeAttr(d.cliente_end_municipio)}"
-                     onchange="onKitEndChange('cliente_end_municipio', this.value)"
+                     onchange="onKitEndChange('cliente_end_municipio', this.value, this)"
                      placeholder="Manaus">
             </label>
             <label class="kit-field">
               <span>Estado (UF) <em class="kit-hint">do endereço</em></span>
               <input type="text" id="kitClienteUf" maxlength="2" value="${escapeAttr(d.cliente_uf)}"
-                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitEndChange('cliente_uf', this.value)"
-                     onchange="onKitEndChange('cliente_uf', this.value)"
+                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitEndChange('cliente_uf', this.value, this)"
+                     onchange="onKitEndChange('cliente_uf', this.value, this)"
                      placeholder="AM">
             </label>
             <label class="kit-field">
-              <span>Complemento <em class="kit-hint">opcional</em></span>
-              <input type="text" id="kitEndComplemento" value="${escapeAttr(d.cliente_end_complemento)}"
-                     onchange="onKitEndChange('cliente_end_complemento', this.value)"
-                     placeholder="Apto, bloco, casa...">
-            </label>
-
-            <!-- Foro + contato (não fazem parte do endereço do cliente) -->
-            <label class="kit-field span-2">
-              <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
-              <input type="text" list="kit-comarcas" value="${escapeAttr(d.cliente_comarca)}"
-                     onchange="onKitChange('cliente_comarca', this.value)"
+              <span>Comarca / foro <em class="kit-hint">cidade do juízo</em></span>
+              <input type="text" id="kitClienteComarca" list="kit-comarcas" value="${escapeAttr(d.cliente_comarca)}"
+                     onchange="onKitChange('cliente_comarca', this.value); this.classList.remove('kit-autofilled')"
                      placeholder="Ex.: Manaus">
               <datalist id="kit-comarcas">${optionsComarcas}</datalist>
             </label>
+
+            <!-- Preenchidos à mão (número e complemento juntos) -->
+            <label class="kit-field">
+              <span>Número</span>
+              <input type="text" id="kitEndNumero" value="${escapeAttr(d.cliente_end_numero)}"
+                     onchange="onKitEndChange('cliente_end_numero', this.value, this)"
+                     placeholder="123">
+            </label>
+            <label class="kit-field span-2">
+              <span>Complemento <em class="kit-hint">opcional</em></span>
+              <input type="text" id="kitEndComplemento" value="${escapeAttr(d.cliente_end_complemento)}"
+                     onchange="onKitEndChange('cliente_end_complemento', this.value, this)"
+                     placeholder="Apto, bloco, casa...">
+            </label>
+
+            <!-- Contato (não faz parte do endereço) -->
             <label class="kit-field">
               <span>WhatsApp do cliente</span>
               <input type="text" value="${escapeAttr(d.cliente_whatsapp)}"
