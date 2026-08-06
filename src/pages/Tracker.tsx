@@ -53,11 +53,11 @@ const ETAPA_CUMPRIMENTO = "Cumprimento de sentença";
 
 /* ─── fases pós-vitória (só leitura, na ordem processual) ─── */
 const FASES_POS: { key: string; label: string; short: string; icon: any; dot: string; text: string; chip: string }[] = [
-  { key: ETAPA_SENTENCA,    label: "Sentença (1º grau)",     short: "Sentença",    icon: Trophy,    dot: "bg-primary",     text: "text-primary",     chip: "bg-primary/10 text-primary border-primary/25" },
+  { key: ETAPA_SENTENCA,    label: "Sentença (1º grau)",     short: "Sentença",    icon: Hammer,    dot: "bg-primary",     text: "text-primary",     chip: "bg-primary/10 text-primary border-primary/25" },
   { key: "Recurso",         label: "Fase recursal",          short: "Recurso",     icon: Scale,     dot: "bg-violet-400",  text: "text-violet-300",  chip: "bg-violet-400/10 text-violet-300 border-violet-400/25" },
   { key: ETAPA_JULGAMENTO,  label: "Julgamento em 2º grau",  short: "2º grau",     icon: Gavel,     dot: "bg-sky-400",     text: "text-sky-300",     chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
   { key: "Trânsito em julgado", label: "Trânsito em julgado", short: "Trânsito",   icon: Milestone, dot: "bg-fuchsia-400", text: "text-fuchsia-300", chip: "bg-fuchsia-400/10 text-fuchsia-300 border-fuchsia-400/25" },
-  { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Hammer,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
+  { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Trophy,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
 ];
 const FASE_BY = Object.fromEntries(FASES_POS.map((f) => [f.key, f])) as Record<string, typeof FASES_POS[number]>;
 const faseInfo = (k: string) => FASE_BY[k] ?? FASES_POS[0];
@@ -98,7 +98,8 @@ export default function Tracker() {
   useEffect(() => { document.title = `Tracker · ${appConfig.name}`; }, []);
 
   const [busca, setBusca] = useState("");
-  const [faseFiltro, setFaseFiltro] = useState<string | null>(null);
+  // Cross-filtro: clicar numa métrica (matéria/comarca/mês/fase) filtra as OUTRAS.
+  const [filtro, setFiltro] = useState<{ campo: "materia" | "comarca" | "mes" | "fase"; valor: string } | null>(null);
 
   const procRes = useQuery({
     queryKey: ["tracker_processos"],
@@ -152,26 +153,59 @@ export default function Tracker() {
     return out.sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
   }, [processos]);
 
-  /* ── métricas principais ── */
+  /* ── cross-filtro: cada gráfico exclui a PRÓPRIA dimensão (pra mostrar todas
+       as opções) e é filtrado pelas outras. Lista/KPIs aplicam o filtro cheio. */
+  const passaBusca = (v: Vitoria) => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return true;
+    return `${v.cliente_nome || ""} ${v.numero_processo || ""} ${v.materia || ""} ${v.comarca_uf || ""}`.toLowerCase().includes(q);
+  };
+  const campoVal = (v: Vitoria, campo: string) =>
+    campo === "materia" ? ((v.materia || "").trim() || "Não informado")
+      : campo === "comarca" ? ((v.comarca_uf || "").trim() || "Não informado")
+        : campo === "mes" ? (v.data || "").slice(0, 7)
+          : campo === "fase" ? v.faseAtual
+            : "";
+  const vitoriasFor = (exclui: string | null) =>
+    vitorias.filter((v) => passaBusca(v) && (!filtro || filtro.campo === exclui || campoVal(v, filtro.campo) === filtro.valor));
+
+  const vBase = useMemo(() => vitoriasFor(null), [vitorias, busca, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vMat = useMemo(() => vitoriasFor("materia"), [vitorias, busca, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vCom = useMemo(() => vitoriasFor("comarca"), [vitorias, busca, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vMes = useMemo(() => vitoriasFor("mes"), [vitorias, busca, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vFase = useMemo(() => vitoriasFor("fase"), [vitorias, busca, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleFiltro = (campo: "materia" | "comarca" | "mes" | "fase", valor: string) => {
+    if (!valor || valor === "Outras") { setFiltro(null); return; }
+    setFiltro((f) => (f && f.campo === campo && f.valor === valor) ? null : { campo, valor });
+  };
+  const filtroLabel: Record<string, string> = { materia: "Matéria", comarca: "Comarca", mes: "Mês", fase: "Fase" };
+
+  /* ── métricas principais (refletem busca + filtro) ── */
   const m = useMemo(() => {
-    const totalGanho = vitorias.reduce((a, v) => a + v.valor, 0);
-    const emCumprimento = vitorias.filter((v) => v.emCumprimento);
+    const totalGanho = vBase.reduce((a, v) => a + v.valor, 0);
+    const emCumprimento = vBase.filter((v) => v.emCumprimento);
     const valorCumprimento = emCumprimento.reduce((a, v) => a + v.valorCumprimento, 0);
-    const ticket = vitorias.length ? totalGanho / vitorias.length : 0;
+    const ticket = vBase.length ? totalGanho / vBase.length : 0;
     const porFase: Record<string, { n: number; valor: number }> = {};
     for (const f of FASES_POS) porFase[f.key] = { n: 0, valor: 0 };
-    for (const v of vitorias) {
-      const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 });
-      b.n += 1; b.valor += v.valor;
-    }
+    for (const v of vBase) { const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
     return { totalGanho, valorCumprimento, nCumprimento: emCumprimento.length, ticket, porFase, emCumprimento };
-  }, [vitorias]);
+  }, [vBase]);
 
-  /* ── agregações pros gráficos ── */
+  // Distribuição por fase (card) — exclui o próprio filtro de fase.
+  const porFaseCard = useMemo(() => {
+    const acc: Record<string, { n: number; valor: number }> = {};
+    for (const f of FASES_POS) acc[f.key] = { n: 0, valor: 0 };
+    for (const v of vFase) { const b = acc[v.faseAtual] || (acc[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
+    return acc;
+  }, [vFase]);
+
+  /* ── agregações pros gráficos (cada um exclui a própria dimensão) ── */
   const analytics = useMemo(() => {
-    const acc = (pick: (v: Vitoria) => string | null | undefined) => {
+    const acc = (arr: Vitoria[], pick: (v: Vitoria) => string | null | undefined) => {
       const map = new Map<string, { n: number; valor: number }>();
-      for (const v of vitorias) {
+      for (const v of arr) {
         const k = (pick(v) || "").trim() || "Não informado";
         const cur = map.get(k) || { n: 0, valor: 0 };
         cur.n += 1; cur.valor += v.valor;
@@ -179,30 +213,17 @@ export default function Tracker() {
       }
       return [...map.entries()].map(([name, val]) => ({ name, ...val }));
     };
-    const materias = acc((v) => v.materia).sort((a, b) => b.n - a.n);
-    const comarcas = acc((v) => v.comarca_uf).sort((a, b) => b.n - a.n);
-
+    const materias = acc(vMat, (v) => v.materia).sort((a, b) => b.n - a.n);
+    const comarcas = acc(vCom, (v) => v.comarca_uf).sort((a, b) => b.n - a.n);
     const mesMap = new Map<string, number>();
-    for (const v of vitorias) {
-      const mes = (v.data || "").slice(0, 7);
-      if (!mes) continue;
-      mesMap.set(mes, (mesMap.get(mes) || 0) + v.valor);
-    }
+    for (const v of vMes) { const mes = (v.data || "").slice(0, 7); if (!mes) continue; mesMap.set(mes, (mesMap.get(mes) || 0) + v.valor); }
     const meses = [...mesMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, valor]) => ({ mes, valor }));
-    const materiasValor = [...materias].sort((a, b) => b.valor - a.valor).slice(0, 8);
+    const materiasValor = acc(vMat, (v) => v.materia).sort((a, b) => b.valor - a.valor).slice(0, 8);
     return { materias, comarcas, meses, materiasValor };
-  }, [vitorias]);
+  }, [vMat, vCom, vMes]);
 
-  /* ── lista filtrada ── */
-  const lista = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return vitorias.filter((v) => {
-      if (faseFiltro && v.faseAtual !== faseFiltro) return false;
-      if (!q) return true;
-      const alvo = `${v.cliente_nome || ""} ${v.numero_processo || ""} ${v.materia || ""} ${v.comarca_uf || ""}`.toLowerCase();
-      return alvo.includes(q);
-    });
-  }, [vitorias, faseFiltro, busca]);
+  /* ── lista (reflete busca + filtro) ── */
+  const lista = vBase;
 
   return (
     <div className="space-y-6">
@@ -220,11 +241,20 @@ export default function Tracker() {
         </div>
       ) : (
         <>
+          {/* Filtro ativo (cross-filtro entre as métricas) */}
+          {filtro && (
+            <div className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2 text-sm">
+              <span className="text-muted-foreground">Filtrando por</span>
+              <span className="font-medium text-primary">{filtroLabel[filtro.campo]}: {filtro.campo === "fase" ? faseInfo(filtro.valor).label : filtro.campo === "mes" ? filtro.valor : filtro.valor}</span>
+              <button onClick={() => setFiltro(null)} className="ml-auto text-xs text-primary hover:underline">limpar filtro</button>
+            </div>
+          )}
+
           {/* ── KPIs: ganho em 1º grau + cumprimento voluntário (mesmo protagonismo) ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Kpi icon={Trophy} label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
+            <Kpi icon={Hammer} label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
               sub={`${vitorias.length} ${vitorias.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
-            <Kpi icon={Hammer} label="Em cumprimento voluntário" value={m.valorCumprimento} accent="text-emerald-400" big
+            <Kpi icon={Trophy} label="Em cumprimento voluntário" value={m.valorCumprimento} accent="text-emerald-400" big
               border="ring-1 ring-emerald-500/25"
               sub={`${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo`} />
           </div>
@@ -240,7 +270,7 @@ export default function Tracker() {
             <Card className="ring-1 ring-emerald-500/25">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Hammer className="h-4 w-4 text-emerald-400" /> Em cumprimento voluntário
+                  <Trophy className="h-4 w-4 text-emerald-400" /> Em cumprimento voluntário
                   <span className="ml-auto text-sm font-semibold text-emerald-400 tabular-nums">{brl(m.valorCumprimento)}</span>
                 </CardTitle>
               </CardHeader>
@@ -253,7 +283,7 @@ export default function Tracker() {
                       className="group flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-3 hover:bg-emerald-500/[0.09] transition-colors"
                     >
                       <span className="h-9 w-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
-                        <Hammer className="h-4 w-4 text-emerald-400" />
+                        <Trophy className="h-4 w-4 text-emerald-400" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
@@ -280,7 +310,7 @@ export default function Tracker() {
                 <DonutChart
                   data={topSlices(analytics.materias.map((x) => ({ name: x.name, value: x.n })), 6)}
                   emptyMessage="Sem sentenças ainda"
-                  onSliceClick={(name) => setBusca(name === "Outras" || name === "Não informado" ? "" : name)}
+                  onSliceClick={(name) => toggleFiltro("materia", name)}
                 />
               </CardContent>
             </Card>
@@ -296,7 +326,7 @@ export default function Tracker() {
                 <DonutChart
                   data={topSlices(analytics.comarcas.map((x) => ({ name: x.name, value: x.n })), 6)}
                   emptyMessage="Sem sentenças ainda"
-                  onSliceClick={(name) => setBusca(name === "Outras" || name === "Não informado" ? "" : name)}
+                  onSliceClick={(name) => toggleFiltro("comarca", name)}
                 />
               </CardContent>
             </Card>
@@ -305,10 +335,11 @@ export default function Tracker() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <CalendarRange className="h-4 w-4 text-primary" /> Valor ganho por mês
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <MesesBars data={analytics.meses} />
+                <MesesBars data={analytics.meses} onBarClick={(mes) => toggleFiltro("mes", mes)} ativo={filtro?.campo === "mes" ? filtro.valor : null} />
               </CardContent>
             </Card>
 
@@ -316,13 +347,14 @@ export default function Tracker() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <BarChart3 className="h-4 w-4 text-primary" /> Matérias por valor (R$)
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <BarList
                   data={analytics.materiasValor.map((x) => ({ label: x.name, value: x.valor, hint: `${x.n} ${x.n === 1 ? "sentença" : "sentenças"}` }))}
                   format={brl}
-                  onItemClick={(label) => setBusca(label === "Não informado" ? "" : label)}
+                  onItemClick={(label) => toggleFiltro("materia", label)}
                 />
               </CardContent>
             </Card>
@@ -333,22 +365,18 @@ export default function Tracker() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Milestone className="h-4 w-4 text-primary" /> Onde estão as vitórias hoje
-                {faseFiltro && (
-                  <button onClick={() => setFaseFiltro(null)} className="ml-auto text-xs font-normal text-primary hover:underline">
-                    limpar filtro
-                  </button>
-                )}
+                <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
                 {FASES_POS.map((f) => {
-                  const b = m.porFase[f.key] || { n: 0, valor: 0 };
-                  const ativo = faseFiltro === f.key;
+                  const b = porFaseCard[f.key] || { n: 0, valor: 0 };
+                  const ativo = filtro?.campo === "fase" && filtro.valor === f.key;
                   return (
                     <button
                       key={f.key}
-                      onClick={() => setFaseFiltro(ativo ? null : f.key)}
+                      onClick={() => toggleFiltro("fase", f.key)}
                       className={`text-left rounded-xl border p-3 transition-colors ${ativo ? f.chip : "border-border bg-muted/20 hover:border-primary/40"}`}
                     >
                       <div className="flex items-center gap-1.5">
@@ -369,7 +397,7 @@ export default function Tracker() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary" />
-                {faseFiltro ? `Vitórias · ${faseInfo(faseFiltro).label}` : "Todas as vitórias"}
+                {filtro ? `Vitórias · ${filtro.campo === "fase" ? faseInfo(filtro.valor).label : filtro.valor}` : "Todas as vitórias"}
                 <span className="ml-auto text-xs font-normal text-muted-foreground">{lista.length}</span>
               </CardTitle>
               <div className="relative mt-2">
@@ -463,15 +491,17 @@ function rotuloMes(mes: string) {
   const [y, m] = mes.split("-").map(Number);
   return `${MES_ABREV[m - 1]}/${String(y).slice(2)}`;
 }
-function MesesBars({ data }: { data: { mes: string; valor: number }[] }) {
+function MesesBars({ data, onBarClick, ativo }: { data: { mes: string; valor: number }[]; onBarClick?: (mes: string) => void; ativo?: string | null }) {
   if (!data.length) return <p className="text-sm text-muted-foreground text-center py-8">Sem sentenças ainda.</p>;
   const peak = Math.max(...data.map((d) => d.valor), 1);
   return (
     <div className="space-y-2">
       {data.map((d, i) => {
         const pct = Math.max(3, (d.valor / peak) * 100);
+        const on = ativo === d.mes;
         return (
-          <div key={d.mes} className="flex items-center gap-3">
+          <button key={d.mes} type="button" onClick={() => onBarClick?.(d.mes)}
+            className={`w-full flex items-center gap-3 rounded-md ${onBarClick ? "hover:bg-white/[0.03]" : ""} ${on ? "ring-1 ring-primary/40" : ""} px-0.5 py-0.5 transition-colors`}>
             <span className="w-12 shrink-0 text-[11px] text-muted-foreground tabular-nums capitalize">{rotuloMes(d.mes)}</span>
             <div className="relative flex-1 h-6 rounded-md bg-black/20 overflow-hidden">
               <motion.div
@@ -484,7 +514,7 @@ function MesesBars({ data }: { data: { mes: string; valor: number }[] }) {
                 {brl(d.valor)}
               </span>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
