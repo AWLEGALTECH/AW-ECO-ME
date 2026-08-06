@@ -111,6 +111,16 @@ function aplicarClienteNoKit(c) {
   setIf('cliente_orgao_expedidor',  c.orgao_expedidor);
   setIf('cliente_cpf',              c.cpf);
   setIf('cliente_endereco_completo', c.endereco_completo);
+  // Cliente da base guarda o endereço como texto único: separa (best-effort) nas
+  // partes novas pra o formulário e a busca por CEP funcionarem.
+  if (c.endereco_completo && String(c.endereco_completo).trim()) {
+    const p = _parseEnderecoKit(c.endereco_completo);
+    setIf('cliente_end_cep',         p.cep);
+    setIf('cliente_end_logradouro',  p.logradouro);
+    setIf('cliente_end_numero',      p.numero);
+    setIf('cliente_end_bairro',      p.bairro);
+    setIf('cliente_end_municipio',   p.municipio);
+  }
   setIf('cliente_comarca',          c.comarca);
   setIf('cliente_uf',               c.uf);
   setIf('cliente_whatsapp',         c.telefone ? formatarWhatsapp(c.telefone) : '');
@@ -151,6 +161,108 @@ function onKitSelectAnaliseComercial(id) {
   if (typeof render === 'function') render();
 }
 
+/* ── Endereço estruturado + autopreenchimento por CEP ─────────────────────────
+   Campos: CEP · Logradouro · Número · Complemento · Bairro · Município · UF.
+   Ao completar o CEP, busca no ViaCEP (fallback BrasilAPI) e preenche logradouro,
+   bairro, município e UF. O endereco_completo (usado nas peças/pré-cliente/ficha)
+   é RECOMPOSTO das partes, então nada downstream muda. */
+
+// Recompõe o endereço completo a partir das partes (omite as vazias).
+function recomporEnderecoKit() {
+  const d = state.dadosKit; if (!d) return;
+  const log = (d.cliente_end_logradouro || '').trim();
+  const num = (d.cliente_end_numero || '').trim();
+  const comp = (d.cliente_end_complemento || '').trim();
+  const bairro = (d.cliente_end_bairro || '').trim();
+  const mun = (d.cliente_end_municipio || '').trim();
+  const uf = (d.cliente_uf || '').trim();
+  const cep = (d.cliente_end_cep || '').trim();
+  const linha1 = [log, num ? 'nº ' + num : '', comp].filter(Boolean).join(', ');
+  const cidade = [mun, uf].filter(Boolean).join('/');
+  d.cliente_endereco_completo = [linha1, bairro, cidade, cep ? 'CEP ' + cep : '']
+    .filter(Boolean).join(', ');
+}
+
+// onChange dos campos de endereço → grava a parte e recompõe.
+function onKitEndChange(k, v) {
+  if (!state.dadosKit) return;
+  state.dadosKit[k] = v;
+  recomporEnderecoKit();
+}
+
+// Máscara do CEP (00000-000) + dispara a busca ao completar 8 dígitos.
+function onKitCepInput(el) {
+  const dig = el.value.replace(/\D/g, '').slice(0, 8);
+  const masked = dig.length > 5 ? dig.slice(0, 5) + '-' + dig.slice(5) : dig;
+  el.value = masked;
+  if (state.dadosKit) state.dadosKit.cliente_end_cep = masked;
+  recomporEnderecoKit();
+  if (dig.length === 8) buscarCepKit();
+}
+
+// Busca o CEP (ViaCEP → BrasilAPI) e preenche os campos, sem re-render (atualiza
+// o DOM direto pra não perder o foco).
+async function buscarCepKit() {
+  const d = state.dadosKit; if (!d) return;
+  const cep = String(d.cliente_end_cep || '').replace(/\D/g, '');
+  const status = document.getElementById('kitCepStatus');
+  const setStatus = (txt, cor) => { if (status) { status.textContent = txt; status.style.color = cor; } };
+  if (cep.length !== 8) return;
+  setStatus('Buscando CEP…', 'var(--text-mute)');
+
+  const aplicar = (info) => {
+    const set = (id, key, val) => {
+      if (val == null || String(val).trim() === '') return;
+      d[key] = val;
+      const el = document.getElementById(id);
+      if (el) el.value = val;
+    };
+    set('kitEndLogradouro', 'cliente_end_logradouro', info.logradouro);
+    set('kitEndBairro', 'cliente_end_bairro', info.bairro);
+    set('kitEndMunicipio', 'cliente_end_municipio', info.municipio);
+    set('kitClienteUf', 'cliente_uf', (info.uf || '').toUpperCase());
+    recomporEnderecoKit();
+    const numEl = document.getElementById('kitEndNumero');
+    if (numEl) numEl.focus();
+    setStatus('Endereço preenchido pelo CEP ✓', '#34d399');
+  };
+
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    if (r.ok) {
+      const j = await r.json();
+      if (j && !j.erro) {
+        aplicar({ logradouro: j.logradouro, bairro: j.bairro, municipio: j.localidade, uf: j.uf });
+        return;
+      }
+    }
+    throw new Error('viacep-miss');
+  } catch (_e) {
+    try {
+      const r2 = await fetch(`https://brasilapi.com.br/api/v1/cep/${cep}`);
+      if (r2.ok) {
+        const j2 = await r2.json();
+        aplicar({ logradouro: j2.street, bairro: j2.neighborhood, municipio: j2.city, uf: j2.state });
+        return;
+      }
+    } catch (_e2) { /* ignora, cai no aviso */ }
+    setStatus('CEP não encontrado — preencha na mão.', '#f59e0b');
+  }
+}
+
+// Parse best-effort do endereço antigo (cliente da base) pras partes novas.
+function _parseEnderecoKit(str) {
+  const out = { cep: '', logradouro: '', numero: '', complemento: '', bairro: '', municipio: '' };
+  if (!str) return out;
+  let s = String(str);
+  const cepM = s.match(/(\d{5}-?\d{3})/);
+  if (cepM) { out.cep = cepM[1].replace(/^(\d{5})-?(\d{3})$/, '$1-$2'); s = s.replace(/,?\s*CEP\s*/i, ' ').replace(cepM[1], ' '); }
+  const numM = s.match(/n[ºo°\.]?\s*(\d+)/i);
+  if (numM) { out.numero = numM[1]; s = s.replace(numM[0], ' '); }
+  out.logradouro = s.replace(/\s{2,}/g, ' ').replace(/^[,\s]+|[,\s]+$/g, '').replace(/,\s*,/g, ', ');
+  return out;
+}
+
 function inicializarDadosKit() {
   return {
     // Cliente
@@ -166,6 +278,13 @@ function inicializarDadosKit() {
     cliente_orgao_expedidor: '',
     cliente_cpf: '',
     cliente_endereco_completo: '',
+    // Endereço estruturado (o CEP autopreenche logradouro/bairro/município/UF).
+    cliente_end_cep: '',
+    cliente_end_logradouro: '',
+    cliente_end_numero: '',
+    cliente_end_complemento: '',
+    cliente_end_bairro: '',
+    cliente_end_municipio: '',
     cliente_comarca: '',
     cliente_uf: '',
     cliente_whatsapp: '',
@@ -342,11 +461,42 @@ function renderKitForm(view) {
                      placeholder="000.000.000-00" inputmode="numeric">
             </label>
 
-            <label class="kit-field span-3">
-              <span>Endereço completo</span>
-              <input type="text" value="${escapeAttr(d.cliente_endereco_completo)}"
-                     onchange="onKitChange('cliente_endereco_completo', this.value)"
-                     placeholder="Rua X, nº 123, Bairro Y, Cidade-UF, CEP 00000-000">
+            <label class="kit-field">
+              <span>CEP <em class="kit-hint">preenche o endereço</em></span>
+              <input type="text" id="kitEndCep" value="${escapeAttr(d.cliente_end_cep)}"
+                     oninput="onKitCepInput(this)"
+                     placeholder="00000-000" inputmode="numeric" maxlength="9" autocomplete="off">
+              <span id="kitCepStatus" class="kit-hint" style="display:block;min-height:13px"></span>
+            </label>
+            <label class="kit-field span-2">
+              <span>Logradouro</span>
+              <input type="text" id="kitEndLogradouro" value="${escapeAttr(d.cliente_end_logradouro)}"
+                     onchange="onKitEndChange('cliente_end_logradouro', this.value)"
+                     placeholder="Rua / Avenida ...">
+            </label>
+            <label class="kit-field">
+              <span>Número</span>
+              <input type="text" id="kitEndNumero" value="${escapeAttr(d.cliente_end_numero)}"
+                     onchange="onKitEndChange('cliente_end_numero', this.value)"
+                     placeholder="123">
+            </label>
+            <label class="kit-field">
+              <span>Complemento <em class="kit-hint">opcional</em></span>
+              <input type="text" id="kitEndComplemento" value="${escapeAttr(d.cliente_end_complemento)}"
+                     onchange="onKitEndChange('cliente_end_complemento', this.value)"
+                     placeholder="Apto, bloco, casa...">
+            </label>
+            <label class="kit-field">
+              <span>Bairro</span>
+              <input type="text" id="kitEndBairro" value="${escapeAttr(d.cliente_end_bairro)}"
+                     onchange="onKitEndChange('cliente_end_bairro', this.value)"
+                     placeholder="Centro">
+            </label>
+            <label class="kit-field">
+              <span>Município</span>
+              <input type="text" id="kitEndMunicipio" value="${escapeAttr(d.cliente_end_municipio)}"
+                     onchange="onKitEndChange('cliente_end_municipio', this.value)"
+                     placeholder="Manaus">
             </label>
             <label class="kit-field span-2">
               <span>Comarca / foro <em class="kit-hint">cidade do juízo — usada no protocolo</em></span>
@@ -356,10 +506,10 @@ function renderKitForm(view) {
               <datalist id="kit-comarcas">${optionsComarcas}</datalist>
             </label>
             <label class="kit-field">
-              <span>Estado (UF)</span>
-              <input type="text" maxlength="2" value="${escapeAttr(d.cliente_uf)}"
-                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitChange('cliente_uf', this.value)"
-                     onchange="onKitChange('cliente_uf', this.value)"
+              <span>Estado (UF) <em class="kit-hint">do endereço</em></span>
+              <input type="text" id="kitClienteUf" maxlength="2" value="${escapeAttr(d.cliente_uf)}"
+                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,2); onKitEndChange('cliente_uf', this.value)"
+                     onchange="onKitEndChange('cliente_uf', this.value)"
                      placeholder="AM">
             </label>
             <label class="kit-field">
@@ -814,6 +964,7 @@ function confirmarDescontosEGerar() {
 }
 
 async function gerarKitPecas() {
+  recomporEnderecoKit();   // garante o endereço composto atualizado das partes
   const erro = validarDadosKit();
   if (erro) {
     alert(erro);
@@ -868,7 +1019,10 @@ function validarDadosKit() {
     ['cliente_estado_civil', 'Estado civil'],
     ['cliente_profissao', 'Profissão'],
     ['cliente_cpf', 'CPF'],
-    ['cliente_endereco_completo', 'Endereço'],
+    ['cliente_end_logradouro', 'Logradouro do endereço'],
+    ['cliente_end_numero', 'Número do endereço'],
+    ['cliente_end_bairro', 'Bairro'],
+    ['cliente_end_municipio', 'Município'],
     ['cliente_comarca', 'Comarca / foro'],
     ['cliente_uf', 'Estado (UF)'],
     ['cliente_whatsapp', 'WhatsApp do cliente'],
@@ -898,6 +1052,7 @@ function validarDadosKit() {
 }
 
 function montarContextoKit({ tipoPeca = 'contrato' } = {}) {
+  recomporEnderecoKit();   // endereço composto sempre coerente com as partes
   const d = state.dadosKit;
   const flex = FLEXOES_GENERO[d.cliente_genero];
   const motivoFinal = (d.causa_motivo === '__outro') ? d.causa_motivo_outro : d.causa_motivo;
