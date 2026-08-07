@@ -51,3 +51,31 @@ export function tocarSomNotificacao() {
   nota(ac, 1046.5, t, 0.28, 0.18);        // C6
   nota(ac, 1567.98, t + 0.11, 0.42, 0.16); // G6
 }
+
+// Nota brilhante/metálica (pra dar cara de "dinheiro").
+function notaBrilho(ac: AudioContext, freq: number, inicio: number, dur: number, vol: number, tipo: OscillatorType = "square") {
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = tipo;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.00001, inicio);
+  gain.gain.exponentialRampToValueAtTime(vol, inicio + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.00001, inicio + dur);
+  osc.connect(gain).connect(ac.destination);
+  osc.start(inicio); osc.stop(inicio + dur + 0.05);
+}
+
+// "Cha-ching!" de caixa registradora — som EXCLUSIVO de contrato fechado
+// (dinheiro): dois dings metálicos + moedinhas caindo.
+export function tocarSomFechamento() {
+  const ac = getCtx();
+  if (!ac) return;
+  if (ac.state === "suspended") ac.resume().catch(() => {});
+  const t = ac.currentTime + 0.02;
+  nota(ac, 987.77, t, 0.16, 0.16);          // B5 — "cha"
+  nota(ac, 1318.51, t + 0.12, 0.5, 0.18);   // E6 — "ching" (sustenta)
+  notaBrilho(ac, 1975.53, t + 0.12, 0.32, 0.05); // B6 — brilho metálico
+  // moedinhas caindo (shimmer descendente rápido)
+  [2637.02, 2349.32, 2093.0, 1760.0].forEach((f, i) =>
+    notaBrilho(ac, f, t + 0.24 + i * 0.055, 0.11, 0.045, "triangle"));
+}

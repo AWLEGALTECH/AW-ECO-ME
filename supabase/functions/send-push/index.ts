@@ -24,14 +24,46 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return j({ error: "Method not allowed" }, 405);
 
   try {
-    const { notificacao_id } = await req.json().catch(() => ({}));
-    if (!notificacao_id) return j({ error: "notificacao_id obrigatorio" }, 400);
+    const body = await req.json().catch(() => ({} as any));
 
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { persistSession: false } },
     );
+
+    // ── MODO TESTE: push DIRETO pros user_ids informados, sem criar notificação.
+    //    Alvo exato (nao dispara o som in-app de ninguem, nao vaza pra outros). ──
+    if (Array.isArray(body.test_user_ids) && body.test_user_ids.length) {
+      const { data: subsT } = await sb
+        .from("push_subscriptions").select("id, endpoint, p256dh, auth")
+        .in("user_id", body.test_user_ids);
+      if (!subsT || !subsT.length) return j({ ok: true, teste: true, sent: 0, motivo: "sem_inscricoes" });
+      const { data: vrowT, error: eVT } = await sb.from("push_vapid").select("keys").eq("id", 1).single();
+      if (eVT || !vrowT?.keys) return j({ error: "vapid ausente", detail: eVT?.message }, 500);
+      const vapidKeysT = await webpush.importVapidKeys(vrowT.keys, { extractable: false });
+      const appServerT = await webpush.ApplicationServer.new({ contactInformation: "mailto:awlegaltech@gmail.com", vapidKeys: vapidKeysT });
+      const payloadT = JSON.stringify({
+        title: body.titulo || "Notificação de teste",
+        body: body.corpo || "",
+        link: body.link || "/",
+        tipo: body.tipo || "teste",
+      });
+      let sentT = 0, goneT = 0, failedT = 0;
+      for (const s of subsT) {
+        const subscription = { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } };
+        try { await appServerT.subscribe(subscription as any).pushTextMessage(payloadT, {}); sentT++; }
+        catch (err: any) {
+          const status = err?.response?.status ?? err?.status;
+          if (status === 404 || status === 410) { await sb.from("push_subscriptions").delete().eq("id", s.id); goneT++; }
+          else { failedT++; console.error("[send-push/teste] falha", s.endpoint, status, String(err)); }
+        }
+      }
+      return j({ ok: true, teste: true, destinatarios: body.test_user_ids.length, inscricoes: subsT.length, sent: sentT, gone: goneT, failed: failedT });
+    }
+
+    const notificacao_id = body.notificacao_id;
+    if (!notificacao_id) return j({ error: "notificacao_id obrigatorio" }, 400);
 
     // 1. Notificação
     const { data: notif, error: eN } = await sb
