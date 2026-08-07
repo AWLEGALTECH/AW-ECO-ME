@@ -9,37 +9,26 @@ self.addEventListener("push", (event) => {
   try { data = event.data ? event.data.json() : {}; } catch (_e) { data = {}; }
   const title = data.title || "AW ECO";
 
-  // Contrato fechado (cliente assinou) = notificação COMEMORATIVA, diferente das
-  // demais, e que se destaca NO PRÓPRIO PUSH (fora do app): vibração de festa,
-  // imagem grande, fica fixada na tela e ganha um botão de ação. O SO não deixa
-  // trocar o som do push, então a diferença é vibração + visual + comportamento.
+  // Contrato fechado (cliente assinou) = notificação COMEMORATIVA. A diferença
+  // fica na VIBRAÇÃO de festa e no comportamento (fica fixada). Antes usávamos
+  // `image` (banner) e `actions` (botão), mas o iOS/PWA não suporta esses
+  // campos e o showNotification falhava em silêncio — o push nem aparecia. Sem
+  // eles, a notificação renderiza em todo aparelho, igual às demais.
   const ehFechamento = data.tipo === "cliente_assinou";
 
-  const options = ehFechamento
-    ? {
-        body: data.body || "",
-        icon: "/icon-192.png",
-        badge: "/icon-192.png",
-        image: "/icon-512.png",                 // banner grande no Android
-        data: { link: data.link || "/" },
-        tag: data.tipo,
-        renotify: true,
-        requireInteraction: true,               // fica na tela até tocar (dopamina)
-        silent: false,
-        // vibração "ta-ta-ta-tááá" comemorativa (bem diferente da padrão)
-        vibrate: [0, 90, 45, 90, 45, 90, 45, 90, 60, 320],
-        actions: [{ action: "abrir", title: "🎉 Ver" }],
-      }
-    : {
-        body: data.body || "",
-        icon: "/icon-192.png",
-        badge: "/icon-192.png",
-        data: { link: data.link || "/" },
-        tag: data.tipo || undefined,
-        renotify: !!data.tipo,
-        silent: false,
-        vibrate: [120, 60, 120],
-      };
+  const options = {
+    body: data.body || "",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    data: { link: data.link || "/" },
+    tag: data.tipo || undefined,
+    renotify: !!data.tipo,
+    silent: false,
+    // vibração comemorativa "ta-ta-ta-tááá" só no contrato; padrão nas demais.
+    vibrate: ehFechamento ? [0, 90, 45, 90, 45, 90, 45, 90, 60, 320] : [120, 60, 120],
+    // fica na tela até tocar (dopamina) — ignorado onde não houver suporte.
+    requireInteraction: ehFechamento,
+  };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
