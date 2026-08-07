@@ -15,65 +15,22 @@ const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   balanco_comercial:      { icon: BarChart3,   chip: "bg-primary/12 ring-primary/25 text-primary" },
 };
 
-// Nome em Title Case (tira o CAIXA ALTA do cadastro).
-function capNome(s?: string | null): string {
-  if (!s) return "";
-  const small = new Set(["de", "da", "do", "das", "dos", "e"]);
-  return s.trim().toLowerCase().split(/\s+/)
-    .map((w, i) => (i > 0 && small.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
-    .join(" ");
-}
-function primeiroNome(s?: string | null): string {
-  return capNome((s || "").trim().split(/\s+/)[0] || "");
-}
-function fmtBRL(v: number): string {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-// Corpo do sininho, montado a partir dos dados — permite negrito no nome do
-// cliente e no valor (o que o push, texto puro do SO, não permite).
+// Corpo do sininho: renderiza o `corpo` salvo (a copy editável é a fonte
+// única, então sino e push mostram exatamente o mesmo texto). Só realça os
+// valores em R$ — algo que o push, texto puro do SO, não permite.
 function CorpoRico({ n }: { n: Notificacao }) {
-  const d = n.dados || {};
-  const B = (t: string) => <strong className="font-semibold text-foreground/90">{t}</strong>;
-
-  if (n.tipo === "bom_dia") {
-    const v = Number(d.valor_total) || 0;
-    return <>Bom dia, nosso valor total em processos ajuizados é de {B(fmtBRL(v))}.</>;
-  }
-
-  if (n.tipo === "balanco_comercial") {
-    const ticket = Number(d.ticket_medio) || 0;
-    const nCli = Number(d.n_clientes) || 0;
-    const nAcoes = Number(d.n_acoes) || 0;
-    return (
-      <span className="flex flex-col gap-0.5">
-        <span>Ticket médio dos processos: {B(fmtBRL(ticket))}</span>
-        <span>Clientes: {B(String(nCli))}</span>
-        <span>Ações ajuizadas: {B(String(nAcoes))}</span>
-      </span>
-    );
-  }
-
-  const nome = capNome(d.cliente_nome);
-  if (!nome) return <>{n.corpo}</>;
-  const autor = primeiroNome(n.actor_nome);
-
-  if (n.tipo === "pre_cliente_criado") {
-    return autor
-      ? <>{autor} cadastrou o pré-cliente {B(nome)}, que agora aguarda confirmação.</>
-      : <>{B(nome)} foi cadastrado como pré-cliente e aguarda confirmação.</>;
-  }
-  if (n.tipo === "pre_cliente_confirmado") {
-    return <>{B(nome)} virou cliente.{autor ? <> Fechamento de {autor}.</> : null}</>;
-  }
-  if (n.tipo === "peca_protocolada") {
-    const v = Number(d.valor_causa) || 0;
-    return <>A ação de {B(nome)} foi protocolada, com valor de causa de {B(fmtBRL(v))}.</>;
-  }
-  if (n.tipo === "cliente_assinou") {
-    return <>{B(nome)} assinou o contrato.</>;
-  }
-  return <>{n.corpo}</>;
+  const texto = (n.corpo || "").trim();
+  if (!texto) return null;
+  const partes = texto.split(/(R\$\s?[\d.]+,\d{2})/g);
+  return (
+    <span className="whitespace-pre-line">
+      {partes.map((p, i) =>
+        /^R\$\s?[\d.]+,\d{2}$/.test(p)
+          ? <strong key={i} className="font-semibold text-foreground/90">{p}</strong>
+          : <span key={i}>{p}</span>
+      )}
+    </span>
+  );
 }
 
 function tempoAtras(iso: string): string {
@@ -168,7 +125,7 @@ export function NotificacaoBell() {
                           <p className="text-[13px] font-semibold text-foreground truncate flex-1">{n.titulo}</p>
                           {!n.lida && <span className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                         </div>
-                        <p className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">
+                        <p className="text-[12px] text-muted-foreground line-clamp-3 whitespace-pre-line mt-0.5">
                           <CorpoRico n={n} />
                         </p>
                         <p className="text-[10px] text-muted-foreground/70 mt-1">{tempoAtras(n.created_at)}</p>
