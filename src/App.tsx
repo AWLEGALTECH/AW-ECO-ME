@@ -27,6 +27,7 @@ import Prospeccao from "./pages/Prospeccao";
 import Fechamentos from "./pages/Fechamentos";
 import Tracker from "./pages/Tracker";
 import Chamados from "./pages/Chamados";
+import Spy from "./pages/Spy";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import AdminNotificacoes from "./pages/AdminNotificacoes";
@@ -103,6 +104,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="chamados" />}>
                   <Route path="/chamados" element={<PageErrorBoundary pageName="Chamados"><Chamados /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="spy" />}>
+                  <Route path="/spy" element={<PageErrorBoundary pageName="Spy"><Spy /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
