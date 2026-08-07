@@ -41,6 +41,50 @@ export function usePush() {
       .catch(() => {});
   }, [supported]);
 
+  // Auto-cura (uma vez por aparelho): uma inscrição de push do iOS que recebeu
+  // pushes "silenciosos" (que não viraram notificação visível) pode ser
+  // suspensa pelo próprio iOS — o serviço aceita o envio (201) mas nada chega.
+  // Ao abrir o app, com a permissão já concedida, descartamos a inscrição
+  // antiga e criamos uma NOVA com o service worker corrigido, restaurando a
+  // entrega sem o usuário precisar mexer em nada.
+  useEffect(() => {
+    if (!supported || !user) return;
+    if (Notification.permission !== "granted") return;
+    const KEY = "aw-push-heal-v2";
+    if (localStorage.getItem(KEY)) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("/push-sw.js", { updateViaCache: "none" });
+        await navigator.serviceWorker.ready;
+        const antiga = await reg.pushManager.getSubscription();
+        if (antiga) {
+          try { await (supabase.from("push_subscriptions" as any) as any).delete().eq("endpoint", antiga.endpoint); } catch { /* ignore */ }
+          try { await antiga.unsubscribe(); } catch { /* ignore */ }
+        }
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        if (cancelado) return;
+        const json: any = sub.toJSON();
+        await (supabase.from("push_subscriptions" as any) as any).upsert(
+          {
+            user_id: user.id,
+            endpoint: sub.endpoint,
+            p256dh: json.keys?.p256dh,
+            auth: json.keys?.auth,
+            user_agent: navigator.userAgent,
+          },
+          { onConflict: "endpoint" },
+        );
+        setSubscribed(true);
+        localStorage.setItem(KEY, "1");
+      } catch { /* silencioso — não atrapalha o boot */ }
+    })();
+    return () => { cancelado = true; };
+  }, [supported, user]);
+
   const ativar = useCallback(async () => {
     if (!supported || !user) {
       toast.error("Este aparelho/navegador não suporta push.");
@@ -54,7 +98,7 @@ export function usePush() {
         toast.error("Permissão de notificação negada.");
         return;
       }
-      const reg = await navigator.serviceWorker.register("/push-sw.js");
+      const reg = await navigator.serviceWorker.register("/push-sw.js", { updateViaCache: "none" });
       await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,

@@ -15,7 +15,11 @@ if ("serviceWorker" in navigator) {
         const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || "";
         if (!url.endsWith("/push-sw.js")) r.unregister();
       });
-      navigator.serviceWorker.register("/push-sw.js").catch(() => {});
+      // updateViaCache:'none' → o script do SW é sempre baixado da rede,
+      // ignorando o cache HTTP (senão uma versão velha/quebrada fica presa).
+      navigator.serviceWorker.register("/push-sw.js", { updateViaCache: "none" })
+        .then((reg) => { reg.update().catch(() => {}); })
+        .catch(() => {});
     })
     .catch(() => {});
 }
