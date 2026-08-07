@@ -4,48 +4,71 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
-import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Ticket, Plus, Bug, Wrench, Lightbulb, CircleDot, Loader2, CheckCircle2,
-  MapPin, Link2, Clock, User, Flag, X,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Ticket, Plus, Bug, Sparkles, Lightbulb, HelpCircle, MoreHorizontal,
+  CircleDot, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
+  LayoutDashboard, Users, FileSignature, Workflow, Newspaper, Briefcase,
+  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, type LucideIcon,
 } from "lucide-react";
 
 // ── Catálogos ────────────────────────────────────────────────────────────────
 const TIPOS = [
-  { key: "bug",           label: "Bug",           icon: Bug,       cls: "text-rose-400 bg-rose-500/12 ring-rose-500/25" },
-  { key: "implementacao", label: "Implementação", icon: Wrench,     cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
-  { key: "ideia",         label: "Ideia",         icon: Lightbulb,  cls: "text-amber-400 bg-amber-400/12 ring-amber-400/25" },
-] as const;
-
-const PRIORIDADES = [
-  { key: "baixa", label: "Baixa", dot: "bg-muted-foreground/50", cls: "text-muted-foreground" },
-  { key: "media", label: "Média", dot: "bg-amber-400",           cls: "text-amber-400" },
-  { key: "alta",  label: "Alta",  dot: "bg-rose-500",            cls: "text-rose-400" },
+  { key: "bug",      label: "Bug",      icon: Bug,            cls: "text-rose-400 bg-rose-500/12 ring-rose-500/25" },
+  { key: "melhoria", label: "Melhoria", icon: Sparkles,       cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
+  { key: "ideia",    label: "Ideia",    icon: Lightbulb,      cls: "text-amber-400 bg-amber-400/12 ring-amber-400/25" },
+  { key: "duvida",   label: "Dúvida",   icon: HelpCircle,     cls: "text-violet-400 bg-violet-500/12 ring-violet-500/25" },
+  { key: "outro",    label: "Outro",    icon: MoreHorizontal, cls: "text-muted-foreground bg-white/[0.05] ring-white/10" },
 ] as const;
 
 const STATUS = {
-  aberto:       { label: "Aberto",       icon: CircleDot,   cls: "text-emerald-400 bg-emerald-500/12 ring-emerald-500/25" },
-  em_andamento: { label: "Em andamento", icon: Loader2,     cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
+  aberto:       { label: "Aberto",       icon: CircleDot,    cls: "text-emerald-400 bg-emerald-500/12 ring-emerald-500/25" },
+  em_andamento: { label: "Em andamento", icon: Loader2,      cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
   resolvido:    { label: "Resolvido",    icon: CheckCircle2, cls: "text-muted-foreground bg-white/[0.04] ring-white/10" },
 } as const;
 
-// Áreas/abas do sistema — ajuda quem resolve a localizar de cara.
-const SISTEMAS = [
-  "Geral / Não sei", "Dashboard", "Clientes", "Pré-clientes", "Esteira",
-  "Publicações", "Processos", "Tarefas", "Writer", "Finder", "Prospecção",
-  "Fechamentos", "Tracker", "Notificações", "Chamados", "Login / Acesso",
+const TABS = [
+  { key: "aberto",       label: "Abertos" },
+  { key: "em_andamento", label: "Em andamento" },
+  { key: "resolvido",    label: "Resolvidos" },
+  { key: "todos",        label: "Todos" },
+] as const;
+
+// Abas/áreas do sistema com o ícone de cada uma (mesmos da barra lateral).
+const SISTEMAS: { label: string; icon: LucideIcon }[] = [
+  { label: "Geral / não sei", icon: LayoutGrid },
+  { label: "Dashboard",       icon: LayoutDashboard },
+  { label: "Clientes",        icon: Users },
+  { label: "Pré-clientes",    icon: FileSignature },
+  { label: "Esteira",         icon: Workflow },
+  { label: "Publicações",     icon: Newspaper },
+  { label: "Processos",       icon: Briefcase },
+  { label: "Tarefas",         icon: ListTodo },
+  { label: "Writer",          icon: PenSquare },
+  { label: "Finder",          icon: ScanSearch },
+  { label: "Prospecção",      icon: Target },
+  { label: "Fechamentos",     icon: Trophy },
+  { label: "Tracker",         icon: Eye },
+  { label: "Notificações",    icon: Bell },
+  { label: "Chamados",        icon: Ticket },
+  { label: "Login / acesso",  icon: LogIn },
+  { label: "Outros",          icon: MoreHorizontal },
 ];
+const sistemaIcon = (nome: string | null): LucideIcon =>
+  SISTEMAS.find((s) => s.label === nome)?.icon || LayoutGrid;
 
 interface Chamado {
   id: string;
   titulo: string;
-  tipo: "bug" | "implementacao" | "ideia";
+  tipo: "bug" | "melhoria" | "ideia" | "duvida" | "outro";
   sistema: string | null;
-  prioridade: "baixa" | "media" | "alta";
   referencia: string | null;
   observacoes: string | null;
   status: "aberto" | "em_andamento" | "resolvido";
@@ -70,9 +93,7 @@ function tempoAtras(iso: string): string {
   if (d < 30) return `${d} d`;
   return new Date(iso).toLocaleDateString("pt-BR");
 }
-
 const tipoMeta = (t: string) => TIPOS.find((x) => x.key === t) || TIPOS[0];
-const prioMeta = (p: string) => PRIORIDADES.find((x) => x.key === p) || PRIORIDADES[1];
 
 export default function Chamados() {
   useEffect(() => { document.title = `Chamados · ${appConfig.name}`; }, []);
@@ -80,8 +101,9 @@ export default function Chamados() {
   const { user, profile, isAdmin } = useAuth();
   const [abrir, setAbrir] = useState(false);
   const [detalhe, setDetalhe] = useState<Chamado | null>(null);
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("aberto");
   const [filtroTipo, setFiltroTipo] = useState<string | null>(null);
-  const [verResolvidos, setVerResolvidos] = useState(false);
+  const [busca, setBusca] = useState("");
 
   const { data: chamados = [], isLoading } = useQuery({
     queryKey: ["chamados"],
@@ -93,7 +115,6 @@ export default function Chamados() {
     },
   });
 
-  // Realtime: o hub reflete o que os outros abrem/resolvem sem refresh.
   useEffect(() => {
     const ch = supabase
       .channel("chamados-hub")
@@ -104,27 +125,37 @@ export default function Chamados() {
     return () => { supabase.removeChannel(ch); };
   }, [qc]);
 
-  const abertos = chamados.filter((c) => c.status !== "resolvido");
-  const resolvidos = chamados.filter((c) => c.status === "resolvido");
-  const base = verResolvidos ? resolvidos : abertos;
-  const lista = filtroTipo ? base.filter((c) => c.tipo === filtroTipo) : base;
+  const porTab = useMemo(
+    () => chamados.filter((c) => (tab === "todos" ? true : c.status === tab)),
+    [chamados, tab],
+  );
+  const lista = useMemo(() => {
+    const s = busca.trim().toLowerCase();
+    return porTab.filter((c) => {
+      if (filtroTipo && c.tipo !== filtroTipo) return false;
+      if (!s) return true;
+      return [c.titulo, c.observacoes, c.autor_nome, c.sistema, c.referencia]
+        .some((v) => (v || "").toLowerCase().includes(s));
+    });
+  }, [porTab, filtroTipo, busca]);
 
-  const contByTipo = (t: string) => abertos.filter((c) => c.tipo === t).length;
+  const countTab = (k: string) => (k === "todos" ? chamados.length : chamados.filter((c) => c.status === k).length);
+  const countTipo = (t: string) => porTab.filter((c) => c.tipo === t).length;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Ticket className="h-6 w-6 text-primary" /> Chamados
             <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
               beta
             </span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Achou um bug, quer uma melhoria ou teve uma ideia? Abre um chamado. Fica tudo
-            aqui à vista de quem vai resolver.
+            Achou um bug, quer uma melhoria ou teve uma ideia? Abre um chamado. Fica tudo aqui
+            à vista de quem vai resolver.
           </p>
         </div>
         <Button onClick={() => setAbrir(true)} className="gap-1.5">
@@ -132,42 +163,59 @@ export default function Chamados() {
         </Button>
       </header>
 
-      {/* Resumo + filtros */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => { setVerResolvidos(false); setFiltroTipo(null); }}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
-            !verResolvidos && !filtroTipo ? "bg-primary/12 text-primary ring-primary/25" : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:ring-white/25"
-          }`}
-        >
-          <CircleDot className="h-3.5 w-3.5" /> Abertos
-          <span className="tabular-nums opacity-80">{abertos.length}</span>
-        </button>
-        {TIPOS.map((t) => {
-          const on = !verResolvidos && filtroTipo === t.key;
+      {/* Abas de status (estilo pré-clientes) */}
+      <div className="inline-flex rounded-xl bg-white/[0.03] border border-white/[0.07] p-1">
+        {TABS.map((t) => {
+          const on = tab === t.key;
           return (
             <button
               key={t.key}
-              onClick={() => { setVerResolvidos(false); setFiltroTipo(on ? null : t.key); }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
+              onClick={() => setTab(t.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
+                on ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              <span className={`tabular-nums text-[10px] ${on ? "opacity-80" : "opacity-60"}`}>{countTab(t.key)}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Busca */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por título, observação, autor, aba ou referência…"
+          className="pl-9"
+        />
+      </div>
+
+      {/* Filtro por tipo */}
+      <div className="flex flex-wrap items-center gap-2">
+        {TIPOS.map((t) => {
+          const on = filtroTipo === t.key;
+          const n = countTipo(t.key);
+          return (
+            <button
+              key={t.key}
+              onClick={() => setFiltroTipo(on ? null : t.key)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs ring-1 transition-colors ${
                 on ? t.cls : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:ring-white/25"
               }`}
             >
               <t.icon className="h-3.5 w-3.5" /> {t.label}
-              <span className="tabular-nums opacity-80">{contByTipo(t.key)}</span>
+              <span className="tabular-nums opacity-70">{n}</span>
             </button>
           );
         })}
-        <div className="flex-1" />
-        <button
-          onClick={() => { setVerResolvidos((v) => !v); setFiltroTipo(null); }}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
-            verResolvidos ? "bg-white/[0.06] text-foreground ring-white/20" : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:ring-white/25"
-          }`}
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" /> Resolvidos
-          <span className="tabular-nums opacity-80">{resolvidos.length}</span>
-        </button>
+        {filtroTipo && (
+          <button onClick={() => setFiltroTipo(null)} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <X className="h-3 w-3" /> limpar
+          </button>
+        )}
       </div>
 
       {/* Lista */}
@@ -177,11 +225,13 @@ export default function Chamados() {
         <div className="text-center py-16">
           <Ticket className="h-10 w-10 text-muted-foreground/25 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
-            {verResolvidos ? "Nenhum chamado resolvido ainda." : "Nenhum chamado aberto. Tudo em ordem 🎉"}
+            {tab === "resolvido" ? "Nenhum chamado resolvido ainda."
+              : tab === "todos" ? "Nenhum chamado ainda."
+              : "Nada por aqui. Tudo em ordem 🎉"}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-3">
           {lista.map((c) => (
             <ChamadoCard key={c.id} c={c} onClick={() => setDetalhe(c)} />
           ))}
@@ -209,48 +259,110 @@ export default function Chamados() {
   );
 }
 
-// ── Card ────────────────────────────────────────────────────────────────────
+// ── Card (estilo pré-clientes: largura cheia, badge de status, metadados) ─────
 function ChamadoCard({ c, onClick }: { c: Chamado; onClick: () => void }) {
   const t = tipoMeta(c.tipo);
-  const p = prioMeta(c.prioridade);
   const st = STATUS[c.status];
+  const SisIcon = sistemaIcon(c.sistema);
   return (
-    <SpotlightCard className="p-4 sm:p-5 cursor-pointer" onClick={onClick}>
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-colors p-4 sm:p-5"
+    >
       <div className="flex items-start justify-between gap-3">
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${t.cls}`}>
-          <t.icon className="h-3 w-3" /> {t.label}
-        </span>
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${st.cls}`}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${t.cls}`}>
+              <t.icon className="h-3 w-3" /> {t.label}
+            </span>
+            <h3 className="text-sm font-semibold text-foreground truncate">{c.titulo}</h3>
+          </div>
+          {c.observacoes && (
+            <p className="text-[12px] text-muted-foreground mt-1.5 line-clamp-2 whitespace-pre-line">{c.observacoes}</p>
+          )}
+        </div>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 shrink-0 ${st.cls}`}>
           <st.icon className={`h-3 w-3 ${c.status === "em_andamento" ? "animate-spin" : ""}`} /> {st.label}
         </span>
       </div>
 
-      <h3 className="text-sm font-semibold text-foreground mt-3 line-clamp-2">{c.titulo}</h3>
-      {c.observacoes && (
-        <p className="text-[12px] text-muted-foreground mt-1 line-clamp-2 whitespace-pre-line">{c.observacoes}</p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[11px] text-muted-foreground">
-        {c.sistema && (
-          <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {c.sistema}</span>
-        )}
-        <span className={`inline-flex items-center gap-1 ${p.cls}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} /> {p.label}
-        </span>
-        {c.referencia && (
-          <span className="inline-flex items-center gap-1 min-w-0"><Link2 className="h-3 w-3 shrink-0" /> <span className="truncate max-w-[140px]">{c.referencia}</span></span>
-        )}
+      <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/[0.06] text-[11px] text-muted-foreground flex-wrap">
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
+          <span className="inline-flex items-center gap-1"><SisIcon className="h-3 w-3" /> {c.sistema || "Geral"}</span>
+          {c.referencia && (
+            <span className="inline-flex items-center gap-1 min-w-0"><Link2 className="h-3 w-3 shrink-0" /> <span className="truncate max-w-[200px]">{c.referencia}</span></span>
+          )}
+        </div>
+        <div className="flex items-center gap-x-3">
+          <span className="inline-flex items-center gap-1"><User className="h-3 w-3" /> {c.autor_nome || "Alguém"}</span>
+          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {tempoAtras(c.created_at)}</span>
+        </div>
       </div>
-
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06] text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1"><User className="h-3 w-3" /> {c.autor_nome || "Alguém"}</span>
-        <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {tempoAtras(c.created_at)}</span>
-      </div>
-    </SpotlightCard>
+    </button>
   );
 }
 
-// ── Abrir chamado ───────────────────────────────────────────────────────────
+// ── Seletor de processo (só aparece quando a aba é Processos) ─────────────────
+function RefProcessoPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [q, setQ] = useState(value);
+  const [aberto, setAberto] = useState(false);
+
+  const { data: procs = [] } = useQuery({
+    queryKey: ["chamados-processos-lookup"],
+    queryFn: async (): Promise<{ id: string; numero_processo: string | null; clientes: { nome: string | null } | null }[]> => {
+      const { data, error } = await supabase
+        .from("processos")
+        .select("id, numero_processo, clientes(nome)")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      return (data || []) as any;
+    },
+  });
+
+  const results = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return [];
+    return procs
+      .filter((p) => (p.numero_processo || "").toLowerCase().includes(s) || (p.clientes?.nome || "").toLowerCase().includes(s))
+      .slice(0, 8);
+  }, [q, procs]);
+
+  const inputCls = "w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-primary/50";
+
+  return (
+    <div className="relative">
+      <input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); onChange(e.target.value); setAberto(true); }}
+        onFocus={() => setAberto(true)}
+        onBlur={() => setTimeout(() => setAberto(false), 150)}
+        className={inputCls}
+        placeholder="Busque pelo número do processo ou nome do cliente"
+      />
+      {aberto && results.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-white/10 bg-card/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] max-h-56 overflow-y-auto scrollbar-thin">
+          {results.map((p) => {
+            const label = `${p.numero_processo || "sem número"} · ${p.clientes?.nome || "sem cliente"}`;
+            return (
+              <button
+                key={p.id}
+                onMouseDown={(e) => { e.preventDefault(); setQ(label); onChange(label); setAberto(false); }}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-white/[0.05] flex items-center gap-2"
+              >
+                <Briefcase className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="font-mono">{p.numero_processo || "sem número"}</span>
+                <span className="text-muted-foreground truncate">· {p.clientes?.nome || "sem cliente"}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Abrir chamado ─────────────────────────────────────────────────────────────
 function AbrirChamadoDialog({
   open, onOpenChange, onCriado, userId, autorNome,
 }: {
@@ -262,26 +374,29 @@ function AbrirChamadoDialog({
 }) {
   const [titulo, setTitulo] = useState("");
   const [tipo, setTipo] = useState<string>("bug");
-  const [sistema, setSistema] = useState<string>(SISTEMAS[0]);
-  const [prioridade, setPrioridade] = useState<string>("media");
+  const [sistema, setSistema] = useState<string>(SISTEMAS[0].label);
   const [referencia, setReferencia] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setTitulo(""); setTipo("bug"); setSistema(SISTEMAS[0]);
-      setPrioridade("media"); setReferencia(""); setObservacoes("");
+      setTitulo(""); setTipo("bug"); setSistema(SISTEMAS[0].label);
+      setReferencia(""); setObservacoes("");
     }
   }, [open]);
+
+  // Referência (busca na base de processos) só faz sentido em Processos.
+  const ehProcessos = sistema === "Processos";
+  useEffect(() => { if (!ehProcessos) setReferencia(""); }, [ehProcessos]);
 
   const criar = async () => {
     if (!titulo.trim()) { toast.error("Dá um título pro chamado."); return; }
     setSalvando(true);
     const { error } = await (supabase.from("chamados" as any) as any).insert({
       titulo: titulo.trim(),
-      tipo, sistema, prioridade,
-      referencia: referencia.trim() || null,
+      tipo, sistema,
+      referencia: ehProcessos ? (referencia.trim() || null) : null,
       observacoes: observacoes.trim() || null,
       created_by: userId,
       autor_nome: autorNome,
@@ -308,7 +423,7 @@ function AbrirChamadoDialog({
           {/* Tipo */}
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground">O que é</label>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
               {TIPOS.map((t) => (
                 <button
                   key={t.key}
@@ -330,44 +445,36 @@ function AbrirChamadoDialog({
               placeholder="Resumo em uma linha" autoFocus />
           </div>
 
-          {/* Sistema + Prioridade */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                <MapPin className="h-3 w-3" /> Onde (aba/sistema)
-              </label>
-              <select value={sistema} onChange={(e) => setSistema(e.target.value)} className={inputCls}>
-                {SISTEMAS.map((s) => <option key={s} value={s} className="bg-background">{s}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                <Flag className="h-3 w-3" /> Prioridade
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {PRIORIDADES.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => setPrioridade(p.key)}
-                    className={`flex items-center justify-center gap-1 px-1 py-2 rounded-lg text-xs ring-1 transition-colors ${
-                      prioridade === p.key ? "bg-white/[0.06] text-foreground ring-white/25" : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:ring-white/20"
-                    }`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} /> {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Referência */}
+          {/* Onde (aba/sistema) — dropdown custom com ícone por aba */}
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-              <Link2 className="h-3 w-3" /> Referência (opcional)
+              <LayoutGrid className="h-3 w-3" /> Onde (aba do sistema)
             </label>
-            <input value={referencia} onChange={(e) => setReferencia(e.target.value)} className={inputCls}
-              placeholder="Nº do processo, cliente ou link específico" />
+            <Select value={sistema} onValueChange={setSistema}>
+              <SelectTrigger className="bg-white/[0.03] border-white/10">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {SISTEMAS.map((s) => (
+                  <SelectItem key={s.label} value={s.label}>
+                    <span className="flex items-center gap-2">
+                      <s.icon className="h-3.5 w-3.5 text-muted-foreground" /> {s.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
+          {/* Referência — só em Processos, explorando a base */}
+          {ehProcessos && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <Link2 className="h-3 w-3" /> Processo (referência)
+              </label>
+              <RefProcessoPicker value={referencia} onChange={setReferencia} />
+            </div>
+          )}
 
           {/* Observações */}
           <div className="space-y-1.5">
@@ -387,7 +494,7 @@ function AbrirChamadoDialog({
   );
 }
 
-// ── Detalhe / resolução ─────────────────────────────────────────────────────
+// ── Detalhe / resolução ───────────────────────────────────────────────────────
 function DetalheDialog({
   chamado, onOpenChange, podeResolver, meuId, meuNome, onMudou, setDetalhe,
 }: {
@@ -405,8 +512,8 @@ function DetalheDialog({
   if (!chamado) return null;
 
   const t = tipoMeta(chamado.tipo);
-  const p = prioMeta(chamado.prioridade);
   const st = STATUS[chamado.status];
+  const SisIcon = sistemaIcon(chamado.sistema);
 
   const mudarStatus = async (status: Chamado["status"]) => {
     setSalvando(true);
@@ -439,18 +546,15 @@ function DetalheDialog({
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${st.cls}`}>
               <st.icon className={`h-3 w-3 ${chamado.status === "em_andamento" ? "animate-spin" : ""}`} /> {st.label}
             </span>
-            <span className={`inline-flex items-center gap-1 text-[11px] ${p.cls}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} /> {p.label}
-            </span>
           </div>
           <DialogTitle className="text-left mt-2">{chamado.titulo}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-thin pr-1 text-sm">
           <div className="grid grid-cols-2 gap-2 text-[12px]">
-            <Info icon={MapPin} label="Onde" value={chamado.sistema || "Não informado"} />
+            <Info icon={SisIcon} label="Onde" value={chamado.sistema || "Geral"} />
             <Info icon={User} label="Aberto por" value={chamado.autor_nome || "Alguém"} />
-            {chamado.referencia && <Info icon={Link2} label="Referência" value={chamado.referencia} />}
+            {chamado.referencia && <Info icon={Link2} label="Processo" value={chamado.referencia} />}
             <Info icon={Clock} label="Quando" value={new Date(chamado.created_at).toLocaleString("pt-BR")} />
           </div>
 
@@ -510,7 +614,7 @@ function DetalheDialog({
   );
 }
 
-function Info({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function Info({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
     <div className="min-w-0">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Icon className="h-3 w-3" /> {label}</p>
