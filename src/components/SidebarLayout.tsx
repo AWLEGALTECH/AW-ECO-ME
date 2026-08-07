@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { FinderSessionProvider } from "@/hooks/useFinderSession";
 import { PersistentFinderHost } from "@/components/PersistentFinderHost";
 import { FinderPill } from "@/components/FinderPill";
+import { SpyProgressBar } from "@/components/SpyProgressBar";
 
 export function SidebarLayout() {
   const { user, loading, accessReady } = useAuth();
@@ -108,6 +109,7 @@ export function SidebarLayout() {
         {/* Pill fixa no topo da janela quando ha sessao Finder ativa e
             o user nao esta em /finder. */}
         <FinderPill />
+        <SpyProgressBar />
       </SidebarProvider>
     </FinderSessionProvider>
   );
