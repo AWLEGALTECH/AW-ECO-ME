@@ -101,7 +101,9 @@ const App = () => (
                 <Route element={<RequireModule module="tracker" />}>
                   <Route path="/tracker" element={<PageErrorBoundary pageName="Tracker"><Tracker /></PageErrorBoundary>} />
                 </Route>
-                <Route path="/chamados" element={<PageErrorBoundary pageName="Chamados"><Chamados /></PageErrorBoundary>} />
+                <Route element={<RequireModule module="chamados" />}>
+                  <Route path="/chamados" element={<PageErrorBoundary pageName="Chamados"><Chamados /></PageErrorBoundary>} />
+                </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />
