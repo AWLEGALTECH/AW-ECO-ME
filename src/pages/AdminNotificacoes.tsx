@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Bell, Zap, Users, PenLine, ShieldCheck, Check, Plus, RotateCcw } from "lucide-react";
+import { Bell, Zap, Users, PenLine, ShieldCheck, Check, Plus, RotateCcw, Clock, ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 
@@ -10,6 +10,7 @@ interface ConfigRow {
   tipo: string;
   label: string;
   ativo: boolean;
+  agenda: string | null;
   titulo_template: string | null;
   corpo_template: string | null;
   variaveis: Record<string, string> | null;
@@ -24,7 +25,7 @@ export default function AdminNotificacoes() {
     queryKey: ["notificacao_config"],
     queryFn: async (): Promise<ConfigRow[]> => {
       const { data, error } = await (supabase.from("notificacao_config" as any) as any)
-        .select("tipo,label,ativo,titulo_template,corpo_template,variaveis")
+        .select("tipo,label,ativo,agenda,titulo_template,corpo_template,variaveis")
         .order("label");
       if (error) throw error;
       return data || [];
@@ -150,6 +151,7 @@ function NotifCard({
   onRecebe: (uid: string, on: boolean) => void;
   onSalvarCopy: (titulo: string, corpo: string) => Promise<boolean>;
 }) {
+  const [aberto, setAberto] = useState(false);
   const [titulo, setTitulo] = useState(cfg.titulo_template ?? "");
   const [corpo, setCorpo] = useState(cfg.corpo_template ?? "");
   const [salvando, setSalvando] = useState(false);
@@ -157,6 +159,7 @@ function NotifCard({
   const dirty = titulo !== (cfg.titulo_template ?? "") || corpo !== (cfg.corpo_template ?? "");
 
   const primeiro = (p: ProfileRow) => (p.nome || p.email || "?").trim().split(/\s+/)[0];
+  const nRecebe = admins.length + membros.filter((p) => recebe(p.id)).length;
 
   const inserirVar = (k: string) => setCorpo((c) => (c.endsWith(" ") || c === "" ? c : c + " ") + `{${k}}`);
 
@@ -168,20 +171,38 @@ function NotifCard({
 
   return (
     <div className={`rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md overflow-hidden ${cfg.ativo ? "" : "opacity-70"}`}>
-      {/* Cabeçalho: nome + liga/desliga */}
-      <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/[0.06]">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">{cfg.label}</p>
-          <p className="text-[11px] text-muted-foreground">
-            {cfg.ativo ? "Ligada, gerando notificações" : "Desligada, nenhuma notificação é criada"}
+      {/* Cabeçalho: nome + agenda + liga/desliga + expandir */}
+      <div className={`flex items-center justify-between gap-4 px-5 py-4 ${aberto ? "border-b border-white/[0.06]" : ""}`}>
+        <button
+          onClick={() => setAberto((o) => !o)}
+          className="flex-1 min-w-0 text-left"
+          aria-expanded={aberto}
+        >
+          <p className="text-sm font-medium text-foreground truncate">{cfg.label}</p>
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+            <Clock className="h-3 w-3 shrink-0" />
+            {cfg.agenda ? cfg.agenda : "Em tempo real, quando o evento acontece"}
+            <span className="text-muted-foreground/40">·</span>
+            {cfg.ativo ? `${nRecebe} recebem` : "desligada"}
           </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Zap className={`h-3.5 w-3.5 ${cfg.ativo ? "text-primary" : "text-muted-foreground/40"}`} />
-          <Switch checked={cfg.ativo} onCheckedChange={onAtivo} />
+        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <Zap className={`h-3.5 w-3.5 ${cfg.ativo ? "text-primary" : "text-muted-foreground/40"}`} />
+            <Switch checked={cfg.ativo} onCheckedChange={onAtivo} />
+          </div>
+          <button
+            onClick={() => setAberto((o) => !o)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={aberto ? "Recolher" : "Editar"}
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${aberto ? "rotate-180" : ""}`} />
+          </button>
         </div>
       </div>
 
+      {!aberto ? null : (
+      <>
       {/* Quem recebe */}
       <div className="px-5 py-4 border-b border-white/[0.06]">
         <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">
@@ -282,6 +303,8 @@ function NotifCard({
           </Button>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
