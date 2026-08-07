@@ -26,6 +26,7 @@ import Publicacoes from "./pages/Publicacoes";
 import Prospeccao from "./pages/Prospeccao";
 import Fechamentos from "./pages/Fechamentos";
 import Tracker from "./pages/Tracker";
+import Chamados from "./pages/Chamados";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import AdminNotificacoes from "./pages/AdminNotificacoes";
@@ -100,6 +101,7 @@ const App = () => (
                 <Route element={<RequireModule module="tracker" />}>
                   <Route path="/tracker" element={<PageErrorBoundary pageName="Tracker"><Tracker /></PageErrorBoundary>} />
                 </Route>
+                <Route path="/chamados" element={<PageErrorBoundary pageName="Chamados"><Chamados /></PageErrorBoundary>} />
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />

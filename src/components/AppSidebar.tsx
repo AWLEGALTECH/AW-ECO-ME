@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo, LifeBuoy } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module: ModuleKey; beta?: boolean }
+interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module?: ModuleKey; beta?: boolean; alwaysVisible?: boolean }
 
 const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
@@ -35,6 +35,7 @@ const navItems: NavItem[] = [
   { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },
   { title: "Fechamentos",   url: "/fechamentos",   icon: Trophy,          module: "fechamentos",  beta: true },
   { title: "Tracker",       url: "/tracker",       icon: Eye,             module: "tracker",      beta: true },
+  { title: "Chamados",      url: "/chamados",      icon: LifeBuoy,        alwaysVisible: true,    beta: true },
 ];
 
 export function AppSidebar() {
@@ -46,7 +47,7 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const visibleItems = navItems.filter(it => isAdmin || modules.includes(it.module));
+  const visibleItems = navItems.filter(it => it.alwaysVisible || isAdmin || (it.module && modules.includes(it.module)));
 
   // Mobile: itens da "barra de sessões" maiores (alvo de toque, ícone e texto),
   // resetando pro compacto no desktop (md+). O menu vira Sheet abaixo de 768px,
