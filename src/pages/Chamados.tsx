@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  LifeBuoy, Plus, Bug, Wrench, Lightbulb, CircleDot, Loader2, CheckCircle2,
+  Ticket, Plus, Bug, Wrench, Lightbulb, CircleDot, Loader2, CheckCircle2,
   MapPin, Link2, Clock, User, Flag, X,
 } from "lucide-react";
 
@@ -117,7 +117,7 @@ export default function Chamados() {
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
-            <LifeBuoy className="h-6 w-6 text-primary" /> Chamados
+            <Ticket className="h-6 w-6 text-primary" /> Chamados
             <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
               beta
             </span>
@@ -175,7 +175,7 @@ export default function Chamados() {
         <p className="text-center text-sm text-muted-foreground py-16">Carregando…</p>
       ) : lista.length === 0 ? (
         <div className="text-center py-16">
-          <LifeBuoy className="h-10 w-10 text-muted-foreground/25 mx-auto mb-3" />
+          <Ticket className="h-10 w-10 text-muted-foreground/25 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
             {verResolvidos ? "Nenhum chamado resolvido ainda." : "Nenhum chamado aberto. Tudo em ordem 🎉"}
           </p>
@@ -199,7 +199,7 @@ export default function Chamados() {
       <DetalheDialog
         chamado={detalhe}
         onOpenChange={(o) => { if (!o) setDetalhe(null); }}
-        podeResolver={isAdmin || detalhe?.created_by === user?.id}
+        podeResolver={isAdmin}
         meuId={user?.id || null}
         meuNome={profile?.nome || profile?.email || null}
         onMudou={() => qc.invalidateQueries({ queryKey: ["chamados"] })}

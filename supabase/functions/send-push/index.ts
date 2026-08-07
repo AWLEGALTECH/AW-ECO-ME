@@ -68,7 +68,7 @@ Deno.serve(async (req: Request) => {
     // 1. Notificação
     const { data: notif, error: eN } = await sb
       .from("notificacoes")
-      .select("id, tipo, titulo, corpo, link")
+      .select("id, tipo, titulo, corpo, link, destinatario_id")
       .eq("id", notificacao_id)
       .single();
     if (eN || !notif) return j({ error: "notificacao nao encontrada", detail: eN?.message }, 404);
@@ -81,16 +81,21 @@ Deno.serve(async (req: Request) => {
       .single();
     if (cfg && cfg.ativo === false) return j({ ok: true, skipped: "tipo_inativo" });
 
-    // 3. Destinatários: admins (sempre) + usuários com o tipo permitido.
-    const [{ data: admins }, { data: prefs }] = await Promise.all([
-      sb.from("profiles").select("id").eq("approved", true).eq("role", "admin"),
-      sb.from("notificacao_user_prefs").select("user_id").eq("tipo", notif.tipo).eq("permitido", true),
-    ]);
-    const set = new Set<string>([
-      ...(admins || []).map((a: any) => a.id),
-      ...(prefs || []).map((p: any) => p.user_id),
-    ]);
-    const userIds = [...set];
+    // 3. Destinatários. Direcionada (destinatario_id) → só aquele usuário.
+    //    Senão broadcast: admins (sempre) + usuários com o tipo permitido.
+    let userIds: string[];
+    if (notif.destinatario_id) {
+      userIds = [notif.destinatario_id];
+    } else {
+      const [{ data: admins }, { data: prefs }] = await Promise.all([
+        sb.from("profiles").select("id").eq("approved", true).eq("role", "admin"),
+        sb.from("notificacao_user_prefs").select("user_id").eq("tipo", notif.tipo).eq("permitido", true),
+      ]);
+      userIds = [...new Set<string>([
+        ...(admins || []).map((a: any) => a.id),
+        ...(prefs || []).map((p: any) => p.user_id),
+      ])];
+    }
     if (!userIds.length) return j({ ok: true, sent: 0, motivo: "sem_destinatarios" });
 
     // 4. Inscrições desses usuários

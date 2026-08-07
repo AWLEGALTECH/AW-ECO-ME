@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, Sunrise, CheckCheck, BarChart3, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, BellOff, Smartphone, UserPlus, UserCheck, Send, PartyPopper, Sunrise, CheckCheck, BarChart3, Ticket, CheckCircle2, type LucideIcon } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useNotificacoes, type Notificacao } from "@/hooks/useNotificacoes";
 import { usePush } from "@/hooks/usePush";
@@ -13,6 +13,8 @@ const VISUAL: Record<string, { icon: LucideIcon; chip: string }> = {
   cliente_assinou:        { icon: PartyPopper, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
   bom_dia:                { icon: Sunrise,     chip: "bg-amber-400/12 ring-amber-400/30 text-amber-400" },
   balanco_comercial:      { icon: BarChart3,   chip: "bg-primary/12 ring-primary/25 text-primary" },
+  chamado_aberto:         { icon: Ticket,      chip: "bg-primary/12 ring-primary/25 text-primary" },
+  chamado_resolvido:      { icon: CheckCircle2, chip: "bg-emerald-500/12 ring-emerald-500/25 text-emerald-400" },
 };
 
 // Corpo do sininho: renderiza o `corpo` salvo (a copy editável é a fonte
