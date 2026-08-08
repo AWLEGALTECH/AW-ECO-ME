@@ -130,7 +130,7 @@ Responda SOMENTE com JSON válido:
  "flags":[{"eixo":"financeira|credores|produtos|consumo|vulnerabilidade|perfil|temporal","codigo":"EX: FIN.SUPERENDIVIDAMENTO","label":"","confianca":0.0,"valor":{},"evidencia":"datas/valores"}],
  "transacoes_chave":[{"data":"AAAA-MM-DD","descricao":"","valor":0,"sinal":1,"saldo":0}]
 }
-PREENCHA TODOS os campos: relatorio (conciso, até ~1500 caracteres), resumo, flags (uma por achado real, com confianca 0..1 e evidencia) e transacoes_chave (ATÉ 80 transações mais relevantes: operações de crédito, cobranças recorrentes, valores altos — NÃO a lista inteira). sinal: 1 crédito, -1 débito. valor sempre positivo. Não use travessão.`;
+PREENCHA TODOS os campos: relatorio (conciso, até ~1500 caracteres), resumo, flags (uma por achado real, com confianca 0..1 e evidencia) e transacoes_chave (ATÉ 25 transações mais relevantes: operações de crédito, cobranças recorrentes, valores altos — NÃO a lista inteira). sinal: 1 crédito, -1 débito. valor sempre positivo. Não use travessão.`;
 
 async function setProg(analiseId: string, p: { etapa: string; pct: number; detalhe?: string }) {
   await sb().from("spy_analise").update({ progresso: p }).eq("id", analiseId);
@@ -148,7 +148,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     }
 
     await setProg(analiseId, { etapa: "analisando", pct: 45, detalhe: "Lendo os extratos e analisando (IA)" });
-    const parsed = parseJson(await openai(content, 12000)) || { relatorio: null, resumo: {}, flags: [], transacoes_chave: [] };
+    const parsed = parseJson(await openai(content, 4500)) || { relatorio: null, resumo: {}, flags: [], transacoes_chave: [] };
     const flags = Array.isArray(parsed.flags) ? parsed.flags : [];
     const txs = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave : [];
 
