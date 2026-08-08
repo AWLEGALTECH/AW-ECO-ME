@@ -267,56 +267,49 @@ function AnaliseCard({ a, flags }: { a: Analise; flags: Flag[] }) {
         <div className="px-4 pb-4 space-y-4 border-t border-white/[0.06] pt-4">
           {erro && <p className="text-sm text-rose-400 whitespace-pre-line">{a.erro}</p>}
 
-          {a.resumo && Object.keys(a.resumo).length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {["renda_liquida_estimada", "perfil", "composicao_familiar", "janela_critica"].map((k) =>
-                a.resumo?.[k] ? (
-                  <div key={k} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{k.replace(/_/g, " ")}</p>
-                    <p className="text-[13px] text-foreground/90 mt-0.5">{String(a.resumo[k])}</p>
-                  </div>
-                ) : null)}
+          {a.relatorio && (
+            <div className="rounded-xl border border-primary/15 bg-primary/[0.04] p-4">
+              <p className="text-[10px] uppercase tracking-[0.15em] text-primary/80 mb-2 flex items-center gap-1.5">
+                <ShieldAlert className="h-3.5 w-3.5" /> Dossiê
+              </p>
+              <p className="text-sm text-foreground/90 whitespace-pre-line leading-relaxed">{a.relatorio}</p>
             </div>
           )}
 
           {(a.n_transacoes ?? 0) > 0 && (
             <div>
               <button onClick={() => setVerTx((v) => !v)} className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
-                <ListChecks className="h-3.5 w-3.5" /> {verTx ? "Ocultar" : "Ver"} transações extraídas ({a.n_transacoes})
+                <ListChecks className="h-3.5 w-3.5" /> {verTx ? "Ocultar" : "Ver"} transações-chave ({a.n_transacoes})
               </button>
               {verTx && <TransacoesViewer analiseId={a.id} />}
             </div>
           )}
 
           {porEixo.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Flags detectadas</p>
-              {porEixo.map(([eixo, fs]) => {
-                const m = eixoMeta(eixo);
-                return (
-                  <div key={eixo} className="space-y-1.5">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${m.cls}`}>{m.label}</span>
-                    {fs.map((f) => (
-                      <div key={f.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 ml-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[13px] font-medium text-foreground">{f.label || f.codigo}</span>
-                          {typeof f.confianca === "number" && <span className="text-[10px] text-muted-foreground tabular-nums">{Math.round(f.confianca * 100)}% conf.</span>}
+            <details className="group">
+              <summary className="text-[11px] uppercase tracking-wider text-muted-foreground cursor-pointer list-none inline-flex items-center gap-1 select-none">
+                <ChevronDown className="h-3.5 w-3.5 group-open:rotate-180 transition-transform" /> Marcadores internos ({flags.length})
+              </summary>
+              <div className="space-y-2 mt-2">
+                {porEixo.map(([eixo, fs]) => {
+                  const m = eixoMeta(eixo);
+                  return (
+                    <div key={eixo} className="space-y-1.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${m.cls}`}>{m.label}</span>
+                      {fs.map((f) => (
+                        <div key={f.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 ml-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[13px] font-medium text-foreground">{f.label || f.codigo}</span>
+                            {typeof f.confianca === "number" && <span className="text-[10px] text-muted-foreground tabular-nums">{Math.round(f.confianca * 100)}% conf.</span>}
+                          </div>
+                          {f.evidencia && <p className="text-[12px] text-muted-foreground mt-1 whitespace-pre-line">{f.evidencia}</p>}
                         </div>
-                        {f.codigo && <span className="text-[10px] font-mono text-muted-foreground/70">{f.codigo}</span>}
-                        {f.evidencia && <p className="text-[12px] text-muted-foreground mt-1 whitespace-pre-line">{f.evidencia}</p>}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {a.relatorio && (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Relatório</p>
-              <p className="text-[13px] text-foreground/90 whitespace-pre-line leading-relaxed">{a.relatorio}</p>
-            </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
         </div>
       )}

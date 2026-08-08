@@ -63,18 +63,10 @@ const SCHEMA = {
   type: "json_schema", name: "analise_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["relatorio", "resumo", "flags", "transacoes_chave"],
+    required: ["relatorio", "risco_geral", "flags", "transacoes_chave"],
     properties: {
       relatorio: { type: "string" },
-      resumo: {
-        type: "object", additionalProperties: false,
-        required: ["renda_liquida_estimada", "perfil", "composicao_familiar", "janela_critica", "risco_geral"],
-        properties: {
-          renda_liquida_estimada: { type: "string" }, perfil: { type: "string" },
-          composicao_familiar: { type: "string" }, janela_critica: { type: "string" },
-          risco_geral: { type: "string", enum: ["baixo", "medio", "alto", "critico"] },
-        },
-      },
+      risco_geral: { type: "string", enum: ["baixo", "medio", "alto", "critico"] },
       flags: {
         type: "array",
         items: {
@@ -128,17 +120,18 @@ function normalizeDate(v: any): string | null {
   return null;
 }
 
-const PROMPT = `Você é o motor do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe um ou mais EXTRATOS BANCÁRIOS (PDF) de UM cliente e produz a análise individual.
-Leia os extratos e use SOMENTE o que os dados sustentam. Inferências (composição familiar, saúde, profissão, relacionamentos) são PROBABILÍSTICAS: dê confiança e cite evidência (datas/valores reais). Nunca apresente inferência como fato provado.
-Detecte, quando houver evidência: saldo negativo crônico e cheque especial; renda líquida real; superendividamento e cadeia de refinanciamento; consignado (inclusive em cadeia entre bancos); rotativo/cartão, capitalização, prestamista, previdência; assinaturas digitais e reajustes (%); telecom duplicado; saltos de utility; cobranças recorrentes contestáveis (valor idêntico repetindo); janela crítica do ano (quando aperta e contrata crédito).
-Responda SOMENTE com JSON válido:
-{
- "relatorio":"markdown com a análise narrativa",
- "resumo":{"renda_liquida_estimada":"","perfil":"","composicao_familiar":"","janela_critica":"","risco_geral":"baixo|medio|alto|critico"},
- "flags":[{"eixo":"financeira|credores|produtos|consumo|vulnerabilidade|perfil|temporal","codigo":"EX: FIN.SUPERENDIVIDAMENTO","label":"","confianca":0.0,"valor":{},"evidencia":"datas/valores"}],
- "transacoes_chave":[{"data":"AAAA-MM-DD","descricao":"","valor":0,"sinal":1,"saldo":0}]
-}
-PREENCHA TODOS os campos: relatorio (conciso, até ~1500 caracteres), resumo, flags (uma por achado real, com confianca 0..1 e evidencia) e transacoes_chave (ATÉ 25 transações mais relevantes: operações de crédito, cobranças recorrentes, valores altos — NÃO a lista inteira). sinal: 1 crédito, -1 débito. valor sempre positivo. Não use travessão.`;
+const PROMPT = `Você é o motor do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. Sua saída principal é o "relatorio": um DOSSIÊ PROFUNDO e HUMANO sobre essa pessoa, escrito de forma corrida e específica (não use tópicos rígidos, não seja robótico).
+
+No relatorio, conte a história dessa pessoa a partir do dinheiro dela, cobrindo com riqueza (sempre que os dados sustentarem):
+- Quem é: profissão/ocupação provável e de onde vem a renda (nome da fonte pagadora), faixa de renda real, faixa etária provável, cidade/bairro onde vive e trabalha.
+- Família e núcleo: quem transfere/recebe com recorrência (cite os nomes das contrapartes de PIX/TED e o vínculo provável — cônjuge, filho, pai/mãe), quem parece depender dela, indícios de rateio de casa.
+- Hábitos e vida: onde compra e abastece, streamings e assinaturas que mantém CITANDO OS SERVIÇOS PELO NOME (Netflix, Spotify, Amazon, etc.) e se há sinais de assinatura esquecida/duplicada; saúde (farmácia, plano, mensalidade de clínica) se aparecer; lazer, transporte, rotina.
+- Vida financeira: como gasta, dívidas e crédito (empréstimos, consignado, cheque especial, cartão), comportamento de endividamento e a época do ano em que ela aperta e recontrata crédito.
+- Gancho jurídico: onde há oportunidade de defesa do consumidor (cobranças abusivas, reajustes, endividamento) para o escritório ajudar.
+
+Regras: use SOMENTE o que os dados sustentam; toda inferência é PROBABILÍSTICA — sinalize com "provavelmente", "há indícios de", etc.; cite datas e valores reais como evidência; NÃO invente; não use travessão.
+
+Além do relatorio, devolva: risco_geral; flags (uma por achado concreto, com eixo, codigo curto, confianca 0..1 e evidencia com datas/valores) para uso interno estruturado; e transacoes_chave (ATÉ 25 transações mais relevantes: crédito, cobranças recorrentes, valores altos — NÃO a lista inteira). Datas em AAAA-MM-DD. sinal: 1 crédito, -1 débito. valor sempre positivo.`;
 
 async function setProg(analiseId: string, p: { etapa: string; pct: number; detalhe?: string }) {
   await sb().from("spy_analise").update({ progresso: p }).eq("id", analiseId);
@@ -163,7 +156,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           { type: "input_text", text: PROMPT },
           { type: "input_file", filename: f.name, file_data: `data:${f.mime};base64,${toBase64(f.buf)}` },
         ];
-        parsed = parseJson(await openai(content, 4500));
+        parsed = parseJson(await openai(content, 6000));
       } catch (_e) { parsed = null; }
       done++;
       await setProg(analiseId, { etapa: "analisando", pct: 20 + Math.round((done / n) * 65), detalhe: `Analisando extratos (${done}/${n}) · ${f.name}` });
@@ -175,8 +168,9 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     const relatorio = oks.length
       ? oks.map((p) => (n > 1 ? `## ${p.name}\n` : "") + (p.parsed.relatorio || "")).join("\n\n")
       : null;
-    let resumo: any = {}; let maxR = -1;
-    for (const p of oks) { const r = p.parsed.resumo || {}; const ri = ORDEM_RISCO[r.risco_geral] || 0; if (ri >= maxR) { maxR = ri; resumo = r; } }
+    let maxR = 0; let riscoLabel = "";
+    for (const p of oks) { const ri = ORDEM_RISCO[p.parsed.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.parsed.risco_geral; } }
+    const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
     const flags = oks.flatMap((p) => (Array.isArray(p.parsed.flags) ? p.parsed.flags : [])).slice(0, 60);
     const txs = oks.flatMap((p) => (Array.isArray(p.parsed.transacoes_chave) ? p.parsed.transacoes_chave : [])).slice(0, 120);
 
