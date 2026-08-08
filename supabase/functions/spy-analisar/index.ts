@@ -119,6 +119,14 @@ async function openai(content: any[], maxTokens: number): Promise<string> {
   return txt || "{}";
 }
 function parseJson(s: string): any { try { return JSON.parse(String(s).replace(/^```json\s*|```$/g, "").trim()); } catch { return null; } }
+function normalizeDate(v: any): string | null {
+  const s = String(v || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if (m) return `${m[3]}-${m[2]}-${m[1]}`;     // DD/MM/AAAA
+  m = s.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);     if (m) return `${m[1]}-${m[2]}-${m[3]}`;     // AAAA/MM/DD
+  m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);       if (m) return `${m[3]}-${m[2]}-${m[1]}`;     // DD-MM-AAAA
+  return null;
+}
 
 const PROMPT = `Você é o motor do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe um ou mais EXTRATOS BANCÁRIOS (PDF) de UM cliente e produz a análise individual.
 Leia os extratos e use SOMENTE o que os dados sustentam. Inferências (composição familiar, saúde, profissão, relacionamentos) são PROBABILÍSTICAS: dê confiança e cite evidência (datas/valores reais). Nunca apresente inferência como fato provado.
@@ -181,7 +189,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     if (txs.length) {
       const rows = txs.slice(0, 80).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
-        data: /^\d{4}-\d{2}-\d{2}$/.test(String(t.data)) ? t.data : null,
+        data: normalizeDate(t.data),
         valor: typeof t.valor === "number" ? Math.abs(t.valor) : null,
         sinal: t.sinal === 1 || t.sinal === -1 ? t.sinal : null,
         saldo: typeof t.saldo === "number" ? t.saldo : null, descricao: t.descricao || null,
