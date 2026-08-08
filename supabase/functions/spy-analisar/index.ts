@@ -136,25 +136,45 @@ async function setProg(analiseId: string, p: { etapa: string; pct: number; detal
   await sb().from("spy_analise").update({ progresso: p }).eq("id", analiseId);
 }
 
+const ORDEM_RISCO: Record<string, number> = { baixo: 1, medio: 2, alto: 3, critico: 4 };
+
 async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; mimeType?: string }>) {
   const s = sb();
   try {
     await setProg(analiseId, { etapa: "baixando", pct: 12, detalhe: "Baixando extratos do Drive" });
     const token = await getToken();
-    const content: any[] = [{ type: "input_text", text: PROMPT }];
-    for (const a of arquivos) {
-      const buf = await baixar(a.id, token);
-      content.push({ type: "input_file", filename: a.name, file_data: `data:${a.mimeType || "application/pdf"};base64,${toBase64(buf)}` });
-    }
+    const baixados = await Promise.all(arquivos.map(async (a) => ({ name: a.name, mime: a.mimeType || "application/pdf", buf: await baixar(a.id, token) })));
 
-    await setProg(analiseId, { etapa: "analisando", pct: 45, detalhe: "Lendo os extratos e analisando (IA)" });
-    const parsed = parseJson(await openai(content, 4500)) || { relatorio: null, resumo: {}, flags: [], transacoes_chave: [] };
-    const flags = Array.isArray(parsed.flags) ? parsed.flags : [];
-    const txs = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave : [];
+    // Um PDF por chamada (juntos estouram a janela de contexto do modelo).
+    const n = baixados.length; let done = 0;
+    await setProg(analiseId, { etapa: "analisando", pct: 20, detalhe: `Analisando extratos (0/${n})` });
+    const perFile = await Promise.all(baixados.map(async (f) => {
+      let parsed: any = null;
+      try {
+        const content = [
+          { type: "input_text", text: PROMPT },
+          { type: "input_file", filename: f.name, file_data: `data:${f.mime};base64,${toBase64(f.buf)}` },
+        ];
+        parsed = parseJson(await openai(content, 4500));
+      } catch (_e) { parsed = null; }
+      done++;
+      await setProg(analiseId, { etapa: "analisando", pct: 20 + Math.round((done / n) * 65), detalhe: `Analisando extratos (${done}/${n}) · ${f.name}` });
+      return { name: f.name, parsed };
+    }));
 
-    await setProg(analiseId, { etapa: "gravando", pct: 90, detalhe: "Gravando resultado" });
+    // Junta os resultados por ano.
+    const oks = perFile.filter((p) => p.parsed);
+    const relatorio = oks.length
+      ? oks.map((p) => (n > 1 ? `## ${p.name}\n` : "") + (p.parsed.relatorio || "")).join("\n\n")
+      : null;
+    let resumo: any = {}; let maxR = -1;
+    for (const p of oks) { const r = p.parsed.resumo || {}; const ri = ORDEM_RISCO[r.risco_geral] || 0; if (ri >= maxR) { maxR = ri; resumo = r; } }
+    const flags = oks.flatMap((p) => (Array.isArray(p.parsed.flags) ? p.parsed.flags : [])).slice(0, 60);
+    const txs = oks.flatMap((p) => (Array.isArray(p.parsed.transacoes_chave) ? p.parsed.transacoes_chave : [])).slice(0, 120);
+
+    await setProg(analiseId, { etapa: "gravando", pct: 92, detalhe: "Gravando resultado" });
     await s.from("spy_analise").update({
-      status: "concluida", relatorio: parsed.relatorio || null, resumo: parsed.resumo || {},
+      status: "concluida", relatorio, resumo,
       n_transacoes: txs.length, progresso: { etapa: "concluida", pct: 100, detalhe: `${txs.length} transações-chave · ${flags.length} flags` },
     }).eq("id", analiseId);
 
