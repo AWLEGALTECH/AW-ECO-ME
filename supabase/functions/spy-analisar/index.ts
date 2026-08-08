@@ -1,9 +1,13 @@
 // spy-analisar (AW SPY — análise em segundo plano) — motor: OpenAI
 //
-// Passada única (cabe no tempo da função serverless): baixa os extratos do
-// Drive e a IA lê os PDFs e devolve, de uma vez, o relatório + resumo + flags
-// por eixo + as transações-CHAVE (operações de crédito, cobranças recorrentes,
-// valores relevantes — não a lista inteira, que via LLM estoura o tempo).
+// Duas etapas (cabe no tempo da função serverless):
+//   1) EXTRAÇÃO por extrato (uma chamada por PDF, SEQUENCIAL): a IA lê cada
+//      extrato e devolve os FATOS densos daquele período (fonte pagadora, renda
+//      mês a mês, contrapartes por nome, assinaturas, tarifas, crédito, eventos
+//      com data) + flags por eixo + transações-CHAVE.
+//   2) SÍNTESE (uma chamada, só texto — sem PDF): recebe os fatos de TODOS os
+//      períodos juntos e escreve UM ÚNICO dossiê contínuo, cruzando os anos como
+//      uma só linha de entendimento (evolução de renda, endividamento, hábitos).
 // A extração determinística completa (parser por banco) é o próximo passo.
 //
 // Roda via EdgeRuntime.waitUntil; retorna 202 na hora. Progresso em
@@ -59,13 +63,17 @@ async function baixar(fileId: string, token: string): Promise<ArrayBuffer> {
 }
 
 // ── OpenAI (Responses API — aceita PDF via input_file) ───────────────────────
-const SCHEMA = {
-  type: "json_schema", name: "analise_spy", strict: true,
+const EIXOS = ["financeira", "credores", "produtos", "consumo", "vulnerabilidade", "perfil", "temporal"];
+
+// Etapa 1: extração de FATOS por extrato.
+const SCHEMA_EXTRACAO = {
+  type: "json_schema", name: "extracao_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["relatorio", "risco_geral", "flags", "transacoes_chave"],
+    required: ["periodo", "notas", "risco_geral", "flags", "transacoes_chave"],
     properties: {
-      relatorio: { type: "string" },
+      periodo: { type: "string" },
+      notas: { type: "string" },
       risco_geral: { type: "string", enum: ["baixo", "medio", "alto", "critico"] },
       flags: {
         type: "array",
@@ -73,7 +81,7 @@ const SCHEMA = {
           type: "object", additionalProperties: false,
           required: ["eixo", "codigo", "label", "confianca", "evidencia"],
           properties: {
-            eixo: { type: "string", enum: ["financeira", "credores", "produtos", "consumo", "vulnerabilidade", "perfil", "temporal"] },
+            eixo: { type: "string", enum: EIXOS },
             codigo: { type: "string" }, label: { type: "string" },
             confianca: { type: "number" }, evidencia: { type: "string" },
           },
@@ -95,20 +103,57 @@ const SCHEMA = {
   },
 };
 
-async function openai(content: any[], maxTokens: number): Promise<string> {
+// Etapa 2: síntese num único dossiê contínuo.
+const SCHEMA_DOSSIE = {
+  type: "json_schema", name: "dossie_spy", strict: true,
+  schema: {
+    type: "object", additionalProperties: false,
+    required: ["relatorio", "risco_geral"],
+    properties: {
+      relatorio: { type: "string" },
+      risco_geral: { type: "string", enum: ["baixo", "medio", "alto", "critico"] },
+    },
+  },
+};
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+async function openai(content: any[], maxTokens: number, format: unknown, tries = 4): Promise<string> {
   const key = Deno.env.get("OPENAI_API_KEY");
-  const r = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0, text: { format: SCHEMA } }),
-  });
-  if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 220)}`);
-  const d = await r.json();
-  let txt = d.output_text;
-  if (!txt && Array.isArray(d.output)) {
-    for (const o of d.output) for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
+  let lastErr = "";
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0.3, text: { format } }),
+      });
+      if (r.status === 429) {
+        // Rate limit (TPM): espera a janela do minuto liberar e tenta de novo.
+        lastErr = `openai 429: ${(await r.text()).slice(0, 180)}`;
+        if (attempt < tries) { await sleep(attempt * 8000); continue; }
+        throw new Error(lastErr);
+      }
+      if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 260)}`);
+      const d = await r.json();
+      // Recusa explícita do modelo (política): surge como content.type === "refusal".
+      if (Array.isArray(d.output)) {
+        for (const o of d.output) for (const c of (o.content || [])) if (c?.type === "refusal" && c.refusal) throw new Error(`recusa: ${String(c.refusal).slice(0, 200)}`);
+      }
+      // Geração incompleta (estourou max_output_tokens) devolve JSON cortado.
+      if (d.status === "incomplete") throw new Error(`incompleto: ${d.incomplete_details?.reason || "?"}`);
+      let txt = d.output_text;
+      if (!txt && Array.isArray(d.output)) {
+        for (const o of d.output) for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
+      }
+      if (txt) return txt;
+      throw new Error("resposta vazia");
+    } catch (e) {
+      lastErr = String((e as Error)?.message || e);
+      if (attempt < tries) await sleep(1500);
+    }
   }
-  return txt || "{}";
+  throw new Error(lastErr || "openai falhou");
 }
 function parseJson(s: string): any { try { return JSON.parse(String(s).replace(/^```json\s*|```$/g, "").trim()); } catch { return null; } }
 function normalizeDate(v: any): string | null {
@@ -120,18 +165,39 @@ function normalizeDate(v: any): string | null {
   return null;
 }
 
-const PROMPT = `Você é o motor do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. Sua saída principal é o "relatorio": um DOSSIÊ PROFUNDO e HUMANO sobre essa pessoa, escrito de forma corrida e específica (não use tópicos rígidos, não seja robótico).
+// Etapa 1 — extração de fatos densos de UM extrato.
+const PROMPT_EXTRACAO = `Você é o motor de extração do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. NÃO escreva um texto bonito ainda: sua função é EXTRAIR os fatos crus e específicos desse extrato, para que uma etapa posterior cruze vários períodos e escreva o dossiê.
 
-No relatorio, conte a história dessa pessoa a partir do dinheiro dela, cobrindo com riqueza (sempre que os dados sustentarem):
-- Quem é: profissão/ocupação provável e de onde vem a renda (nome da fonte pagadora), faixa de renda real, faixa etária provável, cidade/bairro onde vive e trabalha.
-- Família e núcleo: quem transfere/recebe com recorrência (cite os nomes das contrapartes de PIX/TED e o vínculo provável — cônjuge, filho, pai/mãe), quem parece depender dela, indícios de rateio de casa.
-- Hábitos e vida: onde compra e abastece, streamings e assinaturas que mantém CITANDO OS SERVIÇOS PELO NOME (Netflix, Spotify, Amazon, etc.) e se há sinais de assinatura esquecida/duplicada; saúde (farmácia, plano, mensalidade de clínica) se aparecer; lazer, transporte, rotina.
-- Vida financeira: como gasta, dívidas e crédito (empréstimos, consignado, cheque especial, cartão), comportamento de endividamento e a época do ano em que ela aperta e recontrata crédito.
-- Gancho jurídico: onde há oportunidade de defesa do consumidor (cobranças abusivas, reajustes, endividamento) para o escritório ajudar.
+Preencha "periodo" com o intervalo do extrato (ex.: "2022", "jan-dez/2023", ou o mês/ano que constar).
 
-Regras: use SOMENTE o que os dados sustentam; toda inferência é PROBABILÍSTICA — sinalize com "provavelmente", "há indícios de", etc.; cite datas e valores reais como evidência; NÃO invente; não use travessão.
+Em "notas", despeje TODOS os fatos concretos e específicos que esse extrato sustenta, de forma densa (pode ser corrido ou em linhas), SEM enfeite e SEM inventar:
+- Titular: NOME COMPLETO do correntista/titular da conta, exatamente como aparece no extrato (cabeçalho, rodapé ou dados cadastrais). SEMPRE registre isso.
+- Fonte pagadora e renda: nome exato de quem paga o salário/benefício, valores mês a mês (liste os que der), datas dos créditos.
+- Contrapartes: NOMES das pessoas/empresas em PIX/TED/DOC (quem recebe dela e quem paga a ela), com valores e recorrência — não resuma como "transferências", CITE OS NOMES.
+- Assinaturas e recorrentes: CITE PELO NOME (Netflix, Spotify, Amazon Prime, Google, academia, seguro, plano) com valor e data.
+- Saúde, mercado, combustível, farmácia, lazer: estabelecimentos citados, com valores.
+- Crédito e dívida: empréstimos, consignado, cheque especial, cartão, parcelas, com valores e datas.
+- Tarifas bancárias: tipos e total.
+- Saques em dinheiro: quantidade e total.
+- Saldos: inicial/final, e se virou negativo em algum momento (data).
+- Qualquer evento fora do padrão, com data e valor.
 
-Além do relatorio, devolva: risco_geral; flags (uma por achado concreto, com eixo, codigo curto, confianca 0..1 e evidencia com datas/valores) para uso interno estruturado; e transacoes_chave (ATÉ 25 transações mais relevantes: crédito, cobranças recorrentes, valores altos — NÃO a lista inteira). Datas em AAAA-MM-DD. sinal: 1 crédito, -1 débito. valor sempre positivo.`;
+Regras: use SOMENTE o que o extrato mostra; cite valores e datas; NÃO invente; NÃO use travessão.
+
+Também devolva: risco_geral desse período; flags (uma por achado concreto, com eixo, codigo curto, confianca 0..1 e evidencia com datas/valores); e transacoes_chave (ATÉ 25 mais relevantes: crédito, recorrentes, valores altos — NÃO a lista inteira). Datas em AAAA-MM-DD. sinal: 1 crédito, -1 débito. valor sempre positivo.`;
+
+// Etapa 2 — síntese de um dossiê contínuo a partir dos fatos de todos os períodos.
+const PROMPT_SINTESE = `Você é o analista do AW SPY, de um escritório de advocacia do consumidor. Abaixo estão FATOS extraídos de um ou mais extratos bancários da MESMA pessoa, em períodos diferentes (anos/meses). Trate tudo como UMA ÚNICA LINHA CONTÍNUA de entendimento sobre essa pessoa.
+
+Escreva em "relatorio" UM ÚNICO dossiê profundo e humano, corrido e específico (não use tópicos rígidos, não separe por ano com cabeçalhos, não seja robótico). Uma pessoa lendo deve sentir que conhece o indivíduo. Cubra, sempre que os dados sustentarem:
+- Quem é: comece NOMEANDO a pessoa pelo nome do titular sempre que ele constar nos fatos (não escreva "um indivíduo" se há nome); profissão/ocupação provável, de onde vem a renda (nome da fonte pagadora), faixa de renda, faixa etária provável, cidade/bairro onde vive e trabalha.
+- Família e núcleo: contrapartes recorrentes CITADAS PELO NOME e o vínculo provável (cônjuge, filho, pai/mãe), quem depende de quem, rateio de casa.
+- Hábitos e vida: onde compra e abastece, streamings/assinaturas PELO NOME e sinais de assinatura esquecida/duplicada, saúde, lazer, transporte, rotina.
+- Vida financeira: como gasta, dívidas e crédito, comportamento de endividamento.
+- EVOLUÇÃO NO TEMPO (essencial quando há mais de um período): como a renda mudou de um ano para o outro, quando entrou/saiu de dívida, o que passou a gastar ou deixou de gastar, tendência da saúde financeira. Amarre os períodos numa trajetória, não os descreva em separado.
+- Gancho jurídico: onde há oportunidade de defesa do consumidor (cobranças abusivas, reajustes, tarifas, endividamento) para o escritório ajudar.
+
+Regras: use SOMENTE os fatos fornecidos; toda inferência é PROBABILÍSTICA (use "provavelmente", "há indícios de"); cite datas e valores reais como evidência; NÃO invente nada que não esteja nos fatos; NÃO use travessão. Defina risco_geral considerando o conjunto todo.`;
 
 async function setProg(analiseId: string, p: { etapa: string; pct: number; detalhe?: string }) {
   await sb().from("spy_analise").update({ progresso: p }).eq("id", analiseId);
@@ -146,37 +212,61 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     const token = await getToken();
     const baixados = await Promise.all(arquivos.map(async (a) => ({ name: a.name, mime: a.mimeType || "application/pdf", buf: await baixar(a.id, token) })));
 
-    // Um PDF por chamada (juntos estouram a janela de contexto do modelo).
+    // Etapa 1 — um PDF por chamada, SEQUENCIAL. Cada PDF em base64 gasta muitos
+    // tokens; em paralelo estoura o teto de tokens/min (TPM) da OpenAI. Sequencial
+    // espalha o consumo ao longo do tempo e evita o 429.
     const n = baixados.length; let done = 0;
-    await setProg(analiseId, { etapa: "analisando", pct: 20, detalhe: `Analisando extratos (0/${n})` });
-    const perFile = await Promise.all(baixados.map(async (f) => {
+    await setProg(analiseId, { etapa: "analisando", pct: 20, detalhe: `Lendo extratos (0/${n})` });
+    const perFile: Array<{ name: string; parsed: any }> = [];
+    for (const f of baixados) {
       let parsed: any = null;
       try {
         const content = [
-          { type: "input_text", text: PROMPT },
+          { type: "input_text", text: PROMPT_EXTRACAO },
           { type: "input_file", filename: f.name, file_data: `data:${f.mime};base64,${toBase64(f.buf)}` },
         ];
-        parsed = parseJson(await openai(content, 6000));
+        parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO));
       } catch (_e) { parsed = null; }
       done++;
-      await setProg(analiseId, { etapa: "analisando", pct: 20 + Math.round((done / n) * 65), detalhe: `Analisando extratos (${done}/${n}) · ${f.name}` });
-      return { name: f.name, parsed };
-    }));
+      await setProg(analiseId, { etapa: "analisando", pct: 20 + Math.round((done / n) * 55), detalhe: `Lendo extratos (${done}/${n}) · ${f.name}` });
+      perFile.push({ name: f.name, parsed });
+    }
 
-    // Junta os resultados por ano.
-    const oks = perFile.filter((p) => p.parsed);
-    const relatorio = oks.length
-      ? oks.map((p) => (n > 1 ? `## ${p.name}\n` : "") + (p.parsed.relatorio || "")).join("\n\n")
-      : null;
-    let maxR = 0; let riscoLabel = "";
-    for (const p of oks) { const ri = ORDEM_RISCO[p.parsed.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.parsed.risco_geral; } }
+    // Ordena os períodos cronologicamente (pelo nome do arquivo / periodo detectado).
+    const oks = perFile.filter((p) => p.parsed)
+      .sort((a, b) => String(a.parsed.periodo || a.name).localeCompare(String(b.parsed.periodo || b.name)));
+
+    // Flags e transações-chave: união de todos os períodos.
+    const flags = oks.flatMap((p) => (Array.isArray(p.parsed.flags) ? p.parsed.flags : [])).slice(0, 80);
+    const txs = oks.flatMap((p) => (Array.isArray(p.parsed.transacoes_chave) ? p.parsed.transacoes_chave : [])).slice(0, 160);
+
+    // Etapa 2 — síntese num único dossiê contínuo, cruzando todos os períodos.
+    let relatorio: string | null = null;
+    let riscoLabel = "";
+    let sintErro: string | null = null;
+    if (oks.length) {
+      await setProg(analiseId, { etapa: "sintetizando", pct: 82, detalhe: n > 1 ? `Cruzando ${oks.length} períodos num só perfil` : "Montando o dossiê" });
+      const fatos = oks.map((p) => `### Período: ${p.parsed.periodo || p.name}\n${p.parsed.notas || ""}`).join("\n\n");
+      try {
+        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 6000, SCHEMA_DOSSIE));
+        relatorio = dossie?.relatorio || null;
+        riscoLabel = dossie?.risco_geral || "";
+        if (!relatorio) sintErro = "sintese sem relatorio";
+      } catch (e) { relatorio = null; sintErro = String((e as Error)?.message || e); }
+      // Se a síntese falhar, cai para o pior risco dos períodos e as notas cruas.
+      if (!relatorio) {
+        relatorio = oks.map((p) => (n > 1 ? `## ${p.parsed.periodo || p.name}\n` : "") + (p.parsed.notas || "")).join("\n\n");
+      }
+      if (!riscoLabel) {
+        let maxR = 0;
+        for (const p of oks) { const ri = ORDEM_RISCO[p.parsed.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.parsed.risco_geral; } }
+      }
+    }
     const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
-    const flags = oks.flatMap((p) => (Array.isArray(p.parsed.flags) ? p.parsed.flags : [])).slice(0, 60);
-    const txs = oks.flatMap((p) => (Array.isArray(p.parsed.transacoes_chave) ? p.parsed.transacoes_chave : [])).slice(0, 120);
 
     await setProg(analiseId, { etapa: "gravando", pct: 92, detalhe: "Gravando resultado" });
     await s.from("spy_analise").update({
-      status: "concluida", relatorio, resumo,
+      status: "concluida", relatorio, resumo, erro: sintErro,
       n_transacoes: txs.length, progresso: { etapa: "concluida", pct: 100, detalhe: `${txs.length} transações-chave · ${flags.length} flags` },
     }).eq("id", analiseId);
 
