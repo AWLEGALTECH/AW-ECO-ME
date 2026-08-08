@@ -1,17 +1,17 @@
-// spy-analisar (AW SPY — pipeline real, em segundo plano)
+// spy-analisar (AW SPY — pipeline real, em segundo plano) — motor: OpenAI
 //
 // Fluxo (roda via EdgeRuntime.waitUntil; retorna 202 na hora):
 //   1) baixa os extratos do Drive (Service Account)
-//   2) EXTRAÇÃO (IA): Gemini lê cada PDF e devolve as transações estruturadas
+//   2) EXTRAÇÃO (IA): OpenAI lê cada PDF e devolve as transações estruturadas
 //      (data, valor, sinal — infere pela variação de saldo quando o banco não
 //      marca —, saldo, descrição, método). Grava em spy_transacao.
 //   3) AGREGAÇÃO (código determinístico): totais por ano, recorrências, operações
 //      de crédito, contrapartes, proxy de renda, dias negativos.
-//   4) INTERPRETAÇÃO (IA): Gemini recebe a AGREGAÇÃO (não o PDF) e devolve
+//   4) INTERPRETAÇÃO (IA): OpenAI recebe a AGREGAÇÃO (não o PDF) e devolve
 //      relatório + flags por eixo (com confiança e evidência).
 //
 // Progresso escrito em spy_analise.progresso a cada etapa (o front faz polling).
-// Secrets: GOOGLE_SA_JSON, GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// Secrets: GOOGLE_SA_JSON, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
@@ -26,10 +26,10 @@ const CORS = {
 const j = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-const MODELO = "gemini-2.5-flash";
+const MODELO = "gpt-4o-mini";
 const sb = () => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
-// ── Google SA ────────────────────────────────────────────────────────────────
+// ── Google SA (download do Drive) ────────────────────────────────────────────
 interface SA { client_email: string; private_key: string; token_uri?: string; }
 async function importKey(pem: string): Promise<CryptoKey> {
   const b64 = pem.replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
@@ -61,18 +61,23 @@ async function baixar(fileId: string, token: string): Promise<ArrayBuffer> {
   return r.arrayBuffer();
 }
 
-// ── Gemini ───────────────────────────────────────────────────────────────────
-async function gemini(parts: any[], maxTokens: number): Promise<string> {
-  const key = Deno.env.get("GEMINI_API_KEY");
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${key}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: maxTokens } }),
+// ── OpenAI (Responses API — aceita PDF via input_file) ───────────────────────
+async function openai(content: any[], maxTokens: number): Promise<string> {
+  const key = Deno.env.get("OPENAI_API_KEY");
+  const r = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0 }),
   });
-  if (!r.ok) throw new Error(`gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 220)}`);
   const d = await r.json();
-  return d?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  let txt = d.output_text;
+  if (!txt && Array.isArray(d.output)) {
+    for (const o of d.output) for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
+  }
+  return txt || "{}";
 }
-function parseJson(s: string): any { try { return JSON.parse(s.replace(/^```json\s*|```$/g, "").trim()); } catch { return null; } }
+function parseJson(s: string): any { try { return JSON.parse(String(s).replace(/^```json\s*|```$/g, "").trim()); } catch { return null; } }
 
 const PROMPT_EXTRACAO = `Extraia TODAS as transações deste extrato bancário (PDF). Para cada transação:
 - data: "AAAA-MM-DD"
@@ -81,14 +86,14 @@ const PROMPT_EXTRACAO = `Extraia TODAS as transações deste extrato bancário (
 - saldo: saldo após a transação (pode ser negativo)
 - descricao: texto da transação (mantenha a contraparte)
 - metodo: pix|ted|doc|boleto|cartao|debito|saque|deposito|tarifa|salario|outro
-Responda SOMENTE JSON: {"banco":"nome","transacoes":[{...}]}. Não invente transações; não use travessão.`;
+Responda SOMENTE com JSON válido: {"banco":"nome","transacoes":[{...}]}. Não invente transações; não use travessão.`;
 
 const PROMPT_INTERP = `Você é o motor de interpretação do AW SPY (advocacia do consumidor). Recebe a AGREGAÇÃO determinística das transações de UM cliente (não o extrato bruto) e produz a análise.
 Use as recorrências, operações de crédito, totais por ano e proxy de renda. Toda inferência (família, saúde, profissão) é PROBABILÍSTICA: dê confiança e cite evidência (datas/valores da agregação). Nunca apresente inferência como fato provado.
-Responda SOMENTE JSON:
+Responda SOMENTE com JSON válido:
 {"relatorio":"markdown","resumo":{"renda_liquida_estimada":"","perfil":"","composicao_familiar":"","janela_critica":"","risco_geral":"baixo|medio|alto|critico"},
 "flags":[{"eixo":"financeira|credores|produtos|consumo|vulnerabilidade|perfil|temporal","codigo":"EX: FIN.SUPERENDIVIDAMENTO","label":"","confianca":0.0,"valor":{},"evidencia":""}]}
-Não use travessão (—).`;
+Não use travessão.`;
 
 // ── Agregação determinística ─────────────────────────────────────────────────
 function norm(s: string): string {
@@ -146,14 +151,16 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     const token = await getToken();
     const baixados = await Promise.all(arquivos.map(async (a) => ({ name: a.name, mime: a.mimeType || "application/pdf", buf: await baixar(a.id, token) })));
 
-    // EXTRAÇÃO (IA) por PDF, em paralelo, com progresso incremental.
     let done = 0; const n = baixados.length;
     await setProg(analiseId, { etapa: "extraindo", pct: 20, detalhe: `Extraindo transações (0/${n})` });
     const perFile = await Promise.all(baixados.map(async (f) => {
       let out: any = null;
       try {
-        const txt = await gemini([{ text: PROMPT_EXTRACAO }, { inlineData: { mimeType: f.mime, data: toBase64(f.buf) } }], 32768);
-        out = parseJson(txt);
+        const content = [
+          { type: "input_text", text: PROMPT_EXTRACAO },
+          { type: "input_file", filename: f.name, file_data: `data:${f.mime};base64,${toBase64(f.buf)}` },
+        ];
+        out = parseJson(await openai(content, 16000));
       } catch (_e) { out = null; }
       done++;
       await setProg(analiseId, { etapa: "extraindo", pct: 20 + Math.round((done / n) * 40), detalhe: `Extraindo transações (${done}/${n}) · ${f.name}` });
@@ -164,7 +171,6 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     const banco = perFile.find((p) => p.banco)?.banco || null;
     const todas = perFile.flatMap((p) => p.trans);
 
-    // grava transações (em lotes)
     if (todas.length) {
       const rows = todas.map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId, data: t.data || null,
@@ -175,13 +181,11 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       for (let i = 0; i < rows.length; i += 500) await s.from("spy_transacao").insert(rows.slice(i, i + 500));
     }
 
-    // AGREGAÇÃO (código)
     await setProg(analiseId, { etapa: "estruturando", pct: 65, detalhe: `Estruturando ${todas.length} transações` });
     const agg = agregar(todas);
 
-    // INTERPRETAÇÃO (IA)
     await setProg(analiseId, { etapa: "interpretando", pct: 78, detalhe: "Interpretação jurídica (IA)" });
-    const interpTxt = await gemini([{ text: PROMPT_INTERP }, { text: "AGREGACAO:\n" + JSON.stringify(agg) }], 8192);
+    const interpTxt = await openai([{ type: "input_text", text: PROMPT_INTERP + "\n\nAGREGACAO:\n" + JSON.stringify(agg) }], 4000);
     const parsed = parseJson(interpTxt) || { relatorio: interpTxt, resumo: {}, flags: [] };
     const flags = Array.isArray(parsed.flags) ? parsed.flags : [];
 
@@ -212,7 +216,7 @@ Deno.serve(async (req: Request) => {
     if (!clienteId) return j({ error: "cliente_id obrigatorio" }, 400);
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);
     if (arquivos.length > 8) return j({ error: "máximo de 8 documentos por análise" }, 400);
-    if (!Deno.env.get("GEMINI_API_KEY")) return j({ error: "GEMINI_API_KEY nao configurado" }, 500);
+    if (!Deno.env.get("OPENAI_API_KEY")) return j({ error: "OPENAI_API_KEY nao configurado" }, 500);
 
     const { data: novo, error } = await sb().from("spy_analise").insert({
       cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),
