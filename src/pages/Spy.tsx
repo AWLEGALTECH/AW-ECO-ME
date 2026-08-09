@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
-  ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, User, ListChecks,
+  ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
-  Scale, CalendarDays, UserCheck, ClipboardList,
+  Scale, CalendarDays, ClipboardList,
 } from "lucide-react";
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
@@ -74,6 +74,7 @@ export default function Spy() {
   const [busca, setBusca] = useState("");
   const [soPasta, setSoPasta] = useState(true);
   const [sel, setSel] = useState<Cliente | null>(null);
+  const [pendingFoco, setPendingFoco] = useState<string | null>(null);
 
   const { data: clientes = [] } = useQuery({
     queryKey: ["spy-clientes"],
@@ -105,7 +106,8 @@ export default function Spy() {
       </header>
 
       {sel ? (
-        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} onBack={() => setSel(null)} />
+        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} initialFoco={pendingFoco}
+          onBack={() => { setSel(null); setPendingFoco(null); }} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[300px,1fr] gap-5">
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden flex flex-col max-h-[76vh]">
@@ -140,7 +142,8 @@ export default function Spy() {
             </div>
           </div>
 
-          <IntelPanel totalClientes={clientes.length} comPasta={comPasta} />
+          <IntelPanel totalClientes={clientes.length} comPasta={comPasta} clientes={clientes}
+            onOpen={(c, aid) => { setSel(c); setPendingFoco(aid); }} />
         </div>
       )}
     </div>
@@ -148,17 +151,20 @@ export default function Spy() {
 }
 
 // ── Painel de inteligência (cruzamento de todas as análises) ─────────────────
-function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPasta: number }) {
+function IntelPanel({ totalClientes, comPasta, clientes, onOpen }: { totalClientes: number; comPasta: number; clientes: Cliente[]; onOpen: (c: Cliente, analiseId: string) => void }) {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["spy-stats"],
     queryFn: async (): Promise<Analise[]> => {
       const { data, error } = await (supabase.from("spy_analise" as any) as any)
-        .select("id, cliente_id, status, resumo, n_transacoes, created_at").order("created_at", { ascending: false });
+        .select("id, cliente_id, status, resumo, n_transacoes, created_at, progresso").order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: (q: any) => ((q.state.data as Analise[] | undefined)?.some((a) => a.status === "processando") ? 4000 : false),
+    refetchInterval: (q: any) => ((q.state.data as Analise[] | undefined)?.some((a) => a.status === "processando") ? 3000 : false),
   });
+
+  const emAndamento = useMemo(() => rows.filter((r) => r.status === "processando"), [rows]);
+  const clienteDe = (id: string) => clientes.find((c) => c.id === id) || null;
 
   const stats = useMemo(() => {
     const concl = rows.filter((r) => r.status === "concluida");
@@ -187,6 +193,33 @@ function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPas
         </div>
         <RadarViz size={30} blips={false} className="shrink-0 opacity-50 hidden sm:block" />
       </div>
+
+      {emAndamento.length > 0 && (
+        <div className="mt-5 rounded-xl border border-primary/25 bg-primary/[0.04] p-3">
+          <p className="text-[11px] uppercase tracking-wider text-primary/80 mb-2 flex items-center gap-1.5">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Em andamento ({emAndamento.length})
+          </p>
+          <div className="space-y-1.5">
+            {emAndamento.map((r) => {
+              const c = clienteDe(r.cliente_id);
+              const pct = Math.min(100, Math.max(0, Number(r.progresso?.pct) || 0));
+              return (
+                <button key={r.id} disabled={!c} onClick={() => c && onOpen(c, r.id)}
+                  className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:border-primary/40 transition-colors disabled:opacity-60">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
+                    <span className="text-[10px] text-primary/80 tabular-nums shrink-0">{pct}%</span>
+                  </div>
+                  <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 truncate">{r.progresso?.detalhe || "processando"}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-16 justify-center">
@@ -248,14 +281,302 @@ function StatCard({ icon, valor, label, sub }: { icon: ReactNode; valor: number;
   );
 }
 
-// ── Página do cliente (toma a tela, some da lista) ───────────────────────────
-function SpyClientPage({ cliente, userId, onBack }: { cliente: Cliente; userId: string | null; onBack: () => void }) {
+// ── Página do cliente (toma a tela; a análise é a protagonista) ──────────────
+function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Cliente; userId: string | null; onBack: () => void; initialFoco?: string | null }) {
+  const qc = useQueryClient();
+  const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
+  const [mostrarDocs, setMostrarDocs] = useState(false);
+  const [foco, setFoco] = useState<string | null>(initialFoco || null);
+  const preRef = useRef<string | null>(null);
+
+  const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
+    queryKey: ["spy-drive", cliente.drive_folder_id],
+    enabled: !!cliente.drive_folder_id,
+    queryFn: async (): Promise<DriveFile[]> => {
+      const { data, error } = await supabase.functions.invoke("list-drive-files", {
+        body: { folder_id: cliente.drive_folder_id, mime_filter: ["application/pdf"] },
+      });
+      if (error) throw error;
+      return (data?.files || data || []) as DriveFile[];
+    },
+  });
+
+  // Pré-seleciona o que parece extrato (nome contém "extrato"), uma vez por cliente.
+  useEffect(() => {
+    if (!drive || preRef.current === cliente.id) return;
+    preRef.current = cliente.id;
+    setSelFiles(new Set(drive.filter((f) => /extrato/i.test(f.name)).map((f) => f.id)));
+  }, [drive, cliente.id]);
+
+  const { data: ficha } = useQuery({
+    queryKey: ["spy-ficha", cliente.id],
+    queryFn: async () => {
+      const [cli, contr, fech] = await Promise.all([
+        supabase.from("clientes").select("dados_socioeconomicos, requerido").eq("id", cliente.id).maybeSingle(),
+        (supabase.from("contratos" as any) as any).select("reus, data_assinatura, modalidade, motivo").eq("cliente_id", cliente.id).order("data_assinatura", { ascending: false, nullsFirst: false }).limit(1),
+        (supabase.from("fechamentos" as any) as any).select("responsavel, data").eq("cliente_id", cliente.id).order("data", { ascending: false }).limit(1),
+      ]);
+      return {
+        socio: (cli.data?.dados_socioeconomicos as Record<string, any> | null) || null,
+        requerido: (cli.data?.requerido as string | null) || null,
+        contrato: (contr.data?.[0] as any) || null,
+        fechamento: (fech.data?.[0] as any) || null,
+      };
+    },
+  });
+
+  const { data: analises = [] } = useQuery({
+    queryKey: ["spy-analises", cliente.id],
+    queryFn: async (): Promise<Analise[]> => {
+      const { data, error } = await (supabase.from("spy_analise" as any) as any)
+        .select("*").eq("cliente_id", cliente.id).order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: (q: any) => ((q.state.data as Analise[] | undefined)?.some((a) => a.status === "processando") ? 2000 : false),
+  });
+  const rodando = analises.find((a) => a.status === "processando") || null;
+  const concluidas = analises.filter((a) => a.status === "concluida");
+  const ultima = concluidas[0] || null;
+
+  const { data: flags = [] } = useQuery({
+    queryKey: ["spy-flags", cliente.id],
+    queryFn: async (): Promise<Flag[]> => {
+      const { data, error } = await (supabase.from("spy_flag" as any) as any).select("*").eq("cliente_id", cliente.id);
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: rodando ? 4000 : false,
+  });
+
+  const focoAnalise = foco ? analises.find((a) => a.id === foco) || null : null;
+  // Assim que a análise em foco termina, sai da tela cheia e cai no dossiê pronto.
+  useEffect(() => {
+    if (foco && focoAnalise && focoAnalise.status !== "processando") setFoco(null);
+  }, [foco, focoAnalise]);
+
+  const toggleFile = (id: string) => setSelFiles((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const analisar = async () => {
+    const arquivos = (drive || []).filter((f) => selFiles.has(f.id)).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
+    if (!arquivos.length) { toast.error("Selecione ao menos um extrato."); return; }
+    const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
+    if (error) { toast.error("Não consegui iniciar a análise."); return; }
+    setMostrarDocs(false);
+    qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
+    const novoId = (data as any)?.analise_id || null;
+    if (novoId) setFoco(novoId);
+  };
+
+  // TELA CHEIA: análise em trâmite (estilo Finder).
+  if (focoAnalise && focoAnalise.status === "processando") {
+    return <AnaliseTelaCheia cliente={cliente} a={focoAnalise} onBackground={() => setFoco(null)} />;
+  }
+
   return (
     <div className="spy-lock space-y-5">
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
         <ArrowLeft className="h-4 w-4" /> Todos os clientes
       </button>
-      <SpyWorkspace cliente={cliente} userId={userId} />
+
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-3xl font-semibold tracking-tight truncate">{cliente.nome}</h2>
+          {cliente.cpf_cnpj && <p className="text-xs text-muted-foreground mt-1">{cliente.cpf_cnpj}</p>}
+        </div>
+        {cliente.drive_folder_url && (
+          <a href={cliente.drive_folder_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+            <FolderOpen className="h-3.5 w-3.5" /> Pasta no Drive <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+
+      <FichaCliente ficha={ficha} />
+
+      {rodando ? (
+        <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} />
+      ) : ultima ? (
+        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto />
+      ) : mostrarDocs ? (
+        <DocPicker
+          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr}
+          selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()}
+          onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
+        />
+      ) : (
+        <SemAnalise onStart={() => setMostrarDocs(true)} />
+      )}
+
+      {concluidas.length > 1 && !rodando && (
+        <details className="group">
+          <summary className="text-[11px] uppercase tracking-wider text-muted-foreground cursor-pointer list-none inline-flex items-center gap-1 select-none">
+            <ChevronDown className="h-3.5 w-3.5 group-open:rotate-180 transition-transform" /> Análises anteriores ({concluidas.length - 1})
+          </summary>
+          <div className="space-y-3 mt-3">
+            {concluidas.slice(1).map((a) => (
+              <AnaliseCard key={a.id} a={a} flags={flags.filter((f) => f.analise_id === a.id)} />
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// Tela cheia dedicada à análise em trâmite: radar + feed ao vivo do que é vasculhado.
+function AnaliseTelaCheia({ cliente, a, onBackground }: { cliente: Cliente; a: Analise; onBackground: () => void }) {
+  const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
+  const feed: Array<{ msg: string; kind: string }> = Array.isArray(a.progresso?.feed) ? a.progresso.feed : [];
+  return (
+    <div className="spy-lock space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5">
+          <Activity className="h-3.5 w-3.5" /> Análise em andamento
+        </p>
+        <Button variant="outline" size="sm" onClick={onBackground} className="gap-1.5 h-8">
+          <ArrowLeft className="h-3.5 w-3.5" /> Rodar em segundo plano
+        </Button>
+      </div>
+
+      <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-8 flex flex-col items-center text-center">
+        <RadarViz size={132} />
+        <h2 className="text-xl font-semibold mt-5">{cliente.nome}</h2>
+        <p className="text-sm text-foreground/80 mt-1">{a.progresso?.detalhe || "Vasculhando os extratos…"}</p>
+        <div className="w-full max-w-md mt-4 h-1.5 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground uppercase tracking-wider">
+          <span>{a.progresso?.etapa || "processando"}</span>
+          <span className="tabular-nums text-primary/80">{pct}%</span>
+          <span className="tabular-nums"><Elapsed from={a.created_at} /></span>
+        </div>
+      </div>
+
+      <FeedViewer feed={feed} />
+    </div>
+  );
+}
+
+const FEED_STYLE: Record<string, { cls: string; sig: string }> = {
+  step: { cls: "text-foreground/70", sig: "›" },
+  ok:   { cls: "text-emerald-400/90", sig: "✓" },
+  tx:   { cls: "text-muted-foreground", sig: "·" },
+  warn: { cls: "text-rose-400", sig: "!" },
+  done: { cls: "text-primary font-medium", sig: "★" },
+};
+
+function FeedViewer({ feed }: { feed: Array<{ msg: string; kind: string }> }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [feed.length]);
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-black/40 p-4">
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2">
+        <ScanLine className="h-3.5 w-3.5" /> Vasculhando
+      </p>
+      <div ref={ref} className="font-mono text-[11.5px] leading-relaxed max-h-[46vh] overflow-y-auto scrollbar-thin space-y-0.5">
+        {feed.length === 0 && <div className="text-muted-foreground/60">Iniciando…</div>}
+        {feed.map((f, i) => {
+          const st = FEED_STYLE[f.kind] || FEED_STYLE.step;
+          return (
+            <div key={i} className={st.cls}>
+              <span className="text-muted-foreground/40 select-none">{st.sig} </span>{f.msg}
+            </div>
+          );
+        })}
+        <span className="spy-blip inline-block text-primary">▋</span>
+      </div>
+    </div>
+  );
+}
+
+// Banner compacto quando há uma análise rodando e o usuário está na página do cliente.
+function BannerRodando({ a, onOpen }: { a: Analise; onOpen: () => void }) {
+  const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
+  return (
+    <button onClick={onOpen} className="spy-scan relative overflow-hidden w-full text-left rounded-2xl border border-primary/25 bg-primary/[0.04] p-4 flex items-center gap-4 hover:border-primary/40 transition-colors">
+      <RadarViz size={56} blips={false} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" />
+          <span className="text-sm font-medium truncate">{a.progresso?.detalhe || "Analisando…"}</span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
+          <span>Toque para ver ao vivo</span>
+          <span className="inline-flex items-center gap-2"><span className="tabular-nums text-primary/80">{pct}%</span><Elapsed from={a.created_at} /></span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// Estado "sem análise": só o botão primeiro (revela os extratos ao clicar).
+function SemAnalise({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 flex flex-col items-center text-center">
+      <RadarViz size={72} blips={false} className="opacity-70" />
+      <h3 className="text-base font-semibold mt-4">Este cliente ainda não foi analisado</h3>
+      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+        Rode a análise do Spy nos extratos bancários para revelar quem é a pessoa e onde dá pra ajudar.
+      </p>
+      <Button onClick={onStart} className="gap-1.5 mt-5">
+        <ScanLine className="h-4 w-4" /> Fazer análise do Spy
+      </Button>
+    </div>
+  );
+}
+
+// Seleção dos extratos (revelada pelo botão, com os extratos já pré-marcados).
+function DocPicker({ cliente, drive, loading, err, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
+  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean;
+  selFiles: Set<string>; onToggle: (id: string) => void; onRefetch: () => void; onAnalisar: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Extratos para analisar</p>
+        <div className="flex items-center gap-3">
+          {cliente.drive_folder_id && (
+            <button onClick={onRefetch} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> atualizar</button>
+          )}
+          <button onClick={onCancel} className="text-[11px] text-muted-foreground hover:text-foreground">cancelar</button>
+        </div>
+      </div>
+      {!cliente.drive_folder_id ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">Este cliente ainda não tem pasta no Drive.</p>
+      ) : loading ? (
+        <p className="text-sm text-muted-foreground py-4 text-center inline-flex items-center gap-2 justify-center w-full"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o Drive…</p>
+      ) : err ? (
+        <p className="text-sm text-rose-400 py-4 text-center">Não consegui ler a pasta do Drive.</p>
+      ) : (drive || []).length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">Nenhum PDF na pasta.</p>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            {(drive || []).map((f) => {
+              const on = selFiles.has(f.id);
+              return (
+                <button key={f.id} onClick={() => onToggle(f.id)}
+                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors ${on ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14]"}`}>
+                  <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${on ? "bg-primary border-primary" : "border-white/20"}`}>
+                    {on && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
+                  </span>
+                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm truncate flex-1">{f.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[11px] text-muted-foreground">Os extratos já vêm marcados. Ajuste se quiser.</p>
+            <Button onClick={onAnalisar} disabled={selFiles.size === 0} className="gap-1.5">
+              <ScanLine className="h-4 w-4" /> Analisar {selFiles.size > 0 ? `(${selFiles.size})` : ""}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -287,15 +608,6 @@ const fmtDataBR = (d: string | null | undefined) => {
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("pt-BR");
 };
 
-function FichaItem({ icon, label, valor, muted }: { icon: ReactNode; label: string; valor: string; muted?: boolean }) {
-  return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">{icon} {label}</div>
-      <div className={`text-sm mt-1 break-words ${muted ? "text-muted-foreground" : "text-foreground/90"}`}>{valor}</div>
-    </div>
-  );
-}
-
 function FichaCliente({ ficha }: { ficha: Ficha }) {
   if (!ficha) return null;
   const reus: string[] = Array.isArray(ficha.contrato?.reus) ? (ficha.contrato!.reus as string[]).filter(Boolean) : [];
@@ -310,184 +622,47 @@ function FichaCliente({ ficha }: { ficha: Ficha }) {
   const temSocio = socioItens.length > 0;
   const obs = String(socio.observacoes_livres || "").trim();
 
+  const saude = String(socio.condicao_saude || "").trim();
+
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FichaItem icon={<Scale className="h-3.5 w-3.5" />} label="Parte requerida (réus)"
-          valor={parteRequerida || "não informado"} muted={!parteRequerida} />
-        <FichaItem icon={<CalendarDays className="h-3.5 w-3.5" />} label="Contrato assinado"
-          valor={dataAssin ? (responsavel ? `${dataAssin} · com ${responsavel}` : dataAssin) : "não informado"} muted={!dataAssin} />
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 space-y-2.5 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
+        <span className="inline-flex items-center gap-1.5">
+          <Scale className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-muted-foreground">Requerido:</span>
+          <span className={parteRequerida ? "text-foreground/90" : "text-muted-foreground"}>{parteRequerida || "não informado"}</span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-muted-foreground">Assinado:</span>
+          <span className={dataAssin ? "text-foreground/90" : "text-muted-foreground"}>
+            {dataAssin ? (responsavel ? `${dataAssin} · com ${responsavel}` : dataAssin) : "não informado"}
+          </span>
+        </span>
       </div>
 
-      <div>
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2">
+      <div className="border-t border-white/[0.06] pt-2.5">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1.5 mr-3 align-middle">
           <ClipboardList className="h-3.5 w-3.5" /> Socioeconômico
-        </p>
+        </span>
         {temSocio ? (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {socioItens.filter((i) => i.key !== "condicao_saude").map((i) => (
-                <div key={i.key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{i.label}</div>
-                  <div className="text-[13px] text-foreground/90 mt-0.5 break-words">{i.valor}</div>
-                </div>
-              ))}
-            </div>
-            {(String(socio.condicao_saude || "").trim() || obs) && (
-              <div className="mt-2.5 space-y-1.5">
-                {String(socio.condicao_saude || "").trim() && (
-                  <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Saúde:</span> {String(socio.condicao_saude)}</p>
-                )}
-                {obs && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Observações:</span> {obs}</p>}
-              </div>
-            )}
-          </>
+          <span className="inline-flex flex-wrap gap-x-4 gap-y-1 align-middle text-[12.5px]">
+            {socioItens.filter((i) => i.key !== "condicao_saude").map((i) => (
+              <span key={i.key} className="inline-flex items-center gap-1">
+                <span className="text-muted-foreground">{i.label}:</span>
+                <span className="text-foreground/90">{i.valor}</span>
+              </span>
+            ))}
+          </span>
         ) : (
-          <p className="text-sm text-muted-foreground">O cliente não preencheu ainda.</p>
+          <span className="text-muted-foreground">o cliente não preencheu ainda.</span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function SpyWorkspace({ cliente, userId }: { cliente: Cliente; userId: string | null }) {
-  const qc = useQueryClient();
-  const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
-  const preRef = useRef<string | null>(null);
-
-  const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
-    queryKey: ["spy-drive", cliente.drive_folder_id],
-    enabled: !!cliente.drive_folder_id,
-    queryFn: async (): Promise<DriveFile[]> => {
-      const { data, error } = await supabase.functions.invoke("list-drive-files", {
-        body: { folder_id: cliente.drive_folder_id, mime_filter: ["application/pdf"] },
-      });
-      if (error) throw error;
-      return (data?.files || data || []) as DriveFile[];
-    },
-  });
-
-  // Pré-seleciona o que parece extrato (nome contém "extrato"), uma vez por cliente.
-  useEffect(() => {
-    if (!drive || preRef.current === cliente.id) return;
-    preRef.current = cliente.id;
-    setSelFiles(new Set(drive.filter((f) => /extrato/i.test(f.name)).map((f) => f.id)));
-  }, [drive, cliente.id]);
-
-  // Ficha do cliente: réus (parte requerida), assinatura e socioeconômico.
-  const { data: ficha } = useQuery({
-    queryKey: ["spy-ficha", cliente.id],
-    queryFn: async () => {
-      const [cli, contr, fech] = await Promise.all([
-        supabase.from("clientes").select("dados_socioeconomicos, requerido").eq("id", cliente.id).maybeSingle(),
-        (supabase.from("contratos" as any) as any).select("reus, data_assinatura, modalidade, motivo").eq("cliente_id", cliente.id).order("data_assinatura", { ascending: false, nullsFirst: false }).limit(1),
-        (supabase.from("fechamentos" as any) as any).select("responsavel, data").eq("cliente_id", cliente.id).order("data", { ascending: false }).limit(1),
-      ]);
-      return {
-        socio: (cli.data?.dados_socioeconomicos as Record<string, any> | null) || null,
-        requerido: (cli.data?.requerido as string | null) || null,
-        contrato: (contr.data?.[0] as any) || null,
-        fechamento: (fech.data?.[0] as any) || null,
-      };
-    },
-  });
-
-  const { data: analises = [] } = useQuery({
-    queryKey: ["spy-analises", cliente.id],
-    queryFn: async (): Promise<Analise[]> => {
-      const { data, error } = await (supabase.from("spy_analise" as any) as any)
-        .select("*").eq("cliente_id", cliente.id).order("created_at", { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    refetchInterval: (q: any) => ((q.state.data as Analise[] | undefined)?.some((a) => a.status === "processando") ? 2500 : false),
-  });
-  const rodando = analises.some((a) => a.status === "processando");
-
-  const { data: flags = [] } = useQuery({
-    queryKey: ["spy-flags", cliente.id],
-    queryFn: async (): Promise<Flag[]> => {
-      const { data, error } = await (supabase.from("spy_flag" as any) as any).select("*").eq("cliente_id", cliente.id);
-      if (error) throw error;
-      return data || [];
-    },
-    refetchInterval: rodando ? 3000 : false,
-  });
-
-  const toggleFile = (id: string) => setSelFiles((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  const analisar = async () => {
-    const arquivos = (drive || []).filter((f) => selFiles.has(f.id)).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
-    if (!arquivos.length) { toast.error("Selecione ao menos um documento."); return; }
-    const { error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
-    if (error) { toast.error("Não consegui iniciar a análise."); return; }
-    toast.success("Análise iniciada. O radar está varrendo em segundo plano.");
-    setSelFiles(new Set());
-    qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><User className="h-4 w-4 text-primary" /> {cliente.nome}</h2>
-          {cliente.cpf_cnpj && <p className="text-[11px] text-muted-foreground mt-0.5">{cliente.cpf_cnpj}</p>}
-        </div>
-        {cliente.drive_folder_url && (
-          <a href={cliente.drive_folder_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-            <FolderOpen className="h-3.5 w-3.5" /> Pasta no Drive <ExternalLink className="h-3 w-3" />
-          </a>
+        {(saude || obs) && (
+          <div className="mt-1.5 space-y-0.5">
+            {saude && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Saúde:</span> {saude}</p>}
+            {obs && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Obs.:</span> {obs}</p>}
+          </div>
         )}
-      </div>
-
-      <FichaCliente ficha={ficha} />
-
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Documentos no Drive (PDF)</p>
-          {cliente.drive_folder_id && (
-            <button onClick={() => refetchDrive()} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> atualizar</button>
-          )}
-        </div>
-        {!cliente.drive_folder_id ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Este cliente ainda não tem pasta no Drive.</p>
-        ) : loadingDrive ? (
-          <p className="text-sm text-muted-foreground py-4 text-center inline-flex items-center gap-2 justify-center w-full"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o Drive…</p>
-        ) : driveErr ? (
-          <p className="text-sm text-rose-400 py-4 text-center">Não consegui ler a pasta do Drive.</p>
-        ) : (drive || []).length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Nenhum PDF na pasta.</p>
-        ) : (
-          <>
-            <div className="space-y-1.5">
-              {(drive || []).map((f) => {
-                const on = selFiles.has(f.id);
-                return (
-                  <button key={f.id} onClick={() => toggleFile(f.id)}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors ${on ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14]"}`}>
-                    <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${on ? "bg-primary border-primary" : "border-white/20"}`}>
-                      {on && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
-                    </span>
-                    <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm truncate flex-1">{f.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-[11px] text-muted-foreground">{rodando ? "Uma análise já está rodando (veja abaixo ou na barra do topo)." : "Selecione os extratos e rode."}</p>
-              <Button onClick={analisar} disabled={selFiles.size === 0} className="gap-1.5">
-                <ScanLine className="h-4 w-4" /> Analisar {selFiles.size > 0 ? `(${selFiles.size})` : ""}
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        {analises.map((a) => (
-          <AnaliseCard key={a.id} a={a} flags={flags.filter((f) => f.analise_id === a.id)} />
-        ))}
       </div>
     </div>
   );
@@ -503,9 +678,10 @@ function Elapsed({ from }: { from: string }) {
   return <span className="tabular-nums">{mm}:{ss}</span>;
 }
 
-function AnaliseCard({ a, flags }: { a: Analise; flags: Flag[] }) {
-  const [aberto, setAberto] = useState(false);
+function AnaliseCard({ a, flags, defaultAberto }: { a: Analise; flags: Flag[]; defaultAberto?: boolean }) {
+  const [aberto, setAberto] = useState(!!defaultAberto);
   const [verTx, setVerTx] = useState(false);
+  const docs: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
   const proc = a.status === "processando";
   const erro = a.status === "erro";
   const risco = (a.resumo?.risco_geral || "").toLowerCase();
@@ -580,6 +756,21 @@ function AnaliseCard({ a, flags }: { a: Analise; flags: Flag[] }) {
                 <ListChecks className="h-3.5 w-3.5" /> {verTx ? "Ocultar" : "Ver"} transações-chave ({a.n_transacoes})
               </button>
               {verTx && <TransacoesViewer analiseId={a.id} />}
+            </div>
+          )}
+
+          {docs.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5 flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5" /> Extratos analisados
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {docs.map((d, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-[11px] text-foreground/80 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1">
+                    <FileText className="h-3 w-3 text-muted-foreground" /> {d.name || "documento"}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
