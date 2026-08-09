@@ -11,7 +11,9 @@ import {
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
   Scale, CalendarDays, ClipboardList, X, ChevronRight, SearchX,
+  Landmark, Utensils, Car, Home, GraduationCap, HeartPulse, CreditCard, Receipt, Banknote, ArrowLeftRight, Circle,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
   financeira:      { label: "Financeira",      cls: "text-rose-400 bg-rose-500/12 ring-rose-500/25" },
@@ -30,6 +32,23 @@ const RISCO: Record<string, { label: string; text: string; ring: string; bar: st
   critico: { label: "Crítico", text: "text-rose-400",    ring: "ring-rose-500/25 bg-rose-500/12",       bar: "bg-rose-400" },
 };
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Categoria da transação (ícone + cor), inferida da descrição.
+interface Cat { key: string; label: string; Icon: LucideIcon; cls: string; }
+const CATS: { test: RegExp; cat: Cat }[] = [
+  { test: /SALARIO|BENEFICIO|APOSENTAD|\bINSS\b|PREFEITURA|PENSAO|PROVENTO|VENCIMENTO|BOLSA FAMILIA|AUXILIO/i, cat: { key: "renda", label: "Renda/benefício", Icon: Landmark, cls: "text-emerald-400" } },
+  { test: /MERCAD|SUPERMERC|PADARIA|ACOUGUE|IFOOD|RESTAURANT|LANCHON|ALIMENT|HORTIFRUT|ATACAD/i, cat: { key: "alimentacao", label: "Alimentação", Icon: Utensils, cls: "text-orange-400" } },
+  { test: /POSTO|COMBUST|GASOLINA|\bUBER\b|\b99\b|TAXI|ONIBUS|PASSAGEM|PEDAGIO|ESTACIONAM|\bIPVA\b/i, cat: { key: "transporte", label: "Transporte", Icon: Car, cls: "text-sky-400" } },
+  { test: /ALUGUEL|CONDOMIN|ENERGIA|CEMIG|COPASA|\bLUZ\b|\bAGUA\b|\bGAS\b|INTERNET|\bIPTU\b|MORADIA|CLARO|VIVO|\bTIM\b/i, cat: { key: "moradia", label: "Moradia/contas", Icon: Home, cls: "text-amber-400" } },
+  { test: /ESCOLA|FACULD|UNIVERS|COLEGIO|MENSALIDADE|\bCURSO\b|EDUCAC|CRECHE/i, cat: { key: "escola", label: "Educação", Icon: GraduationCap, cls: "text-violet-400" } },
+  { test: /FARMAC|DROGA|HOSPITAL|CLINICA|MEDIC|LABORAT|SAUDE|UNIMED|ODONTO|AMIL|HAPVIDA/i, cat: { key: "saude", label: "Saúde", Icon: HeartPulse, cls: "text-rose-400" } },
+  { test: /EMPRESTIMO|CONSIGNAD|FINANCIAMENTO|PARCELA|CREDIARIO|CARTAO|FATURA|CREFISA|\bBMG\b|AGIBANK/i, cat: { key: "credito", label: "Crédito/dívida", Icon: CreditCard, cls: "text-rose-400" } },
+  { test: /TARIFA|\bTAXA\b|MANUTENC|CESTA|ANUIDADE|\bIOF\b|PACOTE SERV/i, cat: { key: "tarifa", label: "Tarifa bancária", Icon: Receipt, cls: "text-muted-foreground" } },
+  { test: /SAQUE|CORBAN|CAIXA ELETR|\bSAQ\b/i, cat: { key: "saque", label: "Saque", Icon: Banknote, cls: "text-amber-400" } },
+  { test: /\bPIX\b|\bTED\b|\bDOC\b|TRANSFER/i, cat: { key: "transferencia", label: "Transferência", Icon: ArrowLeftRight, cls: "text-primary" } },
+];
+const CAT_OUTRO: Cat = { key: "outro", label: "Outro", Icon: Circle, cls: "text-muted-foreground" };
+const categoria = (desc: string): Cat => { const d = String(desc || ""); for (const c of CATS) if (c.test.test(d)) return c.cat; return CAT_OUTRO; };
 
 interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; }
 interface DriveFile { id: string; name: string; mimeType: string; }
@@ -510,13 +529,29 @@ const FEED_STYLE: Record<string, { cls: string; sig: string }> = {
   done: { cls: "text-primary font-medium", sig: "★" },
 };
 
-function FeedBody({ feed }: { feed: Array<{ msg: string; kind: string }> }) {
+function FeedBody({ feed }: { feed: Array<any> }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [feed.length]);
   return (
     <div ref={ref} className="font-mono text-[11.5px] leading-relaxed p-4 flex-1 overflow-y-auto scrollbar-thin space-y-0.5">
       {feed.length === 0 && <div className="text-muted-foreground/60">Iniciando...</div>}
       {feed.map((f, i) => {
+        if (f.kind === "tx" && f.desc !== undefined) {
+          const cat = categoria(f.desc);
+          const CatIcon = cat.Icon;
+          const pos = f.sinal > 0;
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              {pos ? <ArrowUpRight className="h-3 w-3 text-emerald-400 shrink-0" /> : <ArrowDownRight className="h-3 w-3 text-rose-400 shrink-0" />}
+              <CatIcon className={`h-3 w-3 shrink-0 ${cat.cls}`} />
+              <span className="text-muted-foreground/60 tabular-nums shrink-0">{f.data}</span>
+              <span className="text-muted-foreground truncate flex-1">{f.desc}</span>
+              <span className={`tabular-nums shrink-0 ${pos ? "text-emerald-400/90" : "text-rose-400/90"}`}>
+                {pos ? "+" : "-"}{f.valor != null ? fmtBRL(Math.abs(Number(f.valor))) : ""}
+              </span>
+            </div>
+          );
+        }
         const st = FEED_STYLE[f.kind] || FEED_STYLE.step;
         return (
           <div key={i} className={st.cls}>
@@ -884,19 +919,28 @@ function TransacoesViewer({ analiseId }: { analiseId: string }) {
     <div className="mt-2 rounded-lg border border-white/[0.06] overflow-hidden max-h-72 overflow-y-auto scrollbar-thin">
       <table className="w-full text-[11px]">
         <tbody>
-          {tx.map((t, i) => (
-            <tr key={i} className="border-b border-white/[0.04]">
-              <td className="px-2 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{t.data}</td>
-              <td className="px-2 py-1 truncate max-w-[220px]">{t.descricao}</td>
-              <td className={`px-2 py-1 text-right tabular-nums whitespace-nowrap ${t.sinal < 0 ? "text-rose-400" : "text-emerald-400"}`}>
-                <span className="inline-flex items-center gap-0.5 justify-end">
-                  {t.sinal < 0 ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
-                  {t.valor != null ? fmtBRL(Number(t.valor)) : "-"}
-                </span>
-              </td>
-              <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-muted-foreground">{t.saldo != null ? fmtBRL(Number(t.saldo)) : ""}</td>
-            </tr>
-          ))}
+          {tx.map((t, i) => {
+            const cat = categoria(t.descricao);
+            const CatIcon = cat.Icon;
+            return (
+              <tr key={i} className="border-b border-white/[0.04]">
+                <td className="px-2 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{t.data}</td>
+                <td className="px-2 py-1">
+                  <span className="inline-flex items-center gap-1.5 max-w-[220px]">
+                    <CatIcon className={`h-3.5 w-3.5 shrink-0 ${cat.cls}`} />
+                    <span className="truncate">{t.descricao}</span>
+                  </span>
+                </td>
+                <td className={`px-2 py-1 text-right tabular-nums whitespace-nowrap ${t.sinal < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  <span className="inline-flex items-center gap-0.5 justify-end">
+                    {t.sinal < 0 ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+                    {t.valor != null ? fmtBRL(Number(t.valor)) : "-"}
+                  </span>
+                </td>
+                <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-muted-foreground">{t.saldo != null ? fmtBRL(Number(t.saldo)) : ""}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

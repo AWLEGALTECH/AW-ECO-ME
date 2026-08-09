@@ -207,8 +207,8 @@ async function estaViva(s: any, id: string): Promise<boolean> {
 
 async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; mimeType?: string }>) {
   const s = sb();
-  const feed: Array<{ msg: string; kind: string }> = [];
-  const prog = async (etapa: string, pct: number, detalhe: string, add?: { msg: string; kind: string } | Array<{ msg: string; kind: string }>) => {
+  const feed: Array<any> = [];
+  const prog = async (etapa: string, pct: number, detalhe: string, add?: any) => {
     if (add) for (const m of (Array.isArray(add) ? add : [add])) feed.push(m);
     await s.from("spy_analise").update({ progresso: { etapa, pct, detalhe, feed: feed.slice(-60) } }).eq("id", analiseId);
   };
@@ -236,11 +236,15 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       done++;
       if (parsed) {
         const ntx = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave.length : 0;
-        const add: Array<{ msg: string; kind: string }> = [{ msg: `${f.name}: ${parsed.periodo || "período"} · ${ntx} transações-chave · risco ${parsed.risco_geral || "?"}`, kind: "ok" }];
+        const add: Array<any> = [{ msg: `${f.name}: ${parsed.periodo || "período"} · ${ntx} transações-chave · risco ${parsed.risco_geral || "?"}`, kind: "ok" }];
         for (const t of (parsed.transacoes_chave || []).slice(0, 6)) {
-          const sinal = t.sinal === 1 ? "+" : "-";
-          const val = typeof t.valor === "number" ? t.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "";
-          add.push({ msg: `${t.data || ""}  ${String(t.descricao || "").slice(0, 40)}  ${sinal}R$ ${val}`, kind: "tx" });
+          add.push({
+            kind: "tx",
+            data: t.data || "",
+            desc: String(t.descricao || "").slice(0, 48),
+            valor: typeof t.valor === "number" ? t.valor : null,
+            sinal: t.sinal === 1 ? 1 : -1,
+          });
         }
         await prog("analisando", 20 + Math.round((done / n) * 55), `Lido ${f.name}`, add);
       } else {
