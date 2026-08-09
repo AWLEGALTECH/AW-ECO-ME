@@ -198,6 +198,13 @@ Regras: use SOMENTE os fatos fornecidos; toda inferência é PROBABILÍSTICA (us
 
 const ORDEM_RISCO: Record<string, number> = { baixo: 1, medio: 2, alto: 3, critico: 4 };
 
+// A análise segue viva enquanto a linha existe e está 'processando'. Se o usuário
+// cancelar (a linha é removida ou muda de status), a pipeline aborta.
+async function estaViva(s: any, id: string): Promise<boolean> {
+  const { data } = await s.from("spy_analise").select("status").eq("id", id).maybeSingle();
+  return !!data && data.status === "processando";
+}
+
 async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; mimeType?: string }>) {
   const s = sb();
   const feed: Array<{ msg: string; kind: string }> = [];
@@ -216,6 +223,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     await prog("analisando", 20, `Lendo extratos (0/${n})`);
     const perFile: Array<{ name: string; parsed: any }> = [];
     for (const f of baixados) {
+      if (!(await estaViva(s, analiseId))) return; // cancelada
       await prog("analisando", 20 + Math.round((done / n) * 55), `Lendo ${f.name}`, { msg: `Lendo ${f.name}...`, kind: "step" });
       let parsed: any = null;
       try {
@@ -253,6 +261,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     let relatorio: string | null = null;
     let riscoLabel = "";
     let sintErro: string | null = null;
+    if (!(await estaViva(s, analiseId))) return; // cancelada antes da síntese
     if (oks.length) {
       await prog("sintetizando", 82, n > 1 ? `Cruzando ${oks.length} períodos num só perfil` : "Montando o dossiê",
         { msg: n > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
@@ -274,6 +283,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     }
     const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
 
+    if (!(await estaViva(s, analiseId))) return; // cancelada antes de gravar
     feed.push({ msg: `Concluído · ${txs.length} transações · ${flags.length} marcadores`, kind: "done" });
     await s.from("spy_analise").update({
       status: "concluida", relatorio, resumo, erro: sintErro,
@@ -327,6 +337,11 @@ Deno.serve(async (req: Request) => {
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);
     if (arquivos.length > 8) return j({ error: "máximo de 8 documentos por análise" }, 400);
     if (!Deno.env.get("OPENAI_API_KEY")) return j({ error: "OPENAI_API_KEY nao configurado" }, 500);
+
+    // Idempotência: se já existe uma análise rodando pra esse cliente, devolve ela
+    // (evita duplicatas por duplo-clique/duplo-disparo).
+    const { data: jaRodando } = await sb().from("spy_analise").select("id").eq("cliente_id", clienteId).eq("status", "processando").limit(1).maybeSingle();
+    if (jaRodando?.id) return j({ ok: true, analise_id: jaRodando.id, background: true, ja_existia: true }, 202);
 
     const { data: novo, error } = await sb().from("spy_analise").insert({
       cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),

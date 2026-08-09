@@ -10,7 +10,7 @@ import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
-  Scale, CalendarDays, ClipboardList,
+  Scale, CalendarDays, ClipboardList, X, ChevronRight,
 } from "lucide-react";
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
@@ -164,6 +164,7 @@ function IntelPanel({ totalClientes, comPasta, clientes, onOpen }: { totalClient
   });
 
   const emAndamento = useMemo(() => rows.filter((r) => r.status === "processando"), [rows]);
+  const feitas = useMemo(() => rows.filter((r) => r.status === "concluida"), [rows]);
   const clienteDe = (id: string) => clientes.find((c) => c.id === id) || null;
 
   const stats = useMemo(() => {
@@ -259,6 +260,30 @@ function IntelPanel({ totalClientes, comPasta, clientes, onOpen }: { totalClient
               </div>
             )}
 
+            {feitas.length > 0 && (
+              <div className="mt-6">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Análises feitas ({feitas.length})</p>
+                <div className="space-y-1.5 max-h-[42vh] overflow-y-auto scrollbar-thin">
+                  {feitas.map((r) => {
+                    const c = clienteDe(r.cliente_id);
+                    const risco = (r.resumo?.risco_geral || "").toLowerCase();
+                    const rm = RISCO[risco];
+                    return (
+                      <button key={r.id} disabled={!c} onClick={() => c && onOpen(c, null)}
+                        className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:border-primary/40 transition-colors flex items-center justify-between gap-2 disabled:opacity-60">
+                        <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          {rm && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 ${rm.text} ${rm.ring}`}>{rm.label}</span>}
+                          <span className="text-[10px] text-muted-foreground tabular-nums hidden sm:inline">{new Date(r.created_at).toLocaleDateString("pt-BR")}</span>
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {stats.feitas === 0 && (
               <p className="text-sm text-muted-foreground mt-8 text-center">
                 Nenhuma análise ainda. Selecione um cliente e rode a primeira; o radar começa a preencher aqui.
@@ -287,6 +312,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
   const [mostrarDocs, setMostrarDocs] = useState(false);
   const [foco, setFoco] = useState<string | null>(initialFoco || null);
+  const [enviando, setEnviando] = useState(false);
   const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
@@ -358,19 +384,34 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const toggleFile = (id: string) => setSelFiles((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const analisar = async () => {
+    if (enviando) return; // trava contra duplo-disparo
     const arquivos = (drive || []).filter((f) => selFiles.has(f.id)).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
     if (!arquivos.length) { toast.error("Selecione ao menos um extrato."); return; }
-    const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
-    if (error) { toast.error("Não consegui iniciar a análise."); return; }
-    setMostrarDocs(false);
+    setEnviando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
+      if (error) { toast.error("Não consegui iniciar a análise."); return; }
+      setMostrarDocs(false);
+      qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
+      const novoId = (data as any)?.analise_id || null;
+      if (novoId) setFoco(novoId);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const cancelarAnalise = async (id: string) => {
+    setFoco(null);
+    await (supabase.from("spy_analise" as any) as any).delete().eq("id", id);
     qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
-    const novoId = (data as any)?.analise_id || null;
-    if (novoId) setFoco(novoId);
+    qc.invalidateQueries({ queryKey: ["spy-stats"] });
+    qc.invalidateQueries({ queryKey: ["spy-processando"] });
+    toast.success("Análise cancelada.");
   };
 
   // TELA CHEIA: análise em trâmite (estilo Finder).
   if (focoAnalise && focoAnalise.status === "processando") {
-    return <AnaliseTelaCheia cliente={cliente} a={focoAnalise} onBackground={() => setFoco(null)} />;
+    return <AnaliseTelaCheia cliente={cliente} a={focoAnalise} onBackground={() => setFoco(null)} onCancel={() => cancelarAnalise(focoAnalise.id)} />;
   }
 
   return (
@@ -394,10 +435,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       <FichaCliente ficha={ficha} />
 
       {rodando ? (
-        <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} />
+        <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} onCancel={() => cancelarAnalise(rodando.id)} />
       ) : mostrarDocs ? (
         <DocPicker
-          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima}
+          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando}
           selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()}
           onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
         />
@@ -410,38 +451,30 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   );
 }
 
-// Cantoneiras (brackets) nos cantos, cara de painel de comando.
-function Corners() {
-  const base = "absolute h-3 w-3 border-primary/40 pointer-events-none";
-  return (
-    <>
-      <span className={`${base} left-2 top-2 border-l border-t`} />
-      <span className={`${base} right-2 top-2 border-r border-t`} />
-      <span className={`${base} left-2 bottom-2 border-l border-b`} />
-      <span className={`${base} right-2 bottom-2 border-r border-b`} />
-    </>
-  );
-}
-
 // Tela cheia dedicada à análise em trâmite: console com radar e feed lado a lado.
-function AnaliseTelaCheia({ cliente, a, onBackground }: { cliente: Cliente; a: Analise; onBackground: () => void }) {
+function AnaliseTelaCheia({ cliente, a, onBackground, onCancel }: { cliente: Cliente; a: Analise; onBackground: () => void; onCancel: () => void }) {
   const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
   const feed: Array<{ msg: string; kind: string }> = Array.isArray(a.progresso?.feed) ? a.progresso.feed : [];
+  const cancelar = () => { if (window.confirm("Cancelar esta análise? O progresso é descartado.")) onCancel(); };
   return (
     <div className="spy-lock space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5 font-mono">
           <Activity className="h-3.5 w-3.5" /> Análise em andamento
         </p>
-        <Button variant="outline" size="sm" onClick={onBackground} className="gap-1.5 h-8">
-          <ArrowLeft className="h-3.5 w-3.5" /> Rodar em segundo plano
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={cancelar} className="gap-1.5 h-8 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10">
+            <X className="h-3.5 w-3.5" /> Cancelar
+          </Button>
+          <Button variant="outline" size="sm" onClick={onBackground} className="gap-1.5 h-8">
+            <ArrowLeft className="h-3.5 w-3.5" /> Rodar em segundo plano
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,400px),1fr] gap-4 items-stretch">
         {/* Painel do radar */}
         <div className="spy-scan spy-grid relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-6 flex flex-col items-center justify-center text-center min-h-[56vh]">
-          <Corners />
           <RadarViz size={150} />
           <h2 className="text-lg font-semibold mt-5 font-mono tracking-tight break-words max-w-full">{cliente.nome}</h2>
           <p className="text-sm text-foreground/80 mt-1">{a.progresso?.detalhe || "Vasculhando os extratos…"}</p>
@@ -456,16 +489,10 @@ function AnaliseTelaCheia({ cliente, a, onBackground }: { cliente: Cliente; a: A
         </div>
 
         {/* Console do feed */}
-        <div className="relative rounded-2xl border border-white/[0.08] bg-black/50 overflow-hidden flex flex-col min-h-[56vh]">
-          <Corners />
-          <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+        <div className="rounded-2xl border border-white/[0.08] bg-black/50 overflow-hidden flex flex-col min-h-[56vh]">
+          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono inline-flex items-center gap-1.5">
               <ScanLine className="h-3.5 w-3.5" /> Vasculhando
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-rose-400/60" />
-              <span className="h-2 w-2 rounded-full bg-amber-400/60" />
-              <span className="h-2 w-2 rounded-full bg-emerald-400/60" />
             </span>
           </div>
           <FeedBody feed={feed} />
@@ -503,25 +530,31 @@ function FeedBody({ feed }: { feed: Array<{ msg: string; kind: string }> }) {
 }
 
 // Banner compacto quando há uma análise rodando e o usuário está na página do cliente.
-function BannerRodando({ a, onOpen }: { a: Analise; onOpen: () => void }) {
+function BannerRodando({ a, onOpen, onCancel }: { a: Analise; onOpen: () => void; onCancel: () => void }) {
   const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
+  const cancelar = () => { if (window.confirm("Cancelar esta análise? O progresso é descartado.")) onCancel(); };
   return (
-    <button onClick={onOpen} className="spy-scan relative overflow-hidden w-full text-left rounded-2xl border border-primary/25 bg-primary/[0.04] p-4 flex items-center gap-4 hover:border-primary/40 transition-colors">
-      <RadarViz size={56} blips={false} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" />
-          <span className="text-sm font-medium truncate">{a.progresso?.detalhe || "Analisando…"}</span>
+    <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-4 flex items-center gap-4">
+      <button onClick={onOpen} className="flex items-center gap-4 flex-1 min-w-0 text-left">
+        <RadarViz size={56} blips={false} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" />
+            <span className="text-sm font-medium truncate">{a.progresso?.detalhe || "Analisando…"}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
+            <span>Toque para ver ao vivo</span>
+            <span className="inline-flex items-center gap-2"><span className="tabular-nums text-primary/80">{pct}%</span><Elapsed from={a.created_at} /></span>
+          </div>
         </div>
-        <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
-          <span>Toque para ver ao vivo</span>
-          <span className="inline-flex items-center gap-2"><span className="tabular-nums text-primary/80">{pct}%</span><Elapsed from={a.created_at} /></span>
-        </div>
-      </div>
-    </button>
+      </button>
+      <button onClick={cancelar} title="Cancelar análise" className="shrink-0 text-rose-400 hover:text-rose-300 p-1.5 rounded-md hover:bg-rose-500/10 transition-colors">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
@@ -542,8 +575,8 @@ function SemAnalise({ onStart }: { onStart: () => void }) {
 }
 
 // Seleção dos extratos (revelada pelo botão, com os extratos já pré-marcados).
-function DocPicker({ cliente, drive, loading, err, temAnalise, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
-  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean;
+function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
+  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean; enviando?: boolean;
   selFiles: Set<string>; onToggle: (id: string) => void; onRefetch: () => void; onAnalisar: () => void; onCancel: () => void;
 }) {
   return (
@@ -589,8 +622,9 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, selFiles, onToggl
           </div>
           <div className="flex items-center justify-between mt-3">
             <p className="text-[11px] text-muted-foreground">Os extratos já vêm marcados. Ajuste se quiser.</p>
-            <Button onClick={onAnalisar} disabled={selFiles.size === 0} className="gap-1.5">
-              <ScanLine className="h-4 w-4" /> {temAnalise ? "Regenerar" : "Analisar"} {selFiles.size > 0 ? `(${selFiles.size})` : ""}
+            <Button onClick={onAnalisar} disabled={selFiles.size === 0 || enviando} className="gap-1.5">
+              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+              {temAnalise ? "Regenerar" : "Analisar"} {selFiles.size > 0 ? `(${selFiles.size})` : ""}
             </Button>
           </div>
         </>
