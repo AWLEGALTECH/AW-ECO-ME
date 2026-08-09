@@ -340,4 +340,35 @@ html, body, #root {
   @keyframes status-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
   .status-blink { animation: status-blink 2.4s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .status-blink { animation: none; } }
+
+  /* ── AW SPY — clima de radar/espionagem ──────────────────────────────── */
+  /* Varredura giratória do radar (o "feixe" que roda). */
+  @keyframes spy-sweep { to { transform: rotate(360deg); } }
+  .spy-sweep { animation: spy-sweep 3.2s linear infinite; transform-origin: center; }
+
+  /* Anéis de ping que expandem do centro (pulso do radar). */
+  @keyframes spy-ping { 0% { transform: scale(0.35); opacity: 0.55; } 80% { opacity: 0; } 100% { transform: scale(1); opacity: 0; } }
+  .spy-ping { animation: spy-ping 2.6s ease-out infinite; transform-origin: center; }
+
+  /* Scanline que desce sobre a área em análise. */
+  @keyframes spy-scan { 0% { top: -12%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { top: 112%; opacity: 0; } }
+  .spy-scan::after {
+    content: ""; position: absolute; left: 0; right: 0; height: 34%;
+    background: linear-gradient(180deg, transparent, hsl(var(--primary) / 0.10) 45%, hsl(var(--primary) / 0.22), transparent);
+    animation: spy-scan 2.4s ease-in-out infinite; pointer-events: none;
+  }
+
+  /* Blip que pisca (alvo detectado). */
+  @keyframes spy-blip { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.15); } }
+  .spy-blip { animation: spy-blip 1.6s ease-in-out infinite; }
+
+  /* Mira "travando no alvo" quando o cliente toma a tela. */
+  @keyframes spy-lock { 0% { transform: scale(1.06); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+  .spy-lock { animation: spy-lock 0.42s cubic-bezier(0.16,1,0.3,1) both; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spy-sweep, .spy-ping, .spy-blip { animation: none; }
+    .spy-scan::after { animation: none; opacity: 0; }
+    .spy-lock { animation: none; }
+  }
 }
