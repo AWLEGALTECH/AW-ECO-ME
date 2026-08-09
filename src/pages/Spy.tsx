@@ -96,19 +96,14 @@ export default function Spy() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-5">
-      <header className="flex items-center gap-3">
-        <div className="relative shrink-0">
-          <RadarViz size={44} blips={false} />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            Spy
-            <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">beta</span>
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano — você pode navegar pelo Eco enquanto o radar trabalha.
-          </p>
-        </div>
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          Spy
+          <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">beta</span>
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano — você pode navegar pelo Eco enquanto o radar trabalha.
+        </p>
       </header>
 
       {sel ? (
@@ -181,22 +176,21 @@ function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPas
   const totalRisco = stats.risco.baixo + stats.risco.medio + stats.risco.alto + stats.risco.critico;
 
   return (
-    <div className="relative rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.03] to-transparent overflow-hidden min-h-[76vh] p-6">
-      {/* radar de fundo, "vasculhando" */}
-      <div className="pointer-events-none absolute -right-16 -top-16 opacity-[0.10]">
-        <RadarViz size={340} blips={false} />
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] min-h-[60vh] p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5" /> Central de inteligência
+          </p>
+          <h2 className="text-lg font-semibold mt-1">Radar do Spy</h2>
+          <p className="text-sm text-muted-foreground mt-0.5 max-w-md">
+            O cruzamento de tudo que o Spy já analisou. Selecione um cliente à esquerda pra abrir o dossiê dele.
+          </p>
+        </div>
+        <RadarViz size={30} blips={false} className="shrink-0 opacity-50 hidden sm:block" />
       </div>
 
-      <div className="relative">
-        <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5" /> Central de inteligência
-        </p>
-        <h2 className="text-lg font-semibold mt-1">Radar do Spy</h2>
-        <p className="text-sm text-muted-foreground mt-0.5 max-w-md">
-          O cruzamento de tudo que o Spy já analisou. Selecione um cliente à esquerda pra abrir o dossiê dele.
-        </p>
-
-        {isLoading ? (
+      {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-16 justify-center">
             <Loader2 className="h-4 w-4 animate-spin" /> Reunindo os dados…
           </div>
@@ -241,7 +235,6 @@ function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPas
             )}
           </>
         )}
-      </div>
     </div>
   );
 }
