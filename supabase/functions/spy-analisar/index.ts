@@ -1,14 +1,12 @@
 // spy-analisar (AW SPY, análise em segundo plano). Motor: OpenAI
 //
-// Duas etapas (cabe no tempo da função serverless):
-//   1) EXTRAÇÃO por extrato (um PDF por chamada, SEQUENCIAL): a IA lê o PDF e
-//      devolve FATOS densos + flags + transações-CHAVE.
-//   2) SÍNTESE (uma chamada, só texto): recebe os fatos de TODOS os períodos e
-//      escreve UM ÚNICO dossiê contínuo, cruzando os anos.
+// Lê TODOS os extratos, mesmo que sejam muitos: a análise SE CONTINUA sozinha.
+// Cada janela da função (~2 min) lê 1-2 extratos, salva o progresso em
+// spy_analise.parciais e, se sobraram extratos, reinicia a si mesma (retomar)
+// para continuar. Quando todos foram lidos, cruza tudo num único dossiê.
 //
-// Progresso em spy_analise.progresso (o front faz polling): { etapa, pct,
-// detalhe, feed[] } onde feed é o "diário" ao vivo da análise (estilo terminal).
-// Roda via EdgeRuntime.waitUntil; retorna 202 na hora.
+// Progresso em spy_analise.progresso { etapa, pct, detalhe, feed[] } (o front
+// faz polling). Roda via EdgeRuntime.waitUntil; retorna 202 na hora.
 // Secrets: GOOGLE_SA_JSON, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -62,7 +60,6 @@ async function baixar(fileId: string, token: string): Promise<ArrayBuffer> {
 // ── OpenAI (Responses API, aceita PDF via input_file) ────────────────────────
 const EIXOS = ["financeira", "credores", "produtos", "consumo", "vulnerabilidade", "perfil", "temporal"];
 
-// Etapa 1: extração de FATOS por extrato.
 const SCHEMA_EXTRACAO = {
   type: "json_schema", name: "extracao_spy", strict: true,
   schema: {
@@ -100,7 +97,6 @@ const SCHEMA_EXTRACAO = {
   },
 };
 
-// Etapa 2: síntese num único dossiê contínuo.
 const SCHEMA_DOSSIE = {
   type: "json_schema", name: "dossie_spy", strict: true,
   schema: {
@@ -159,7 +155,6 @@ function normalizeDate(v: any): string | null {
   return null;
 }
 
-// Etapa 1: extração de fatos densos de UM extrato.
 const PROMPT_EXTRACAO = `Você é o motor de extração do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. NÃO escreva um texto bonito ainda: sua função é EXTRAIR os fatos crus e específicos desse extrato, para que uma etapa posterior cruze vários períodos e escreva o dossiê.
 
 Preencha "periodo" com o intervalo do extrato (ex.: "2022", "jan-dez/2023", ou o mês/ano que constar).
@@ -187,7 +182,6 @@ Regras: use SOMENTE o que o extrato mostra; cite valores e datas; NÃO invente; 
 
 Também devolva: risco_geral desse período; flags (uma por achado concreto, com eixo, codigo curto, confianca 0..1 e evidencia com datas/valores); e transacoes_chave (ATÉ 25 mais relevantes: crédito, recorrentes, valores altos, NÃO a lista inteira). Datas em AAAA-MM-DD. sinal: 1 crédito, -1 débito. valor sempre positivo.`;
 
-// Etapa 2: síntese de um dossiê contínuo a partir dos fatos de todos os períodos.
 const PROMPT_SINTESE = `Você é o analista do AW SPY, de um escritório de advocacia do consumidor. Abaixo estão FATOS extraídos de um ou mais extratos bancários da MESMA pessoa, em períodos diferentes (anos/meses). Trate tudo como UMA ÚNICA LINHA CONTÍNUA de entendimento sobre essa pessoa.
 
 Escreva em "relatorio" UM ÚNICO dossiê profundo e humano, corrido e específico (não use tópicos rígidos, não separe por ano com cabeçalhos, não seja robótico). Uma pessoa lendo deve sentir que conhece o indivíduo. Cubra, sempre que os dados sustentarem:
@@ -210,106 +204,114 @@ async function estaViva(s: any, id: string): Promise<boolean> {
   return !!data && data.status === "processando";
 }
 
+// Reinicia a própria função para continuar os extratos que faltam (nova janela).
+async function autoContinuar(analiseId: string, clienteId: string, arquivos: any[]) {
+  try {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/spy-analisar`;
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+      body: JSON.stringify({ retomar: analiseId, cliente_id: clienteId, arquivos }),
+    });
+  } catch (_e) { /* se falhar, a stale-idempotência recupera numa próxima */ }
+}
+
 async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; mimeType?: string }>) {
   const s = sb();
-  const feed: Array<any> = [];
+  const { data: row0 } = await s.from("spy_analise").select("parciais, progresso, status").eq("id", analiseId).maybeSingle();
+  if (!row0 || row0.status !== "processando") return; // cancelada/removida
+  const parciais: any[] = Array.isArray(row0.parciais) ? row0.parciais : [];
+  const feed: any[] = Array.isArray(row0.progresso?.feed) ? row0.progresso.feed.slice() : [];
+  const feitos = new Set(parciais.map((p) => p.name));
+  const total = arquivos.length;
+
   const prog = async (etapa: string, pct: number, detalhe: string, add?: any) => {
     if (add) for (const m of (Array.isArray(add) ? add : [add])) feed.push(m);
-    await s.from("spy_analise").update({ progresso: { etapa, pct, detalhe, feed: feed.slice(-60) } }).eq("id", analiseId);
+    await s.from("spy_analise").update({ progresso: { etapa, pct, detalhe, feed: feed.slice(-80) }, updated_at: new Date().toISOString() }).eq("id", analiseId);
   };
-  try {
-    await prog("baixando", 10, "Conectando ao Drive", { msg: "Conectando ao Google Drive", kind: "step" });
-    const token = await getToken();
-    const baixados = await Promise.all(arquivos.map(async (a) => ({ name: a.name, mime: a.mimeType || "application/pdf", buf: await baixar(a.id, token) })));
-    await prog("baixando", 16, `Baixados ${baixados.length} extrato(s)`, { msg: `Baixados ${baixados.length} arquivo(s) do Drive`, kind: "ok" });
+  const salvarParciais = async () => { await s.from("spy_analise").update({ parciais }).eq("id", analiseId); };
+  const pctLidos = () => 18 + Math.round((parciais.length / Math.max(1, total)) * 58);
 
-    // Etapa 1: um PDF por chamada, SEQUENCIAL (evita o teto de tokens/min da OpenAI).
-    // Rede de segurança de tempo: perto do teto (~150s) da função, para e sintetiza
-    // o que já leu, em vez de travar no meio. Cada PDF via IA leva ~40-90s.
-    const INICIO = Date.now();
-    const LIMITE_MS = 125000;
-    const n = baixados.length; let done = 0;
-    await prog("analisando", 20, `Lendo extratos (0/${n})`);
-    const perFile: Array<{ name: string; parsed: any }> = [];
-    for (const f of baixados) {
-      if (!(await estaViva(s, analiseId))) return; // cancelada
-      if (done > 0 && Date.now() - INICIO > LIMITE_MS) {
-        const restantes = baixados.slice(done).map((x) => x.name).join(", ");
-        await prog("analisando", 78, "Tempo limite, sintetizando o que já foi lido", { msg: `Tempo limite: ${n - done} extrato(s) não couberam (${restantes}). Rode em partes ou regenere com menos.`, kind: "warn" });
-        break;
-      }
-      await prog("analisando", 20 + Math.round((done / n) * 55), `Lendo ${f.name}`, { msg: `Lendo ${f.name}...`, kind: "step" });
-      let parsed: any = null;
-      try {
-        const content = [
-          { type: "input_text", text: PROMPT_EXTRACAO },
-          { type: "input_file", filename: f.name, file_data: `data:${f.mime};base64,${toBase64(f.buf)}` },
-        ];
-        parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO));
-      } catch (_e) { parsed = null; }
-      done++;
-      if (parsed) {
-        const ntx = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave.length : 0;
-        const add: Array<any> = [{ msg: `${f.name}: ${parsed.periodo || "período"} · ${ntx} transações-chave · risco ${parsed.risco_geral || "?"}`, kind: "ok" }];
-        for (const t of (parsed.transacoes_chave || []).slice(0, 6)) {
-          add.push({
-            kind: "tx",
-            data: t.data || "",
-            desc: String(t.descricao || "").slice(0, 48),
-            valor: typeof t.valor === "number" ? t.valor : null,
-            sinal: t.sinal === 1 ? 1 : -1,
-          });
+  try {
+    if (parciais.length === 0) await prog("baixando", 8, "Conectando ao Drive", { msg: "Conectando ao Google Drive", kind: "step" });
+
+    const pendentes = arquivos.filter((a) => !feitos.has(a.name));
+    if (pendentes.length > 0) {
+      const token = await getToken();
+      const INICIO = Date.now();
+      const LIMITE_MS = 110000; // janela: para antes do teto e continua em outra
+      for (const a of pendentes) {
+        if (!(await estaViva(s, analiseId))) return; // cancelada
+        if (parciais.length > 0 && Date.now() - INICIO > LIMITE_MS) {
+          await prog("analisando", pctLidos(), `Continuando (${parciais.length}/${total})`,
+            { msg: `Pausa técnica: já li ${parciais.length}/${total}, continuando os demais...`, kind: "step" });
+          await salvarParciais();
+          await autoContinuar(analiseId, clienteId, arquivos);
+          return; // a próxima janela assume
         }
-        await prog("analisando", 20 + Math.round((done / n) * 55), `Lido ${f.name}`, add);
-      } else {
-        await prog("analisando", 20 + Math.round((done / n) * 55), `Falha ao ler ${f.name}`, { msg: `${f.name}: não consegui ler`, kind: "warn" });
+        await prog("analisando", pctLidos(), `Lendo ${a.name}`, { msg: `Lendo ${a.name}...`, kind: "step" });
+        let parsed: any = null;
+        try {
+          const buf = await baixar(a.id, token);
+          const content = [
+            { type: "input_text", text: PROMPT_EXTRACAO },
+            { type: "input_file", filename: a.name, file_data: `data:${a.mimeType || "application/pdf"};base64,${toBase64(buf)}` },
+          ];
+          parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO));
+        } catch (_e) { parsed = null; }
+        if (parsed) {
+          parciais.push({ name: a.name, periodo: parsed.periodo || null, notas: parsed.notas || "", risco_geral: parsed.risco_geral || null, flags: parsed.flags || [], transacoes_chave: parsed.transacoes_chave || [] });
+          const ntx = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave.length : 0;
+          const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${ntx} transações-chave · risco ${parsed.risco_geral || "?"}`, kind: "ok" }];
+          for (const t of (parsed.transacoes_chave || []).slice(0, 6)) {
+            add.push({ kind: "tx", data: t.data || "", desc: String(t.descricao || "").slice(0, 48), valor: typeof t.valor === "number" ? t.valor : null, sinal: t.sinal === 1 ? 1 : -1 });
+          }
+          await prog("analisando", pctLidos(), `Lido ${a.name}`, add);
+        } else {
+          parciais.push({ name: a.name, falhou: true });
+          await prog("analisando", pctLidos(), `Falha ao ler ${a.name}`, { msg: `${a.name}: não consegui ler`, kind: "warn" });
+        }
+        await salvarParciais();
       }
-      perFile.push({ name: f.name, parsed });
     }
 
-    // Ordena os períodos cronologicamente (pelo nome do arquivo / periodo detectado).
-    const oks = perFile.filter((p) => p.parsed)
-      .sort((a, b) => String(a.parsed.periodo || a.name).localeCompare(String(b.parsed.periodo || b.name)));
+    // Todos os extratos lidos → síntese num único dossiê contínuo.
+    if (!(await estaViva(s, analiseId))) return;
+    const oks = parciais.filter((p) => !p.falhou)
+      .sort((x, y) => String(x.periodo || x.name).localeCompare(String(y.periodo || y.name)));
+    const flags = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : [])).slice(0, 100);
+    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes_chave) ? p.transacoes_chave : [])).slice(0, 200);
 
-    // Flags e transações-chave: união de todos os períodos.
-    const flags = oks.flatMap((p) => (Array.isArray(p.parsed.flags) ? p.parsed.flags : [])).slice(0, 80);
-    const txs = oks.flatMap((p) => (Array.isArray(p.parsed.transacoes_chave) ? p.parsed.transacoes_chave : [])).slice(0, 160);
-
-    // Etapa 2: síntese num único dossiê contínuo, cruzando todos os períodos.
     let relatorio: string | null = null;
     let riscoLabel = "";
     let sintErro: string | null = null;
-    if (!(await estaViva(s, analiseId))) return; // cancelada antes da síntese
     if (oks.length) {
-      await prog("sintetizando", 82, n > 1 ? `Cruzando ${oks.length} períodos num só perfil` : "Montando o dossiê",
-        { msg: n > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
-      const fatos = oks.map((p) => `### Período: ${p.parsed.periodo || p.name}\n${p.parsed.notas || ""}`).join("\n\n");
+      await prog("sintetizando", 84, oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil` : "Montando o dossiê",
+        { msg: oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
+      const fatos = oks.map((p) => `### Período: ${p.periodo || p.name}\n${p.notas || ""}`).join("\n\n");
       try {
         const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 6000, SCHEMA_DOSSIE));
         relatorio = dossie?.relatorio || null;
         riscoLabel = dossie?.risco_geral || "";
         if (!relatorio) sintErro = "sintese sem relatorio";
       } catch (e) { relatorio = null; sintErro = String((e as Error)?.message || e); }
-      if (!relatorio) {
-        relatorio = oks.map((p) => (n > 1 ? `## ${p.parsed.periodo || p.name}\n` : "") + (p.parsed.notas || "")).join("\n\n");
-      }
-      if (!riscoLabel) {
-        let maxR = 0;
-        for (const p of oks) { const ri = ORDEM_RISCO[p.parsed.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.parsed.risco_geral; } }
-      }
-      await prog("sintetizando", 90, "Dossiê gerado", { msg: `Dossiê gerado · risco ${riscoLabel || "?"}`, kind: "ok" });
+      if (!relatorio) relatorio = oks.map((p) => (oks.length > 1 ? `## ${p.periodo || p.name}\n` : "") + (p.notas || "")).join("\n\n");
+      if (!riscoLabel) { let maxR = 0; for (const p of oks) { const ri = ORDEM_RISCO[p.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.risco_geral; } } }
+      await prog("sintetizando", 92, "Dossiê gerado", { msg: `Dossiê gerado · risco ${riscoLabel || "?"}`, kind: "ok" });
     }
     const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
+    const naoLidos = parciais.filter((p) => p.falhou).length;
 
-    if (!(await estaViva(s, analiseId))) return; // cancelada antes de gravar
-    feed.push({ msg: `Concluído · ${txs.length} transações · ${flags.length} marcadores`, kind: "done" });
+    if (!(await estaViva(s, analiseId))) return;
+    feed.push({ msg: `Concluído · ${oks.length}/${total} extratos · ${txs.length} transações · ${flags.length} marcadores${naoLidos ? ` · ${naoLidos} não lido(s)` : ""}`, kind: "done" });
     await s.from("spy_analise").update({
       status: "concluida", relatorio, resumo, erro: sintErro,
-      n_transacoes: txs.length, progresso: { etapa: "concluida", pct: 100, detalhe: `${txs.length} transações-chave · ${flags.length} flags`, feed: feed.slice(-60) },
+      n_transacoes: txs.length, updated_at: new Date().toISOString(),
+      progresso: { etapa: "concluida", pct: 100, detalhe: `${txs.length} transações-chave · ${flags.length} flags`, feed: feed.slice(-80) },
     }).eq("id", analiseId);
 
     if (txs.length) {
-      const rows = txs.slice(0, 80).map((t: any) => ({
+      const rows = txs.slice(0, 120).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
         data: normalizeDate(t.data),
         valor: typeof t.valor === "number" ? Math.abs(t.valor) : null,
@@ -320,15 +322,14 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       if (eTx) { for (const row of rows) { await s.from("spy_transacao").insert(row); } }
     }
     if (flags.length) {
-      await s.from("spy_flag").insert(flags.slice(0, 60).map((f: any) => ({
+      await s.from("spy_flag").insert(flags.slice(0, 100).map((f: any) => ({
         analise_id: analiseId, cliente_id: clienteId, eixo: f.eixo || null, codigo: f.codigo || null, label: f.label || null,
         valor: f.valor && typeof f.valor === "object" ? f.valor : {}, confianca: typeof f.confianca === "number" ? f.confianca : null,
         origem: "llm", evidencia: f.evidencia || null,
       })));
     }
 
-    // Unicidade: esta análise passa a ser a ÚNICA do cliente. Regenerar = do zero,
-    // então as anteriores (e suas transações/flags) são removidas.
+    // Unicidade: esta análise passa a ser a ÚNICA do cliente.
     try {
       const { data: velhas } = await s.from("spy_analise").select("id").eq("cliente_id", clienteId).neq("id", analiseId);
       const ids = (velhas || []).map((v: any) => v.id);
@@ -337,10 +338,10 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         await s.from("spy_flag").delete().in("analise_id", ids);
         await s.from("spy_analise").delete().in("id", ids);
       }
-    } catch (_e) { /* limpeza best-effort, não derruba a análise */ }
+    } catch (_e) { /* limpeza best-effort */ }
   } catch (e) {
     feed.push({ msg: `Erro: ${String((e as Error)?.message || e).slice(0, 120)}`, kind: "warn" });
-    await sb().from("spy_analise").update({ status: "erro", erro: String((e as Error)?.message || e), progresso: { etapa: "erro", pct: 100, feed: feed.slice(-60) } }).eq("id", analiseId);
+    await sb().from("spy_analise").update({ status: "erro", erro: String((e as Error)?.message || e), progresso: { etapa: "erro", pct: 100, feed: feed.slice(-80) } }).eq("id", analiseId);
   }
 }
 
@@ -351,25 +352,33 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({} as any));
     const clienteId = body.cliente_id as string | undefined;
     const arquivos = (body.arquivos as Array<{ id: string; name: string; mimeType?: string }> | undefined) || [];
+    const retomar = body.retomar as string | undefined;
     if (!clienteId) return j({ error: "cliente_id obrigatorio" }, 400);
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);
-    if (arquivos.length > 8) return j({ error: "máximo de 8 documentos por análise" }, 400);
+    if (arquivos.length > 12) return j({ error: "máximo de 12 documentos por análise" }, 400);
     if (!Deno.env.get("OPENAI_API_KEY")) return j({ error: "OPENAI_API_KEY nao configurado" }, 500);
 
-    // Idempotência: se já existe uma análise RECENTE rodando pra esse cliente,
-    // devolve ela (evita duplicatas por duplo-clique). Se for uma presa/antiga
-    // (> 2 min sem terminar), remove e deixa a nova rodar. Isso destrava a
-    // regeneração quando havia uma análise anterior travada.
-    const { data: jaRodando } = await sb().from("spy_analise").select("id, created_at").eq("cliente_id", clienteId).eq("status", "processando").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    // Continuação (a própria função se reinicia para ler os extratos restantes).
+    if (retomar) {
+      const task = pipeline(retomar, clienteId, arquivos);
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(task);
+      else await task;
+      return j({ ok: true, analise_id: retomar, background: true, retomando: true }, 202);
+    }
+
+    // Idempotência: se já há uma análise ATIVA (atualizada há < 2 min) pra esse
+    // cliente, devolve ela. Se estiver parada/antiga, descarta e cria nova.
+    const { data: jaRodando } = await sb().from("spy_analise").select("id, updated_at, created_at").eq("cliente_id", clienteId).eq("status", "processando").order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (jaRodando?.id) {
-      const idadeMs = Date.now() - new Date(jaRodando.created_at).getTime();
-      if (idadeMs < 120000) return j({ ok: true, analise_id: jaRodando.id, background: true, ja_existia: true }, 202);
-      await sb().from("spy_analise").delete().eq("id", jaRodando.id); // presa: descarta
+      const ref = new Date(jaRodando.updated_at || jaRodando.created_at).getTime();
+      if (Date.now() - ref < 120000) return j({ ok: true, analise_id: jaRodando.id, background: true, ja_existia: true }, 202);
+      await sb().from("spy_analise").delete().eq("id", jaRodando.id);
     }
 
     const { data: novo, error } = await sb().from("spy_analise").insert({
       cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),
-      modelo: MODELO, created_by: (body.created_by as string) || null, progresso: { etapa: "fila", pct: 4, detalhe: "Na fila", feed: [{ msg: "Análise na fila", kind: "step" }] },
+      modelo: MODELO, created_by: (body.created_by as string) || null, parciais: [],
+      progresso: { etapa: "fila", pct: 4, detalhe: "Na fila", feed: [{ msg: "Análise na fila", kind: "step" }] },
     }).select("id").single();
     if (error) return j({ error: error.message }, 500);
 
