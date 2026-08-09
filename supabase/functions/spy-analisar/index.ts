@@ -1,13 +1,10 @@
 // spy-analisar (AW SPY, análise em segundo plano). Motor: OpenAI
 //
 // Duas etapas (cabe no tempo da função serverless):
-//   1) EXTRAÇÃO por extrato (uma chamada por PDF, SEQUENCIAL): a IA lê cada
-//      extrato e devolve os FATOS densos daquele período (fonte pagadora, renda
-//      mês a mês, contrapartes por nome, assinaturas, tarifas, crédito, eventos
-//      com data) + flags por eixo + transações-CHAVE.
-//   2) SÍNTESE (uma chamada, só texto, sem PDF): recebe os fatos de TODOS os
-//      períodos juntos e escreve UM ÚNICO dossiê contínuo, cruzando os anos como
-//      uma só linha de entendimento (evolução de renda, endividamento, hábitos).
+//   1) EXTRAÇÃO por extrato (um PDF por chamada, SEQUENCIAL): a IA lê o PDF e
+//      devolve FATOS densos + flags + transações-CHAVE.
+//   2) SÍNTESE (uma chamada, só texto): recebe os fatos de TODOS os períodos e
+//      escreve UM ÚNICO dossiê contínuo, cruzando os anos.
 //
 // Progresso em spy_analise.progresso (o front faz polling): { etapa, pct,
 // detalhe, feed[] } onde feed é o "diário" ao vivo da análise (estilo terminal).
@@ -227,11 +224,10 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     await prog("baixando", 16, `Baixados ${baixados.length} extrato(s)`, { msg: `Baixados ${baixados.length} arquivo(s) do Drive`, kind: "ok" });
 
     // Etapa 1: um PDF por chamada, SEQUENCIAL (evita o teto de tokens/min da OpenAI).
-    // Limite de tempo: a função serverless morre por volta de ~150s. Antes disso,
-    // paramos de ler novos extratos e sintetizamos o que já foi lido (em vez de
-    // travar no meio). Cada PDF via IA leva ~40-90s, então priorize 1-3 por análise.
+    // Rede de segurança de tempo: perto do teto (~150s) da função, para e sintetiza
+    // o que já leu, em vez de travar no meio. Cada PDF via IA leva ~40-90s.
     const INICIO = Date.now();
-    const LIMITE_MS = 115000;
+    const LIMITE_MS = 125000;
     const n = baixados.length; let done = 0;
     await prog("analisando", 20, `Lendo extratos (0/${n})`);
     const perFile: Array<{ name: string; parsed: any }> = [];
