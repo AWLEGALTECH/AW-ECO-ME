@@ -366,6 +366,14 @@ html, body, #root {
   @keyframes spy-lock { 0% { transform: scale(1.06); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
   .spy-lock { animation: spy-lock 0.42s cubic-bezier(0.16,1,0.3,1) both; }
 
+  /* Grid sutil de fundo, cara de painel de comando. */
+  .spy-grid {
+    background-image:
+      linear-gradient(hsl(var(--primary) / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--primary) / 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .spy-sweep, .spy-ping, .spy-blip { animation: none; }
     .spy-scan::after { animation: none; opacity: 0; }

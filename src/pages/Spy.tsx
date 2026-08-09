@@ -410,14 +410,27 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   );
 }
 
-// Tela cheia dedicada à análise em trâmite: radar + feed ao vivo do que é vasculhado.
+// Cantoneiras (brackets) nos cantos, cara de painel de comando.
+function Corners() {
+  const base = "absolute h-3 w-3 border-primary/40 pointer-events-none";
+  return (
+    <>
+      <span className={`${base} left-2 top-2 border-l border-t`} />
+      <span className={`${base} right-2 top-2 border-r border-t`} />
+      <span className={`${base} left-2 bottom-2 border-l border-b`} />
+      <span className={`${base} right-2 bottom-2 border-r border-b`} />
+    </>
+  );
+}
+
+// Tela cheia dedicada à análise em trâmite: console com radar e feed lado a lado.
 function AnaliseTelaCheia({ cliente, a, onBackground }: { cliente: Cliente; a: Analise; onBackground: () => void }) {
   const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
   const feed: Array<{ msg: string; kind: string }> = Array.isArray(a.progresso?.feed) ? a.progresso.feed : [];
   return (
     <div className="spy-lock space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5">
+        <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5 font-mono">
           <Activity className="h-3.5 w-3.5" /> Análise em andamento
         </p>
         <Button variant="outline" size="sm" onClick={onBackground} className="gap-1.5 h-8">
@@ -425,21 +438,39 @@ function AnaliseTelaCheia({ cliente, a, onBackground }: { cliente: Cliente; a: A
         </Button>
       </div>
 
-      <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-8 flex flex-col items-center text-center">
-        <RadarViz size={132} />
-        <h2 className="text-xl font-semibold mt-5">{cliente.nome}</h2>
-        <p className="text-sm text-foreground/80 mt-1">{a.progresso?.detalhe || "Vasculhando os extratos…"}</p>
-        <div className="w-full max-w-md mt-4 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,400px),1fr] gap-4 items-stretch">
+        {/* Painel do radar */}
+        <div className="spy-scan spy-grid relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-6 flex flex-col items-center justify-center text-center min-h-[56vh]">
+          <Corners />
+          <RadarViz size={150} />
+          <h2 className="text-lg font-semibold mt-5 font-mono tracking-tight break-words max-w-full">{cliente.nome}</h2>
+          <p className="text-sm text-foreground/80 mt-1">{a.progresso?.detalhe || "Vasculhando os extratos…"}</p>
+          <div className="w-full max-w-xs mt-4 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground uppercase tracking-wider font-mono">
+            <span>{a.progresso?.etapa || "processando"}</span>
+            <span className="tabular-nums text-primary/80">{pct}%</span>
+            <span className="tabular-nums"><Elapsed from={a.created_at} /></span>
+          </div>
         </div>
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground uppercase tracking-wider">
-          <span>{a.progresso?.etapa || "processando"}</span>
-          <span className="tabular-nums text-primary/80">{pct}%</span>
-          <span className="tabular-nums"><Elapsed from={a.created_at} /></span>
+
+        {/* Console do feed */}
+        <div className="relative rounded-2xl border border-white/[0.08] bg-black/50 overflow-hidden flex flex-col min-h-[56vh]">
+          <Corners />
+          <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono inline-flex items-center gap-1.5">
+              <ScanLine className="h-3.5 w-3.5" /> Vasculhando
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-rose-400/60" />
+              <span className="h-2 w-2 rounded-full bg-amber-400/60" />
+              <span className="h-2 w-2 rounded-full bg-emerald-400/60" />
+            </span>
+          </div>
+          <FeedBody feed={feed} />
         </div>
       </div>
-
-      <FeedViewer feed={feed} />
     </div>
   );
 }
@@ -452,26 +483,21 @@ const FEED_STYLE: Record<string, { cls: string; sig: string }> = {
   done: { cls: "text-primary font-medium", sig: "★" },
 };
 
-function FeedViewer({ feed }: { feed: Array<{ msg: string; kind: string }> }) {
+function FeedBody({ feed }: { feed: Array<{ msg: string; kind: string }> }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [feed.length]);
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-black/40 p-4">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2">
-        <ScanLine className="h-3.5 w-3.5" /> Vasculhando
-      </p>
-      <div ref={ref} className="font-mono text-[11.5px] leading-relaxed max-h-[46vh] overflow-y-auto scrollbar-thin space-y-0.5">
-        {feed.length === 0 && <div className="text-muted-foreground/60">Iniciando…</div>}
-        {feed.map((f, i) => {
-          const st = FEED_STYLE[f.kind] || FEED_STYLE.step;
-          return (
-            <div key={i} className={st.cls}>
-              <span className="text-muted-foreground/40 select-none">{st.sig} </span>{f.msg}
-            </div>
-          );
-        })}
-        <span className="spy-blip inline-block text-primary">▋</span>
-      </div>
+    <div ref={ref} className="font-mono text-[11.5px] leading-relaxed p-4 flex-1 overflow-y-auto scrollbar-thin space-y-0.5">
+      {feed.length === 0 && <div className="text-muted-foreground/60">Iniciando...</div>}
+      {feed.map((f, i) => {
+        const st = FEED_STYLE[f.kind] || FEED_STYLE.step;
+        return (
+          <div key={i} className={st.cls}>
+            <span className="text-muted-foreground/40 select-none">{st.sig} </span>{f.msg}
+          </div>
+        );
+      })}
+      <span className="spy-blip inline-block text-primary">▋</span>
     </div>
   );
 }
