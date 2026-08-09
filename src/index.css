@@ -353,9 +353,9 @@ html, body, #root {
   /* Scanline que desce sobre a área em análise. */
   @keyframes spy-scan { 0% { top: -12%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { top: 112%; opacity: 0; } }
   .spy-scan::after {
-    content: ""; position: absolute; left: 0; right: 0; height: 34%;
-    background: linear-gradient(180deg, transparent, hsl(var(--primary) / 0.10) 45%, hsl(var(--primary) / 0.22), transparent);
-    animation: spy-scan 2.4s ease-in-out infinite; pointer-events: none;
+    content: ""; position: absolute; left: 0; right: 0; height: 42%;
+    background: linear-gradient(180deg, transparent, hsl(var(--primary) / 0.035) 55%, hsl(var(--primary) / 0.07), transparent);
+    animation: spy-scan 4.2s ease-in-out infinite; pointer-events: none;
   }
 
   /* Blip que pisca (alvo detectado). */

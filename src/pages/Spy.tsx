@@ -10,7 +10,7 @@ import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
-  Scale, CalendarDays, ClipboardList, X, ChevronRight,
+  Scale, CalendarDays, ClipboardList, X, ChevronRight, SearchX,
 } from "lucide-react";
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
@@ -562,7 +562,9 @@ function BannerRodando({ a, onOpen, onCancel }: { a: Analise; onOpen: () => void
 function SemAnalise({ onStart }: { onStart: () => void }) {
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 flex flex-col items-center text-center">
-      <RadarViz size={72} blips={false} className="opacity-70" />
+      <div className="h-14 w-14 rounded-full border border-white/[0.08] bg-white/[0.02] flex items-center justify-center">
+        <SearchX className="h-6 w-6 text-muted-foreground/60" />
+      </div>
       <h3 className="text-base font-semibold mt-4">Este cliente ainda não foi analisado</h3>
       <p className="text-sm text-muted-foreground mt-1 max-w-sm">
         Rode a análise do Spy nos extratos bancários para revelar quem é a pessoa e onde dá pra ajudar.
