@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Radar, Loader2 } from "lucide-react";
 
 // Barra flutuante no topo enquanto há análise(s) do Spy rodando em segundo
-// plano. Mostra etapa atual, tempo de rodagem e barra de progresso — para o
+// plano. Mostra etapa atual, tempo de rodagem e barra de progresso, para o
 // usuário navegar pelo Eco sem perder de vista a análise. Some sozinha quando
 // termina (a linha sai de 'processando'). Só admin (RLS já restringe).
 interface Proc { id: string; created_at: string; progresso: any; clientes: { nome: string | null } | null; }

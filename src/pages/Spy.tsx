@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,6 +10,7 @@ import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, User, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
+  Scale, CalendarDays, UserCheck, ClipboardList,
 } from "lucide-react";
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
@@ -97,12 +98,9 @@ export default function Spy() {
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          Spy
-          <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">beta</span>
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Spy</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano — você pode navegar pelo Eco enquanto o radar trabalha.
+          Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano, então você pode navegar pelo Eco enquanto o radar trabalha.
         </p>
       </header>
 
@@ -198,13 +196,13 @@ function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPas
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
               <StatCard icon={<ScanLine className="h-4 w-4" />} valor={stats.feitas} label="Análises feitas"
-                sub={stats.rodando ? `${stats.rodando} rodando agora` : stats.seteDias ? `${stats.seteDias} nos últimos 7 dias` : "—"} />
+                sub={stats.rodando ? `${stats.rodando} rodando agora` : stats.seteDias ? `${stats.seteDias} nos últimos 7 dias` : "-"} />
               <StatCard icon={<Users className="h-4 w-4" />} valor={stats.clientes} label="Clientes analisados"
                 sub={`de ${comPasta} com pasta · ${totalClientes} no total`} />
               <StatCard icon={<TrendingUp className="h-4 w-4" />} valor={stats.transacoes} label="Transações lidas"
                 sub="movimentações extraídas" />
               <StatCard icon={<Layers className="h-4 w-4" />} valor={totalRisco} label="Perfis com risco"
-                sub={totalRisco ? "veja a distribuição" : "—"} />
+                sub={totalRisco ? "veja a distribuição" : "-"} />
             </div>
 
             {totalRisco > 0 && (
@@ -230,7 +228,7 @@ function IntelPanel({ totalClientes, comPasta }: { totalClientes: number; comPas
 
             {stats.feitas === 0 && (
               <p className="text-sm text-muted-foreground mt-8 text-center">
-                Nenhuma análise ainda. Selecione um cliente e rode a primeira — o radar começa a preencher aqui.
+                Nenhuma análise ainda. Selecione um cliente e rode a primeira; o radar começa a preencher aqui.
               </p>
             )}
           </>
@@ -262,10 +260,100 @@ function SpyClientPage({ cliente, userId, onBack }: { cliente: Cliente; userId: 
   );
 }
 
+// ── Ficha do cliente (entrada + socioeconômico) ─────────────────────────────
+type Ficha = {
+  socio: Record<string, any> | null;
+  requerido: string | null;
+  contrato: { reus: string[] | null; data_assinatura: string | null } | null;
+  fechamento: { responsavel: string | null; data: string | null } | null;
+} | undefined;
+
+const SOCIO_CAMPOS: { key: string; label: string; fmt?: (v: string) => string }[] = [
+  { key: "renda_mensal", label: "Renda mensal", fmt: (v) => { const n = Number(String(v).replace(/[^\d]/g, "")); return isFinite(n) && n > 0 ? fmtBRL(n) : String(v); } },
+  { key: "idade", label: "Idade" },
+  { key: "escolaridade", label: "Escolaridade" },
+  { key: "numero_filhos", label: "Filhos" },
+  { key: "idades_filhos", label: "Idades dos filhos" },
+  { key: "tipo_moradia", label: "Moradia" },
+  { key: "unico_provedor", label: "Único provedor" },
+  { key: "conjuge_trabalha", label: "Cônjuge trabalha" },
+  { key: "outros_dependentes", label: "Outros dependentes" },
+  { key: "condicao_saude", label: "Saúde" },
+];
+
+const fmtDataBR = (d: string | null | undefined) => {
+  if (!d) return null;
+  const dt = new Date(`${d}T00:00:00`);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("pt-BR");
+};
+
+function FichaItem({ icon, label, valor, muted }: { icon: ReactNode; label: string; valor: string; muted?: boolean }) {
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">{icon} {label}</div>
+      <div className={`text-sm mt-1 break-words ${muted ? "text-muted-foreground" : "text-foreground/90"}`}>{valor}</div>
+    </div>
+  );
+}
+
+function FichaCliente({ ficha }: { ficha: Ficha }) {
+  if (!ficha) return null;
+  const reus: string[] = Array.isArray(ficha.contrato?.reus) ? (ficha.contrato!.reus as string[]).filter(Boolean) : [];
+  const parteRequerida = reus.length ? reus.join(", ") : (ficha.requerido || null);
+  const dataAssin = fmtDataBR(ficha.contrato?.data_assinatura || ficha.fechamento?.data);
+  const responsavel = ficha.fechamento?.responsavel || null;
+
+  const socio: Record<string, any> = ficha.socio || {};
+  const socioItens = SOCIO_CAMPOS
+    .filter((c) => { const v = socio[c.key]; return v !== undefined && v !== null && String(v).trim() !== ""; })
+    .map((c) => ({ key: c.key, label: c.label, valor: c.fmt ? c.fmt(String(socio[c.key])) : String(socio[c.key]) }));
+  const temSocio = socioItens.length > 0;
+  const obs = String(socio.observacoes_livres || "").trim();
+
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FichaItem icon={<Scale className="h-3.5 w-3.5" />} label="Parte requerida (réus)"
+          valor={parteRequerida || "não informado"} muted={!parteRequerida} />
+        <FichaItem icon={<CalendarDays className="h-3.5 w-3.5" />} label="Contrato assinado"
+          valor={dataAssin ? (responsavel ? `${dataAssin} · com ${responsavel}` : dataAssin) : "não informado"} muted={!dataAssin} />
+      </div>
+
+      <div>
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2">
+          <ClipboardList className="h-3.5 w-3.5" /> Socioeconômico
+        </p>
+        {temSocio ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {socioItens.filter((i) => i.key !== "condicao_saude").map((i) => (
+                <div key={i.key} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{i.label}</div>
+                  <div className="text-[13px] text-foreground/90 mt-0.5 break-words">{i.valor}</div>
+                </div>
+              ))}
+            </div>
+            {(String(socio.condicao_saude || "").trim() || obs) && (
+              <div className="mt-2.5 space-y-1.5">
+                {String(socio.condicao_saude || "").trim() && (
+                  <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Saúde:</span> {String(socio.condicao_saude)}</p>
+                )}
+                {obs && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Observações:</span> {obs}</p>}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">O cliente não preencheu ainda.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SpyWorkspace({ cliente, userId }: { cliente: Cliente; userId: string | null }) {
   const qc = useQueryClient();
   const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
-  useEffect(() => { setSelFiles(new Set()); }, [cliente.id]);
+  const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
     queryKey: ["spy-drive", cliente.drive_folder_id],
@@ -276,6 +364,31 @@ function SpyWorkspace({ cliente, userId }: { cliente: Cliente; userId: string | 
       });
       if (error) throw error;
       return (data?.files || data || []) as DriveFile[];
+    },
+  });
+
+  // Pré-seleciona o que parece extrato (nome contém "extrato"), uma vez por cliente.
+  useEffect(() => {
+    if (!drive || preRef.current === cliente.id) return;
+    preRef.current = cliente.id;
+    setSelFiles(new Set(drive.filter((f) => /extrato/i.test(f.name)).map((f) => f.id)));
+  }, [drive, cliente.id]);
+
+  // Ficha do cliente: réus (parte requerida), assinatura e socioeconômico.
+  const { data: ficha } = useQuery({
+    queryKey: ["spy-ficha", cliente.id],
+    queryFn: async () => {
+      const [cli, contr, fech] = await Promise.all([
+        supabase.from("clientes").select("dados_socioeconomicos, requerido").eq("id", cliente.id).maybeSingle(),
+        (supabase.from("contratos" as any) as any).select("reus, data_assinatura, modalidade, motivo").eq("cliente_id", cliente.id).order("data_assinatura", { ascending: false, nullsFirst: false }).limit(1),
+        (supabase.from("fechamentos" as any) as any).select("responsavel, data").eq("cliente_id", cliente.id).order("data", { ascending: false }).limit(1),
+      ]);
+      return {
+        socio: (cli.data?.dados_socioeconomicos as Record<string, any> | null) || null,
+        requerido: (cli.data?.requerido as string | null) || null,
+        contrato: (contr.data?.[0] as any) || null,
+        fechamento: (fech.data?.[0] as any) || null,
+      };
     },
   });
 
@@ -308,7 +421,7 @@ function SpyWorkspace({ cliente, userId }: { cliente: Cliente; userId: string | 
     if (!arquivos.length) { toast.error("Selecione ao menos um documento."); return; }
     const { error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
     if (error) { toast.error("Não consegui iniciar a análise."); return; }
-    toast.success("Análise iniciada — o radar está varrendo em segundo plano.");
+    toast.success("Análise iniciada. O radar está varrendo em segundo plano.");
     setSelFiles(new Set());
     qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
   };
@@ -326,6 +439,8 @@ function SpyWorkspace({ cliente, userId }: { cliente: Cliente; userId: string | 
           </a>
         )}
       </div>
+
+      <FichaCliente ficha={ficha} />
 
       <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
         <div className="flex items-center justify-between mb-3">
@@ -403,7 +518,7 @@ function AnaliseCard({ a, flags }: { a: Analise; flags: Flag[] }) {
     return [...m.entries()];
   }, [flags]);
 
-  // Estado "rodando" — cinematográfico: radar varrendo + scanline sobre o card.
+  // Estado "rodando", cinematografico: radar varrendo + scanline sobre o card.
   if (proc) {
     return (
       <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
@@ -523,7 +638,7 @@ function TransacoesViewer({ analiseId }: { analiseId: string }) {
               <td className={`px-2 py-1 text-right tabular-nums whitespace-nowrap ${t.sinal < 0 ? "text-rose-400" : "text-emerald-400"}`}>
                 <span className="inline-flex items-center gap-0.5 justify-end">
                   {t.sinal < 0 ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
-                  {t.valor != null ? fmtBRL(Number(t.valor)) : "—"}
+                  {t.valor != null ? fmtBRL(Number(t.valor)) : "-"}
                 </span>
               </td>
               <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-muted-foreground">{t.saldo != null ? fmtBRL(Number(t.saldo)) : ""}</td>
