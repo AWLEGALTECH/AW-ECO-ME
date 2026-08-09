@@ -395,29 +395,16 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
       {rodando ? (
         <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} />
-      ) : ultima ? (
-        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto />
       ) : mostrarDocs ? (
         <DocPicker
-          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr}
+          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima}
           selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()}
           onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
         />
+      ) : ultima ? (
+        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} />
       ) : (
         <SemAnalise onStart={() => setMostrarDocs(true)} />
-      )}
-
-      {concluidas.length > 1 && !rodando && (
-        <details className="group">
-          <summary className="text-[11px] uppercase tracking-wider text-muted-foreground cursor-pointer list-none inline-flex items-center gap-1 select-none">
-            <ChevronDown className="h-3.5 w-3.5 group-open:rotate-180 transition-transform" /> Análises anteriores ({concluidas.length - 1})
-          </summary>
-          <div className="space-y-3 mt-3">
-            {concluidas.slice(1).map((a) => (
-              <AnaliseCard key={a.id} a={a} flags={flags.filter((f) => f.analise_id === a.id)} />
-            ))}
-          </div>
-        </details>
       )}
     </div>
   );
@@ -529,14 +516,19 @@ function SemAnalise({ onStart }: { onStart: () => void }) {
 }
 
 // Seleção dos extratos (revelada pelo botão, com os extratos já pré-marcados).
-function DocPicker({ cliente, drive, loading, err, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
-  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean;
+function DocPicker({ cliente, drive, loading, err, temAnalise, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
+  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean;
   selFiles: Set<string>; onToggle: (id: string) => void; onRefetch: () => void; onAnalisar: () => void; onCancel: () => void;
 }) {
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+      {temAnalise && (
+        <p className="text-[12px] text-amber-400/90 mb-3 flex items-center gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" /> Regenerar cria uma análise do zero e substitui a atual. Selecione os extratos.
+        </p>
+      )}
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Extratos para analisar</p>
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {temAnalise ? "Extratos para a nova análise" : "Extratos para analisar"}</p>
         <div className="flex items-center gap-3">
           {cliente.drive_folder_id && (
             <button onClick={onRefetch} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> atualizar</button>
@@ -572,7 +564,7 @@ function DocPicker({ cliente, drive, loading, err, selFiles, onToggle, onRefetch
           <div className="flex items-center justify-between mt-3">
             <p className="text-[11px] text-muted-foreground">Os extratos já vêm marcados. Ajuste se quiser.</p>
             <Button onClick={onAnalisar} disabled={selFiles.size === 0} className="gap-1.5">
-              <ScanLine className="h-4 w-4" /> Analisar {selFiles.size > 0 ? `(${selFiles.size})` : ""}
+              <ScanLine className="h-4 w-4" /> {temAnalise ? "Regenerar" : "Analisar"} {selFiles.size > 0 ? `(${selFiles.size})` : ""}
             </Button>
           </div>
         </>
@@ -678,7 +670,7 @@ function Elapsed({ from }: { from: string }) {
   return <span className="tabular-nums">{mm}:{ss}</span>;
 }
 
-function AnaliseCard({ a, flags, defaultAberto }: { a: Analise; flags: Flag[]; defaultAberto?: boolean }) {
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
   const [verTx, setVerTx] = useState(false);
   const docs: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
@@ -799,6 +791,14 @@ function AnaliseCard({ a, flags, defaultAberto }: { a: Analise; flags: Flag[]; d
                 })}
               </div>
             </details>
+          )}
+
+          {onRegenerar && (
+            <div className="pt-1 border-t border-white/[0.06]">
+              <Button variant="outline" size="sm" onClick={onRegenerar} className="gap-1.5 h-8 mt-3">
+                <RefreshCw className="h-3.5 w-3.5" /> Regenerar análise
+              </Button>
+            </div>
           )}
         </div>
       )}

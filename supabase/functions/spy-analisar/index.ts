@@ -298,6 +298,18 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         origem: "llm", evidencia: f.evidencia || null,
       })));
     }
+
+    // Unicidade: esta análise passa a ser a ÚNICA do cliente. Regenerar = do zero,
+    // então as anteriores (e suas transações/flags) são removidas.
+    try {
+      const { data: velhas } = await s.from("spy_analise").select("id").eq("cliente_id", clienteId).neq("id", analiseId);
+      const ids = (velhas || []).map((v: any) => v.id);
+      if (ids.length) {
+        await s.from("spy_transacao").delete().in("analise_id", ids);
+        await s.from("spy_flag").delete().in("analise_id", ids);
+        await s.from("spy_analise").delete().in("id", ids);
+      }
+    } catch (_e) { /* limpeza best-effort, não derruba a análise */ }
   } catch (e) {
     feed.push({ msg: `Erro: ${String((e as Error)?.message || e).slice(0, 120)}`, kind: "warn" });
     await sb().from("spy_analise").update({ status: "erro", erro: String((e as Error)?.message || e), progresso: { etapa: "erro", pct: 100, feed: feed.slice(-60) } }).eq("id", analiseId);
