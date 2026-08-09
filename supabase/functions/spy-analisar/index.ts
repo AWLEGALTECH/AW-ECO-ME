@@ -179,6 +179,13 @@ Em "notas", despeje TODOS os fatos concretos e específicos que esse extrato sus
 - Saldos: inicial/final, e se virou negativo em algum momento (data).
 - Qualquer evento fora do padrão, com data e valor.
 
+PERCORRA O EXTRATO TRANSAÇÃO POR TRANSAÇÃO, não apenas as maiores. Depois some e sintetize os PADRÕES (isso é o mais importante):
+- Categorize os gastos (alimentação, transporte, moradia/contas, saúde, educação, crédito/dívida, tarifas, saques, lazer) e diga o PESO de cada categoria no total (aproximado).
+- Recorrências: o que se repete todo mês (assinaturas, parcelas, boletos), com valor.
+- Ritmo/época: em que dias/época do mês o dinheiro aperta; em que época do ano ela recontrata crédito ou pega empréstimo; ciclos de aperto e folga.
+- Racionalidade financeira: sinais de compras por impulso vs essenciais, se gasta mais do que ganha, se depende de crédito pra fechar o mês, tendência a se endividar.
+- Comportamento de crédito: quando pega empréstimo/consignado, com que frequência, se renova/refinancia.
+
 Regras: use SOMENTE o que o extrato mostra; cite valores e datas; NÃO invente; NÃO use travessão.
 
 Também devolva: risco_geral desse período; flags (uma por achado concreto, com eixo, codigo curto, confianca 0..1 e evidencia com datas/valores); e transacoes_chave (ATÉ 25 mais relevantes: crédito, recorrentes, valores altos, NÃO a lista inteira). Datas em AAAA-MM-DD. sinal: 1 crédito, -1 débito. valor sempre positivo.`;
@@ -190,7 +197,8 @@ Escreva em "relatorio" UM ÚNICO dossiê profundo e humano, corrido e específic
 - Quem é: comece NOMEANDO a pessoa pelo nome do titular sempre que ele constar nos fatos (não escreva "um indivíduo" se há nome); profissão/ocupação provável, de onde vem a renda (nome da fonte pagadora), faixa de renda, faixa etária provável, cidade/bairro onde vive e trabalha.
 - Família e núcleo: contrapartes recorrentes CITADAS PELO NOME e o vínculo provável (cônjuge, filho, pai/mãe), quem depende de quem, rateio de casa.
 - Hábitos e vida: onde compra e abastece, streamings/assinaturas PELO NOME e sinais de assinatura esquecida/duplicada, saúde, lazer, transporte, rotina.
-- Vida financeira: como gasta, dívidas e crédito, comportamento de endividamento.
+- Vida financeira e RACIONALIDADE: como gasta (peso das categorias), se vive dentro ou fora da renda, se depende de crédito pra fechar o mês, compras por impulso vs essenciais, dívidas e comportamento de endividamento.
+- PADRÕES DE CRÉDITO: em que época do mês/ano a pessoa aperta e tende a pegar empréstimo/consignado, com que frequência renova/refinancia, ciclos de aperto e folga.
 - EVOLUÇÃO NO TEMPO (essencial quando há mais de um período): como a renda mudou de um ano para o outro, quando entrou/saiu de dívida, o que passou a gastar ou deixou de gastar, tendência da saúde financeira. Amarre os períodos numa trajetória, não os descreva em separado.
 - Gancho jurídico: onde há oportunidade de defesa do consumidor (cobranças abusivas, reajustes, tarifas, endividamento) para o escritório ajudar.
 
@@ -342,10 +350,16 @@ Deno.serve(async (req: Request) => {
     if (arquivos.length > 8) return j({ error: "máximo de 8 documentos por análise" }, 400);
     if (!Deno.env.get("OPENAI_API_KEY")) return j({ error: "OPENAI_API_KEY nao configurado" }, 500);
 
-    // Idempotência: se já existe uma análise rodando pra esse cliente, devolve ela
-    // (evita duplicatas por duplo-clique/duplo-disparo).
-    const { data: jaRodando } = await sb().from("spy_analise").select("id").eq("cliente_id", clienteId).eq("status", "processando").limit(1).maybeSingle();
-    if (jaRodando?.id) return j({ ok: true, analise_id: jaRodando.id, background: true, ja_existia: true }, 202);
+    // Idempotência: se já existe uma análise RECENTE rodando pra esse cliente,
+    // devolve ela (evita duplicatas por duplo-clique). Se for uma presa/antiga
+    // (> 2 min sem terminar), remove e deixa a nova rodar. Isso destrava a
+    // regeneração quando havia uma análise anterior travada.
+    const { data: jaRodando } = await sb().from("spy_analise").select("id, created_at").eq("cliente_id", clienteId).eq("status", "processando").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (jaRodando?.id) {
+      const idadeMs = Date.now() - new Date(jaRodando.created_at).getTime();
+      if (idadeMs < 120000) return j({ ok: true, analise_id: jaRodando.id, background: true, ja_existia: true }, 202);
+      await sb().from("spy_analise").delete().eq("id", jaRodando.id); // presa: descarta
+    }
 
     const { data: novo, error } = await sb().from("spy_analise").insert({
       cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),
