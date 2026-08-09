@@ -227,11 +227,21 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     await prog("baixando", 16, `Baixados ${baixados.length} extrato(s)`, { msg: `Baixados ${baixados.length} arquivo(s) do Drive`, kind: "ok" });
 
     // Etapa 1: um PDF por chamada, SEQUENCIAL (evita o teto de tokens/min da OpenAI).
+    // Limite de tempo: a função serverless morre por volta de ~150s. Antes disso,
+    // paramos de ler novos extratos e sintetizamos o que já foi lido (em vez de
+    // travar no meio). Cada PDF via IA leva ~40-90s, então priorize 1-3 por análise.
+    const INICIO = Date.now();
+    const LIMITE_MS = 115000;
     const n = baixados.length; let done = 0;
     await prog("analisando", 20, `Lendo extratos (0/${n})`);
     const perFile: Array<{ name: string; parsed: any }> = [];
     for (const f of baixados) {
       if (!(await estaViva(s, analiseId))) return; // cancelada
+      if (done > 0 && Date.now() - INICIO > LIMITE_MS) {
+        const restantes = baixados.slice(done).map((x) => x.name).join(", ");
+        await prog("analisando", 78, "Tempo limite, sintetizando o que já foi lido", { msg: `Tempo limite: ${n - done} extrato(s) não couberam (${restantes}). Rode em partes ou regenere com menos.`, kind: "warn" });
+        break;
+      }
       await prog("analisando", 20 + Math.round((done / n) * 55), `Lendo ${f.name}`, { msg: `Lendo ${f.name}...`, kind: "step" });
       let parsed: any = null;
       try {
