@@ -144,6 +144,7 @@ function montarDigest(txs: Tx[]) {
     if (!hits.length) continue;
     instituicoes.push({
       nome: inst.nome, tipo: inst.tipo, ocorrencias: hits.length,
+      recorrencia: hits.length >= 3 ? "recorrente" : hits.length === 1 ? "aparece 1x" : "ocasional",
       primeira: hits[0].data, ultima: hits[hits.length - 1].data,
       recebido: +hits.filter((t) => t.valor > 0).reduce((s, t) => s + t.valor, 0).toFixed(2),
       pago: +hits.filter((t) => t.valor < 0).reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
@@ -202,7 +203,155 @@ function montarDigest(txs: Tx[]) {
   const maioresSaidas = [...comData].filter((t) => t.valor < 0).sort((a, b) => a.valor - b.valor).slice(0, 8)
     .map((t) => ({ data: t.data, valor: t.valor, descricao: t.descricao.slice(0, 70) }));
 
+  // CONTRATOS de crédito: agrupa as parcelas pelo número do contrato que aparece
+  // no histórico ("CONTR 466465593 PARC 017/096") — dá parcelas pagas, valor
+  // médio, total do plano (x/096), mora e vigência de cada contrato.
+  const contratos = new Map<string, any>();
+  for (const t of comData) {
+    if (t.valor >= 0) continue;
+    const m = t.descricao.match(/CONTR[ATO.\s]*(\d{6,})(?:\s*PARC\s*(\d+)\/(\d+))?/i);
+    if (!m) continue;
+    const id = m[1];
+    const c = contratos.get(id) || { contrato: id, parcelas_pagas: 0, total_pago: 0, parcelas_plano: null, primeira: t.data, ultima: t.data, exemplo: t.descricao.slice(0, 70), mora: 0 };
+    c.parcelas_pagas++; c.total_pago += Math.abs(t.valor); c.ultima = t.data;
+    if (m[3]) c.parcelas_plano = parseInt(m[3], 10);
+    if (/MORA/i.test(t.descricao)) c.mora += Math.abs(t.valor);
+    contratos.set(id, c);
+  }
+  const contratosArr = [...contratos.values()]
+    .map((c) => ({ ...c, total_pago: +c.total_pago.toFixed(2), mora: +c.mora.toFixed(2), parcela_media: +(c.total_pago / c.parcelas_pagas).toFixed(2) }))
+    .sort((a, b) => b.total_pago - a.total_pago).slice(0, 15);
+
+  // Indícios de VEÍCULO: gasto com combustível mês a mês; se surgiu no meio do
+  // período (antes não havia), é indício de veículo recente.
+  const combustivel = comData.filter((t) => t.valor < 0 && /POSTO|COMBUST|GASOLINA/i.test(t.descricao));
+  const combMeses = new Map<string, number>();
+  for (const t of combustivel) { const m = String(t.data).slice(0, 7); combMeses.set(m, (combMeses.get(m) || 0) + Math.abs(t.valor)); }
+  const mesesTodos = mesesArr.map(([m]) => m);
+  const primeiroComb = combustivel.length ? String(combustivel[0].data).slice(0, 7) : null;
+  const veiculo = {
+    abastecimentos: combustivel.length,
+    total: +combustivel.reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
+    media_mensal_quando_ha: combMeses.size ? +([...combMeses.values()].reduce((a, b) => a + b, 0) / combMeses.size).toFixed(2) : 0,
+    primeiro_mes: primeiroComb,
+    ultimo_mes: combustivel.length ? String(combustivel[combustivel.length - 1].data).slice(0, 7) : null,
+    meses_com_gasto: combMeses.size,
+    meses_no_periodo: mesesTodos.length,
+    surgiu_no_meio_do_periodo: !!(primeiroComb && mesesTodos.length > 3 && mesesTodos.indexOf(primeiroComb) > 2),
+  };
+
+  // ROTATIVO / cheque especial: encargos de limite de crédito.
+  const rotativoTx = comData.filter((t) => t.valor < 0 && /ENCARGOS? LIMITE|ADIANT.*DEPOSIT|CHEQUE ESPECIAL|JUROS.*(LIMITE|CHEQ)/i.test(t.descricao));
+  const rotativo = { n: rotativoTx.length, total: +rotativoTx.reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2), primeiro: rotativoTx[0]?.data ?? null, ultimo: rotativoTx[rotativoTx.length - 1]?.data ?? null };
+
+  // Comprometimento mensal da renda com crédito.
+  const pagCredMes = new Map<string, number>();
+  for (const p of pagamentosCred) { const m = String(p.data).slice(0, 7); pagCredMes.set(m, (pagCredMes.get(m) || 0) + p.valor); }
+  const comprometimento = Object.fromEntries(mesesArr.map(([m, v]) => [m, { pago_credito: +((pagCredMes.get(m) || 0)).toFixed(2), pct_da_renda: v.renda > 0 ? Math.round(((pagCredMes.get(m) || 0) / v.renda) * 100) : null }]));
+  const maiorConcentracao = [...pagCredMes.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+
+  // Eventos da linha do endividamento (fatos, em ordem cronológica).
+  const eventos: any[] = [];
+  const primeiroEncargo = comData.find((t) => t.valor < 0 && /ENCARGO|MORA |JUROS/i.test(t.descricao));
+  if (primeiroEncargo) eventos.push({ marco: "primeiro_sinal_endividamento", data: primeiroEncargo.data, detalhe: primeiroEncargo.descricao.slice(0, 70), valor: primeiroEncargo.valor });
+  if (creditosIn[0]) eventos.push({ marco: "primeiro_emprestimo", data: creditosIn[0].data, detalhe: creditosIn[0].descricao, valor: creditosIn[0].valor });
+  if (rotativo.primeiro) eventos.push({ marco: "entrada_no_rotativo", data: rotativo.primeiro, detalhe: "primeiro encargo de limite de crédito/cheque especial" });
+  for (const c of creditosIn.slice(1, 9)) eventos.push({ marco: "novo_emprestimo", data: c.data, detalhe: c.descricao, valor: c.valor });
+  for (const rf of refiSinais.slice(0, 5)) eventos.push({ marco: "possivel_renegociacao", data: rf.credito.data, detalhe: `crédito de ${brl(rf.credito.valor)} com ${rf.pagamentos_proximos.length} pagamento(s) de crédito na mesma janela` });
+  if (maiorConcentracao) eventos.push({ marco: "maior_concentracao_de_dividas", data: `${maiorConcentracao[0]}-01`, detalhe: "mês com maior pagamento a crédito do período", valor: +maiorConcentracao[1].toFixed(2) });
+  eventos.sort((a, b) => String(a.data).localeCompare(String(b.data)));
+
+  // CARTÕES: faturas/gastos de cartão mês a mês (evolução), mora de cartão
+  // (indício de pagamento parcial/rotativo) e anuidades.
+  const cartaoTx = comData.filter((t) => t.valor < 0 && /GASTOS CARTAO|FATURA|PAGTO CARTAO|MORA CARTAO|ANUIDADE/i.test(t.descricao));
+  const cartaoMes = new Map<string, number>();
+  for (const t of cartaoTx) { const m = String(t.data).slice(0, 7); cartaoMes.set(m, (cartaoMes.get(m) || 0) + Math.abs(t.valor)); }
+  const moraCartao = cartaoTx.filter((t) => /MORA CARTAO/i.test(t.descricao));
+  const cartoes = {
+    pagamentos: cartaoTx.length,
+    total: +cartaoTx.reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
+    faturas_por_mes: Object.fromEntries([...cartaoMes.entries()].sort()),
+    mora_cartao: { n: moraCartao.length, total: +moraCartao.reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2) },
+  };
+
+  // VAREJO por segmento (com sinalização de loja com cartão próprio/crediário).
+  const SEGMENTOS: { seg: string; re: RegExp }[] = [
+    { seg: "roupas_departamento", re: /RAMSONS|RENNER|RIACHUELO|C&A|MARISA|PERNAMBUCANAS|HAVAN|BELLAS MODAS|FASHION|LOJAS AMERICANAS|MODAS/i },
+    { seg: "supermercado_atacado", re: /SUPERMERC|MERCAD(?!O ?PAGO)|ATACAD|ASSAI|CARREFOUR|DB\b|NOVA ERA|PANIFICADORA|COMERCIAL/i },
+    { seg: "farmacia", re: /FARMAC|DROGA|PAGUE MENOS|FARMABEM/i },
+    { seg: "marketplace", re: /SHOPEE|MERCADO ?LIVRE|AMAZON|ALIEXPRESS|SHEIN|MAGALU|AMERICANAS\.?COM/i },
+  ];
+  const COM_CREDITO_PROPRIO = /BEMOL|RIACHUELO|RENNER|MARISA|PERNAMBUCANAS|CASAS BAHIA|MAGALU|AMERICANAS|HAVAN|RAMSONS/i;
+  const varejo: Record<string, any[]> = {};
+  for (const { seg, re } of SEGMENTOS) {
+    const m = new Map<string, { n: number; total: number; primeiro: any; ultimo: any }>();
+    for (const t of comData) {
+      if (t.valor >= 0 || !re.test(t.descricao)) continue;
+      const k = norm(t.descricao.replace(/COMPRA ELO DEBITO VISTA|PAGTO ELETRONICO|COMPRA CARTAO/gi, "")).slice(0, 45);
+      if (!k) continue;
+      const e = m.get(k) || { n: 0, total: 0, primeiro: t.data, ultimo: t.data };
+      e.n++; e.total += Math.abs(t.valor); e.ultimo = t.data; m.set(k, e);
+    }
+    varejo[seg] = [...m.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 8)
+      .map(([nome, v]) => ({ nome, n: v.n, total: +v.total.toFixed(2), media: +(v.total / v.n).toFixed(2), primeiro: v.primeiro, ultimo: v.ultimo, credito_proprio_conhecido: COM_CREDITO_PROPRIO.test(nome) }));
+  }
+
+  // SUPERMERCADOS, modelo de consumo: 1ª metade vs 2ª metade do período.
+  const superTx = comData.filter((t) => t.valor < 0 && /SUPERMERC|MERCAD(?!O ?PAGO)|ATACAD|ASSAI|CARREFOUR|NOVA ERA|DB\b/i.test(t.descricao));
+  const meio = Math.floor(mesesTodos.length / 2);
+  const metade1 = new Set(mesesTodos.slice(0, meio)), metade2 = new Set(mesesTodos.slice(meio));
+  const superConsumo = {
+    n: superTx.length,
+    total: +superTx.reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
+    gasto_medio_por_compra: superTx.length ? +(superTx.reduce((s, t) => s + Math.abs(t.valor), 0) / superTx.length).toFixed(2) : 0,
+    total_primeira_metade: +superTx.filter((t) => metade1.has(String(t.data).slice(0, 7))).reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
+    total_segunda_metade: +superTx.filter((t) => metade2.has(String(t.data).slice(0, 7))).reduce((s, t) => s + Math.abs(t.valor), 0).toFixed(2),
+  };
+
+  // TELECOM: operadoras, recorrência e mudança de valor.
+  const telecomTx = comData.filter((t) => t.valor < 0 && /CLARO|VIVO|\bTIM\b|\bOI\b|INTERNET|TELEFONE|CONTA DE TELEFONE|NET SERV|SKY\b/i.test(t.descricao));
+  const telecomMap = new Map<string, { n: number; total: number; valores: number[] }>();
+  for (const t of telecomTx) {
+    const k = norm(t.descricao).slice(0, 40) || "TELECOM";
+    const e = telecomMap.get(k) || { n: 0, total: 0, valores: [] };
+    e.n++; e.total += Math.abs(t.valor); e.valores.push(Math.abs(t.valor)); telecomMap.set(k, e);
+  }
+  const telecom = [...telecomMap.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 6)
+    .map(([nome, v]) => ({ nome, n: v.n, total: +v.total.toFixed(2), menor: +Math.min(...v.valores).toFixed(2), maior: +Math.max(...v.valores).toFixed(2) }));
+
+  // SAZONALIDADE (mês do ano, agregando todos os anos).
+  const porMesAno: Record<string, { emprestimos: number; cartao: number; saidas: number }> = {};
+  for (let mm = 1; mm <= 12; mm++) porMesAno[String(mm).padStart(2, "0")] = { emprestimos: 0, cartao: 0, saidas: 0 };
+  for (const c of creditosIn) porMesAno[String(c.data).slice(5, 7)].emprestimos++;
+  for (const [m, v] of cartaoMes) porMesAno[m.slice(5, 7)].cartao += v;
+  for (const [m, v] of mesesArr) porMesAno[m.slice(5, 7)].saidas += v.saidas;
+  const sazonalidade = Object.fromEntries(Object.entries(porMesAno).map(([m, v]) => [m, { emprestimos: v.emprestimos, cartao: +v.cartao.toFixed(2), saidas: +v.saidas.toFixed(2) }]));
+
+  // PIX RELEVANTES: com instituições financeiras e entradas seguidas de saídas.
+  const pixInstituicoes = comData.filter((t) => /PIX|TRANSF|TED/i.test(t.descricao) && INSTS.some((i) => i.re.test(t.descricao)))
+    .slice(0, 20).map((t) => ({ data: t.data, valor: t.valor, descricao: t.descricao.slice(0, 70) }));
+  const entradaSeguida: any[] = [];
+  for (let i = 0; i < comData.length; i++) {
+    const t = comData[i];
+    if (t.valor < 1000) continue;
+    let saiu = 0;
+    for (let k = i + 1; k < comData.length && dias(String(comData[k].data), String(t.data)) <= 2; k++) if (comData[k].valor < 0) saiu += Math.abs(comData[k].valor);
+    if (saiu >= t.valor * 0.7) entradaSeguida.push({ entrada: { data: t.data, valor: t.valor, descricao: t.descricao.slice(0, 60) }, saidas_em_48h: +saiu.toFixed(2) });
+  }
+
   return {
+    contratos: contratosArr,
+    veiculo,
+    rotativo,
+    cartoes,
+    varejo,
+    supermercados_consumo: superConsumo,
+    telecom,
+    sazonalidade_mes_do_ano: sazonalidade,
+    pix_com_instituicoes: pixInstituicoes,
+    entradas_seguidas_de_saidas: entradaSeguida.slice(0, 10),
+    comprometimento_mensal: comprometimento,
+    linha_endividamento_eventos: eventos.slice(0, 18),
     periodo,
     total_transacoes: comData.length,
     renda: {
@@ -232,8 +381,27 @@ const SCHEMA_INSIGHTS = {
   type: "json_schema", name: "insights_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["resumo_comercial", "prioridades", "narrativa"],
+    required: ["resumo_comercial", "emprestimos", "linha_endividamento", "prioridades", "narrativa"],
     properties: {
+      emprestimos: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          required: ["data", "valor", "detalhe", "parcelas", "pergunta", "documento"],
+          properties: {
+            data: { type: "string" }, valor: { type: "string" }, detalhe: { type: "string" },
+            parcelas: { type: "string" }, pergunta: { type: "string" }, documento: { type: "string" },
+          },
+        },
+      },
+      linha_endividamento: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          required: ["marco", "quando", "detalhe"],
+          properties: { marco: { type: "string" }, quando: { type: "string" }, detalhe: { type: "string" } },
+        },
+      },
       resumo_comercial: {
         type: "object", additionalProperties: false,
         required: ["renda_identificada", "instituicoes", "emprestimos", "primeiro_credito", "periodo_maior_contratacao", "principais_relacoes"],
@@ -267,9 +435,13 @@ Produza:
 
 1. "resumo_comercial": campos curtos e objetivos (renda identificada com valor médio mensal e fonte; quantas e quais instituições; quantos empréstimos identificados e total; data do primeiro crédito; período de maior contratação; principais relações de consumo).
 
-2. "prioridades": 3 a 8 fichas classificadas em "alta" (operação que merece contato imediato e pedido de documentos: empréstimos relevantes, sinais de refinanciamento, encargos/mora recorrentes), "media" (sinal que exige conversa) e "baixa" (relação de consumo identificada). Cada ficha com: titulo curto; o_que_encontramos (com data e valor REAIS do digest); o_que_pode_representar (sempre em tom de possibilidade); pergunta (pergunta PRONTA, na segunda pessoa, para o atendente fazer ao cliente); documento (qual documento solicitar, ex.: contrato/CCB, comprovante de liberação, faturas).
+2. "emprestimos": UMA ficha POR crédito de empréstimo recebido (use creditos_recebidos do digest, um a um, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"); pergunta (pergunta pronta na segunda pessoa sobre ESTE empréstimo específico); documento (contrato/CCB e comprovante de liberação desta operação).
 
-3. "narrativa": a história financeira do cliente em 1 parágrafo corrido e humano: como era o padrão, quando surgiram créditos, como evoluiu o endividamento, meses de aperto, situação atual. Cite meses/valores reais. Sem travessão.
+3. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto, ex.: "Primeiro sinal de endividamento"); quando (mês/ano ou data); detalhe (1 frase com valores reais).
+
+4. "prioridades": 3 a 8 fichas classificadas em "alta" (operação que merece contato imediato e pedido de documentos), "media" (sinal que exige conversa) e "baixa" (relação de consumo identificada). Considere também: cartões com mora (possível rotativo/pagamento parcial), lojas com crédito próprio (crediário a confirmar), telecom com variação de valor, PIX com instituições financeiras, entradas seguidas de saídas. Cada ficha: titulo curto; o_que_encontramos (com data e valor REAIS do digest); o_que_pode_representar (tom de possibilidade); pergunta (pronta, na segunda pessoa); documento (qual solicitar).
+
+5. "narrativa": a história financeira do cliente em 1 parágrafo corrido e humano: como era o padrão, quando surgiram créditos, como evoluiu o endividamento, meses de aperto, situação atual. Cite meses/valores reais. Sem travessão.
 
 Escreva tudo em português do Brasil, tom profissional e direto.`;
 
@@ -283,7 +455,7 @@ async function openaiCall(prompt: string, timeoutMs: number): Promise<any> {
         const r = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-          body: JSON.stringify({ model: MODELO, input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }], max_output_tokens: 6000, temperature: 0.3, text: { format: SCHEMA_INSIGHTS } }),
+          body: JSON.stringify({ model: MODELO, input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }], max_output_tokens: 10000, temperature: 0.3, text: { format: SCHEMA_INSIGHTS } }),
           signal: ac.signal,
         });
         if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -334,7 +506,9 @@ Deno.serve(async (req: Request) => {
     const insights = await openaiCall(`${PROMPT_INSIGHTS}\n\n=== DIGEST (computado por código, números exatos) ===\n${JSON.stringify(digest)}`, 90000);
     if (!insights?.prioridades) return j({ error: "IA não retornou insights válidos" }, 502);
 
-    const resumoNovo = { ...(a.resumo && typeof a.resumo === "object" ? a.resumo : {}), insights, insights_em: new Date().toISOString() };
+    // Salva também o DIGEST: o front renderiza as seções factuais (instituições,
+    // cartões, varejo, veículo, sazonalidade) direto dele, sem depender da IA.
+    const resumoNovo = { ...(a.resumo && typeof a.resumo === "object" ? a.resumo : {}), insights, digest, insights_em: new Date().toISOString() };
     await s.from("spy_analise").update({ resumo: resumoNovo, updated_at: new Date().toISOString() }).eq("id", analiseId);
 
     return j({ ok: true, analise_id: analiseId, insights });
