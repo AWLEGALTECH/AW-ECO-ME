@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { extrairTextoPdf } from "@/lib/pdfText";
-import { resumirExtrato } from "@/lib/parseExtrato";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -415,12 +414,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       // Extrai o TEXTO de cada PDF aqui no navegador (barato) e manda só o texto
       // para o servidor, em vez do arquivo inteiro. Precisa da aba aberta apenas
       // nesta etapa curta; depois a análise roda em segundo plano.
-      // O trabalho bruto (enumerar as transações) roda AQUI no navegador, de graça
-      // e na hora: o parser varre o texto do PDF e lista tudo. O servidor só usa a
-      // IA para escrever o dossiê no fim. Só mandamos o texto cru como fallback
-      // quando o parser achou pouca coisa (formato estranho), para o servidor
-      // conseguir ler aquele extrato com a IA sem perder nada.
-      const arquivos: Array<any> = [];
+      const arquivos: Array<{ id: string; name: string; texto: string; paginas: number }> = [];
       const ilegiveis: string[] = [];
       for (let i = 0; i < escolhidos.length; i++) {
         const f = escolhidos[i];
@@ -432,14 +426,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           const buf = await blob.arrayBuffer();
           const ext = await extrairTextoPdf(f.name, buf);
           if (ext.vazio) { ilegiveis.push(f.name); continue; }
-          const p = resumirExtrato(f.name, ext.texto);
-          const poucas = p.transacoes.length < 3; // parser não deu conta → fallback IA
-          arquivos.push({
-            id: f.id, name: f.name, paginas: ext.paginas,
-            periodo: p.periodo, header: p.header,
-            transacoes: p.transacoes, resumo: p.resumo,
-            texto: poucas ? ext.texto : undefined,
-          });
+          arquivos.push({ id: f.id, name: f.name, texto: ext.texto, paginas: ext.paginas });
         } catch (_e) {
           ilegiveis.push(f.name);
         }
