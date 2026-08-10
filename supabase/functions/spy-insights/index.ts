@@ -27,7 +27,7 @@ const CORS = {
 const j = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-const MODELO = "gpt-4o-mini";
+const MODELO = "gpt-4o"; // 1 chamada por geração: qualidade > centavos
 const sb = () => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const brl = (n: number) => `R$ ${(Number(n) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -89,7 +89,7 @@ const norm = (s: string) => s.toUpperCase().replace(/\d{2}\/\d{2}/g, "").replace
 interface Tx { data: string | null; descricao: string; valor: number }
 
 // ── CAMADA A: digest determinístico (todo número citado nasce aqui) ──────────
-function montarDigest(txs: Tx[]) {
+function montarDigest(txs: Tx[], headers: string[] = []) {
   const comData = txs.filter((t) => t.data).sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const periodo = comData.length ? { de: comData[0].data, ate: comData[comData.length - 1].data } : { de: null, ate: null };
 
@@ -139,9 +139,18 @@ function montarDigest(txs: Tx[]) {
 
   // instituições no texto
   const instituicoes: any[] = [];
+  // Banco emissor do extrato: o nome do banco costuma estar só no CABEÇALHO
+  // (ex.: "Bradesco Celular ... Agência 2690"), não nos históricos. Sem isso,
+  // um extrato inteiro do Bradesco reportava "nenhuma instituição".
+  for (const inst of INSTS) {
+    if (headers.some((h) => inst.re.test(h))) {
+      instituicoes.push({ nome: inst.nome, tipo: inst.tipo, ocorrencias: headers.length, recorrencia: "banco do extrato", primeira: periodo.de, ultima: periodo.ate, recebido: 0, pago: 0 });
+    }
+  }
   for (const inst of INSTS) {
     const hits = comData.filter((t) => inst.re.test(t.descricao));
     if (!hits.length) continue;
+    if (instituicoes.some((i) => i.nome === inst.nome)) { const i = instituicoes.find((x) => x.nome === inst.nome); i.ocorrencias += hits.length; continue; }
     instituicoes.push({
       nome: inst.nome, tipo: inst.tipo, ocorrencias: hits.length,
       recorrencia: hits.length >= 3 ? "recorrente" : hits.length === 1 ? "aparece 1x" : "ocasional",
@@ -339,7 +348,29 @@ function montarDigest(txs: Tx[]) {
     if (saiu >= t.valor * 0.7) entradaSeguida.push({ entrada: { data: t.data, valor: t.valor, descricao: t.descricao.slice(0, 60) }, saidas_em_48h: +saiu.toFixed(2) });
   }
 
+  // RESUMO COMERCIAL determinístico: os números do topo saem DAQUI, garantindo
+  // consistência com as seções abaixo (nada de "1 empréstimo" com 13 fichas).
+  const fmtD = (d: any) => (d ? String(d).split("-").reverse().join("/") : "—");
+  const NOME_MES = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const totalCred = creditosIn.reduce((s, c) => s + c.valor, 0);
+  const fonteTop = [...fontes.entries()].sort((a, b) => b[1].total - a[1].total)[0];
+  const topMesCred = Object.entries(porMesAno).sort((a, b) => b[1].emprestimos - a[1].emprestimos)[0];
+  const relacoes: string[] = [];
+  for (const i of instituicoes.slice(0, 3)) relacoes.push(i.nome);
+  if (topContrapartes[0]) relacoes.push(topContrapartes[0].nome);
+  const vj = (varejo.roupas_departamento?.[0] || varejo.supermercado_atacado?.[0]); if (vj) relacoes.push(vj.nome);
+  if (telecom[0]) relacoes.push(telecom[0].nome);
+  const resumo_comercial = {
+    renda_identificada: rendaMediaMensal ? `${brl(rendaMediaMensal)}/mês em média (${rendaMeses.length} meses com renda)${fonteTop ? ` · fonte: ${fonteTop[0].slice(0, 45)}` : ""}` : "não identificada nos extratos",
+    instituicoes: instituicoes.length ? `${instituicoes.length} identificada(s): ${instituicoes.map((i: any) => i.nome).join(", ")}` : "nenhuma identificada nos históricos",
+    emprestimos: creditosIn.length ? `${creditosIn.length} crédito(s) de empréstimo · total ${brl(totalCred)}${refiSinais.length ? ` · ${refiSinais.length} com sinal de refinanciamento` : ""}` : "nenhum crédito de empréstimo identificado",
+    primeiro_credito: creditosIn[0] ? `${fmtD(creditosIn[0].data)} · ${brl(creditosIn[0].valor)}` : "—",
+    periodo_maior_contratacao: topMesCred && topMesCred[1].emprestimos > 0 ? `${NOME_MES[parseInt(topMesCred[0], 10)]} (${topMesCred[1].emprestimos} contratação(ões), somando os anos)` : "—",
+    principais_relacoes: relacoes.length ? [...new Set(relacoes)].slice(0, 5).join(" · ") : "—",
+  };
+
   return {
+    resumo_comercial,
     contratos: contratosArr,
     veiculo,
     rotativo,
@@ -381,7 +412,7 @@ const SCHEMA_INSIGHTS = {
   type: "json_schema", name: "insights_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["resumo_comercial", "emprestimos", "linha_endividamento", "prioridades", "narrativa"],
+    required: ["emprestimos", "linha_endividamento", "prioridades", "narrativa"],
     properties: {
       emprestimos: {
         type: "array",
@@ -400,14 +431,6 @@ const SCHEMA_INSIGHTS = {
           type: "object", additionalProperties: false,
           required: ["marco", "quando", "detalhe"],
           properties: { marco: { type: "string" }, quando: { type: "string" }, detalhe: { type: "string" } },
-        },
-      },
-      resumo_comercial: {
-        type: "object", additionalProperties: false,
-        required: ["renda_identificada", "instituicoes", "emprestimos", "primeiro_credito", "periodo_maior_contratacao", "principais_relacoes"],
-        properties: {
-          renda_identificada: { type: "string" }, instituicoes: { type: "string" }, emprestimos: { type: "string" },
-          primeiro_credito: { type: "string" }, periodo_maior_contratacao: { type: "string" }, principais_relacoes: { type: "string" },
         },
       },
       prioridades: {
@@ -433,15 +456,13 @@ REGRA DE OURO: você NUNCA afirma que existe um direito ou uma irregularidade. V
 
 Produza:
 
-1. "resumo_comercial": campos curtos e objetivos (renda identificada com valor médio mensal e fonte; quantas e quais instituições; quantos empréstimos identificados e total; data do primeiro crédito; período de maior contratação; principais relações de consumo).
+1. "emprestimos": UMA ficha POR crédito de empréstimo recebido, SEM PULAR NENHUM (o array creditos_recebidos do digest tem N itens; produza EXATAMENTE N fichas, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"); pergunta (pergunta pronta na segunda pessoa sobre ESTE empréstimo específico); documento (contrato/CCB e comprovante de liberação desta operação).
 
-2. "emprestimos": UMA ficha POR crédito de empréstimo recebido (use creditos_recebidos do digest, um a um, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"); pergunta (pergunta pronta na segunda pessoa sobre ESTE empréstimo específico); documento (contrato/CCB e comprovante de liberação desta operação).
+2. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto, ex.: "Primeiro sinal de endividamento"); quando (mês/ano ou data); detalhe (1 frase com valores reais).
 
-3. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto, ex.: "Primeiro sinal de endividamento"); quando (mês/ano ou data); detalhe (1 frase com valores reais).
+3. "prioridades": 3 a 8 fichas classificadas em "alta" (operação que merece contato imediato e pedido de documentos), "media" (sinal que exige conversa) e "baixa" (relação de consumo identificada). Considere também: cartões com mora (possível rotativo/pagamento parcial), lojas com crédito próprio (crediário a confirmar), telecom com variação de valor, PIX com instituições financeiras, entradas seguidas de saídas. Cada ficha: titulo curto; o_que_encontramos (com data e valor REAIS do digest); o_que_pode_representar (tom de possibilidade); pergunta (pronta, na segunda pessoa); documento (qual solicitar).
 
-4. "prioridades": 3 a 8 fichas classificadas em "alta" (operação que merece contato imediato e pedido de documentos), "media" (sinal que exige conversa) e "baixa" (relação de consumo identificada). Considere também: cartões com mora (possível rotativo/pagamento parcial), lojas com crédito próprio (crediário a confirmar), telecom com variação de valor, PIX com instituições financeiras, entradas seguidas de saídas. Cada ficha: titulo curto; o_que_encontramos (com data e valor REAIS do digest); o_que_pode_representar (tom de possibilidade); pergunta (pronta, na segunda pessoa); documento (qual solicitar).
-
-5. "narrativa": a história financeira do cliente em 1 parágrafo corrido e humano: como era o padrão, quando surgiram créditos, como evoluiu o endividamento, meses de aperto, situação atual. Cite meses/valores reais. Sem travessão.
+4. "narrativa": a história financeira do cliente em 1 parágrafo corrido e humano: como era o padrão, quando surgiram créditos, como evoluiu o endividamento, meses de aperto, situação atual. Cite meses/valores reais. Sem travessão.
 
 Escreva tudo em português do Brasil, tom profissional e direto.`;
 
@@ -500,11 +521,13 @@ Deno.serve(async (req: Request) => {
     if (txs.length < 5) return j({ error: "poucas transações mapeadas para gerar insights" }, 400);
 
     // CAMADA A: digest por código.
-    const digest = montarDigest(txs);
+    const headers = parciais.map((p) => String(p?.header || "")).filter(Boolean);
+    const digest = montarDigest(txs, headers);
 
     // CAMADA B: 1 chamada.
     const insights = await openaiCall(`${PROMPT_INSIGHTS}\n\n=== DIGEST (computado por código, números exatos) ===\n${JSON.stringify(digest)}`, 90000);
     if (!insights?.prioridades) return j({ error: "IA não retornou insights válidos" }, 502);
+    insights.resumo_comercial = digest.resumo_comercial; // números do topo vêm do código
 
     // Salva também o DIGEST: o front renderiza as seções factuais (instituições,
     // cartões, varejo, veículo, sazonalidade) direto dele, sem depender da IA.

@@ -346,6 +346,8 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [enviando, setEnviando] = useState(false);
   const [preparo, setPreparo] = useState<string | null>(null);
   const [reanalisando, setReanalisando] = useState(false);
+  // Mantém a tela de análise aberta entre o fim da extração e o "Cruzar dados".
+  const [posAnalise, setPosAnalise] = useState(false);
   const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
@@ -415,6 +417,15 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     if (foco && focoAnalise && focoAnalise.status !== "processando") setFoco(null);
   }, [foco, focoAnalise]);
 
+  // Quando a ficha de insights fica pronta, sai do fluxo de análise e volta ao
+  // perfil, onde a ficha aparece no topo.
+  const ultimaConcluida = analises.find((x) => x.status === "concluida") || null;
+  useEffect(() => {
+    if (posAnalise && !analises.some((x) => x.status === "processando") && (ultimaConcluida?.resumo as any)?.insights) {
+      setPosAnalise(false);
+    }
+  }, [posAnalise, analises, ultimaConcluida]);
+
   const toggleFile = (id: string) => setSelFiles((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const analisar = async () => {
@@ -467,6 +478,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
       if (error) { toast.error("Não consegui iniciar a análise."); return; }
       setMostrarDocs(false);
+      setPosAnalise(true); // segue na tela de análise: radar → quadros → cruzar dados
       qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
       const novoId = (data as any)?.analise_id || null;
       if (novoId) setFoco(novoId);
@@ -538,6 +550,49 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     toast.success("Análise cancelada.");
   };
 
+  // ── TELA DE ANÁLISE (estilo Finder): anexar → extrair (radar) → quadros →
+  // cruzar dados (animação hacker) → volta ao perfil com a ficha no topo. ─────
+  if (mostrarDocs || rodando || posAnalise) {
+    const sair = () => { setMostrarDocs(false); setPosAnalise(false); };
+    return (
+      <div className="spy-lock space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <button onClick={sair} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" /> {cliente.nome}
+          </button>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Análise Spy</p>
+        </div>
+
+        {rodando ? (
+          <AnaliseCard a={rodando} flags={[]} defaultAberto ocultarInsights onCancel={() => { cancelarAnalise(rodando.id); sair(); }} />
+        ) : mostrarDocs ? (
+          <DocPicker
+            cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
+            selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()} onAnalisar={analisar} onCancel={sair}
+          />
+        ) : ultima ? (
+          <>
+            <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Extração concluída · {ultima.n_transacoes ?? 0} transações mapeadas</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">{gerandoInsights ? "Cruzando as transações com a IA e montando a ficha…" : "Revise os quadros abaixo e cruze os dados para gerar a ficha do cliente."}</p>
+              </div>
+              <Button onClick={() => gerarInsights(ultima)} disabled={gerandoInsights} className="gap-2 h-10 px-5 shrink-0">
+                {gerandoInsights ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                {gerandoInsights ? "Cruzando dados…" : "Cruzar dados"}
+              </Button>
+            </div>
+            <div className={`relative rounded-2xl ${gerandoInsights ? "spy-hack overflow-hidden" : ""}`}>
+              <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto ocultarInsights onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} />
+            </div>
+          </>
+        ) : (
+          <SemAnalise onStart={() => setMostrarDocs(true)} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="spy-lock space-y-5">
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
@@ -558,15 +613,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
       <FichaCliente ficha={ficha} />
 
-      {rodando ? (
-        <AnaliseCard a={rodando} flags={flags.filter((f) => f.analise_id === rodando.id)} defaultAberto onCancel={() => cancelarAnalise(rodando.id)} onReanalisar={(names) => reanalisar(rodando, names)} reanalisando={reanalisando} />
-      ) : mostrarDocs ? (
-        <DocPicker
-          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
-          selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()}
-          onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
-        />
-      ) : ultima ? (
+      {ultima ? (
         <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} onInsights={() => gerarInsights(ultima)} gerandoInsights={gerandoInsights} />
       ) : erroAnalise ? (
         <AnaliseErro a={erroAnalise} onTentar={() => setMostrarDocs(true)} />
@@ -746,59 +793,79 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, preparo
   cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean; enviando?: boolean; preparo?: string | null;
   selFiles: Set<string>; onToggle: (id: string) => void; onRefetch: () => void; onAnalisar: () => void; onCancel: () => void;
 }) {
+  const anexados = (drive || []).filter((f) => selFiles.has(f.id));
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-      {temAnalise && (
-        <p className="text-[12px] text-amber-400/90 mb-3 flex items-center gap-1.5">
-          <RefreshCw className="h-3.5 w-3.5" /> Regenerar cria uma análise do zero e substitui a atual. Selecione os extratos.
-        </p>
-      )}
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {temAnalise ? "Extratos para a nova análise" : "Extratos para analisar"}</p>
-        <div className="flex items-center gap-3">
-          {cliente.drive_folder_id && (
-            <button onClick={onRefetch} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> atualizar</button>
-          )}
-          <button onClick={onCancel} className="text-[11px] text-muted-foreground hover:text-foreground">cancelar</button>
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+      {/* Barra superior: extrair dados */}
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06] bg-white/[0.02] flex-wrap">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><ScanLine className="h-3.5 w-3.5" /> {temAnalise ? "Nova análise" : "Preparar análise"}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {enviando && preparo ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> {preparo}</span>
+              : temAnalise ? "Isto cria uma análise do zero e substitui a atual." : "Anexe os extratos e extraia os dados."}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={onCancel} className="text-[11px] text-muted-foreground hover:text-foreground px-2">cancelar</button>
+          <Button onClick={onAnalisar} disabled={selFiles.size === 0 || enviando} className="gap-1.5 h-9 px-4">
+            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+            Extrair dados {selFiles.size > 0 ? `(${selFiles.size})` : ""}
+          </Button>
         </div>
       </div>
+
       {!cliente.drive_folder_id ? (
-        <p className="text-sm text-muted-foreground py-4 text-center">Este cliente ainda não tem pasta no Drive.</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">Este cliente ainda não tem pasta no Drive.</p>
       ) : loading ? (
-        <p className="text-sm text-muted-foreground py-4 text-center inline-flex items-center gap-2 justify-center w-full"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o Drive…</p>
+        <p className="text-sm text-muted-foreground py-8 text-center inline-flex items-center gap-2 justify-center w-full"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o Drive…</p>
       ) : err ? (
-        <p className="text-sm text-rose-400 py-4 text-center">Não consegui ler a pasta do Drive.</p>
-      ) : (drive || []).length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4 text-center">Nenhum PDF na pasta.</p>
+        <p className="text-sm text-rose-400 py-8 text-center">Não consegui ler a pasta do Drive.</p>
       ) : (
-        <>
-          <div className="space-y-1.5">
-            {(drive || []).map((f) => {
-              const on = selFiles.has(f.id);
-              return (
-                <button key={f.id} onClick={() => onToggle(f.id)}
-                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors ${on ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14]"}`}>
-                  <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${on ? "bg-primary border-primary" : "border-white/20"}`}>
-                    {on && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
-                  </span>
-                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm truncate flex-1">{f.name}</span>
-                </button>
-              );
-            })}
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/[0.06]">
+          {/* Esquerda: anexos da análise */}
+          <div className="p-4 min-h-[280px]">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Anexados ({anexados.length})</p>
+            {anexados.length === 0 ? (
+              <div className="h-40 rounded-lg border border-dashed border-white/[0.12] flex items-center justify-center text-[12px] text-muted-foreground text-center px-4">
+                Nenhum extrato anexado.<br />Clique nos arquivos do Drive ao lado para anexar.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {anexados.map((f) => (
+                  <div key={f.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-primary/30 bg-primary/[0.07]">
+                    <FileText className="h-4 w-4 text-primary shrink-0" />
+                    <span className="text-sm truncate flex-1">{f.name}</span>
+                    <button onClick={() => onToggle(f.id)} className="text-muted-foreground hover:text-rose-400 shrink-0" title="Remover"><X className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
-            <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
-              {enviando && preparo
-                ? <><Loader2 className="h-3 w-3 animate-spin" /> {preparo}</>
-                : "Os extratos já vêm marcados. Ajuste se quiser."}
-            </p>
-            <Button onClick={onAnalisar} disabled={selFiles.size === 0 || enviando} className="gap-1.5">
-              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-              {temAnalise ? "Regenerar" : "Analisar"} {selFiles.size > 0 ? `(${selFiles.size})` : ""}
-            </Button>
+          {/* Direita: arquivos do Drive para anexar */}
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><FolderOpen className="h-3.5 w-3.5" /> Pasta do Drive ({(drive || []).length})</p>
+              <button onClick={onRefetch} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" /> atualizar</button>
+            </div>
+            {(drive || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">Nenhum PDF na pasta.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-[340px] overflow-y-auto scrollbar-thin pr-1">
+                {(drive || []).map((f) => {
+                  const on = selFiles.has(f.id);
+                  return (
+                    <button key={f.id} onClick={() => onToggle(f.id)}
+                      className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors ${on ? "border-primary/30 bg-primary/[0.05] opacity-60" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14]"}`}>
+                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate flex-1">{f.name}</span>
+                      <span className={`text-[10px] shrink-0 ${on ? "text-primary" : "text-muted-foreground"}`}>{on ? "anexado ✓" : "+ anexar"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -1286,7 +1353,7 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
   );
 }
 
-function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel, onInsights, gerandoInsights }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void; onInsights?: () => void; gerandoInsights?: boolean }) {
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel, onInsights, gerandoInsights, ocultarInsights }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void; onInsights?: () => void; gerandoInsights?: boolean; ocultarInsights?: boolean }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
   const arquivos: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
   const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
@@ -1308,6 +1375,32 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
   const corpo = (
     <div className="space-y-4">
       {erro && <p className="text-sm text-rose-400 whitespace-pre-line">{a.erro}</p>}
+
+      {/* FICHA DO CLIENTE (insights) no topo do perfil. */}
+      {!ocultarInsights && !proc && !erro && quadros.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Scale className="h-3.5 w-3.5" /> Ficha do cliente</p>
+            {(a.resumo as any)?.insights && onInsights && (
+              <button onClick={onInsights} disabled={gerandoInsights} className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${gerandoInsights ? "animate-spin" : ""}`} /> Recruzar dados
+              </button>
+            )}
+          </div>
+          {(a.resumo as any)?.insights ? (
+            <InsightsView ins={(a.resumo as any).insights} dg={(a.resumo as any).digest} />
+          ) : onInsights ? (
+            <div className="rounded-xl border border-dashed border-white/[0.12] p-4 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[12px] text-muted-foreground">As transações estão mapeadas, mas os dados ainda não foram cruzados com a IA.</p>
+              <Button size="sm" onClick={onInsights} disabled={gerandoInsights} className="gap-1.5 h-8 shrink-0">
+                {gerandoInsights ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanLine className="h-3.5 w-3.5" />}
+                {gerandoInsights ? "Cruzando…" : "Cruzar dados"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {arquivos.length > 0 && <CardAbrangencia a={a} onReanalisar={onReanalisar} reanalisando={reanalisando} />}
       {(quadros.length > 0 || pendentes.length > 0) && (
         <div className="space-y-3">
@@ -1320,30 +1413,6 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
           ))}
         </div>
       )}
-      {!proc && !erro && quadros.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Scale className="h-3.5 w-3.5" /> Insights comerciais</p>
-            {(a.resumo as any)?.insights && onInsights && (
-              <button onClick={onInsights} disabled={gerandoInsights} className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50">
-                <RefreshCw className={`h-3 w-3 ${gerandoInsights ? "animate-spin" : ""}`} /> Regerar
-              </button>
-            )}
-          </div>
-          {(a.resumo as any)?.insights ? (
-            <InsightsView ins={(a.resumo as any).insights} dg={(a.resumo as any).digest} />
-          ) : onInsights ? (
-            <div className="rounded-xl border border-dashed border-white/[0.12] p-4 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-[12px] text-muted-foreground">Gera o roteiro comercial (prioridades, perguntas prontas e história financeira) a partir das transações mapeadas. 1 chamada de IA, ~30 a 60s.</p>
-              <Button size="sm" onClick={onInsights} disabled={gerandoInsights} className="gap-1.5 h-8 shrink-0">
-                {gerandoInsights ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scale className="h-3.5 w-3.5" />}
-                {gerandoInsights ? "Gerando…" : "Gerar insights"}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      )}
-
       {onRegenerar && !proc && (
         <div className="pt-1 border-t border-white/[0.06]">
           <Button variant="outline" size="sm" onClick={onRegenerar} className="gap-1.5 h-8 mt-3">

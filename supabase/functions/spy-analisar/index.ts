@@ -179,7 +179,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         if (codeTx.length >= 3) {
           const transacoes = codeTx.slice(0, 600).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 }));
           const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
-          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes });
+          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes, header: String(a.header || "").slice(0, 300) });
           const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos mapeados (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
           for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
           await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
@@ -211,7 +211,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         }
         if (parsed) {
           const transacoes = (parsed.transacoes_chave || []).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0) }));
-          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes });
+          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes, header: texto.slice(0, 300) });
           const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${transacoes.length} transações mapeadas (lido por IA)`, kind: "ok" }];
           for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
           await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
