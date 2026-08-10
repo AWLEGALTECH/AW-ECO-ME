@@ -7,9 +7,8 @@
 // Todo número citado vem daqui (a IA não conta dinheiro).
 //
 // CAMADA B (IA, 1 chamada): recebe o digest e escreve APENAS o que exige
-// julgamento e linguagem: prioridades 🔴🟡🟢 com ficha completa (o que
-// encontramos → o que pode representar → pergunta pronta → documento),
-// narrativa da história financeira e resumo comercial.
+// julgamento e linguagem: as fichas transacionais por empréstimo e a linha
+// do tempo do ciclo de endividamento. O resumo comercial é computado em código.
 //
 // REGRA DE OURO (do roteiro): a IA NUNCA afirma direito ou irregularidade.
 // Sempre "ponto de atenção" + o que verificar.
@@ -412,7 +411,7 @@ const SCHEMA_INSIGHTS = {
   type: "json_schema", name: "insights_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["emprestimos", "linha_endividamento", "prioridades", "narrativa"],
+    required: ["emprestimos", "linha_endividamento"],
     properties: {
       emprestimos: {
         type: "array",
@@ -433,19 +432,6 @@ const SCHEMA_INSIGHTS = {
           properties: { marco: { type: "string" }, quando: { type: "string" }, detalhe: { type: "string" } },
         },
       },
-      prioridades: {
-        type: "array",
-        items: {
-          type: "object", additionalProperties: false,
-          required: ["nivel", "titulo", "o_que_encontramos", "o_que_pode_representar", "pergunta", "documento"],
-          properties: {
-            nivel: { type: "string", enum: ["alta", "media", "baixa"] },
-            titulo: { type: "string" }, o_que_encontramos: { type: "string" }, o_que_pode_representar: { type: "string" },
-            pergunta: { type: "string" }, documento: { type: "string" },
-          },
-        },
-      },
-      narrativa: { type: "string" },
     },
   },
 };
@@ -458,11 +444,7 @@ Produza:
 
 1. "emprestimos": UMA ficha POR crédito de empréstimo recebido, SEM PULAR NENHUM (o array creditos_recebidos do digest tem N itens; produza EXATAMENTE N fichas, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"). NÃO inclua pergunta nem documento nas fichas de empréstimo, apenas os detalhes transacionais.
 
-2. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto, ex.: "Primeiro sinal de endividamento"); quando (mês/ano ou data); detalhe (1 frase com valores reais).
-
-3. "prioridades": 3 a 8 fichas classificadas em "alta" (operação que merece contato imediato e pedido de documentos), "media" (sinal que exige conversa) e "baixa" (relação de consumo identificada). Considere também: cartões com mora (possível rotativo/pagamento parcial), lojas com crédito próprio (crediário a confirmar), telecom com variação de valor, PIX com instituições financeiras, entradas seguidas de saídas. Cada ficha: titulo curto; o_que_encontramos (com data e valor REAIS do digest); o_que_pode_representar (tom de possibilidade); pergunta (pronta, na segunda pessoa); documento (qual solicitar).
-
-4. "narrativa": a história financeira do cliente em 1 parágrafo corrido e humano: como era o padrão, quando surgiram créditos, como evoluiu o endividamento, meses de aperto, situação atual. Cite meses/valores reais. Sem travessão.
+2. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto e legível, em linguagem natural, ex.: "Primeiro sinal de endividamento" — nunca use snake_case); quando (mês/ano ou data no formato dd/mm/aaaa ou mm/aaaa); detalhe (1 frase com valores reais).
 
 Escreva tudo em português do Brasil, tom profissional e direto.`;
 
@@ -526,7 +508,7 @@ Deno.serve(async (req: Request) => {
 
     // CAMADA B: 1 chamada.
     const insights = await openaiCall(`${PROMPT_INSIGHTS}\n\n=== DIGEST (computado por código, números exatos) ===\n${JSON.stringify(digest)}`, 90000);
-    if (!insights?.prioridades) return j({ error: "IA não retornou insights válidos" }, 502);
+    if (!insights?.emprestimos && !insights?.linha_endividamento) return j({ error: "IA não retornou insights válidos" }, 502);
     insights.resumo_comercial = digest.resumo_comercial; // números do topo vêm do código
 
     // Salva também o DIGEST: o front renderiza as seções factuais (instituições,
