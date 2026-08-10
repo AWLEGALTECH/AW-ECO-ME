@@ -1146,43 +1146,60 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
   const entradaSaida: any[] = Array.isArray(dg?.entradas_seguidas_de_saidas) ? dg.entradas_seguidas_de_saidas : [];
   const contrapartes: any[] = Array.isArray(dg?.contrapartes_pix) ? dg.contrapartes_pix : [];
 
-  const RC = ({ label, value }: { label: string; value: string }) => (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="text-[12.5px] text-foreground/90 mt-0.5 leading-snug">{value || "—"}</p>
+  // Números vindos do digest (determinísticos): um dado por card, sem misturar.
+  const NOME_MES = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const creditos: any[] = Array.isArray(dg?.creditos_recebidos) ? dg.creditos_recebidos : [];
+  const totalCred = creditos.reduce((s, c) => s + (Number(c.valor) || 0), 0);
+  const fonteTop = dg?.renda?.fontes?.[0];
+  const saz = dg?.sazonalidade_mes_do_ano || {};
+  const topMes = Object.entries(saz).sort((a: any, b: any) => (b[1]?.emprestimos || 0) - (a[1]?.emprestimos || 0))[0] as any;
+  const relacoes = String(rc.principais_relacoes || "").split(" · ").filter((r) => r && r !== "—");
+
+  const StatCard = ({ icon: I, label, value, sub, cls = "text-primary" }: { icon: LucideIcon; label: string; value: string; sub?: string; cls?: string }) => (
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
+      <span className={`h-11 w-11 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] flex items-center justify-center shrink-0 ${cls}`}><I className="h-5 w-5" /></span>
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5 truncate">{value}</p>
+        {sub && <p className="text-[11.5px] text-muted-foreground mt-1 leading-snug line-clamp-2">{sub}</p>}
+      </div>
     </div>
   );
 
   return (
     <div className="space-y-3">
-      {/* Resumo comercial */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <RC label="Renda identificada" value={rc.renda_identificada} />
-        <RC label="Instituições" value={rc.instituicoes} />
-        <RC label="Empréstimos" value={rc.emprestimos} />
-        <RC label="Primeiro crédito" value={rc.primeiro_credito} />
-        <RC label="Maior contratação" value={rc.periodo_maior_contratacao} />
-        <RC label="Principais relações" value={rc.principais_relacoes} />
-      </div>
-
-      {/* Empréstimos, um a um */}
-      {emprestimos.length > 0 && (
-        <Sec icon={CreditCard} title={`Créditos de empréstimo (${emprestimos.length})`}>
-          <div className="space-y-2.5">
-            {emprestimos.map((e, i) => (
-              <div key={i} className="rounded-lg border border-white/[0.06] border-l-2 border-l-rose-400/70 bg-white/[0.01] p-3">
-                <div className="flex items-baseline gap-2.5 flex-wrap">
-                  <span className="text-[15px] font-semibold tabular-nums text-rose-300">{e.valor}</span>
-                  <span className="text-[11px] text-muted-foreground tabular-nums">{e.data}</span>
-                </div>
-                <p className="text-[12px] text-foreground/85 mt-1 leading-relaxed">{e.detalhe}</p>
-                <p className="text-[12px] text-muted-foreground mt-1"><span className="text-foreground/70">Parcelas:</span> {e.parcelas}</p>
-                <p className="rounded-md bg-primary/[0.07] border border-primary/15 px-2.5 py-1.5 text-[12px] text-foreground/90 mt-2">💬 {e.pergunta}</p>
-                <p className="text-[11px] text-muted-foreground mt-1.5">📄 {e.documento}</p>
-              </div>
-            ))}
+      {/* Resumo: um dado por card, ícone na lateral, proporção de dashboard */}
+      {dg ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <StatCard icon={Banknote} label="Renda média mensal" value={fmtBRL(dg.renda?.media_mensal || 0)} sub={`${dg.renda?.meses_com_renda || 0} meses com renda no período`} cls="text-emerald-400" />
+            <StatCard icon={Landmark} label="Fonte de renda" value={String(fonteTop?.nome || "—").replace(/^TRANSF SALDO C\/SAL P\/CC\s*/i, "").trim() || "—"} sub={fonteTop ? `${fonteTop.n} recebimentos · ${fmtBRL(fonteTop.total)}` : undefined} cls="text-sky-400" />
+            <StatCard icon={Layers} label="Instituições financeiras" value={String(instituicoes.length)} sub={instituicoes.map((i: any) => i.nome).join(", ") || "—"} cls="text-violet-400" />
+            <StatCard icon={CreditCard} label="Empréstimos" value={`${creditos.length} · ${fmtBRL(totalCred)}`} sub={dg.sinais_refinanciamento?.length ? `${dg.sinais_refinanciamento.length} com sinal de refinanciamento` : "sem sinal de refinanciamento"} cls="text-rose-400" />
+            <StatCard icon={CalendarDays} label="Primeiro crédito" value={creditos[0] ? String(creditos[0].data).split("-").reverse().join("/") : "—"} sub={creditos[0] ? `${fmtBRL(creditos[0].valor)} · ${String(creditos[0].descricao || "").slice(0, 42)}` : undefined} cls="text-amber-400" />
+            <StatCard icon={TrendingUp} label="Mês de maior contratação" value={topMes && topMes[1]?.emprestimos > 0 ? NOME_MES[parseInt(topMes[0], 10)] : "—"} sub={topMes && topMes[1]?.emprestimos > 0 ? `${topMes[1].emprestimos} contratações, somando os anos` : undefined} cls="text-orange-400" />
           </div>
-        </Sec>
+          {relacoes.length > 0 && (
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
+              <span className="h-11 w-11 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] flex items-center justify-center shrink-0 text-primary"><Users className="h-5 w-5" /></span>
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Principais relações</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {relacoes.map((r, i) => <span key={i} className="text-[12px] rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-foreground/90">{r}</span>)}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {Object.entries({ "Renda identificada": rc.renda_identificada, "Instituições": rc.instituicoes, "Empréstimos": rc.emprestimos, "Primeiro crédito": rc.primeiro_credito, "Maior contratação": rc.periodo_maior_contratacao, "Principais relações": rc.principais_relacoes }).map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+              <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+              <p className="text-[12.5px] text-foreground/90 mt-0.5 leading-snug">{String(value || "—")}</p>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Ciclo do endividamento: quando começou → como evoluiu → onde chegou */}
@@ -1299,6 +1316,30 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         </Sec>
       )}
 
+      {/* Empréstimos: recolhíveis (podem ser muitos), só o detalhe transacional */}
+      {emprestimos.length > 0 && (
+        <details className="group rounded-xl border border-white/[0.08] bg-white/[0.015] overflow-hidden">
+          <summary className="list-none cursor-pointer select-none flex items-center justify-between gap-2 px-4 py-3 hover:bg-white/[0.02] transition-colors">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
+              <CreditCard className="h-3.5 w-3.5" /> Créditos de empréstimo ({emprestimos.length}{totalCred ? ` · ${fmtBRL(totalCred)}` : ""})
+            </p>
+            <ChevronDown className="h-4 w-4 text-muted-foreground group-open:rotate-180 transition-transform" />
+          </summary>
+          <div className="px-4 pb-4 space-y-2 border-t border-white/[0.06] pt-3">
+            {emprestimos.map((e, i) => (
+              <div key={i} className="rounded-lg border border-white/[0.06] border-l-2 border-l-rose-400/70 bg-white/[0.01] px-3 py-2.5">
+                <div className="flex items-baseline gap-2.5 flex-wrap">
+                  <span className="text-[14px] font-semibold tabular-nums text-rose-300">{e.valor}</span>
+                  <span className="text-[11px] text-muted-foreground tabular-nums">{e.data}</span>
+                </div>
+                <p className="text-[12px] text-foreground/80 mt-0.5 leading-relaxed">{e.detalhe}</p>
+                <p className="text-[11.5px] text-muted-foreground mt-0.5"><span className="text-foreground/60">Parcelas:</span> {e.parcelas}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {/* Prioridades */}
       {sorted.length > 0 && (
         <Sec icon={ShieldAlert} title="Oportunidades de investigação">
@@ -1330,103 +1371,6 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         <Sec icon={FileText} title="História financeira">
           <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-line">{ins.narrativa}</p>
         </Sec>
-      )}
-    </div>
-  );
-}
-
-// Status de abrangência: % de documentos analisados com sucesso (anel), lista de
-// status por documento, e botão para reanalisar os que faltaram.
-function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
-  const arquivos: Array<{ id?: string; name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
-  const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
-  const byName = new Map(parciais.map((p) => [p.name, p]));
-  const docs = arquivos.map((d) => {
-    const p = byName.get(d.name);
-    const falhou = !!p?.falhou;
-    return {
-      name: (d.name as string) || "documento",
-      status: !p ? "pendente" : falhou ? "falhou" : (p.reconciliado ? "reconciliado" : "ia"),
-      erro: p?.erro || null, periodo: p?.periodo || null,
-      ok: !!p && !falhou, pendente: !p,
-    };
-  });
-  const okCount = docs.filter((d) => d.ok).length;
-  const total = docs.length;
-  const pct = total ? Math.round((okCount / total) * 100) : 0;
-  const falhos = docs.filter((d) => d.status === "falhou");
-  const [sel, setSel] = useState<Set<string>>(new Set());
-  const toggleSel = (n: string) => setSel((s) => { const x = new Set(s); x.has(n) ? x.delete(n) : x.add(n); return x; });
-  const anelCls = pct >= 80 ? "text-emerald-400" : pct >= 40 ? "text-amber-400" : "text-rose-400";
-
-  const badge = (status: string) =>
-    status === "reconciliado" ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" }
-    : status === "ia" ? { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" }
-    : status === "pendente" ? { txt: "analisando…", cls: "text-primary ring-primary/25 bg-primary/10" }
-    : { txt: "não analisado", cls: "text-amber-400 ring-amber-500/25 bg-amber-500/10" };
-
-  return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-4 flex items-center gap-1.5">
-        <Activity className="h-3.5 w-3.5" /> Status de abrangência
-      </p>
-
-      <div className="flex items-center gap-5 mb-5">
-        <div className="relative h-24 w-24 shrink-0">
-          <svg viewBox="0 0 36 36" className="h-24 w-24 -rotate-90">
-            <circle cx="18" cy="18" r="15.915" fill="none" strokeWidth="3.2" stroke="currentColor" className="text-white/[0.06]" />
-            <circle cx="18" cy="18" r="15.915" fill="none" strokeWidth="3.2" stroke="currentColor" strokeLinecap="round"
-              strokeDasharray={`${pct} ${100 - pct}`} className={`${anelCls} transition-all duration-700`} />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-[22px] font-semibold tabular-nums leading-none ${anelCls}`}>{pct}%</span>
-            <span className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">analisado</span>
-          </div>
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm text-foreground"><span className="font-semibold tabular-nums">{okCount}</span> de <span className="tabular-nums">{total}</span> documentos analisados com sucesso</p>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px]">
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {okCount} com sucesso</span>
-            {falhos.length > 0 && <span className="inline-flex items-center gap-1.5 text-amber-400"><span className="h-2 w-2 rounded-full bg-amber-400" /> {falhos.length} sem análise</span>}
-          </div>
-        </div>
-      </div>
-
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Documentos</p>
-      <div className="space-y-1.5">
-        {docs.map((d) => {
-          const bg = badge(d.status);
-          return (
-            <div key={d.name} className="rounded-lg border border-white/[0.06] bg-white/[0.01] overflow-hidden transition-colors hover:border-white/[0.1]">
-              <div className="flex items-center gap-2.5 px-2.5 py-2">
-                {d.status === "falhou"
-                  ? <button onClick={() => toggleSel(d.name)} className="flex items-center gap-2.5 min-w-0 flex-1 text-left group/chk">
-                      <span className={`h-[18px] w-[18px] rounded-[5px] border flex items-center justify-center shrink-0 transition-colors ${sel.has(d.name) ? "bg-primary border-primary" : "border-white/25 bg-white/[0.03] group-hover/chk:border-white/40"}`}>
-                        {sel.has(d.name) && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-                      </span>
-                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                      <span className="text-[12px] truncate">{d.name}</span>
-                    </button>
-                  : <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                      {d.pendente ? <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
-                      <span className="text-[12px] truncate">{d.name}</span>
-                      {d.periodo && <span className="text-[10px] text-muted-foreground shrink-0">· {d.periodo}</span>}
-                    </span>}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${bg.cls}`}>{bg.txt}</span>
-              </div>
-              {d.status === "falhou" && d.erro && <p className="text-[11px] text-muted-foreground pr-2.5 pb-2 pl-[46px] -mt-0.5">{motivoHumano(d.erro)}</p>}
-            </div>
-          );
-        })}
-      </div>
-
-      {falhos.length > 0 && onReanalisar && (
-        <div className="mt-3 flex items-center gap-2">
-          <Button size="sm" disabled={reanalisando || sel.size === 0} onClick={() => onReanalisar([...sel])} className="gap-1.5 h-8">
-            <RefreshCw className={`h-3.5 w-3.5 ${reanalisando ? "animate-spin" : ""}`} /> Reanalisar {sel.size || ""} selecionado(s)
-          </Button>
-          {sel.size === 0 && <span className="text-[11px] text-muted-foreground">marque os documentos que faltaram</span>}
-        </div>
       )}
     </div>
   );
