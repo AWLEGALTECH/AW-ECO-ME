@@ -345,15 +345,13 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         const codeTx = (a.reconciliado === true && Array.isArray(a.transacoes))
           ? a.transacoes.filter((t: any) => typeof t?.valor === "number") : [];
         if (codeTx.length >= 3) {
-          const transacoes = marcarChaves(codeTx.map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 })));
+          // Mapeamento NEUTRO: todas as transações, sem IA, sem interpretação.
+          const transacoes = codeTx.slice(0, 600).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 }));
           const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
-          await prog("analisando", pctLidos(), `Resumindo ${a.name}`,
-            { msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" });
-          const resumo_ia = await resumoDe(notasCodigo(a));
-          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes, resumo_ia, candidatos: a.candidatos || [], flags: candFlags(a.candidatos, a.periodo || null) });
-          const add: any[] = [];
-          for (const t of transacoes.filter((x) => x.chave).slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
-          await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add.length ? add : undefined);
+          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes });
+          const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos mapeados (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
+          for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
+          await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
           await salvarParciais();
           continue;
         }
@@ -385,11 +383,9 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           return;
         }
         if (parsed) {
-          const txs = (parsed.transacoes_chave || []).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0) }));
-          const transacoes = marcarChaves(txs);
-          const resumo_ia = (await resumoDe(parsed.notas || "")) || String(parsed.notas || "");
-          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes, resumo_ia, candidatos: [], flags: parsed.flags || [] });
-          const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${transacoes.length} transações (lido por IA)`, kind: "ok" }];
+          const transacoes = (parsed.transacoes_chave || []).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0) }));
+          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes });
+          const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${transacoes.length} transações mapeadas (lido por IA)`, kind: "ok" }];
           for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
           await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
         } else {
