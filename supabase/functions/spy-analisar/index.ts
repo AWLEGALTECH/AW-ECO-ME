@@ -1,11 +1,9 @@
 // spy-analisar (AW SPY, análise em segundo plano). Motor: OpenAI
 //
-// TRABALHO BRUTO NO CÓDIGO: o navegador já ENUMERA as transações de cada extrato
-// (parseExtrato.ts varre o texto do PDF) e manda a lista pronta. Aqui NÃO se
-// chama a IA por extrato — isso era o gargalo que travava no meio de muitos anos.
-// A IA faz UMA única chamada no fim para escrever o dossiê. Extrato de formato
-// estranho (parser achou < 3 transações) cai no fallback: o servidor manda o
-// texto cru para a IA ler só aquele arquivo — nada se perde.
+// BARATO: recebe o TEXTO já extraído de cada extrato (o navegador extrai com
+// pdf.js e envia só o texto), em vez de mandar o PDF inteiro pro OpenAI. Isso
+// derruba o custo (~5-15k tokens por extrato, contra ~99k do arquivo) e some
+// com o estouro de tokens por minuto.
 //
 // Lê TODOS os extratos, mesmo que sejam muitos: a análise SE CONTINUA sozinha.
 // Cada janela da função salva o progresso em spy_analise.parciais e, se sobraram
@@ -75,22 +73,10 @@ const SCHEMA_DOSSIE = {
   type: "json_schema", name: "dossie_spy", strict: true,
   schema: {
     type: "object", additionalProperties: false,
-    required: ["relatorio", "risco_geral", "flags"],
+    required: ["relatorio", "risco_geral"],
     properties: {
       relatorio: { type: "string" },
       risco_geral: { type: "string", enum: ["baixo", "medio", "alto", "critico"] },
-      flags: {
-        type: "array",
-        items: {
-          type: "object", additionalProperties: false,
-          required: ["eixo", "codigo", "label", "confianca", "evidencia"],
-          properties: {
-            eixo: { type: "string", enum: EIXOS },
-            codigo: { type: "string" }, label: { type: "string" },
-            confianca: { type: "number" }, evidencia: { type: "string" },
-          },
-        },
-      },
     },
   },
 };
@@ -146,41 +132,6 @@ function normalizeDate(v: any): string | null {
   return null;
 }
 
-const brl = (n: number) => `R$ ${(Number(n) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const CAT_LABEL: Record<string, string> = {
-  renda: "renda/benefício", alimentacao: "alimentação", transporte: "transporte", moradia: "moradia/contas",
-  escola: "educação", saude: "saúde", credito: "crédito/dívida", tarifa: "tarifas", saque: "saques",
-  transferencia: "transferências", outro: "outros",
-};
-
-// Monta "notas" (fatos crus) a partir do que o CÓDIGO já enumerou no navegador —
-// SEM chamar a IA. É isso que faz o trabalho bruto sair do modelo.
-function notasDeResumo(a: any): string {
-  const resumo = a.resumo || {};
-  const txs: any[] = Array.isArray(a.transacoes) ? a.transacoes : [];
-  const linhas: string[] = [];
-  const header = String(a.header || "").replace(/\s+/g, " ").trim().slice(0, 400);
-  if (header) linhas.push(`Cabeçalho do extrato (titular/conta quando presente): ${header}`);
-  const ent = Number(resumo.entradas || 0), sai = Number(resumo.saidas || 0);
-  linhas.push(`Movimentações lidas: ${txs.length}. Entradas: ${brl(ent)}. Saídas: ${brl(sai)}. Resultado no período: ${brl(ent - sai)}.`);
-  const cats = resumo.porCategoria || {};
-  const catTxt = Object.keys(cats)
-    .map((k) => ({ k, v: cats[k], total: (cats[k].entradas || 0) + (cats[k].saidas || 0) }))
-    .sort((x, y) => y.total - x.total)
-    .map(({ k, v }) => `${CAT_LABEL[k] || k}: ${brl(v.saidas || 0)} em saídas (${v.n} lançs)` + ((v.entradas || 0) ? `, ${brl(v.entradas)} em entradas` : ""))
-    .join("; ");
-  if (catTxt) linhas.push(`Peso por categoria: ${catTxt}.`);
-  const meses = resumo.porMes || {};
-  const mesTxt = Object.keys(meses).sort().map((m) => `${m}: entra ${brl(meses[m].entradas || 0)}, sai ${brl(meses[m].saidas || 0)}`).join(" | ");
-  if (mesTxt) linhas.push(`Fluxo mês a mês: ${mesTxt}.`);
-  const maiores: any[] = (Array.isArray(resumo.maiores) && resumo.maiores.length ? resumo.maiores : txs).slice(0, 22);
-  if (maiores.length) {
-    const mv = maiores.map((t) => `${t.data || "?"} ${Number(t.valor) >= 0 ? "+" : "-"}${brl(Math.abs(Number(t.valor) || 0))} ${String(t.descricao || "").slice(0, 60)}`).join("; ");
-    linhas.push(`Maiores movimentações (cite as contrapartes pelo nome quando aparecerem): ${mv}.`);
-  }
-  return linhas.join("\n");
-}
-
 const PROMPT_EXTRACAO = `Você é o motor de extração do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. NÃO escreva um texto bonito ainda: sua função é EXTRAIR os fatos crus e específicos desse extrato, para que uma etapa posterior cruze vários períodos e escreva o dossiê.
 
 Preencha "periodo" com o intervalo do extrato (ex.: "2022", "jan-dez/2023", ou o mês/ano que constar).
@@ -219,9 +170,7 @@ Escreva em "relatorio" UM ÚNICO dossiê profundo e humano, corrido e específic
 - EVOLUÇÃO NO TEMPO (essencial quando há mais de um período): como a renda mudou de um ano para o outro, quando entrou/saiu de dívida, o que passou a gastar ou deixou de gastar, tendência da saúde financeira. Amarre os períodos numa trajetória, não os descreva em separado.
 - Gancho jurídico: onde há oportunidade de defesa do consumidor (cobranças abusivas, reajustes, tarifas, endividamento) para o escritório ajudar.
 
-Regras: use SOMENTE os fatos fornecidos; toda inferência é PROBABILÍSTICA (use "provavelmente", "há indícios de"); cite datas e valores reais como evidência; NÃO invente nada que não esteja nos fatos; NÃO use travessão. Defina risco_geral considerando o conjunto todo.
-
-Também devolva "flags": uma lista de achados concretos consolidados de toda a trajetória (não por período), cada um com eixo, codigo curto, label, confianca 0..1 e evidencia com datas/valores reais. Ex.: dependência de crédito, gasto acima da renda, saldo negativo recorrente, tarifas altas, contraparte relevante. Só crie flag que os fatos sustentem.`;
+Regras: use SOMENTE os fatos fornecidos; toda inferência é PROBABILÍSTICA (use "provavelmente", "há indícios de"); cite datas e valores reais como evidência; NÃO invente nada que não esteja nos fatos; NÃO use travessão. Defina risco_geral considerando o conjunto todo.`;
 
 const ORDEM_RISCO: Record<string, number> = { baixo: 1, medio: 2, alto: 3, critico: 4 };
 
@@ -244,7 +193,7 @@ async function autoContinuar(analiseId: string, clienteId: string, arquivos: any
   } catch (_e) { /* se falhar, a stale-idempotência recupera numa próxima */ }
 }
 
-async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; texto?: string; mimeType?: string; periodo?: string; header?: string; resumo?: any; transacoes?: any[] }>) {
+async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; texto?: string; mimeType?: string }>) {
   const s = sb();
   const { data: row0 } = await s.from("spy_analise").select("parciais, progresso, status").eq("id", analiseId).maybeSingle();
   if (!row0 || row0.status !== "processando") return; // cancelada/removida
@@ -277,25 +226,6 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           return; // a próxima janela assume
         }
         await prog("analisando", pctLidos(), `Lendo ${a.name}`, { msg: `Lendo ${a.name}...`, kind: "step" });
-
-        // CAMINHO POR CÓDIGO: o navegador já enumerou as transações (trabalho
-        // bruto), então NÃO chamamos a IA aqui — só montamos os fatos e seguimos.
-        const codeTx = Array.isArray(a.transacoes) ? a.transacoes.filter((t: any) => typeof t?.valor === "number") : [];
-        if (codeTx.length >= 3) {
-          const chave = codeTx.map((t: any) => ({
-            data: t.data || null, descricao: String(t.descricao || ""),
-            valor: Math.abs(Number(t.valor) || 0), sinal: Number(t.valor) >= 0 ? 1 : -1, saldo: null,
-          }));
-          const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
-          parciais.push({ name: a.name, periodo: a.periodo || null, notas: notasDeResumo(a), risco_geral: null, flags: [], transacoes_chave: chave, viaCodigo: true });
-          const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${codeTx.length} transações (lidas pelo sistema) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
-          for (const t of chave.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: t.valor, sinal: t.sinal });
-          await prog("analisando", pctLidos(), `Lido ${a.name}`, add);
-          await salvarParciais();
-          continue;
-        }
-
-        // FALLBACK: extrato que o código não deu conta (formato estranho) → IA lê o texto.
         let parsed: any = null;
         const texto = String(a.texto || "").trim();
         if (texto.replace(/\s/g, "").length < 40) {
@@ -341,9 +271,8 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     if (!(await estaViva(s, analiseId))) return;
     const oks = parciais.filter((p) => !p.falhou)
       .sort((x, y) => String(x.periodo || x.name).localeCompare(String(y.periodo || y.name)));
-    const flagsExtratos = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : []));
-    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes_chave) ? p.transacoes_chave : []));
-    let flagsSint: any[] = [];
+    const flags = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : [])).slice(0, 100);
+    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes_chave) ? p.transacoes_chave : [])).slice(0, 200);
 
     // Conta OpenAI sem créditos: não há o que sintetizar. Falha com mensagem clara.
     const semCredito = parciais.some((p) => p.falhou && /sem_creditos|no credits|insufficient_quota/i.test(String(p.erro || "")));
@@ -364,17 +293,15 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         { msg: oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
       const fatos = oks.map((p) => `### Período: ${p.periodo || p.name}\n${p.notas || ""}`).join("\n\n");
       try {
-        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 7000, SCHEMA_DOSSIE));
+        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 6000, SCHEMA_DOSSIE));
         relatorio = dossie?.relatorio || null;
         riscoLabel = dossie?.risco_geral || "";
-        flagsSint = Array.isArray(dossie?.flags) ? dossie.flags : [];
         if (!relatorio) sintErro = "sintese sem relatorio";
       } catch (e) { relatorio = null; sintErro = String((e as Error)?.message || e); }
       if (!relatorio) relatorio = oks.map((p) => (oks.length > 1 ? `## ${p.periodo || p.name}\n` : "") + (p.notas || "")).join("\n\n");
       if (!riscoLabel) { let maxR = 0; for (const p of oks) { const ri = ORDEM_RISCO[p.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.risco_geral; } } }
       await prog("sintetizando", 92, "Dossiê gerado", { msg: `Dossiê gerado · risco ${riscoLabel || "?"}`, kind: "ok" });
     }
-    const flags = [...flagsSint, ...flagsExtratos].slice(0, 100);
     const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
     const naoLidos = parciais.filter((p) => p.falhou).length;
 
@@ -387,7 +314,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     }).eq("id", analiseId);
 
     if (txs.length) {
-      const rows = txs.slice(0, 800).map((t: any) => ({
+      const rows = txs.slice(0, 120).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
         data: normalizeDate(t.data),
         valor: typeof t.valor === "number" ? Math.abs(t.valor) : null,
@@ -427,7 +354,7 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const clienteId = body.cliente_id as string | undefined;
-    const arquivos = (body.arquivos as Array<{ id: string; name: string; texto?: string; mimeType?: string; periodo?: string; header?: string; resumo?: any; transacoes?: any[] }> | undefined) || [];
+    const arquivos = (body.arquivos as Array<{ id: string; name: string; texto?: string; mimeType?: string }> | undefined) || [];
     const retomar = body.retomar as string | undefined;
     if (!clienteId) return j({ error: "cliente_id obrigatorio" }, 400);
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);
