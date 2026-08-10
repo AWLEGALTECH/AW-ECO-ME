@@ -9,6 +9,11 @@
 // - SÍNTESE: UMA chamada de IA cruza tudo e escreve o dossiê (com as oportunidades
 //   de fechamento) + flags. De N chamadas gordas para ~1 enxuta.
 //
+// TETO DE 5 MIN: nenhuma análise passa de 5 min. Cada chamada de IA tem corte
+// duro (~45s, AbortController) e há um deadline global (criação + 5 min): o que
+// não couber é marcado "faltou por tempo" para reprocessar, e a síntese roda com
+// o que deu certo (entrega parcial). Assim um extrato pendurado nunca trava tudo.
+//
 // Lê TODOS os extratos, mesmo que sejam muitos: a análise SE CONTINUA sozinha.
 // Cada janela da função salva o progresso em spy_analise.parciais e, se sobraram
 // extratos, reinicia a si mesma (retomar). Quando todos foram lidos, cruza tudo
@@ -97,46 +102,61 @@ const SCHEMA_DOSSIE = {
   },
 };
 
-const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej) => {
+  const t = setTimeout(res, ms);
+  if (signal) signal.addEventListener("abort", () => { clearTimeout(t); rej(new Error("timeout")); }, { once: true });
+});
 
-async function openai(content: any[], maxTokens: number, format: unknown, tries = 4): Promise<string> {
+// Cada chamada tem CORTE DURO por tempo (AbortController). Se pendurar, aborta e
+// falha — é isso que impede um extrato travado de segurar a análise inteira.
+async function openai(content: any[], maxTokens: number, format: unknown, opts: { tries?: number; timeoutMs?: number } = {}): Promise<string> {
+  const tries = opts.tries ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 45000;
   const key = Deno.env.get("OPENAI_API_KEY");
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   let lastErr = "";
-  for (let attempt = 1; attempt <= tries; attempt++) {
-    try {
-      const r = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0.3, text: { format } }),
-      });
-      if (r.status === 429) {
-        const body = (await r.text()).slice(0, 300);
-        lastErr = `openai 429: ${body.slice(0, 180)}`;
-        // Sem créditos/quota: repetir não adianta, falha na hora (não gasta ~60s).
-        if (/insufficient_quota|no credits|billing/i.test(body)) throw new Error(`sem_creditos: ${body.slice(0, 140)}`);
-        if (attempt < tries) { await sleep(attempt * 8000); continue; }
-        throw new Error(lastErr);
+  try {
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      if (ac.signal.aborted) throw new Error("timeout_openai");
+      try {
+        const r = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0.3, text: { format } }),
+          signal: ac.signal,
+        });
+        if (r.status === 429) {
+          const body = (await r.text()).slice(0, 300);
+          lastErr = `openai 429: ${body.slice(0, 180)}`;
+          // Sem créditos/quota: repetir não adianta, falha na hora.
+          if (/insufficient_quota|no credits|billing/i.test(body)) throw new Error(`sem_creditos: ${body.slice(0, 140)}`);
+          if (attempt < tries) { await sleep(Math.min(attempt * 4000, 10000), ac.signal); continue; }
+          throw new Error(lastErr);
+        }
+        if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 260)}`);
+        const d = await r.json();
+        if (Array.isArray(d.output)) {
+          for (const o of d.output) for (const c of (o.content || [])) if (c?.type === "refusal" && c.refusal) throw new Error(`recusa: ${String(c.refusal).slice(0, 200)}`);
+        }
+        if (d.status === "incomplete") throw new Error(`incompleto: ${d.incomplete_details?.reason || "?"}`);
+        let txt = d.output_text;
+        if (!txt && Array.isArray(d.output)) {
+          for (const o of d.output) for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
+        }
+        if (txt) return txt;
+        throw new Error("resposta vazia");
+      } catch (e) {
+        lastErr = String((e as Error)?.message || e);
+        // Estourou o tempo desta chamada: aborta de vez (não repete).
+        if (ac.signal.aborted || /aborted|the operation was aborted|timeout/i.test(lastErr)) throw new Error("timeout_openai");
+        // Sem créditos/quota: não adianta repetir, sai na hora.
+        if (/sem_creditos|insufficient_quota|no credits/i.test(lastErr)) break;
+        if (attempt < tries) await sleep(1500, ac.signal);
       }
-      if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 260)}`);
-      const d = await r.json();
-      if (Array.isArray(d.output)) {
-        for (const o of d.output) for (const c of (o.content || [])) if (c?.type === "refusal" && c.refusal) throw new Error(`recusa: ${String(c.refusal).slice(0, 200)}`);
-      }
-      if (d.status === "incomplete") throw new Error(`incompleto: ${d.incomplete_details?.reason || "?"}`);
-      let txt = d.output_text;
-      if (!txt && Array.isArray(d.output)) {
-        for (const o of d.output) for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
-      }
-      if (txt) return txt;
-      throw new Error("resposta vazia");
-    } catch (e) {
-      lastErr = String((e as Error)?.message || e);
-      // Sem créditos/quota: não adianta repetir, sai na hora.
-      if (/sem_creditos|insufficient_quota|no credits/i.test(lastErr)) break;
-      if (attempt < tries) await sleep(1500);
     }
-  }
-  throw new Error(lastErr || "openai falhou");
+    throw new Error(lastErr || "openai falhou");
+  } finally { clearTimeout(timer); }
 }
 function parseJson(s: string): any { try { return JSON.parse(String(s).replace(/^```json\s*|```$/g, "").trim()); } catch { return null; } }
 function normalizeDate(v: any): string | null {
@@ -241,8 +261,12 @@ async function autoContinuar(analiseId: string, clienteId: string, arquivos: any
 
 async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; texto?: string; mimeType?: string; periodo?: string; header?: string; reconciliado?: boolean; saldoInicial?: number | null; saldoFinal?: number | null; resumo?: any; candidatos?: any[]; transacoes?: any[] }>) {
   const s = sb();
-  const { data: row0 } = await s.from("spy_analise").select("parciais, progresso, status").eq("id", analiseId).maybeSingle();
+  const { data: row0 } = await s.from("spy_analise").select("parciais, progresso, status, created_at").eq("id", analiseId).maybeSingle();
   if (!row0 || row0.status !== "processando") return; // cancelada/removida
+  // TETO GLOBAL: nenhuma análise passa de 5 min. O que não couber vira "faltou
+  // por tempo" e fica para reprocessar; a síntese roda com o que deu certo.
+  const TETO_MS = 300000, RESERVA_SINTESE_MS = 75000;
+  const deadline = new Date(row0.created_at).getTime() + TETO_MS;
   const parciais: any[] = Array.isArray(row0.parciais) ? row0.parciais : [];
   const feed: any[] = Array.isArray(row0.progresso?.feed) ? row0.progresso.feed.slice() : [];
   const feitos = new Set(parciais.map((p) => p.name));
@@ -262,8 +286,16 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     if (pendentes.length > 0) {
       const INICIO = Date.now();
       const LIMITE_MS = 110000; // janela: para antes do teto e continua em outra
-      for (const a of pendentes) {
+      for (let idx = 0; idx < pendentes.length; idx++) {
+        const a = pendentes[idx];
         if (!(await estaViva(s, analiseId))) return; // cancelada
+        // Teto de 5 min: reserva tempo pra síntese; o que sobrou fica pra reprocessar.
+        if (Date.now() > deadline - RESERVA_SINTESE_MS) {
+          for (let k = idx; k < pendentes.length; k++) parciais.push({ name: pendentes[k].name, falhou: true, erro: "tempo excedido (5 min)" });
+          await prog("analisando", pctLidos(), "Teto de 5 min", { msg: `Teto de 5 min atingido — ${pendentes.length - idx} extrato(s) ficaram para reprocessar`, kind: "warn" });
+          await salvarParciais();
+          break;
+        }
         if (parciais.length > 0 && Date.now() - INICIO > LIMITE_MS) {
           await prog("analisando", pctLidos(), `Continuando (${parciais.length}/${total})`,
             { msg: `Pausa técnica: já li ${parciais.length}/${total}, continuando os demais...`, kind: "step" });
@@ -307,7 +339,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           const content = [
             { type: "input_text", text: `${PROMPT_EXTRACAO}\n\n=== EXTRATO: ${a.name} (texto extraído do PDF) ===\n${texto.slice(0, 120000)}` },
           ];
-          parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO));
+          parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO, { timeoutMs: 45000, tries: 2 }));
         } catch (e) { parsed = null; errFile = String((e as Error)?.message || e); }
         // Conta OpenAI sem créditos: aborta a análise inteira já no 1º extrato.
         if (!parsed && errFile && /sem_creditos|insufficient_quota|no credits/i.test(errFile)) {
@@ -361,7 +393,8 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         { msg: oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
       const fatos = oks.map((p) => `### Período: ${p.periodo || p.name}\n${p.notas || ""}`).join("\n\n");
       try {
-        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 7000, SCHEMA_DOSSIE));
+        const restante = deadline - Date.now();
+        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 7000, SCHEMA_DOSSIE, { timeoutMs: Math.max(20000, Math.min(90000, restante)), tries: 2 }));
         relatorio = dossie?.relatorio || null;
         riscoLabel = dossie?.risco_geral || "";
         flagsSint = Array.isArray(dossie?.flags) ? dossie.flags : [];
@@ -376,7 +409,8 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     const naoLidos = parciais.filter((p) => p.falhou).length;
 
     if (!(await estaViva(s, analiseId))) return;
-    feed.push({ msg: `Concluído · ${oks.length}/${total} extratos · ${txs.length} transações · ${flags.length} marcadores${naoLidos ? ` · ${naoLidos} não lido(s)` : ""}`, kind: "done" });
+    const faltamTempo = parciais.filter((p) => p.falhou && /tempo excedido/.test(String(p.erro || ""))).map((p) => p.name);
+    feed.push({ msg: `${faltamTempo.length ? "Concluído (parcial)" : "Concluído"} · ${oks.length}/${total} extratos · ${txs.length} transações · ${flags.length} marcadores${faltamTempo.length ? ` · faltaram por tempo: ${faltamTempo.join(", ")} — reprocessar` : (naoLidos ? ` · ${naoLidos} não lido(s)` : "")}`, kind: "done" });
     await s.from("spy_analise").update({
       status: "concluida", relatorio, resumo, erro: sintErro,
       n_transacoes: txs.length, updated_at: new Date().toISOString(),
