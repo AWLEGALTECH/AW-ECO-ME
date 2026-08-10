@@ -1,68 +1,49 @@
-// CAMADA 0 (código, sem IA): extrai o LEDGER COMPLETO de um extrato, preservando
-// a descrição verbatim de cada lançamento. Quando o extrato tem coluna de saldo
-// corrente, o valor e o sinal de cada transação saem da DIFERENÇA entre saldos
-// consecutivos — sem chutar sinal — e a extração RECONCILIA:
-//   saldo_inicial + Σ(movimentos) == saldo_final.
+// Mapeamento NEUTRO das transações do extrato, NO CÓDIGO (sem IA).
 //
-// Se reconcilia (erro ≈ 0), a extração está PROVADA correta e completa → o
-// servidor NÃO gasta IA nesse extrato. Se não reconcilia (formato esquisito,
-// escaneado, sem coluna de saldo), o extrato volta pro motor antigo (IA lê o
-// texto). Assim o pior caso é o comportamento de hoje, e a economia acontece
-// sempre que a conta fecha. A profundidade é preservada porque a IA final
-// recebe TODAS as transações com descrição, não agregados.
+// Extratos (ex.: Bradesco) vêm em MÚLTIPLAS LINHAS: a data numa linha, o
+// histórico e a contraparte em outras, e por fim uma linha `docto valor saldo`.
+// O parser acumula as linhas de descrição até achar a linha de saldo, e deriva
+// o valor e o sinal da DIFERENÇA entre saldos consecutivos (saldo - saldo_ant),
+// o que resolve a coluna crédito/débito automaticamente.
 //
-// Padrões de data/valor calibrados no parser (testado, com OCR) do Finder.
+// RECONCILIAÇÃO: para cada lançamento, comparamos |Δsaldo| com o valor impresso.
+// Se a maioria bate (matchRate alto), a extração está PROVADA e o servidor mapeia
+// por código, sem IA. Se não bate (formato estranho/escaneado), cai no fallback
+// de IA no servidor. Assim o pior caso é o de hoje, e o caso comum fica de graça.
 
-export interface Tx {
-  data: string | null; // AAAA-MM-DD
-  descricao: string; // histórico verbatim (é daqui que sai a profundidade)
-  valor: number; // com sinal: + entrada, - saída
-  saldo: number | null;
-}
+export interface Tx { data: string | null; descricao: string; valor: number; saldo: number | null }
 
 export interface ResumoExtrato {
   n: number;
   entradas: number;
-  saidas: number; // positivo (módulo)
+  saidas: number;
   porCategoria: Record<string, { n: number; entradas: number; saidas: number }>;
   porMes: Record<string, { entradas: number; saidas: number }>;
 }
-
-// Candidato a oportunidade de fechamento (defesa do consumidor), pré-marcado
-// pelo código para a IA validar — foca a análise no que interessa.
-export interface Candidato { tipo: string; ocorrencias: number; total: number; exemplos: string[]; }
 
 export interface ExtratoAnalisado {
   name: string;
   periodo: string;
   header: string;
   reconciliado: boolean;
-  erroRecon: number | null;
+  matchRate: number;
   saldoInicial: number | null;
   saldoFinal: number | null;
   transacoes: Tx[];
   resumo: ResumoExtrato;
-  candidatos: Candidato[];
+  candidatos: never[]; // (mantido por compatibilidade; hoje o mapeamento é neutro)
 }
 
-const num = (s: string) => parseFloat(s.replace(/\./g, "").replace(",", "."));
-
-const RE_SALDO_ANT = /saldo\s+(?:anterior|em\s+\d{2}\/\d{2}(?:\/\d{2,4})?)\s*:?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*([DC-]?)/i;
-const RE_SKIP = /^(saldo|s a l d o|total|subtotal|per[ií]odo|extrato\s+de|tarifas\s+debitadas\s+em|[uú]ltimos\s+lan[cç]amentos|ag[eê]ncia|\bconta\b|limite|dispon[ií]vel|data\s*:)/i;
-// Token de valor BR com marca de sinal: sufixo D/C, (-)/(+), ou "-" na frente.
-const RE_AMT = /(-?)(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:\(([+-])\)|([DC]))?/gi;
-
-// Categorias (espelham as CATS visuais da tela Spy) — só a KEY, para agregação.
 const CAT_REGEX: { key: string; re: RegExp }[] = [
-  { key: "renda", re: /SALARIO|BENEFICIO|APOSENTAD|\bINSS\b|PREFEITURA|PENSAO|PROVENTO|VENCIMENTO|BOLSA FAMILIA|AUXILIO/i },
+  { key: "renda", re: /SALARIO|BENEFICIO|APOSENTAD|\bINSS\b|PREFEITURA|SECRETARIA|PENSAO|PROVENTO|VENCIMENTO|BOLSA FAMILIA|AUXILIO|SAL P\/CC/i },
   { key: "alimentacao", re: /MERCAD|SUPERMERC|PADARIA|ACOUGUE|IFOOD|RESTAURANT|LANCHON|ALIMENT|HORTIFRUT|ATACAD/i },
   { key: "transporte", re: /POSTO|COMBUST|GASOLINA|\bUBER\b|\b99\b|TAXI|ONIBUS|PASSAGEM|PEDAGIO|ESTACIONAM|\bIPVA\b/i },
   { key: "moradia", re: /ALUGUEL|CONDOMIN|ENERGIA|CEMIG|COPASA|\bLUZ\b|\bAGUA\b|\bGAS\b|INTERNET|\bIPTU\b|MORADIA|CLARO|VIVO|\bTIM\b/i },
   { key: "escola", re: /ESCOLA|FACULD|UNIVERS|COLEGIO|MENSALIDADE|\bCURSO\b|EDUCAC|CRECHE/i },
   { key: "saude", re: /FARMAC|DROGA|HOSPITAL|CLINICA|MEDIC|LABORAT|SAUDE|UNIMED|ODONTO|AMIL|HAPVIDA/i },
-  { key: "credito", re: /EMPRESTIMO|CONSIGNAD|FINANCIAMENTO|PARCELA|CREDIARIO|CARTAO|FATURA|CREFISA|\bBMG\b|AGIBANK/i },
+  { key: "credito", re: /EMPRESTIMO|CONSIGNAD|FINANCIAMENTO|PARCELA|CREDIARIO|CARTAO|FATURA|CREFISA|\bBMG\b|AGIBANK|CREDITO PESSOAL|ENCARGO/i },
   { key: "tarifa", re: /TARIFA|\bTAXA\b|MANUTENC|CESTA|ANUIDADE|\bIOF\b|PACOTE SERV/i },
-  { key: "saque", re: /SAQUE|CORBAN|CAIXA ELETR|\bSAQ\b/i },
+  { key: "saque", re: /SAQUE|CORBAN|CAIXA ELETR|\bSAQ\b|DINHEIRO ATM/i },
   { key: "transferencia", re: /\bPIX\b|\bTED\b|\bDOC\b|TRANSFER/i },
 ];
 export function categoriaKey(desc: string): string {
@@ -71,97 +52,52 @@ export function categoriaKey(desc: string): string {
   return "outro";
 }
 
-// Padrões de oportunidade de fechamento (defesa do consumidor).
-const CAND_REGEX: { tipo: string; re: RegExp }[] = [
-  { tipo: "Empréstimo/consignado", re: /EMPRESTIMO|CONSIGNAD|CREDITO PESSOAL|CREFISA|\bBMG\b|AGIBANK|FINANCIAMENTO|MORA CREDITO/i },
-  { tipo: "Tarifas bancárias", re: /TARIFA|CESTA|ANUIDADE|PACOTE SERV|MANUTENC|\bIOF\b/i },
-  { tipo: "Cheque especial/juros", re: /CHEQUE ESPECIAL|\bJUROS\b|\bLIS\b|ADIANTAMENTO A DEPOSITANTE|ADIANT.*DEPOSITANTE/i },
-  { tipo: "Seguros/assistências", re: /SEGURO|PROTECAO|ASSISTENCIA|SEGURIDADE/i },
-  { tipo: "Estornos/devoluções", re: /ESTORNO|DEVOLUC|REEMBOLSO/i },
-];
+const RE_DEC = /-?\d{1,3}(?:\.\d{3})*,\d{2}/g;
+const RE_DATA_INI = /^(\d{2})\/(\d{2})\/(\d{4})\b/; // data na coluna Data (início da linha)
+const RE_SKIP = /^(Data\s+Hist|Data:\s|Extrato de:|Bradesco|Nome:|Folha:|Movimenta|SALDO ANTERIOR|Saldo Anterior|P[aá]gina|Dispon[ií]vel|Limite de|Total\b|Resumo|Ag[eê]ncia:)/i;
+const RE_FIM = /^Total\b/i;
 
-function acharData(line: string, ano: number | null) {
-  let m = line.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/); if (m) return { iso: `${m[3]}-${m[2]}-${m[1]}`, i: m.index!, len: m[0].length };
-  m = line.match(/\b(\d{2})\/(\d{2})\/(\d{2})\b/); if (m) return { iso: `20${m[3]}-${m[2]}-${m[1]}`, i: m.index!, len: m[0].length };
-  m = line.match(/\b(\d{2})\/(\d{2})\b/); if (m && ano) return { iso: `${ano}-${m[2]}-${m[1]}`, i: m.index!, len: m[0].length };
-  return null;
-}
+const num = (s: string) => parseFloat(s.replace(/\./g, "").replace(",", "."));
 
-function amounts(line: string) {
-  const out: { val: number; sign: number }[] = [];
-  const re = new RegExp(RE_AMT.source, "gi");
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(line))) {
-    let sign = 0;
-    if (m[1] === "-" || m[3] === "-" || m[4] === "D") sign = -1;
-    else if (m[3] === "+" || m[4] === "C") sign = 1;
-    out.push({ val: num(m[2]), sign });
-  }
-  return out;
-}
-
-function anoDoNome(name: string): number | null {
-  const m = String(name || "").match(/\b(19|20)\d{2}\b/);
-  return m ? parseInt(m[0], 10) : null;
-}
-function dominanteAno(texto: string): number | null {
-  const m = texto.match(/\b(19|20)\d{2}\b/);
-  return m ? parseInt(m[0], 10) : null;
-}
-
-export function parseExtrato(texto: string, anoHint?: number | null): {
-  transacoes: Tx[]; reconciliado: boolean; saldoInicial: number | null; saldoFinal: number | null; erroRecon: number | null;
-} {
+export function parseExtrato(texto: string): { transacoes: Tx[]; reconciliado: boolean; saldoInicial: number | null; saldoFinal: number | null; matchRate: number } {
   const linhas = String(texto || "").split("\n");
-  const ano = anoHint ?? dominanteAno(texto);
-
-  let saldoInicial: number | null = null;
-  for (const l of linhas) { const m = l.match(RE_SALDO_ANT); if (m) { saldoInicial = num(m[1]) * (m[2] === "D" || m[2] === "-" ? -1 : 1); break; } }
-
   const txs: Tx[] = [];
-  let dataArr: string | null = null;
-  let saldoAnt: number | null = saldoInicial;
-  let temColunaSaldo = false;
+  let dataAtual: string | null = null, prevSaldo: number | null = null, saldoIni: number | null = null;
+  let buffer: string[] = [];
+  let match = 0, tot = 0;
 
   for (const raw of linhas) {
-    const line = raw.trim(); if (!line) continue;
-    const d = acharData(line, ano); if (d) dataArr = d.iso;
-    if (RE_SKIP.test(line)) continue;
-    const amts = amounts(line);
-    if (!amts.length) continue;
-    const iso = d?.iso ?? dataArr;
-    if (!iso && !d) continue;
-
-    let desc = line;
-    if (d) desc = desc.slice(0, d.i) + " " + desc.slice(d.i + d.len);
-    desc = desc.replace(new RegExp(RE_AMT.source, "gi"), " ").replace(/\bR\$/gi, " ").replace(/\s+/g, " ").replace(/^[\s\-–|.:]+|[\s\-–|.:]+$/g, "").trim();
-    const letras = (desc.match(/[A-Za-zÀ-ÿ]/g) || []).length;
-    if (letras < 3) continue;
-
-    let valor: number; let saldo: number | null = null;
-    if (amts.length >= 2) {
-      // [valor, saldo]: deriva o valor do DELTA de saldo (robusto, sem chutar sinal)
-      temColunaSaldo = true;
-      const ult = amts[amts.length - 1];
-      saldo = ult.val * (ult.sign < 0 ? -1 : 1);
-      if (saldoAnt !== null) valor = +(saldo - saldoAnt).toFixed(2);
-      else { const a = amts[0]; valor = (a.sign || -1) * a.val; }
-      saldoAnt = saldo;
+    const line = raw.trim();
+    if (!line) continue;
+    if (RE_FIM.test(line)) break;      // linha "Total ..." encerra o extrato
+    if (RE_SKIP.test(line)) continue;  // cabeçalhos/rodapés que se repetem por página
+    const dIni = line.match(RE_DATA_INI);
+    if (dIni) dataAtual = `${dIni[3]}-${dIni[2]}-${dIni[1]}`;
+    const decs = line.match(RE_DEC);
+    if (decs && decs.length >= 2) {
+      const saldo = num(decs[decs.length - 1]);
+      const valorShown = num(decs[decs.length - 2]);
+      let head = line.slice(0, line.lastIndexOf(decs[decs.length - 2]));
+      head = head.replace(RE_DATA_INI, " ").replace(/\b\d{5,}\b/g, " ").replace(/\bCOD\.?\s*LANC\.?\b/i, " ").replace(/\bR\$\b/gi, " ").replace(/\s+/g, " ").trim();
+      const desc = [...buffer, head].join(" ").replace(/\s+/g, " ").replace(/^[\s\-|.:]+|[\s\-|.:]+$/g, "").trim();
+      buffer = [];
+      if (prevSaldo === null) { saldoIni = saldo; prevSaldo = saldo; continue; } // saldo de abertura
+      const delta = +(saldo - prevSaldo).toFixed(2);
+      prevSaldo = saldo;
+      if (delta === 0) continue;
+      const bate = Math.abs(Math.abs(delta) - valorShown) < 0.02;
+      tot++; if (bate) match++;
+      const mag = valorShown > 0 ? valorShown : Math.abs(delta);
+      txs.push({ data: dataAtual, descricao: desc.slice(0, 110), valor: +((delta >= 0 ? 1 : -1) * mag).toFixed(2), saldo });
     } else {
-      const a = amts[0];
-      valor = (a.sign || -1) * a.val; // sinal explícito, senão débito
+      const letras = (line.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+      if (letras >= 3) buffer.push(line);
     }
-    txs.push({ data: iso, descricao: desc.slice(0, 120), valor, saldo });
   }
 
-  const saldoFinal = (() => { for (let i = txs.length - 1; i >= 0; i--) if (txs[i].saldo !== null) return txs[i].saldo; return null; })();
-  let reconciliado = false, erroRecon: number | null = null;
-  if (temColunaSaldo && saldoInicial !== null && saldoFinal !== null && txs.length > 0) {
-    const soma = txs.reduce((s, t) => s + t.valor, 0);
-    erroRecon = +(saldoInicial + soma - saldoFinal).toFixed(2);
-    reconciliado = Math.abs(erroRecon) < 0.02;
-  }
-  return { transacoes: txs, reconciliado, saldoInicial, saldoFinal, erroRecon };
+  const matchRate = tot ? match / tot : 0;
+  const reconciliado = txs.length >= 5 && matchRate >= 0.7;
+  return { transacoes: txs, reconciliado, saldoInicial: saldoIni, saldoFinal: prevSaldo, matchRate };
 }
 
 function agregar(txs: Tx[]): ResumoExtrato {
@@ -177,18 +113,10 @@ function agregar(txs: Tx[]): ResumoExtrato {
   return r;
 }
 
-function candidatos(txs: Tx[]): Candidato[] {
-  const out: Candidato[] = [];
-  for (const c of CAND_REGEX) {
-    const hits = txs.filter((t) => c.re.test(t.descricao));
-    if (!hits.length) continue;
-    const total = hits.reduce((s, t) => s + Math.abs(t.valor), 0);
-    const exemplos = Array.from(new Set(hits.map((t) => t.descricao))).slice(0, 4);
-    out.push({ tipo: c.tipo, ocorrencias: hits.length, total: +total.toFixed(2), exemplos });
-  }
-  return out;
+function anoDoNome(name: string): number | null {
+  const m = String(name || "").match(/\b(19|20)\d{2}\b/);
+  return m ? parseInt(m[0], 10) : null;
 }
-
 function periodoDe(name: string, txs: Tx[]): string {
   const doNome = anoDoNome(name);
   const meses = txs.map((t) => t.data).filter(Boolean).sort() as string[];
@@ -200,20 +128,19 @@ function periodoDe(name: string, txs: Tx[]): string {
   return doNome ? String(doNome) : "período";
 }
 
-// Ponto de entrada: texto do PDF → tudo mastigado para a Camada de interpretação.
+// Ponto de entrada: texto do PDF → mapeamento neutro pronto para o quadro.
 export function analisarExtrato(name: string, texto: string): ExtratoAnalisado {
-  const ano = anoDoNome(name) ?? dominanteAno(texto);
-  const p = parseExtrato(texto, ano);
+  const p = parseExtrato(texto);
   return {
     name,
     periodo: periodoDe(name, p.transacoes),
     header: String(texto || "").slice(0, 1200),
     reconciliado: p.reconciliado,
-    erroRecon: p.erroRecon,
+    matchRate: p.matchRate,
     saldoInicial: p.saldoInicial,
     saldoFinal: p.saldoFinal,
     transacoes: p.transacoes,
     resumo: agregar(p.transacoes),
-    candidatos: candidatos(p.transacoes),
+    candidatos: [],
   };
 }
