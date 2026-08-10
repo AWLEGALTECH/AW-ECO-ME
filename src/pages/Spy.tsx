@@ -64,6 +64,11 @@ const motivoHumano = (erro: any): string => {
 
 interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; }
 interface DriveFile { id: string; name: string; mimeType: string; }
+
+// Alguns clientes têm só a URL da pasta (drive_folder_id nulo) — extrai o id
+// da própria URL para o Spy funcionar do mesmo jeito.
+const drivePastaId = (c: Pick<Cliente, "drive_folder_id" | "drive_folder_url">) =>
+  c.drive_folder_id || c.drive_folder_url?.match(/\/folders\/([A-Za-z0-9_-]+)/)?.[1] || null;
 interface Analise { id: string; cliente_id: string; status: string; arquivos: any[]; parciais?: any[]; relatorio: string | null; resumo: any; erro: string | null; progresso: any; n_transacoes: number | null; created_at: string; }
 interface Flag { id: string; analise_id: string; eixo: string | null; codigo: string | null; label: string | null; valor: any; confianca: number | null; evidencia: string | null; }
 
@@ -117,11 +122,11 @@ export default function Spy() {
     },
   });
 
-  const comPasta = useMemo(() => clientes.filter((c) => c.drive_folder_id).length, [clientes]);
+  const comPasta = useMemo(() => clientes.filter((c) => drivePastaId(c)).length, [clientes]);
   const lista = useMemo(() => {
     const s = busca.trim().toLowerCase();
     return clientes.filter((c) => {
-      if (soPasta && !c.drive_folder_id) return false;
+      if (soPasta && !drivePastaId(c)) return false;
       if (!s) return true;
       return (c.nome || "").toLowerCase().includes(s) || (c.cpf_cnpj || "").includes(s);
     });
@@ -164,7 +169,7 @@ export default function Spy() {
                   className="w-full text-left px-3 py-2.5 border-b border-white/[0.04] transition-colors hover:bg-white/[0.03] group">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-foreground truncate group-hover:text-primary transition-colors">{c.nome}</span>
-                    <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${c.drive_folder_id ? "text-emerald-400/70" : "text-muted-foreground/30"}`} />
+                    <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${drivePastaId(c) ? "text-emerald-400/70" : "text-muted-foreground/30"}`} />
                   </div>
                   {c.cpf_cnpj && <span className="text-[11px] text-muted-foreground">{c.cpf_cnpj}</span>}
                 </button>
@@ -351,12 +356,13 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [gerandoInsights, setGerandoInsights] = useState(false);
   const preRef = useRef<string | null>(null);
 
+  const pastaId = drivePastaId(cliente);
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
-    queryKey: ["spy-drive", cliente.drive_folder_id],
-    enabled: !!cliente.drive_folder_id,
+    queryKey: ["spy-drive", pastaId],
+    enabled: !!pastaId,
     queryFn: async (): Promise<DriveFile[]> => {
       const { data, error } = await supabase.functions.invoke("list-drive-files", {
-        body: { folder_id: cliente.drive_folder_id, mime_filter: ["application/pdf"] },
+        body: { folder_id: pastaId, mime_filter: ["application/pdf"] },
       });
       if (error) throw error;
       return (data?.files || data || []) as DriveFile[];
@@ -824,7 +830,7 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, preparo
         </div>
       </div>
 
-      {!cliente.drive_folder_id ? (
+      {!drivePastaId(cliente) ? (
         <p className="text-sm text-muted-foreground py-8 text-center">Este cliente ainda não tem pasta no Drive.</p>
       ) : loading ? (
         <p className="text-sm text-muted-foreground py-8 text-center inline-flex items-center gap-2 justify-center w-full"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o Drive…</p>
