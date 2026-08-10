@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { extrairTextoPdf } from "@/lib/pdfText";
 import { analisarExtrato } from "@/lib/parseExtrato";
+import { DonutChart } from "@/components/DonutChart";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -54,7 +55,7 @@ const categoria = (desc: string): Cat => { const d = String(desc || ""); for (co
 
 interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; }
 interface DriveFile { id: string; name: string; mimeType: string; }
-interface Analise { id: string; cliente_id: string; status: string; arquivos: any[]; relatorio: string | null; resumo: any; erro: string | null; progresso: any; n_transacoes: number | null; created_at: string; }
+interface Analise { id: string; cliente_id: string; status: string; arquivos: any[]; parciais?: any[]; relatorio: string | null; resumo: any; erro: string | null; progresso: any; n_transacoes: number | null; created_at: string; }
 interface Flag { id: string; analise_id: string; eixo: string | null; codigo: string | null; label: string | null; valor: any; confianca: number | null; evidencia: string | null; }
 
 // ── Radar (SVG animado, clima de espionagem) ─────────────────────────────────
@@ -335,6 +336,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [foco, setFoco] = useState<string | null>(initialFoco || null);
   const [enviando, setEnviando] = useState(false);
   const [preparo, setPreparo] = useState<string | null>(null);
+  const [reanalisando, setReanalisando] = useState(false);
   const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
@@ -465,6 +467,43 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     }
   };
 
+  // Reanalisa SÓ os documentos que faltaram: re-extrai/reconcilia esses no
+  // navegador e chama o servidor no modo "reprocessar" — ele cria uma nova
+  // análise reaproveitando os que já deram certo e re-cruza tudo.
+  const reanalisar = async (a: Analise, docNames: string[]) => {
+    if (reanalisando || !docNames.length) return;
+    setReanalisando(true);
+    try {
+      const alvo = new Set(docNames);
+      const arquivos: Array<any> = [];
+      const originais: Array<{ id?: string; name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
+      for (const d of originais) {
+        if (!alvo.has(d.name as string)) { arquivos.push({ id: d.id, name: d.name }); continue; } // já feito → stub
+        try {
+          const resp = await supabase.functions.invoke("fetch-drive-file", { body: { file_id: d.id } });
+          if (resp.error) throw resp.error;
+          const buf = await (resp.data as Blob).arrayBuffer();
+          const ext = await extrairTextoPdf(d.name as string, buf);
+          if (ext.vazio) { arquivos.push({ id: d.id, name: d.name, texto: "" }); continue; }
+          const p = analisarExtrato(d.name as string, ext.texto);
+          if (p.reconciliado && p.transacoes.length >= 3) {
+            arquivos.push({ id: d.id, name: d.name, reconciliado: true, periodo: p.periodo, header: p.header, saldoInicial: p.saldoInicial, saldoFinal: p.saldoFinal, transacoes: p.transacoes, resumo: p.resumo, candidatos: p.candidatos });
+          } else {
+            arquivos.push({ id: d.id, name: d.name, texto: ext.texto });
+          }
+        } catch { arquivos.push({ id: d.id, name: d.name, texto: "" }); }
+      }
+      const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { reprocessar: a.id, cliente_id: cliente.id, arquivos, created_by: userId } });
+      if (error) { toast.error("Não consegui reanalisar."); return; }
+      qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
+      const novoId = (data as any)?.analise_id || null;
+      if (novoId) setFoco(novoId);
+      toast.success("Reanalisando os documentos que faltaram…");
+    } finally {
+      setReanalisando(false);
+    }
+  };
+
   const cancelarAnalise = async (id: string) => {
     setFoco(null);
     await (supabase.from("spy_analise" as any) as any).delete().eq("id", id);
@@ -508,7 +547,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
         />
       ) : ultima ? (
-        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} />
+        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} />
       ) : erroAnalise ? (
         <AnaliseErro a={erroAnalise} onTentar={() => setMostrarDocs(true)} />
       ) : (
@@ -842,7 +881,117 @@ function Elapsed({ from }: { from: string }) {
   return <span className="tabular-nums">{mm}:{ss}</span>;
 }
 
-function AnaliseCard({ a, flags, defaultAberto, onRegenerar }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void }) {
+// Status de abrangência: % de documentos analisados com sucesso (donut), cada
+// doc expansível (sucesso → TODAS as movimentações; falho → warning), e botão
+// para reanalisar os que faltaram (re-cruzando tudo numa nova análise).
+function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
+  const arquivos: Array<{ id?: string; name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
+  const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
+  const byName = new Map(parciais.map((p) => [p.name, p]));
+  const docs = arquivos.map((d) => {
+    const p = byName.get(d.name);
+    const falhou = !!p?.falhou;
+    return {
+      id: d.id as string | undefined, name: (d.name as string) || "documento",
+      status: !p ? "pendente" : falhou ? "falhou" : (p.viaCodigo ? "reconciliado" : "ia"),
+      erro: p?.erro || null, periodo: p?.periodo || null,
+      tx: Array.isArray(p?.transacoes_chave) ? p.transacoes_chave : [],
+      ok: !!p && !falhou,
+    };
+  });
+  const okCount = docs.filter((d) => d.ok).length;
+  const total = docs.length;
+  const pct = total ? Math.round((okCount / total) * 100) : 0;
+  const falhos = docs.filter((d) => !d.ok);
+  const donut = [{ name: "Analisados", value: okCount }, { name: "Pendentes", value: total - okCount }];
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [exp, setExp] = useState<string | null>(null);
+  const toggleSel = (n: string) => setSel((s) => { const x = new Set(s); x.has(n) ? x.delete(n) : x.add(n); return x; });
+
+  const badge = (status: string) =>
+    status === "reconciliado" ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" }
+    : status === "ia" ? { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" }
+    : { txt: "não analisado", cls: "text-amber-400 ring-amber-500/25 bg-amber-500/10" };
+
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-3 flex items-center gap-1.5">
+        <Activity className="h-3.5 w-3.5" /> Status de abrangência
+      </p>
+      <div className="flex items-center gap-4 mb-3">
+        <div className="w-[150px] shrink-0"><DonutChart data={donut} height={130} /></div>
+        <div className="min-w-0">
+          <p className="text-3xl font-semibold tabular-nums text-foreground">{pct}%</p>
+          <p className="text-[12px] text-muted-foreground">{okCount} de {total} documento(s) analisado(s) com sucesso</p>
+          {falhos.length > 0 && <p className="text-[12px] text-amber-400 mt-1 inline-flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> {falhos.length} ficaram sem análise</p>}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {docs.map((d) => {
+          const b = badge(d.status);
+          const aberto = exp === d.name;
+          return (
+            <div key={d.name} className="rounded-lg border border-white/[0.06] bg-white/[0.01] overflow-hidden">
+              <div className="flex items-center gap-2 px-2.5 py-2">
+                {d.ok
+                  ? <button onClick={() => setExp(aberto ? null : d.name)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+                      <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${aberto ? "rotate-90" : ""}`} />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-[12px] truncate">{d.name}</span>
+                      {d.periodo && <span className="text-[10px] text-muted-foreground shrink-0">· {d.periodo}</span>}
+                    </button>
+                  : <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                      <input type="checkbox" className="accent-primary" checked={sel.has(d.name)} onChange={() => toggleSel(d.name)} />
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                      <span className="text-[12px] truncate">{d.name}</span>
+                    </label>}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${b.cls}`}>{b.txt}</span>
+              </div>
+              {d.ok && aberto && (
+                <div className="border-t border-white/[0.06]">
+                  {d.status === "ia" && <p className="text-[10px] text-muted-foreground px-2.5 pt-1.5">Extrato lido por IA — principais movimentações (não reconciliado pelo saldo).</p>}
+                  {d.tx.length === 0
+                    ? <p className="text-[11px] text-muted-foreground px-2.5 py-2">Sem movimentações registradas.</p>
+                    : <div className="max-h-64 overflow-y-auto scrollbar-thin">
+                        <table className="w-full text-[11px]">
+                          <tbody>
+                            {d.tx.map((t: any, i: number) => {
+                              const cat = categoria(t.descricao); const CatIcon = cat.Icon;
+                              const sinal = t.sinal ?? (Number(t.valor) >= 0 ? 1 : -1);
+                              const val = Math.abs(Number(t.valor) || 0);
+                              return (
+                                <tr key={i} className="border-b border-white/[0.04]">
+                                  <td className="px-2.5 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{t.data || "—"}</td>
+                                  <td className="px-2 py-1"><span className="inline-flex items-center gap-1.5 max-w-[220px]"><CatIcon className={`h-3.5 w-3.5 shrink-0 ${cat.cls}`} /><span className="truncate">{t.descricao}</span></span></td>
+                                  <td className={`px-2.5 py-1 text-right tabular-nums whitespace-nowrap ${sinal < 0 ? "text-rose-400" : "text-emerald-400"}`}>{sinal < 0 ? "-" : "+"}{fmtBRL(val)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>}
+                </div>
+              )}
+              {!d.ok && d.erro && <p className="text-[10px] text-muted-foreground px-2.5 pb-2 -mt-1">Motivo: {String(d.erro).slice(0, 120)}</p>}
+            </div>
+          );
+        })}
+      </div>
+
+      {falhos.length > 0 && onReanalisar && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" disabled={reanalisando || sel.size === 0} onClick={() => onReanalisar([...sel])} className="gap-1.5 h-8">
+            <RefreshCw className={`h-3.5 w-3.5 ${reanalisando ? "animate-spin" : ""}`} /> Reanalisar {sel.size || ""} selecionado(s)
+          </Button>
+          {sel.size === 0 && <span className="text-[11px] text-muted-foreground">marque os documentos que faltaram</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
   const [verTx, setVerTx] = useState(false);
   const docs: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
@@ -904,6 +1053,10 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar }: { a: Analise; fla
       {aberto && (
         <div className="px-4 pb-4 space-y-4 border-t border-white/[0.06] pt-4">
           {erro && <p className="text-sm text-rose-400 whitespace-pre-line">{a.erro}</p>}
+
+          {Array.isArray(a.arquivos) && a.arquivos.length > 0 && (
+            <CardAbrangencia a={a} onReanalisar={onReanalisar} reanalisando={reanalisando} />
+          )}
 
           {a.relatorio && (
             <div className="rounded-xl border border-primary/15 bg-primary/[0.04] p-4">
