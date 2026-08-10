@@ -418,10 +418,10 @@ const SCHEMA_INSIGHTS = {
         type: "array",
         items: {
           type: "object", additionalProperties: false,
-          required: ["data", "valor", "detalhe", "parcelas", "pergunta", "documento"],
+          required: ["data", "valor", "detalhe", "parcelas"],
           properties: {
             data: { type: "string" }, valor: { type: "string" }, detalhe: { type: "string" },
-            parcelas: { type: "string" }, pergunta: { type: "string" }, documento: { type: "string" },
+            parcelas: { type: "string" },
           },
         },
       },
@@ -456,7 +456,7 @@ REGRA DE OURO: você NUNCA afirma que existe um direito ou uma irregularidade. V
 
 Produza:
 
-1. "emprestimos": UMA ficha POR crédito de empréstimo recebido, SEM PULAR NENHUM (o array creditos_recebidos do digest tem N itens; produza EXATAMENTE N fichas, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"); pergunta (pergunta pronta na segunda pessoa sobre ESTE empréstimo específico); documento (contrato/CCB e comprovante de liberação desta operação).
+1. "emprestimos": UMA ficha POR crédito de empréstimo recebido, SEM PULAR NENHUM (o array creditos_recebidos do digest tem N itens; produza EXATAMENTE N fichas, em ordem cronológica). Cada ficha: data (dd/mm/aaaa); valor (formato R$); detalhe (descrição da operação, % da renda mensal que o valor representa, intervalo em dias desde o empréstimo anterior quando houver, e se há sinal de refinanciamento na mesma janela); parcelas (cruze com os contratos do digest: quantas parcelas pagas, valor médio da parcela, plano x/y quando houver, mora vinculada; se não houver contrato vinculável, diga "parcelas não identificadas no extrato"). NÃO inclua pergunta nem documento nas fichas de empréstimo, apenas os detalhes transacionais.
 
 2. "linha_endividamento": o ciclo "quando começou, como evoluiu, onde chegou" em 5 a 9 marcos cronológicos, usando linha_endividamento_eventos, rotativo, comprometimento_mensal e cartoes do digest. Cubra, quando os dados sustentarem: primeiro sinal de endividamento; primeiro empréstimo; aumento do uso de crédito (evolução das faturas de cartão); entrada no rotativo/cheque especial; novos empréstimos; renegociações/refinanciamentos; período de maior concentração de dívidas. Cada marco: marco (rótulo curto, ex.: "Primeiro sinal de endividamento"); quando (mês/ano ou data); detalhe (1 frase com valores reais).
 
