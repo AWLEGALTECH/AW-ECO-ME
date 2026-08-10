@@ -1102,19 +1102,60 @@ function QuadroExtrato({ p }: { p: any }) {
 
 // Insights comerciais (saída da IA sobre o digest computado por código):
 // resumo comercial, prioridades 🔴🟡🟢 com ficha completa e narrativa.
-const NIVEL_META: Record<string, { label: string; cls: string; dot: string }> = {
-  alta: { label: "Alta prioridade", cls: "text-rose-400 ring-rose-500/25 bg-rose-500/10", dot: "bg-rose-400" },
-  media: { label: "Média prioridade", cls: "text-amber-400 ring-amber-400/25 bg-amber-400/10", dot: "bg-amber-400" },
-  baixa: { label: "Baixa prioridade", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10", dot: "bg-emerald-400" },
-};
-const TIPO_INST: Record<string, string> = {
-  banco: "Bancos", "banco digital": "Bancos digitais", fintech: "Fintechs", financeira: "Financeiras",
-  cooperativa: "Cooperativas", "financeira de varejo": "Financeiras de varejo", "varejo com crédito": "Varejo com crédito",
-};
 const SEG_LABEL: Record<string, string> = {
   roupas_departamento: "Roupas e departamento", supermercado_atacado: "Supermercados e atacado",
   farmacia: "Farmácias", marketplace: "Marketplaces",
 };
+const MARCO_LABEL: Record<string, string> = {
+  primeiro_sinal_endividamento: "Primeiro sinal de endividamento",
+  primeiro_emprestimo: "Primeiro empréstimo",
+  aumento_uso_cartao: "Aumento do uso do cartão",
+  entrada_no_rotativo: "Entrada no rotativo do cartão",
+  novo_emprestimo: "Novo empréstimo",
+  renegociacao: "Renegociação de dívida",
+  refinanciamento: "Refinanciamento",
+  maior_concentracao_de_dividas: "Maior concentração de dívidas",
+};
+const capitalizar = (s: any) => { const t = String(s || "").trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ""; };
+const marcoLabel = (m: any) => MARCO_LABEL[String(m || "")] || capitalizar(String(m || "").replace(/_/g, " "));
+const fmtQuando = (q: any) => {
+  const s = String(q || "").trim();
+  const iso = s.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+  if (iso) return iso[3] ? `${iso[3]}/${iso[2]}/${iso[1]}` : `${iso[2]}/${iso[1]}`;
+  return s;
+};
+
+// Pizza simples em SVG (donut) com legenda — sem libs.
+const PIZZA_CORES = ["hsl(var(--primary))", "#38bdf8", "#a78bfa", "#f59e0b", "#f43f5e", "#10b981", "#64748b"];
+function PizzaConsumo({ dados }: { dados: { label: string; value: number }[] }) {
+  const total = dados.reduce((s, d) => s + d.value, 0);
+  if (!total) return null;
+  let acc = 0;
+  return (
+    <div className="flex items-center gap-5 flex-wrap">
+      <svg viewBox="0 0 42 42" className="h-32 w-32 shrink-0 -rotate-90">
+        {dados.map((d, i) => {
+          const pct = (d.value / total) * 100;
+          const el = (
+            <circle key={i} cx="21" cy="21" r="15.915" fill="none" stroke={PIZZA_CORES[i % PIZZA_CORES.length]}
+              strokeWidth="7" strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acc} strokeLinecap="butt" />
+          );
+          acc += pct;
+          return el;
+        })}
+      </svg>
+      <div className="space-y-1.5 min-w-0 flex-1">
+        {dados.map((d, i) => (
+          <p key={i} className="text-[11.5px] flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: PIZZA_CORES[i % PIZZA_CORES.length] }} />
+            <span className="text-foreground/85 truncate">{d.label}</span>
+            <span className="text-muted-foreground tabular-nums ml-auto pl-3 shrink-0">{fmtBRL(d.value)} · {Math.round((d.value / total) * 100)}%</span>
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
 function Sec({ icon: Icon, title, children, right }: { icon: LucideIcon; title: string; children: ReactNode; right?: ReactNode }) {
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.015] overflow-hidden">
@@ -1130,19 +1171,13 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
   const rc = ins?.resumo_comercial || {};
   const emprestimos: any[] = Array.isArray(ins?.emprestimos) ? ins.emprestimos : [];
   const linha: any[] = Array.isArray(ins?.linha_endividamento) ? ins.linha_endividamento : [];
-  const prios: any[] = Array.isArray(ins?.prioridades) ? ins.prioridades : [];
-  const ordem = { alta: 0, media: 1, baixa: 2 } as Record<string, number>;
-  const sorted = [...prios].sort((a, b) => (ordem[a.nivel] ?? 3) - (ordem[b.nivel] ?? 3));
 
-  const instituicoes: any[] = Array.isArray(dg?.instituicoes) ? dg.instituicoes : [];
-  const porTipo = new Map<string, any[]>();
-  for (const i of instituicoes) { const k = i.tipo || "outro"; if (!porTipo.has(k)) porTipo.set(k, []); porTipo.get(k)!.push(i); }
+  const instituicoes: any[] = [...(Array.isArray(dg?.instituicoes) ? dg.instituicoes : [])].sort((a, b) => (b.ocorrencias || 0) - (a.ocorrencias || 0));
   const cartoes = dg?.cartoes;
   const veiculo = dg?.veiculo;
   const varejo = dg?.varejo || {};
   const superC = dg?.supermercados_consumo;
   const telecom: any[] = Array.isArray(dg?.telecom) ? dg.telecom : [];
-  const pixFin: any[] = Array.isArray(dg?.pix_com_instituicoes) ? dg.pix_com_instituicoes : [];
   const entradaSaida: any[] = Array.isArray(dg?.entradas_seguidas_de_saidas) ? dg.entradas_seguidas_de_saidas : [];
   const contrapartes: any[] = Array.isArray(dg?.contrapartes_pix) ? dg.contrapartes_pix : [];
 
@@ -1155,9 +1190,16 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
   const topMes = Object.entries(saz).sort((a: any, b: any) => (b[1]?.emprestimos || 0) - (a[1]?.emprestimos || 0))[0] as any;
   const relacoes = String(rc.principais_relacoes || "").split(" · ").filter((r) => r && r !== "—");
 
-  const StatCard = ({ icon: I, label, value, sub, cls = "text-primary" }: { icon: LucideIcon; label: string; value: string; sub?: string; cls?: string }) => (
+  // Pizza das relações de consumo: total gasto por segmento do varejo.
+  const pieDados = Object.entries(varejo)
+    .filter(([, v]: any) => v?.length)
+    .map(([seg, list]: any) => ({ label: SEG_LABEL[seg] || seg, value: list.reduce((s: number, v: any) => s + (Number(v.total) || 0), 0) }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  const StatCard = ({ icon: I, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) => (
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
-      <span className={`h-11 w-11 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] flex items-center justify-center shrink-0 ${cls}`}><I className="h-5 w-5" /></span>
+      <span className="h-11 w-11 rounded-xl bg-primary/[0.08] ring-1 ring-primary/15 text-primary flex items-center justify-center shrink-0"><I className="h-5 w-5" /></span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
         <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5 truncate">{value}</p>
@@ -1172,16 +1214,17 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
       {dg ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            <StatCard icon={Banknote} label="Renda média mensal" value={fmtBRL(dg.renda?.media_mensal || 0)} sub={`${dg.renda?.meses_com_renda || 0} meses com renda no período`} cls="text-emerald-400" />
-            <StatCard icon={Landmark} label="Fonte de renda" value={String(fonteTop?.nome || "—").replace(/^TRANSF SALDO C\/SAL P\/CC\s*/i, "").trim() || "—"} sub={fonteTop ? `${fonteTop.n} recebimentos · ${fmtBRL(fonteTop.total)}` : undefined} cls="text-sky-400" />
-            <StatCard icon={Layers} label="Instituições financeiras" value={String(instituicoes.length)} sub={instituicoes.map((i: any) => i.nome).join(", ") || "—"} cls="text-violet-400" />
-            <StatCard icon={CreditCard} label="Empréstimos" value={`${creditos.length} · ${fmtBRL(totalCred)}`} sub={dg.sinais_refinanciamento?.length ? `${dg.sinais_refinanciamento.length} com sinal de refinanciamento` : "sem sinal de refinanciamento"} cls="text-rose-400" />
-            <StatCard icon={CalendarDays} label="Primeiro crédito" value={creditos[0] ? String(creditos[0].data).split("-").reverse().join("/") : "—"} sub={creditos[0] ? `${fmtBRL(creditos[0].valor)} · ${String(creditos[0].descricao || "").slice(0, 42)}` : undefined} cls="text-amber-400" />
-            <StatCard icon={TrendingUp} label="Mês de maior contratação" value={topMes && topMes[1]?.emprestimos > 0 ? NOME_MES[parseInt(topMes[0], 10)] : "—"} sub={topMes && topMes[1]?.emprestimos > 0 ? `${topMes[1].emprestimos} contratações, somando os anos` : undefined} cls="text-orange-400" />
+            <StatCard icon={Banknote} label="Renda média mensal" value={fmtBRL(dg.renda?.media_mensal || 0)} sub={`${dg.renda?.meses_com_renda || 0} meses com renda no período`} />
+            <StatCard icon={Landmark} label="Fonte de renda" value={String(fonteTop?.nome || "—").replace(/^TRANSF SALDO C\/SAL P\/CC\s*/i, "").trim() || "—"} sub={fonteTop ? `${fonteTop.n} recebimentos · ${fmtBRL(fonteTop.total)}` : undefined} />
+            <StatCard icon={Layers} label="Instituições financeiras" value={String(instituicoes.length)} sub={instituicoes.map((i: any) => i.nome).join(", ") || "—"} />
+            <StatCard icon={CreditCard} label="Empréstimos" value={String(creditos.length)} sub={dg.sinais_refinanciamento?.length ? `${dg.sinais_refinanciamento.length} com sinal de refinanciamento` : "sem sinal de refinanciamento"} />
+            <StatCard icon={Receipt} label="Total emprestado" value={fmtBRL(totalCred)} sub="soma dos créditos de empréstimo do período" />
+            <StatCard icon={CalendarDays} label="Primeiro crédito" value={creditos[0] ? String(creditos[0].data).split("-").reverse().join("/") : "—"} sub={creditos[0] ? `${fmtBRL(creditos[0].valor)} · ${String(creditos[0].descricao || "").slice(0, 42)}` : undefined} />
+            <StatCard icon={TrendingUp} label="Mês de maior contratação" value={topMes && topMes[1]?.emprestimos > 0 ? NOME_MES[parseInt(topMes[0], 10)] : "—"} sub={topMes && topMes[1]?.emprestimos > 0 ? `${topMes[1].emprestimos} contratações, somando os anos` : undefined} />
           </div>
           {relacoes.length > 0 && (
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
-              <span className="h-11 w-11 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] flex items-center justify-center shrink-0 text-primary"><Users className="h-5 w-5" /></span>
+              <span className="h-11 w-11 rounded-xl bg-primary/[0.08] ring-1 ring-primary/15 text-primary flex items-center justify-center shrink-0"><Users className="h-5 w-5" /></span>
               <div className="min-w-0">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Principais relações</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -1202,40 +1245,45 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         </div>
       )}
 
-      {/* Ciclo do endividamento: quando começou → como evoluiu → onde chegou */}
+      {/* Ciclo do endividamento: passos numerados, rótulos legíveis */}
       {linha.length > 0 && (
-        <Sec icon={TrendingUp} title="Ciclo do endividamento · quando começou → como evoluiu → onde chegou">
-          <div className="relative pl-5">
-            <span className="absolute left-[7px] top-1 bottom-1 w-px bg-gradient-to-b from-amber-400/50 via-rose-400/50 to-rose-500/70" />
-            <div className="space-y-3.5">
-              {linha.map((m, i) => (
-                <div key={i} className="relative">
-                  <span className={`absolute -left-5 top-[3px] h-[11px] w-[11px] rounded-full ring-4 ring-background ${i === 0 ? "bg-amber-400" : i === linha.length - 1 ? "bg-rose-500" : "bg-rose-400/80"}`} />
-                  <p className="text-[12px]"><span className="font-medium text-foreground">{m.marco}</span> <span className="text-[11px] text-muted-foreground tabular-nums">· {m.quando}</span></p>
+        <Sec icon={TrendingUp} title="Ciclo do endividamento">
+          <p className="text-[11.5px] text-muted-foreground mb-3.5">A ordem dos acontecimentos no extrato: quando começou, como evoluiu e onde chegou.</p>
+          <div>
+            {linha.map((m, i) => (
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span className="h-6 w-6 rounded-full bg-primary/10 ring-1 ring-primary/25 text-primary text-[11px] font-semibold flex items-center justify-center shrink-0">{i + 1}</span>
+                  {i < linha.length - 1 && <span className="w-px flex-1 bg-white/[0.08] my-1" />}
+                </div>
+                <div className={`min-w-0 ${i < linha.length - 1 ? "pb-4" : ""}`}>
+                  <p className="text-[12.5px] font-medium text-foreground">{marcoLabel(m.marco)} <span className="text-[11px] font-normal text-muted-foreground tabular-nums">· {fmtQuando(m.quando)}</span></p>
                   <p className="text-[12px] text-foreground/75 leading-relaxed">{m.detalhe}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </Sec>
       )}
 
-      {/* Instituições financeiras, categorizadas */}
+      {/* Instituições financeiras: uma por linha, ícone ao lado */}
       {instituicoes.length > 0 && (
         <Sec icon={Landmark} title={`Instituições financeiras (${instituicoes.length})`}>
-          <div className="space-y-2.5">
-            {[...porTipo.entries()].map(([tipo, list]) => (
-              <div key={tipo}>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{TIPO_INST[tipo] || tipo}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {list.map((i, k) => (
-                    <span key={k} className="inline-flex items-center gap-1.5 text-[11px] rounded-md border border-white/[0.07] bg-white/[0.02] px-2 py-1">
-                      <span className="text-foreground/90">{i.nome}</span>
-                      <span className="text-muted-foreground tabular-nums">{i.ocorrencias}x</span>
-                      <span className={`text-[9px] px-1 py-px rounded ring-1 ${i.recorrencia === "recorrente" ? "text-primary ring-primary/30 bg-primary/10" : i.recorrencia === "aparece 1x" ? "text-amber-400 ring-amber-400/30 bg-amber-400/10" : "text-muted-foreground ring-white/10 bg-white/[0.03]"}`}>{i.recorrencia}</span>
-                      {(i.pago > 0 || i.recebido > 0) && <span className="text-muted-foreground tabular-nums">{i.recebido > 0 ? `+${fmtBRL(i.recebido)}` : ""}{i.recebido > 0 && i.pago > 0 ? " · " : ""}{i.pago > 0 ? `-${fmtBRL(i.pago)}` : ""}</span>}
-                    </span>
-                  ))}
+          <div className="divide-y divide-white/[0.05]">
+            {instituicoes.map((i, k) => (
+              <div key={k} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <span className="h-9 w-9 rounded-lg bg-primary/[0.08] ring-1 ring-primary/15 text-primary flex items-center justify-center shrink-0"><Landmark className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium text-foreground truncate">{i.nome}</p>
+                  <p className="text-[11px] text-muted-foreground">{capitalizar(i.tipo)}{i.recorrencia ? ` · ${i.recorrencia}` : ""}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[12px] tabular-nums text-foreground/90">{i.ocorrencias} mov.</p>
+                  {(i.pago > 0 || i.recebido > 0) && (
+                    <p className="text-[11px] tabular-nums text-muted-foreground">
+                      {i.recebido > 0 ? `+${fmtBRL(i.recebido)}` : ""}{i.recebido > 0 && i.pago > 0 ? " · " : ""}{i.pago > 0 ? `-${fmtBRL(i.pago)}` : ""}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -1284,6 +1332,12 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
                 </div>
               </div>
             ))}
+            {pieDados.length > 1 && (
+              <div className="pt-3 mt-1 border-t border-white/[0.05]">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Gasto por segmento</p>
+                <PizzaConsumo dados={pieDados} />
+              </div>
+            )}
             {superC?.n > 0 && (
               <p className="text-[12px] text-muted-foreground">Supermercados: {superC.n} compras · gasto médio {fmtBRL(superC.gasto_medio_por_compra)} · 1ª metade {fmtBRL(superC.total_primeira_metade)} vs 2ª metade {fmtBRL(superC.total_segunda_metade)}.</p>
             )}
@@ -1294,24 +1348,37 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         </Sec>
       )}
 
-      {/* PIX e movimentações relevantes */}
-      {(contrapartes.length > 0 || pixFin.length > 0 || entradaSaida.length > 0) && (
-        <Sec icon={ArrowLeftRight} title="PIX e movimentações relevantes">
-          <div className="space-y-2 text-[12px]">
+      {/* PIX: tabela clara de contrapartes (quem, quantas vezes, quanto foi e quanto veio) */}
+      {(contrapartes.length > 0 || entradaSaida.length > 0) && (
+        <Sec icon={ArrowLeftRight} title="PIX e transferências · principais contrapartes">
+          <div className="space-y-3">
             {contrapartes.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {contrapartes.slice(0, 8).map((c: any, k: number) => (
-                  <span key={k} className="inline-flex items-center gap-1.5 text-[11px] rounded-md border border-white/[0.07] bg-white/[0.02] px-2 py-1">
-                    <span className="text-foreground/90 truncate max-w-[160px]">{c.nome}</span>
-                    <span className="text-muted-foreground tabular-nums">{c.n}x</span>
-                    {c.enviado > 0 && <span className="text-rose-400 tabular-nums">-{fmtBRL(c.enviado)}</span>}
-                    {c.recebido > 0 && <span className="text-emerald-400 tabular-nums">+{fmtBRL(c.recebido)}</span>}
-                  </span>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      <th className="text-left font-medium pb-1.5 pr-3">Contraparte</th>
+                      <th className="text-right font-medium pb-1.5 px-2">Movs.</th>
+                      <th className="text-right font-medium pb-1.5 px-2">Enviado</th>
+                      <th className="text-right font-medium pb-1.5 pl-2">Recebido</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.05]">
+                    {contrapartes.slice(0, 8).map((c: any, k: number) => (
+                      <tr key={k}>
+                        <td className="py-2 pr-3 text-foreground/90"><span className="block truncate max-w-[240px]">{c.nome}</span></td>
+                        <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">{c.n}</td>
+                        <td className="py-2 px-2 text-right tabular-nums text-rose-400">{c.enviado > 0 ? fmtBRL(c.enviado) : "—"}</td>
+                        <td className="py-2 pl-2 text-right tabular-nums text-emerald-400">{c.recebido > 0 ? fmtBRL(c.recebido) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-            {pixFin.length > 0 && <p className="text-muted-foreground">PIX/transferências com instituições financeiras: {pixFin.length} movimentação(ões) identificada(s).</p>}
-            {entradaSaida.length > 0 && <p className="text-amber-400">⚠ {entradaSaida.length} entrada(s) de valor alto seguida(s) de saídas relevantes em até 48h · verificar a finalidade.</p>}
+            {entradaSaida.length > 0 && (
+              <p className="text-[12px] text-amber-400">⚠ Em {entradaSaida.length} momento(s), uma entrada alta saiu quase por completo em até 48h — vale confirmar a finalidade.</p>
+            )}
           </div>
         </Sec>
       )}
@@ -1340,38 +1407,6 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         </details>
       )}
 
-      {/* Prioridades */}
-      {sorted.length > 0 && (
-        <Sec icon={ShieldAlert} title="Oportunidades de investigação">
-          <div className="space-y-2.5">
-            {sorted.map((p, i) => {
-              const m = NIVEL_META[p.nivel] || NIVEL_META.baixa;
-              const borda = p.nivel === "alta" ? "border-l-rose-400/80" : p.nivel === "media" ? "border-l-amber-400/80" : "border-l-emerald-400/70";
-              return (
-                <div key={i} className={`rounded-lg border border-white/[0.06] border-l-2 ${borda} bg-white/[0.01] p-3`}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-[13px] font-medium text-foreground">{p.titulo}</span>
-                    <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${m.cls}`}>{m.label}</span>
-                  </div>
-                  <div className="space-y-1 text-[12px] leading-relaxed">
-                    <p className="text-foreground/85">{p.o_que_encontramos}</p>
-                    <p className="text-muted-foreground">{p.o_que_pode_representar}</p>
-                    <p className="rounded-md bg-primary/[0.07] border border-primary/15 px-2.5 py-1.5 text-foreground/90">💬 {p.pergunta}</p>
-                    <p className="text-[11px] text-muted-foreground">📄 {p.documento}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Sec>
-      )}
-
-      {/* Narrativa */}
-      {ins?.narrativa && (
-        <Sec icon={FileText} title="História financeira">
-          <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-line">{ins.narrativa}</p>
-        </Sec>
-      )}
     </div>
   );
 }
