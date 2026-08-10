@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { extrairTextoPdf } from "@/lib/pdfText";
+import { analisarExtrato } from "@/lib/parseExtrato";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -411,10 +412,12 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     if (!escolhidos.length) { toast.error("Selecione ao menos um extrato."); return; }
     setEnviando(true);
     try {
-      // Extrai o TEXTO de cada PDF aqui no navegador (barato) e manda só o texto
-      // para o servidor, em vez do arquivo inteiro. Precisa da aba aberta apenas
-      // nesta etapa curta; depois a análise roda em segundo plano.
-      const arquivos: Array<{ id: string; name: string; texto: string; paginas: number }> = [];
+      // Extrai o TEXTO de cada PDF no navegador e, na sequência, roda a Camada 0
+      // (parseExtrato): enumera os lançamentos e tenta RECONCILIAR pelo saldo.
+      // - reconciliou → manda o ledger pronto (o servidor não gasta IA nesse extrato).
+      // - não reconciliou → manda o texto cru pro servidor ler com IA (motor antigo).
+      // Assim o pior caso é o comportamento de hoje, e economiza quando a conta fecha.
+      const arquivos: Array<any> = [];
       const ilegiveis: string[] = [];
       for (let i = 0; i < escolhidos.length; i++) {
         const f = escolhidos[i];
@@ -426,7 +429,18 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           const buf = await blob.arrayBuffer();
           const ext = await extrairTextoPdf(f.name, buf);
           if (ext.vazio) { ilegiveis.push(f.name); continue; }
-          arquivos.push({ id: f.id, name: f.name, texto: ext.texto, paginas: ext.paginas });
+          const p = analisarExtrato(f.name, ext.texto);
+          if (p.reconciliado && p.transacoes.length >= 3) {
+            arquivos.push({
+              id: f.id, name: f.name, paginas: ext.paginas,
+              periodo: p.periodo, header: p.header, reconciliado: true,
+              saldoInicial: p.saldoInicial, saldoFinal: p.saldoFinal,
+              transacoes: p.transacoes, resumo: p.resumo, candidatos: p.candidatos,
+            });
+          } else {
+            // fallback: servidor lê com IA (mantém a profundidade do motor antigo)
+            arquivos.push({ id: f.id, name: f.name, paginas: ext.paginas, texto: ext.texto });
+          }
         } catch (_e) {
           ilegiveis.push(f.name);
         }
