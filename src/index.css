@@ -366,6 +366,22 @@ html, body, #root {
   @keyframes spy-lock { 0% { transform: scale(1.06); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
   .spy-lock { animation: spy-lock 0.42s cubic-bezier(0.16,1,0.3,1) both; }
 
+  /* Modo "hacker": varredura verde + scanlines sobre as linhas de transação
+     enquanto a IA cruza os dados. */
+  @keyframes spy-hack-sweep { 0% { top: -90px; } 100% { top: 110%; } }
+  @keyframes spy-hack-flicker { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.25; } }
+  .spy-hack { position: relative; }
+  .spy-hack::before {
+    content: ""; position: absolute; left: 0; right: 0; height: 90px; z-index: 10;
+    background: linear-gradient(180deg, transparent, rgba(52, 255, 140, 0.16), rgba(52, 255, 140, 0.05), transparent);
+    animation: spy-hack-sweep 1.4s linear infinite; pointer-events: none;
+  }
+  .spy-hack::after {
+    content: ""; position: absolute; inset: 0; z-index: 10;
+    background: repeating-linear-gradient(0deg, rgba(52, 255, 140, 0.045) 0 2px, transparent 2px 5px);
+    animation: spy-hack-flicker 0.32s steps(2) infinite; pointer-events: none;
+  }
+
   /* Grid sutil de fundo, cara de painel de comando. */
   .spy-grid {
     background-image:
