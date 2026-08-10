@@ -460,6 +460,7 @@ Deno.serve(async (req: Request) => {
     const clienteId = body.cliente_id as string | undefined;
     const arquivos = (body.arquivos as Array<{ id: string; name: string; texto?: string; mimeType?: string; periodo?: string; header?: string; reconciliado?: boolean; saldoInicial?: number | null; saldoFinal?: number | null; resumo?: any; candidatos?: any[]; transacoes?: any[] }> | undefined) || [];
     const retomar = body.retomar as string | undefined;
+    const reprocessar = body.reprocessar as string | undefined;
     if (!clienteId) return j({ error: "cliente_id obrigatorio" }, 400);
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);
     if (arquivos.length > 12) return j({ error: "máximo de 12 documentos por análise" }, 400);
@@ -471,6 +472,25 @@ Deno.serve(async (req: Request) => {
       if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(task);
       else await task;
       return j({ ok: true, analise_id: retomar, background: true, retomando: true }, 202);
+    }
+
+    // Reprocessar: cria uma NOVA análise reaproveitando os extratos que já deram
+    // certo (seed) e reprocessando só os reenviados; a síntese re-cruza tudo. A
+    // created_at nova reinicia o teto de 5 min; a unicidade apaga a antiga no fim.
+    if (reprocessar) {
+      const { data: old } = await sb().from("spy_analise").select("parciais").eq("id", reprocessar).eq("cliente_id", clienteId).maybeSingle();
+      const reenviados = new Set(arquivos.filter((a) => a.reconciliado === true || typeof a.texto === "string").map((a) => a.name));
+      const seed = (Array.isArray(old?.parciais) ? old.parciais : []).filter((p: any) => !reenviados.has(p.name));
+      const { data: novo, error } = await sb().from("spy_analise").insert({
+        cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),
+        modelo: MODELO, created_by: (body.created_by as string) || null, parciais: seed,
+        progresso: { etapa: "fila", pct: 6, detalhe: "Reprocessando os que faltaram", feed: [{ msg: "Reanalisando os documentos que faltaram", kind: "step" }] },
+      }).select("id").single();
+      if (error) return j({ error: error.message }, 500);
+      const task = pipeline(novo.id, clienteId, arquivos);
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(task);
+      else await task;
+      return j({ ok: true, analise_id: novo.id, background: true, reprocessando: true }, 202);
     }
 
     // Idempotência: se já há uma análise ATIVA (atualizada há < 2 min) pra esse
