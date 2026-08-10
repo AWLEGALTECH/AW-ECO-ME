@@ -1,16 +1,20 @@
 // spy-analisar (AW SPY, análise em segundo plano). Motor: OpenAI
 //
+// BARATO: recebe o TEXTO já extraído de cada extrato (o navegador extrai com
+// pdf.js e envia só o texto), em vez de mandar o PDF inteiro pro OpenAI. Isso
+// derruba o custo (~5-15k tokens por extrato, contra ~99k do arquivo) e some
+// com o estouro de tokens por minuto.
+//
 // Lê TODOS os extratos, mesmo que sejam muitos: a análise SE CONTINUA sozinha.
-// Cada janela da função (~2 min) lê 1-2 extratos, salva o progresso em
-// spy_analise.parciais e, se sobraram extratos, reinicia a si mesma (retomar)
-// para continuar. Quando todos foram lidos, cruza tudo num único dossiê.
+// Cada janela da função salva o progresso em spy_analise.parciais e, se sobraram
+// extratos, reinicia a si mesma (retomar). Quando todos foram lidos, cruza tudo
+// num único dossiê contínuo.
 //
 // Progresso em spy_analise.progresso { etapa, pct, detalhe, feed[] } (o front
 // faz polling). Roda via EdgeRuntime.waitUntil; retorna 202 na hora.
-// Secrets: GOOGLE_SA_JSON, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// Secrets: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -25,39 +29,7 @@ const j = (b: unknown, s = 200) =>
 const MODELO = "gpt-4o-mini";
 const sb = () => createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
-// ── Google SA (download do Drive) ────────────────────────────────────────────
-interface SA { client_email: string; private_key: string; token_uri?: string; }
-async function importKey(pem: string): Promise<CryptoKey> {
-  const b64 = pem.replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
-  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  return crypto.subtle.importKey("pkcs8", der.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-}
-async function getToken(): Promise<string> {
-  const sa: SA = JSON.parse(Deno.env.get("GOOGLE_SA_JSON")!);
-  const key = await importKey(sa.private_key);
-  const assertion = await create({ alg: "RS256", typ: "JWT" } as Header, {
-    iss: sa.client_email, scope: "https://www.googleapis.com/auth/drive.readonly",
-    aud: sa.token_uri ?? "https://oauth2.googleapis.com/token", iat: getNumericDate(0), exp: getNumericDate(1800),
-  } as Payload, key);
-  const r = await fetch(sa.token_uri ?? "https://oauth2.googleapis.com/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
-  });
-  if (!r.ok) throw new Error(`token ${r.status}`);
-  return (await r.json()).access_token;
-}
-function toBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf); let bin = ""; const c = 0x8000;
-  for (let i = 0; i < bytes.length; i += c) bin += String.fromCharCode(...bytes.subarray(i, i + c));
-  return btoa(bin);
-}
-async function baixar(fileId: string, token: string): Promise<ArrayBuffer> {
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) throw new Error(`download ${fileId}: ${r.status}`);
-  return r.arrayBuffer();
-}
-
-// ── OpenAI (Responses API, aceita PDF via input_file) ────────────────────────
+// ── OpenAI (Responses API, recebe o texto do extrato) ────────────────────────
 const EIXOS = ["financeira", "credores", "produtos", "consumo", "vulnerabilidade", "perfil", "temporal"];
 
 const SCHEMA_EXTRACAO = {
@@ -122,7 +94,10 @@ async function openai(content: any[], maxTokens: number, format: unknown, tries 
         body: JSON.stringify({ model: MODELO, input: [{ role: "user", content }], max_output_tokens: maxTokens, temperature: 0.3, text: { format } }),
       });
       if (r.status === 429) {
-        lastErr = `openai 429: ${(await r.text()).slice(0, 180)}`;
+        const body = (await r.text()).slice(0, 300);
+        lastErr = `openai 429: ${body.slice(0, 180)}`;
+        // Sem créditos/quota: repetir não adianta, falha na hora (não gasta ~60s).
+        if (/insufficient_quota|no credits|billing/i.test(body)) throw new Error(`sem_creditos: ${body.slice(0, 140)}`);
         if (attempt < tries) { await sleep(attempt * 8000); continue; }
         throw new Error(lastErr);
       }
@@ -140,6 +115,8 @@ async function openai(content: any[], maxTokens: number, format: unknown, tries 
       throw new Error("resposta vazia");
     } catch (e) {
       lastErr = String((e as Error)?.message || e);
+      // Sem créditos/quota: não adianta repetir, sai na hora.
+      if (/sem_creditos|insufficient_quota|no credits/i.test(lastErr)) break;
       if (attempt < tries) await sleep(1500);
     }
   }
@@ -216,7 +193,7 @@ async function autoContinuar(analiseId: string, clienteId: string, arquivos: any
   } catch (_e) { /* se falhar, a stale-idempotência recupera numa próxima */ }
 }
 
-async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; mimeType?: string }>) {
+async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ id: string; name: string; texto?: string; mimeType?: string }>) {
   const s = sb();
   const { data: row0 } = await s.from("spy_analise").select("parciais, progresso, status").eq("id", analiseId).maybeSingle();
   if (!row0 || row0.status !== "processando") return; // cancelada/removida
@@ -233,11 +210,10 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
   const pctLidos = () => 18 + Math.round((parciais.length / Math.max(1, total)) * 58);
 
   try {
-    if (parciais.length === 0) await prog("baixando", 8, "Conectando ao Drive", { msg: "Conectando ao Google Drive", kind: "step" });
+    if (parciais.length === 0) await prog("analisando", 8, "Preparando a leitura", { msg: "Preparando a leitura dos extratos", kind: "step" });
 
     const pendentes = arquivos.filter((a) => !feitos.has(a.name));
     if (pendentes.length > 0) {
-      const token = await getToken();
       const INICIO = Date.now();
       const LIMITE_MS = 110000; // janela: para antes do teto e continua em outra
       for (const a of pendentes) {
@@ -251,14 +227,30 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         }
         await prog("analisando", pctLidos(), `Lendo ${a.name}`, { msg: `Lendo ${a.name}...`, kind: "step" });
         let parsed: any = null;
+        const texto = String(a.texto || "").trim();
+        if (texto.replace(/\s/g, "").length < 40) {
+          // Sem texto legível (provável PDF escaneado): marca e segue.
+          parciais.push({ name: a.name, falhou: true, erro: "sem texto" });
+          await prog("analisando", pctLidos(), `Sem texto em ${a.name}`, { msg: `${a.name}: sem texto legível (escaneado?)`, kind: "warn" });
+          await salvarParciais();
+          continue;
+        }
+        let errFile: string | null = null;
         try {
-          const buf = await baixar(a.id, token);
           const content = [
-            { type: "input_text", text: PROMPT_EXTRACAO },
-            { type: "input_file", filename: a.name, file_data: `data:${a.mimeType || "application/pdf"};base64,${toBase64(buf)}` },
+            { type: "input_text", text: `${PROMPT_EXTRACAO}\n\n=== EXTRATO: ${a.name} (texto extraído do PDF) ===\n${texto.slice(0, 120000)}` },
           ];
           parsed = parseJson(await openai(content, 5000, SCHEMA_EXTRACAO));
-        } catch (_e) { parsed = null; }
+        } catch (e) { parsed = null; errFile = String((e as Error)?.message || e); }
+        // Conta OpenAI sem créditos: aborta a análise inteira já no 1º extrato.
+        if (!parsed && errFile && /sem_creditos|insufficient_quota|no credits/i.test(errFile)) {
+          feed.push({ msg: "Conta OpenAI sem créditos. Adicione créditos para rodar a análise.", kind: "warn" });
+          await s.from("spy_analise").update({
+            status: "erro", erro: "OpenAI sem créditos. Adicione créditos em platform.openai.com/settings/organization/billing.",
+            progresso: { etapa: "erro", pct: 100, detalhe: "Conta OpenAI sem créditos", feed: feed.slice(-80) },
+          }).eq("id", analiseId);
+          return;
+        }
         if (parsed) {
           parciais.push({ name: a.name, periodo: parsed.periodo || null, notas: parsed.notas || "", risco_geral: parsed.risco_geral || null, flags: parsed.flags || [], transacoes_chave: parsed.transacoes_chave || [] });
           const ntx = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave.length : 0;
@@ -268,8 +260,8 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           }
           await prog("analisando", pctLidos(), `Lido ${a.name}`, add);
         } else {
-          parciais.push({ name: a.name, falhou: true });
-          await prog("analisando", pctLidos(), `Falha ao ler ${a.name}`, { msg: `${a.name}: não consegui ler`, kind: "warn" });
+          parciais.push({ name: a.name, falhou: true, erro: errFile });
+          await prog("analisando", pctLidos(), `Falha ao ler ${a.name}`, { msg: `${a.name}: não consegui ler${errFile ? ` (${errFile.slice(0, 100)})` : ""}`, kind: "warn" });
         }
         await salvarParciais();
       }
@@ -281,6 +273,17 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       .sort((x, y) => String(x.periodo || x.name).localeCompare(String(y.periodo || y.name)));
     const flags = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : [])).slice(0, 100);
     const txs = oks.flatMap((p) => (Array.isArray(p.transacoes_chave) ? p.transacoes_chave : [])).slice(0, 200);
+
+    // Conta OpenAI sem créditos: não há o que sintetizar. Falha com mensagem clara.
+    const semCredito = parciais.some((p) => p.falhou && /sem_creditos|no credits|insufficient_quota/i.test(String(p.erro || "")));
+    if (semCredito && oks.length === 0) {
+      feed.push({ msg: "Conta OpenAI sem créditos. Adicione créditos para rodar a análise.", kind: "warn" });
+      await s.from("spy_analise").update({
+        status: "erro", erro: "OpenAI sem créditos. Adicione créditos em platform.openai.com/settings/organization/billing.",
+        progresso: { etapa: "erro", pct: 100, detalhe: "Conta OpenAI sem créditos", feed: feed.slice(-80) },
+      }).eq("id", analiseId);
+      return;
+    }
 
     let relatorio: string | null = null;
     let riscoLabel = "";
@@ -351,7 +354,7 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const clienteId = body.cliente_id as string | undefined;
-    const arquivos = (body.arquivos as Array<{ id: string; name: string; mimeType?: string }> | undefined) || [];
+    const arquivos = (body.arquivos as Array<{ id: string; name: string; texto?: string; mimeType?: string }> | undefined) || [];
     const retomar = body.retomar as string | undefined;
     if (!clienteId) return j({ error: "cliente_id obrigatorio" }, 400);
     if (!arquivos.length) return j({ error: "selecione ao menos um documento" }, 400);

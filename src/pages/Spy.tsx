@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { extrairTextoPdf } from "@/lib/pdfText";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -332,6 +333,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [mostrarDocs, setMostrarDocs] = useState(false);
   const [foco, setFoco] = useState<string | null>(initialFoco || null);
   const [enviando, setEnviando] = useState(false);
+  const [preparo, setPreparo] = useState<string | null>(null);
   const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
@@ -382,6 +384,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   });
   const rodando = analises.find((a) => a.status === "processando") || null;
   const concluidas = analises.filter((a) => a.status === "concluida");
+  const erroAnalise = analises.find((a) => a.status === "erro") || null;
   const ultima = concluidas[0] || null;
 
   const { data: flags = [] } = useQuery({
@@ -404,10 +407,38 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
   const analisar = async () => {
     if (enviando) return; // trava contra duplo-disparo
-    const arquivos = (drive || []).filter((f) => selFiles.has(f.id)).map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType }));
-    if (!arquivos.length) { toast.error("Selecione ao menos um extrato."); return; }
+    const escolhidos = (drive || []).filter((f) => selFiles.has(f.id));
+    if (!escolhidos.length) { toast.error("Selecione ao menos um extrato."); return; }
     setEnviando(true);
     try {
+      // Extrai o TEXTO de cada PDF aqui no navegador (barato) e manda só o texto
+      // para o servidor, em vez do arquivo inteiro. Precisa da aba aberta apenas
+      // nesta etapa curta; depois a análise roda em segundo plano.
+      const arquivos: Array<{ id: string; name: string; texto: string; paginas: number }> = [];
+      const ilegiveis: string[] = [];
+      for (let i = 0; i < escolhidos.length; i++) {
+        const f = escolhidos[i];
+        setPreparo(`Lendo ${f.name} (${i + 1}/${escolhidos.length})`);
+        try {
+          const resp = await supabase.functions.invoke("fetch-drive-file", { body: { file_id: f.id } });
+          if (resp.error) throw resp.error;
+          const blob = resp.data as Blob;
+          const buf = await blob.arrayBuffer();
+          const ext = await extrairTextoPdf(f.name, buf);
+          if (ext.vazio) { ilegiveis.push(f.name); continue; }
+          arquivos.push({ id: f.id, name: f.name, texto: ext.texto, paginas: ext.paginas });
+        } catch (_e) {
+          ilegiveis.push(f.name);
+        }
+      }
+      if (!arquivos.length) {
+        toast.error(ilegiveis.length
+          ? "Não consegui ler o texto desses PDFs (podem estar escaneados como imagem)."
+          : "Não consegui preparar os extratos.");
+        return;
+      }
+      if (ilegiveis.length) toast.warning(`${ilegiveis.length} extrato(s) sem texto legível foram ignorados: ${ilegiveis.join(", ")}`);
+      setPreparo("Iniciando análise…");
       const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
       if (error) { toast.error("Não consegui iniciar a análise."); return; }
       setMostrarDocs(false);
@@ -416,6 +447,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       if (novoId) setFoco(novoId);
     } finally {
       setEnviando(false);
+      setPreparo(null);
     }
   };
 
@@ -457,12 +489,14 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
         <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} onCancel={() => cancelarAnalise(rodando.id)} />
       ) : mostrarDocs ? (
         <DocPicker
-          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando}
+          cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
           selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()}
           onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
         />
       ) : ultima ? (
         <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} />
+      ) : erroAnalise ? (
+        <AnaliseErro a={erroAnalise} onTentar={() => setMostrarDocs(true)} />
       ) : (
         <SemAnalise onStart={() => setMostrarDocs(true)} />
       )}
@@ -611,9 +645,32 @@ function SemAnalise({ onStart }: { onStart: () => void }) {
   );
 }
 
+// Análise que falhou (ex.: conta OpenAI sem créditos). Mensagem clara + retry.
+function AnaliseErro({ a, onTentar }: { a: Analise; onTentar: () => void }) {
+  const semCredito = /sem cr[eé]dito|no credits|insufficient_quota|billing/i.test(String(a.erro || ""));
+  return (
+    <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-6 flex flex-col items-center text-center">
+      <div className="h-12 w-12 rounded-full border border-amber-500/25 bg-amber-500/10 flex items-center justify-center">
+        <AlertTriangle className="h-5 w-5 text-amber-400" />
+      </div>
+      <h3 className="text-base font-semibold mt-4">
+        {semCredito ? "Conta OpenAI sem créditos" : "A análise não pôde ser concluída"}
+      </h3>
+      <p className="text-sm text-muted-foreground mt-1 max-w-md">
+        {semCredito
+          ? "O motor de análise (OpenAI) está sem saldo. Adicione créditos na conta e rode de novo. Nenhuma cobrança extra foi feita."
+          : (a.erro || "Tente novamente em instantes.")}
+      </p>
+      <Button onClick={onTentar} variant="outline" className="gap-1.5 mt-5">
+        <RefreshCw className="h-4 w-4" /> Tentar de novo
+      </Button>
+    </div>
+  );
+}
+
 // Seleção dos extratos (revelada pelo botão, com os extratos já pré-marcados).
-function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
-  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean; enviando?: boolean;
+function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, preparo, selFiles, onToggle, onRefetch, onAnalisar, onCancel }: {
+  cliente: Cliente; drive: DriveFile[] | undefined; loading: boolean; err: boolean; temAnalise?: boolean; enviando?: boolean; preparo?: string | null;
   selFiles: Set<string>; onToggle: (id: string) => void; onRefetch: () => void; onAnalisar: () => void; onCancel: () => void;
 }) {
   return (
@@ -657,8 +714,12 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, selFile
               );
             })}
           </div>
-          <div className="flex items-center justify-between mt-3">
-            <p className="text-[11px] text-muted-foreground">Os extratos já vêm marcados. Ajuste se quiser.</p>
+          <div className="flex items-center justify-between mt-3 gap-3 flex-wrap">
+            <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
+              {enviando && preparo
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> {preparo}</>
+                : "Os extratos já vêm marcados. Ajuste se quiser."}
+            </p>
             <Button onClick={onAnalisar} disabled={selFiles.size === 0 || enviando} className="gap-1.5">
               {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
               {temAnalise ? "Regenerar" : "Analisar"} {selFiles.size > 0 ? `(${selFiles.size})` : ""}
