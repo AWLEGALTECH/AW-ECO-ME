@@ -194,6 +194,41 @@ function notasCodigo(a: any): string {
   return L.join("\n");
 }
 
+// Resumo CURTO de UM extrato (não cruza nada). É o texto do quadro daquele período.
+const SCHEMA_RESUMO = {
+  type: "json_schema", name: "resumo_extrato", strict: true,
+  schema: { type: "object", additionalProperties: false, required: ["resumo"], properties: { resumo: { type: "string" } } },
+};
+const PROMPT_RESUMO = `Você é analista de um escritório de advocacia do consumidor. Resuma ESTE extrato bancário (um único período, NÃO cruze com outros) em 2 a 4 frases corridas, específicas e humanas: quem é o titular se aparecer, de onde vem a renda e o valor, principais gastos e recorrências, sinais de crédito/endividamento, e as oportunidades de fechamento (tarifas, empréstimos/consignados, seguros, cheque especial). Use SOMENTE os fatos abaixo; NÃO invente; NÃO use travessão.`;
+
+// Curto resumo por extrato (não bloqueia o quadro: se falhar, volta "").
+async function resumoDe(facts: string): Promise<string> {
+  try {
+    const r = parseJson(await openai([{ type: "input_text", text: `${PROMPT_RESUMO}\n\n=== FATOS DESTE EXTRATO ===\n${facts}` }], 700, SCHEMA_RESUMO, { timeoutMs: 40000, tries: 2 }));
+    return r?.resumo || "";
+  } catch { return ""; }
+}
+
+// Destaca as transações-chave: renda, crédito/dívida, tarifas, seguros e as maiores.
+const RE_CHAVE = /SAL[AÁ]RIO|BENEF[IÍ]CIO|APOSENTAD|\bINSS\b|PENS[AÃ]O|PROVENTO|PREFEITURA|EMPR[EÉ]STIMO|CONSIGN|CREFISA|\bBMG\b|AGIBANK|FINANCIAMENTO|TARIFA|CESTA|ANUIDADE|SEGURO|CHEQUE ESPECIAL|\bJUROS\b/i;
+function marcarChaves(txs: Array<{ data: any; descricao: string; valor: number }>) {
+  const top = [...txs.map((t, i) => ({ i, abs: Math.abs(Number(t.valor) || 0) }))].sort((a, b) => b.abs - a.abs).slice(0, 8).map((x) => x.i);
+  const topSet = new Set(top);
+  return txs.map((t, i) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0, chave: RE_CHAVE.test(String(t.descricao || "")) || topSet.has(i) }));
+}
+
+// Candidatos (código, vindos do navegador) → flags para o dashboard.
+const CAND_EIXO: Record<string, string> = {
+  "Empréstimo/consignado": "credores", "Tarifas bancárias": "financeira", "Cheque especial/juros": "financeira",
+  "Seguros/assistências": "produtos", "Estornos/devoluções": "consumo",
+};
+function candFlags(cands: any[], periodo: string | null): any[] {
+  return (Array.isArray(cands) ? cands : []).map((c) => ({
+    eixo: CAND_EIXO[c.tipo] || "financeira", codigo: c.tipo, label: `${c.tipo}${periodo ? ` (${periodo})` : ""}`,
+    confianca: 0.8, evidencia: `${c.ocorrencias}x, total ${brl(c.total)} — ex.: ${(c.exemplos || []).join(", ")}`,
+  }));
+}
+
 const PROMPT_EXTRACAO = `Você é o motor de extração do AW SPY, central de inteligência de um escritório de advocacia do consumidor. Recebe UM extrato bancário (PDF) de um cliente. NÃO escreva um texto bonito ainda: sua função é EXTRAIR os fatos crus e específicos desse extrato, para que uma etapa posterior cruze vários períodos e escreva o dossiê.
 
 Preencha "periodo" com o intervalo do extrato (ex.: "2022", "jan-dez/2023", ou o mês/ano que constar).
@@ -310,16 +345,15 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         const codeTx = (a.reconciliado === true && Array.isArray(a.transacoes))
           ? a.transacoes.filter((t: any) => typeof t?.valor === "number") : [];
         if (codeTx.length >= 3) {
-          const chave = codeTx.map((t: any) => ({
-            data: t.data || null, descricao: String(t.descricao || ""),
-            valor: Math.abs(Number(t.valor) || 0), sinal: Number(t.valor) >= 0 ? 1 : -1,
-            saldo: typeof t.saldo === "number" ? t.saldo : null,
-          }));
+          const transacoes = marcarChaves(codeTx.map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 })));
           const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
-          parciais.push({ name: a.name, periodo: a.periodo || null, notas: notasCodigo(a), risco_geral: null, flags: [], transacoes_chave: chave, viaCodigo: true });
-          const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${codeTx.length} lançamentos (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
-          for (const t of chave.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: t.valor, sinal: t.sinal });
-          await prog("analisando", pctLidos(), `Lido ${a.name}`, add);
+          await prog("analisando", pctLidos(), `Resumindo ${a.name}`,
+            { msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" });
+          const resumo_ia = await resumoDe(notasCodigo(a));
+          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes, resumo_ia, candidatos: a.candidatos || [], flags: candFlags(a.candidatos, a.periodo || null) });
+          const add: any[] = [];
+          for (const t of transacoes.filter((x) => x.chave).slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
+          await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add.length ? add : undefined);
           await salvarParciais();
           continue;
         }
@@ -351,13 +385,13 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           return;
         }
         if (parsed) {
-          parciais.push({ name: a.name, periodo: parsed.periodo || null, notas: parsed.notas || "", risco_geral: parsed.risco_geral || null, flags: parsed.flags || [], transacoes_chave: parsed.transacoes_chave || [] });
-          const ntx = Array.isArray(parsed.transacoes_chave) ? parsed.transacoes_chave.length : 0;
-          const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${ntx} transações-chave · risco ${parsed.risco_geral || "?"}`, kind: "ok" }];
-          for (const t of (parsed.transacoes_chave || []).slice(0, 6)) {
-            add.push({ kind: "tx", data: t.data || "", desc: String(t.descricao || "").slice(0, 48), valor: typeof t.valor === "number" ? t.valor : null, sinal: t.sinal === 1 ? 1 : -1 });
-          }
-          await prog("analisando", pctLidos(), `Lido ${a.name}`, add);
+          const txs = (parsed.transacoes_chave || []).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0) }));
+          const transacoes = marcarChaves(txs);
+          const resumo_ia = (await resumoDe(parsed.notas || "")) || String(parsed.notas || "");
+          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes, resumo_ia, candidatos: [], flags: parsed.flags || [] });
+          const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${transacoes.length} transações (lido por IA)`, kind: "ok" }];
+          for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
+          await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
         } else {
           parciais.push({ name: a.name, falhou: true, erro: errFile });
           await prog("analisando", pctLidos(), `Falha ao ler ${a.name}`, { msg: `${a.name}: não consegui ler${errFile ? ` (${errFile.slice(0, 100)})` : ""}`, kind: "warn" });
@@ -366,15 +400,14 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       }
     }
 
-    // Todos os extratos lidos → síntese num único dossiê contínuo.
+    // SEM CRUZAMENTO: cada extrato é um quadro isolado. Finaliza quando todos foram lidos.
     if (!(await estaViva(s, analiseId))) return;
     const oks = parciais.filter((p) => !p.falhou)
       .sort((x, y) => String(x.periodo || x.name).localeCompare(String(y.periodo || y.name)));
-    const flagsExtratos = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : []));
-    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes_chave) ? p.transacoes_chave : []));
-    let flagsSint: any[] = [];
+    const flags = oks.flatMap((p) => (Array.isArray(p.flags) ? p.flags : [])).slice(0, 120);
+    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes) ? p.transacoes : []));
 
-    // Conta OpenAI sem créditos: não há o que sintetizar. Falha com mensagem clara.
+    // Conta OpenAI sem créditos e nada reconciliado: falha com mensagem clara.
     const semCredito = parciais.some((p) => p.falhou && /sem_creditos|no credits|insufficient_quota/i.test(String(p.erro || "")));
     if (semCredito && oks.length === 0) {
       feed.push({ msg: "Conta OpenAI sem créditos. Adicione créditos para rodar a análise.", kind: "warn" });
@@ -385,45 +418,22 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
       return;
     }
 
-    let relatorio: string | null = null;
-    let riscoLabel = "";
-    let sintErro: string | null = null;
-    if (oks.length) {
-      await prog("sintetizando", 84, oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil` : "Montando o dossiê",
-        { msg: oks.length > 1 ? `Cruzando ${oks.length} períodos num só perfil...` : "Montando o dossiê...", kind: "step" });
-      const fatos = oks.map((p) => `### Período: ${p.periodo || p.name}\n${p.notas || ""}`).join("\n\n");
-      try {
-        const restante = deadline - Date.now();
-        const dossie = parseJson(await openai([{ type: "input_text", text: `${PROMPT_SINTESE}\n\n=== FATOS EXTRAÍDOS ===\n${fatos}` }], 7000, SCHEMA_DOSSIE, { timeoutMs: Math.max(20000, Math.min(90000, restante)), tries: 2 }));
-        relatorio = dossie?.relatorio || null;
-        riscoLabel = dossie?.risco_geral || "";
-        flagsSint = Array.isArray(dossie?.flags) ? dossie.flags : [];
-        if (!relatorio) sintErro = "sintese sem relatorio";
-      } catch (e) { relatorio = null; sintErro = String((e as Error)?.message || e); }
-      if (!relatorio) relatorio = oks.map((p) => (oks.length > 1 ? `## ${p.periodo || p.name}\n` : "") + (p.notas || "")).join("\n\n");
-      if (!riscoLabel) { let maxR = 0; for (const p of oks) { const ri = ORDEM_RISCO[p.risco_geral] || 0; if (ri > maxR) { maxR = ri; riscoLabel = p.risco_geral; } } }
-      await prog("sintetizando", 92, "Dossiê gerado", { msg: `Dossiê gerado · risco ${riscoLabel || "?"}`, kind: "ok" });
-    }
-    const flags = [...flagsSint, ...flagsExtratos].slice(0, 100);
-    const resumo = riscoLabel ? { risco_geral: riscoLabel } : {};
     const naoLidos = parciais.filter((p) => p.falhou).length;
-
-    if (!(await estaViva(s, analiseId))) return;
     const faltamTempo = parciais.filter((p) => p.falhou && /tempo excedido/.test(String(p.erro || ""))).map((p) => p.name);
-    feed.push({ msg: `${faltamTempo.length ? "Concluído (parcial)" : "Concluído"} · ${oks.length}/${total} extratos · ${txs.length} transações · ${flags.length} marcadores${faltamTempo.length ? ` · faltaram por tempo: ${faltamTempo.join(", ")} — reprocessar` : (naoLidos ? ` · ${naoLidos} não lido(s)` : "")}`, kind: "done" });
+    feed.push({ msg: `${faltamTempo.length ? "Concluído (parcial)" : "Concluído"} · ${oks.length}/${total} quadro(s) · ${txs.length} transações${faltamTempo.length ? ` · faltaram por tempo: ${faltamTempo.join(", ")} — reprocessar` : (naoLidos ? ` · ${naoLidos} não lido(s)` : "")}`, kind: "done" });
     await s.from("spy_analise").update({
-      status: "concluida", relatorio, resumo, erro: sintErro,
+      status: "concluida", relatorio: null, resumo: {}, erro: null,
       n_transacoes: txs.length, updated_at: new Date().toISOString(),
-      progresso: { etapa: "concluida", pct: 100, detalhe: `${txs.length} transações-chave · ${flags.length} flags`, feed: feed.slice(-80) },
+      progresso: { etapa: "concluida", pct: 100, detalhe: `${oks.length} quadro(s) · ${txs.length} transações`, feed: feed.slice(-80) },
     }).eq("id", analiseId);
 
     if (txs.length) {
       const rows = txs.slice(0, 800).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
         data: normalizeDate(t.data),
-        valor: typeof t.valor === "number" ? Math.abs(t.valor) : null,
-        sinal: t.sinal === 1 || t.sinal === -1 ? t.sinal : null,
-        saldo: typeof t.saldo === "number" ? t.saldo : null, descricao: t.descricao || null,
+        valor: Math.abs(Number(t.valor) || 0),
+        sinal: Number(t.valor) >= 0 ? 1 : -1,
+        saldo: null, descricao: t.descricao || null,
       }));
       const { error: eTx } = await s.from("spy_transacao").insert(rows);
       if (eTx) { for (const row of rows) { await s.from("spy_transacao").insert(row); } }

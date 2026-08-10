@@ -522,11 +522,6 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     toast.success("Análise cancelada.");
   };
 
-  // TELA CHEIA: análise em trâmite (estilo Finder).
-  if (focoAnalise && focoAnalise.status === "processando") {
-    return <AnaliseTelaCheia cliente={cliente} a={focoAnalise} onBackground={() => setFoco(null)} onCancel={() => cancelarAnalise(focoAnalise.id)} />;
-  }
-
   return (
     <div className="spy-lock space-y-5">
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
@@ -548,7 +543,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       <FichaCliente ficha={ficha} />
 
       {rodando ? (
-        <BannerRodando a={rodando} onOpen={() => setFoco(rodando.id)} onCancel={() => cancelarAnalise(rodando.id)} />
+        <AnaliseCard a={rodando} flags={flags.filter((f) => f.analise_id === rodando.id)} defaultAberto onCancel={() => cancelarAnalise(rodando.id)} onReanalisar={(names) => reanalisar(rodando, names)} reanalisando={reanalisando} />
       ) : mostrarDocs ? (
         <DocPicker
           cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
@@ -890,9 +885,82 @@ function Elapsed({ from }: { from: string }) {
   return <span className="tabular-nums">{mm}:{ss}</span>;
 }
 
-// Status de abrangência: % de documentos analisados com sucesso (donut), cada
-// doc expansível (sucesso → TODAS as movimentações; falho → warning), e botão
-// para reanalisar os que faltaram (re-cruzando tudo numa nova análise).
+// Quadro de UM extrato (isolado): resumo por IA daquele período, números,
+// categorias, oportunidades de fechamento e todas as transações (chaves em destaque).
+function QuadroExtrato({ p }: { p: any }) {
+  const txs: any[] = Array.isArray(p?.transacoes) ? p.transacoes : [];
+  const [todas, setTodas] = useState(false);
+  const entradas = txs.filter((t) => Number(t.valor) > 0).reduce((s, t) => s + Number(t.valor), 0);
+  const saidas = txs.filter((t) => Number(t.valor) < 0).reduce((s, t) => s + Math.abs(Number(t.valor)), 0);
+  const cats = useMemo(() => {
+    const m = new Map<string, { label: string; cls: string; Icon: LucideIcon; total: number }>();
+    for (const t of txs) { const c = categoria(t.descricao); const cur = m.get(c.key) || { label: c.label, cls: c.cls, Icon: c.Icon, total: 0 }; cur.total += Math.abs(Number(t.valor) || 0); m.set(c.key, cur); }
+    return [...m.values()].sort((x, y) => y.total - x.total).slice(0, 5);
+  }, [p]);
+  const candidatos: any[] = Array.isArray(p?.candidatos) ? p.candidatos : [];
+  const mostra = todas ? txs : txs.slice(0, 40);
+  const b = p?.reconciliado ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" } : { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" };
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.015] p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <span className="text-sm font-medium inline-flex items-center gap-2 min-w-0">
+          <FileText className="h-4 w-4 text-muted-foreground shrink-0" /> <span className="truncate">{p.name}</span>
+          {p.periodo && <span className="text-[11px] text-muted-foreground shrink-0">{p.periodo}</span>}
+        </span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${b.cls}`}>{b.txt}</span>
+      </div>
+
+      {p.resumo_ia && <p className="text-[13px] text-foreground/90 leading-relaxed rounded-lg border border-primary/15 bg-primary/[0.05] p-3 mb-3 whitespace-pre-line">{p.resumo_ia}</p>}
+
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">Entradas</p><p className="text-emerald-400 font-medium tabular-nums text-[14px]">{fmtBRL(entradas)}</p></div>
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">Saídas</p><p className="text-rose-400 font-medium tabular-nums text-[14px]">{fmtBRL(saidas)}</p></div>
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">Resultado</p><p className={`font-medium tabular-nums text-[14px] ${entradas - saidas >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtBRL(entradas - saidas)}</p></div>
+      </div>
+
+      {cats.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {cats.map((c, i) => { const I = c.Icon; return <span key={i} className="inline-flex items-center gap-1 text-[11px] rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1"><I className={`h-3 w-3 ${c.cls}`} /> {c.label} <span className="text-muted-foreground tabular-nums">{fmtBRL(c.total)}</span></span>; })}
+        </div>
+      )}
+
+      {candidatos.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[10px] uppercase tracking-wide text-amber-400/80 mb-1.5 inline-flex items-center gap-1"><Scale className="h-3.5 w-3.5" /> Oportunidades de fechamento</p>
+          <div className="flex flex-wrap gap-1.5">
+            {candidatos.map((c, i) => <span key={i} className="inline-flex items-center gap-1 text-[11px] rounded-md ring-1 ring-amber-500/25 bg-amber-500/10 text-amber-300 px-2 py-1">{c.tipo} · {c.ocorrencias}x · {fmtBRL(c.total)}</span>)}
+          </div>
+        </div>
+      )}
+
+      {txs.length > 0 && (
+        <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+          <div className="max-h-80 overflow-y-auto scrollbar-thin">
+            <table className="w-full text-[11px]">
+              <tbody>
+                {mostra.map((t, i) => {
+                  const cat = categoria(t.descricao); const CatIcon = cat.Icon; const neg = Number(t.valor) < 0;
+                  return (
+                    <tr key={i} className={`border-b border-white/[0.04] ${t.chave ? "bg-primary/[0.06]" : ""}`}>
+                      <td className="px-2.5 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{t.data || "—"}</td>
+                      <td className="px-2 py-1"><span className="inline-flex items-center gap-1.5 max-w-[240px]"><CatIcon className={`h-3.5 w-3.5 shrink-0 ${cat.cls}`} /><span className="truncate">{t.descricao}</span>{t.chave && <span className="text-[8px] text-primary/90 uppercase tracking-wider shrink-0 border border-primary/30 rounded px-1">chave</span>}</span></td>
+                      <td className={`px-2.5 py-1 text-right tabular-nums whitespace-nowrap ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(Number(t.valor) || 0))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {txs.length > 40 && <button onClick={() => setTodas((v) => !v)} className="w-full text-[11px] text-primary hover:underline py-1.5 border-t border-white/[0.06]">{todas ? "Mostrar menos" : `Ver todas as ${txs.length} transações`}</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Status de abrangência: % de documentos analisados com sucesso (anel), lista de
+// status por documento, e botão para reanalisar os que faltaram.
 function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
   const arquivos: Array<{ id?: string; name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
   const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
@@ -901,25 +969,24 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
     const p = byName.get(d.name);
     const falhou = !!p?.falhou;
     return {
-      id: d.id as string | undefined, name: (d.name as string) || "documento",
-      status: !p ? "pendente" : falhou ? "falhou" : (p.viaCodigo ? "reconciliado" : "ia"),
+      name: (d.name as string) || "documento",
+      status: !p ? "pendente" : falhou ? "falhou" : (p.reconciliado ? "reconciliado" : "ia"),
       erro: p?.erro || null, periodo: p?.periodo || null,
-      tx: Array.isArray(p?.transacoes_chave) ? p.transacoes_chave : [],
-      ok: !!p && !falhou,
+      ok: !!p && !falhou, pendente: !p,
     };
   });
   const okCount = docs.filter((d) => d.ok).length;
   const total = docs.length;
   const pct = total ? Math.round((okCount / total) * 100) : 0;
-  const falhos = docs.filter((d) => !d.ok);
+  const falhos = docs.filter((d) => d.status === "falhou");
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [exp, setExp] = useState<string | null>(null);
   const toggleSel = (n: string) => setSel((s) => { const x = new Set(s); x.has(n) ? x.delete(n) : x.add(n); return x; });
   const anelCls = pct >= 80 ? "text-emerald-400" : pct >= 40 ? "text-amber-400" : "text-rose-400";
 
   const badge = (status: string) =>
     status === "reconciliado" ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" }
     : status === "ia" ? { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" }
+    : status === "pendente" ? { txt: "analisando…", cls: "text-primary ring-primary/25 bg-primary/10" }
     : { txt: "não analisado", cls: "text-amber-400 ring-amber-500/25 bg-amber-500/10" };
 
   return (
@@ -952,53 +1019,26 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Documentos</p>
       <div className="space-y-1.5">
         {docs.map((d) => {
-          const b = badge(d.status);
-          const aberto = exp === d.name;
+          const bg = badge(d.status);
           return (
             <div key={d.name} className="rounded-lg border border-white/[0.06] bg-white/[0.01] overflow-hidden transition-colors hover:border-white/[0.1]">
-              <div className="flex items-center gap-2 px-2.5 py-2">
-                {d.ok
-                  ? <button onClick={() => setExp(aberto ? null : d.name)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                      <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${aberto ? "rotate-90" : ""}`} />
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                      <span className="text-[12px] truncate">{d.name}</span>
-                      {d.periodo && <span className="text-[10px] text-muted-foreground shrink-0">· {d.periodo}</span>}
-                    </button>
-                  : <button onClick={() => toggleSel(d.name)} className="flex items-center gap-2.5 min-w-0 flex-1 text-left group/chk">
+              <div className="flex items-center gap-2.5 px-2.5 py-2">
+                {d.status === "falhou"
+                  ? <button onClick={() => toggleSel(d.name)} className="flex items-center gap-2.5 min-w-0 flex-1 text-left group/chk">
                       <span className={`h-[18px] w-[18px] rounded-[5px] border flex items-center justify-center shrink-0 transition-colors ${sel.has(d.name) ? "bg-primary border-primary" : "border-white/25 bg-white/[0.03] group-hover/chk:border-white/40"}`}>
                         {sel.has(d.name) && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
                       </span>
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                       <span className="text-[12px] truncate">{d.name}</span>
-                    </button>}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${b.cls}`}>{b.txt}</span>
+                    </button>
+                  : <span className="flex items-center gap-2.5 min-w-0 flex-1">
+                      {d.pendente ? <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                      <span className="text-[12px] truncate">{d.name}</span>
+                      {d.periodo && <span className="text-[10px] text-muted-foreground shrink-0">· {d.periodo}</span>}
+                    </span>}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${bg.cls}`}>{bg.txt}</span>
               </div>
-              {d.ok && aberto && (
-                <div className="border-t border-white/[0.06]">
-                  {d.status === "ia" && <p className="text-[10px] text-muted-foreground px-2.5 pt-1.5">Extrato lido por IA — principais movimentações (não reconciliado pelo saldo).</p>}
-                  {d.tx.length === 0
-                    ? <p className="text-[11px] text-muted-foreground px-2.5 py-2">Sem movimentações registradas.</p>
-                    : <div className="max-h-64 overflow-y-auto scrollbar-thin">
-                        <table className="w-full text-[11px]">
-                          <tbody>
-                            {d.tx.map((t: any, i: number) => {
-                              const cat = categoria(t.descricao); const CatIcon = cat.Icon;
-                              const sinal = t.sinal ?? (Number(t.valor) >= 0 ? 1 : -1);
-                              const val = Math.abs(Number(t.valor) || 0);
-                              return (
-                                <tr key={i} className="border-b border-white/[0.04]">
-                                  <td className="px-2.5 py-1 text-muted-foreground tabular-nums whitespace-nowrap">{t.data || "—"}</td>
-                                  <td className="px-2 py-1"><span className="inline-flex items-center gap-1.5 max-w-[220px]"><CatIcon className={`h-3.5 w-3.5 shrink-0 ${cat.cls}`} /><span className="truncate">{t.descricao}</span></span></td>
-                                  <td className={`px-2.5 py-1 text-right tabular-nums whitespace-nowrap ${sinal < 0 ? "text-rose-400" : "text-emerald-400"}`}>{sinal < 0 ? "-" : "+"}{fmtBRL(val)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>}
-                </div>
-              )}
-              {!d.ok && d.erro && <p className="text-[11px] text-muted-foreground pr-2.5 pb-2 pl-[46px] -mt-0.5">{motivoHumano(d.erro)}</p>}
+              {d.status === "falhou" && d.erro && <p className="text-[11px] text-muted-foreground pr-2.5 pb-2 pl-[46px] -mt-0.5">{motivoHumano(d.erro)}</p>}
             </div>
           );
         })}
@@ -1016,14 +1056,15 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
   );
 }
 
-function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
-  const [verTx, setVerTx] = useState(false);
-  const docs: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
+  const arquivos: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
+  const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
+  const feitos = new Set(parciais.map((p) => p.name));
+  const quadros = parciais.filter((p) => !p.falhou && Array.isArray(p.transacoes));
+  const pendentes = arquivos.filter((d) => !feitos.has(d.name as string)).map((d) => (d.name as string) || "documento");
   const proc = a.status === "processando";
   const erro = a.status === "erro";
-  const risco = (a.resumo?.risco_geral || "").toLowerCase();
-  const riscoMeta = RISCO[risco];
   const pct = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
 
   const porEixo = useMemo(() => {
@@ -1032,29 +1073,76 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
     return [...m.entries()];
   }, [flags]);
 
-  // Estado "rodando", cinematografico: radar varrendo + scanline sobre o card.
+  // Corpo compartilhado (mesmo enquanto roda e depois de pronto): abrangência +
+  // um QUADRO por extrato, aparecendo em streaming conforme cada um conclui.
+  const corpo = (
+    <div className="space-y-4">
+      {erro && <p className="text-sm text-rose-400 whitespace-pre-line">{a.erro}</p>}
+      {arquivos.length > 0 && <CardAbrangencia a={a} onReanalisar={onReanalisar} reanalisando={reanalisando} />}
+      {(quadros.length > 0 || pendentes.length > 0) && (
+        <div className="space-y-3">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" /> Quadros por extrato</p>
+          {quadros.map((p, i) => <QuadroExtrato key={p.name || i} p={p} />)}
+          {pendentes.map((n) => (
+            <div key={n} className="rounded-xl border border-primary/15 bg-primary/[0.03] p-4 flex items-center gap-2.5 text-[12px] text-muted-foreground">
+              <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" /> Analisando <span className="text-foreground/80">{n}</span>…
+            </div>
+          ))}
+        </div>
+      )}
+      {porEixo.length > 0 && (
+        <details className="group">
+          <summary className="text-[11px] uppercase tracking-wider text-muted-foreground cursor-pointer list-none inline-flex items-center gap-1 select-none">
+            <ChevronDown className="h-3.5 w-3.5 group-open:rotate-180 transition-transform" /> Marcadores internos ({flags.length})
+          </summary>
+          <div className="space-y-2 mt-2">
+            {porEixo.map(([eixo, fs]) => {
+              const m = eixoMeta(eixo);
+              return (
+                <div key={eixo} className="space-y-1.5">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${m.cls}`}>{m.label}</span>
+                  {fs.map((f) => (
+                    <div key={f.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 ml-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[13px] font-medium text-foreground">{f.label || f.codigo}</span>
+                        {typeof f.confianca === "number" && <span className="text-[10px] text-muted-foreground tabular-nums">{Math.round(f.confianca * 100)}% conf.</span>}
+                      </div>
+                      {f.evidencia && <p className="text-[12px] text-muted-foreground mt-1 whitespace-pre-line">{f.evidencia}</p>}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
+      {onRegenerar && !proc && (
+        <div className="pt-1 border-t border-white/[0.06]">
+          <Button variant="outline" size="sm" onClick={onRegenerar} className="gap-1.5 h-8 mt-3">
+            <RefreshCw className="h-3.5 w-3.5" /> Nova análise
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
+  // Rodando: cabeçalho com radar + os quadros já prontos aparecendo em streaming.
   if (proc) {
     return (
-      <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
-        <div className="flex items-center gap-4">
-          <RadarViz size={64} />
+      <div className="rounded-2xl border border-primary/25 bg-primary/[0.03] overflow-hidden">
+        <div className="spy-scan relative flex items-center gap-4 p-4 border-b border-white/[0.06]">
+          <RadarViz size={56} />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" />
-              <span className="text-sm font-medium text-foreground truncate">{a.progresso?.detalhe || "Analisando…"}</span>
-            </div>
-            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
-            </div>
+            <div className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /><span className="text-sm font-medium text-foreground truncate">{a.progresso?.detalhe || "Analisando…"}</span></div>
+            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} /></div>
             <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
               <span>{a.progresso?.etapa || "processando"}</span>
-              <span className="inline-flex items-center gap-2">
-                <span className="tabular-nums text-primary/80">{pct}%</span>
-                <span>· <Elapsed from={a.created_at} /></span>
-              </span>
+              <span className="inline-flex items-center gap-2"><span className="tabular-nums text-primary/80">{pct}%</span><span>· <Elapsed from={a.created_at} /></span></span>
             </div>
           </div>
+          {onCancel && <button onClick={onCancel} className="shrink-0 self-start text-[11px] text-muted-foreground hover:text-rose-400 inline-flex items-center gap-1"><X className="h-3.5 w-3.5" /> Cancelar</button>}
         </div>
+        <div className="p-4">{corpo}</div>
       </div>
     );
   }
@@ -1065,9 +1153,8 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
         <div className="flex items-center gap-2 min-w-0">
           {erro ? <AlertTriangle className="h-4 w-4 text-rose-400" /> : <ShieldAlert className="h-4 w-4 text-primary" />}
           <span className="text-sm font-medium truncate">
-            {erro ? "Falhou" : `Análise · ${a.n_transacoes ?? 0} transações · ${flags.length} flags`}
+            {erro ? "Falhou" : `Análise · ${quadros.length} quadro(s) · ${a.n_transacoes ?? 0} transações`}
           </span>
-          {!erro && riscoMeta && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 ${riscoMeta.text} ${riscoMeta.ring}`}>risco {riscoMeta.label.toLowerCase()}</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString("pt-BR")}</span>
@@ -1075,83 +1162,7 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
         </div>
       </button>
 
-      {aberto && (
-        <div className="px-4 pb-4 space-y-4 border-t border-white/[0.06] pt-4">
-          {erro && <p className="text-sm text-rose-400 whitespace-pre-line">{a.erro}</p>}
-
-          {Array.isArray(a.arquivos) && a.arquivos.length > 0 && (
-            <CardAbrangencia a={a} onReanalisar={onReanalisar} reanalisando={reanalisando} />
-          )}
-
-          {a.relatorio && (
-            <div className="rounded-xl border border-primary/15 bg-primary/[0.04] p-4">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-primary/80 mb-2 flex items-center gap-1.5">
-                <ShieldAlert className="h-3.5 w-3.5" /> Dossiê
-              </p>
-              <p className="text-sm text-foreground/90 whitespace-pre-line leading-relaxed">{a.relatorio}</p>
-            </div>
-          )}
-
-          {(a.n_transacoes ?? 0) > 0 && (
-            <div>
-              <button onClick={() => setVerTx((v) => !v)} className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
-                <ListChecks className="h-3.5 w-3.5" /> {verTx ? "Ocultar" : "Ver"} transações-chave ({a.n_transacoes})
-              </button>
-              {verTx && <TransacoesViewer analiseId={a.id} />}
-            </div>
-          )}
-
-          {docs.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5 flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5" /> Extratos analisados
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {docs.map((d, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 text-[11px] text-foreground/80 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1">
-                    <FileText className="h-3 w-3 text-muted-foreground" /> {d.name || "documento"}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {porEixo.length > 0 && (
-            <details className="group">
-              <summary className="text-[11px] uppercase tracking-wider text-muted-foreground cursor-pointer list-none inline-flex items-center gap-1 select-none">
-                <ChevronDown className="h-3.5 w-3.5 group-open:rotate-180 transition-transform" /> Marcadores internos ({flags.length})
-              </summary>
-              <div className="space-y-2 mt-2">
-                {porEixo.map(([eixo, fs]) => {
-                  const m = eixoMeta(eixo);
-                  return (
-                    <div key={eixo} className="space-y-1.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${m.cls}`}>{m.label}</span>
-                      {fs.map((f) => (
-                        <div key={f.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 ml-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[13px] font-medium text-foreground">{f.label || f.codigo}</span>
-                            {typeof f.confianca === "number" && <span className="text-[10px] text-muted-foreground tabular-nums">{Math.round(f.confianca * 100)}% conf.</span>}
-                          </div>
-                          {f.evidencia && <p className="text-[12px] text-muted-foreground mt-1 whitespace-pre-line">{f.evidencia}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          )}
-
-          {onRegenerar && (
-            <div className="pt-1 border-t border-white/[0.06]">
-              <Button variant="outline" size="sm" onClick={onRegenerar} className="gap-1.5 h-8 mt-3">
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerar análise
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+      {aberto && <div className="px-4 pb-4 border-t border-white/[0.06] pt-4">{corpo}</div>}
     </div>
   );
 }
