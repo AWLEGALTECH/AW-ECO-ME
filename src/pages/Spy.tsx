@@ -476,6 +476,22 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     }
   };
 
+  // Insights comerciais (roteiro): o servidor computa o digest por código e faz
+  // 1 chamada de IA para prioridades, fichas, narrativa e resumo. Fica salvo.
+  const [gerandoInsights, setGerandoInsights] = useState(false);
+  const gerarInsights = async (a: Analise) => {
+    if (gerandoInsights) return;
+    setGerandoInsights(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("spy-insights", { body: { cliente_id: cliente.id, analise_id: a.id } });
+      if (error || (data as any)?.error) { toast.error(`Não consegui gerar os insights${(data as any)?.error ? `: ${(data as any).error}` : ""}.`); return; }
+      qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
+      toast.success("Insights gerados.");
+    } finally {
+      setGerandoInsights(false);
+    }
+  };
+
   // Reanalisa SÓ os documentos que faltaram: re-extrai/reconcilia esses no
   // navegador e chama o servidor no modo "reprocessar" — ele cria uma nova
   // análise reaproveitando os que já deram certo e re-cruza tudo.
@@ -551,7 +567,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           onAnalisar={analisar} onCancel={() => setMostrarDocs(false)}
         />
       ) : ultima ? (
-        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} />
+        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} onInsights={() => gerarInsights(ultima)} gerandoInsights={gerandoInsights} />
       ) : erroAnalise ? (
         <AnaliseErro a={erroAnalise} onTentar={() => setMostrarDocs(true)} />
       ) : (
@@ -938,6 +954,68 @@ function QuadroExtrato({ p }: { p: any }) {
   );
 }
 
+// Insights comerciais (saída da IA sobre o digest computado por código):
+// resumo comercial, prioridades 🔴🟡🟢 com ficha completa e narrativa.
+const NIVEL_META: Record<string, { label: string; cls: string; dot: string }> = {
+  alta: { label: "Alta prioridade", cls: "text-rose-400 ring-rose-500/25 bg-rose-500/10", dot: "bg-rose-400" },
+  media: { label: "Média prioridade", cls: "text-amber-400 ring-amber-400/25 bg-amber-400/10", dot: "bg-amber-400" },
+  baixa: { label: "Baixa prioridade", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10", dot: "bg-emerald-400" },
+};
+function InsightsView({ ins }: { ins: any }) {
+  const rc = ins?.resumo_comercial || {};
+  const prios: any[] = Array.isArray(ins?.prioridades) ? ins.prioridades : [];
+  const ordem = { alta: 0, media: 1, baixa: 2 } as Record<string, number>;
+  const sorted = [...prios].sort((a, b) => (ordem[a.nivel] ?? 3) - (ordem[b.nivel] ?? 3));
+  const RC = ({ label, value }: { label: string; value: string }) => (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[12.5px] text-foreground/90 mt-0.5">{value || "—"}</p>
+    </div>
+  );
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <RC label="Renda identificada" value={rc.renda_identificada} />
+        <RC label="Instituições" value={rc.instituicoes} />
+        <RC label="Empréstimos" value={rc.emprestimos} />
+        <RC label="Primeiro crédito" value={rc.primeiro_credito} />
+        <RC label="Maior contratação" value={rc.periodo_maior_contratacao} />
+        <RC label="Principais relações" value={rc.principais_relacoes} />
+      </div>
+
+      {sorted.length > 0 && (
+        <div className="space-y-2">
+          {sorted.map((p, i) => {
+            const m = NIVEL_META[p.nivel] || NIVEL_META.baixa;
+            return (
+              <div key={i} className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-3.5">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`h-2 w-2 rounded-full ${m.dot}`} />
+                  <span className="text-[13px] font-medium text-foreground">{p.titulo}</span>
+                  <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${m.cls}`}>{m.label}</span>
+                </div>
+                <div className="space-y-1.5 text-[12px] leading-relaxed">
+                  <p><span className="text-muted-foreground">Encontramos:</span> <span className="text-foreground/90">{p.o_que_encontramos}</span></p>
+                  <p><span className="text-muted-foreground">Pode representar:</span> <span className="text-foreground/90">{p.o_que_pode_representar}</span></p>
+                  <p className="rounded-lg bg-primary/[0.06] border border-primary/15 px-2.5 py-1.5 text-foreground/90">💬 {p.pergunta}</p>
+                  <p><span className="text-muted-foreground">Documento a solicitar:</span> <span className="text-foreground/90">{p.documento}</span></p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {ins?.narrativa && (
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">História financeira</p>
+          <p className="text-[13px] text-foreground/90 leading-relaxed whitespace-pre-line">{ins.narrativa}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Status de abrangência: % de documentos analisados com sucesso (anel), lista de
 // status por documento, e botão para reanalisar os que faltaram.
 function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean }) {
@@ -1035,7 +1113,7 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
   );
 }
 
-function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void }) {
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel, onInsights, gerandoInsights }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void; onInsights?: () => void; gerandoInsights?: boolean }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
   const arquivos: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
   const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
@@ -1069,6 +1147,30 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
           ))}
         </div>
       )}
+      {!proc && !erro && quadros.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Scale className="h-3.5 w-3.5" /> Insights comerciais</p>
+            {(a.resumo as any)?.insights && onInsights && (
+              <button onClick={onInsights} disabled={gerandoInsights} className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${gerandoInsights ? "animate-spin" : ""}`} /> Regerar
+              </button>
+            )}
+          </div>
+          {(a.resumo as any)?.insights ? (
+            <InsightsView ins={(a.resumo as any).insights} />
+          ) : onInsights ? (
+            <div className="rounded-xl border border-dashed border-white/[0.12] p-4 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[12px] text-muted-foreground">Gera o roteiro comercial (prioridades, perguntas prontas e história financeira) a partir das transações mapeadas. 1 chamada de IA, ~30 a 60s.</p>
+              <Button size="sm" onClick={onInsights} disabled={gerandoInsights} className="gap-1.5 h-8 shrink-0">
+                {gerandoInsights ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scale className="h-3.5 w-3.5" />}
+                {gerandoInsights ? "Gerando…" : "Gerar insights"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {onRegenerar && !proc && (
         <div className="pt-1 border-t border-white/[0.06]">
           <Button variant="outline" size="sm" onClick={onRegenerar} className="gap-1.5 h-8 mt-3">
