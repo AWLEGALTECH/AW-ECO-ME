@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Search, FileText, FolderOpen, Loader2, CheckCircle2, AlertTriangle,
+  Search, FileText, FolderOpen, Loader2, CheckCircle2, Check, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
   Scale, CalendarDays, ClipboardList, X, ChevronRight, SearchX,
@@ -955,7 +955,7 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
           const b = badge(d.status);
           const aberto = exp === d.name;
           return (
-            <div key={d.name} className="rounded-lg border border-white/[0.06] bg-white/[0.01] overflow-hidden">
+            <div key={d.name} className="rounded-lg border border-white/[0.06] bg-white/[0.01] overflow-hidden transition-colors hover:border-white/[0.1]">
               <div className="flex items-center gap-2 px-2.5 py-2">
                 {d.ok
                   ? <button onClick={() => setExp(aberto ? null : d.name)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
@@ -964,11 +964,13 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
                       <span className="text-[12px] truncate">{d.name}</span>
                       {d.periodo && <span className="text-[10px] text-muted-foreground shrink-0">· {d.periodo}</span>}
                     </button>
-                  : <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
-                      <input type="checkbox" className="accent-primary" checked={sel.has(d.name)} onChange={() => toggleSel(d.name)} />
+                  : <button onClick={() => toggleSel(d.name)} className="flex items-center gap-2.5 min-w-0 flex-1 text-left group/chk">
+                      <span className={`h-[18px] w-[18px] rounded-[5px] border flex items-center justify-center shrink-0 transition-colors ${sel.has(d.name) ? "bg-primary border-primary" : "border-white/25 bg-white/[0.03] group-hover/chk:border-white/40"}`}>
+                        {sel.has(d.name) && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                      </span>
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                       <span className="text-[12px] truncate">{d.name}</span>
-                    </label>}
+                    </button>}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 shrink-0 ${b.cls}`}>{b.txt}</span>
               </div>
               {d.ok && aberto && (
@@ -996,7 +998,7 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
                       </div>}
                 </div>
               )}
-              {!d.ok && d.erro && <p className="text-[11px] text-muted-foreground px-2.5 pb-2 pl-[38px] -mt-0.5">{motivoHumano(d.erro)}</p>}
+              {!d.ok && d.erro && <p className="text-[11px] text-muted-foreground pr-2.5 pb-2 pl-[46px] -mt-0.5">{motivoHumano(d.erro)}</p>}
             </div>
           );
         })}
