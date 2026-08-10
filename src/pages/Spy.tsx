@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { extrairTextoPdf } from "@/lib/pdfText";
 import { analisarExtrato } from "@/lib/parseExtrato";
-import { DonutChart } from "@/components/DonutChart";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -52,6 +51,16 @@ const CATS: { test: RegExp; cat: Cat }[] = [
 ];
 const CAT_OUTRO: Cat = { key: "outro", label: "Outro", Icon: Circle, cls: "text-muted-foreground" };
 const categoria = (desc: string): Cat => { const d = String(desc || ""); for (const c of CATS) if (c.test.test(d)) return c.cat; return CAT_OUTRO; };
+
+// Traduz o erro técnico de um extrato para linguagem humana.
+const motivoHumano = (erro: any): string => {
+  const e = String(erro || "");
+  if (/timeout|tempo excedido|aborted/i.test(e)) return "demorou demais e foi interrompido";
+  if (/sem texto/i.test(e)) return "PDF sem texto legível (provável imagem/escaneado)";
+  if (/sem_creditos|no credits|insufficient_quota/i.test(e)) return "sem créditos de IA no momento";
+  if (/incompleto/i.test(e)) return "resposta incompleta da IA";
+  return (e.slice(0, 80) || "não foi possível ler");
+};
 
 interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; }
 interface DriveFile { id: string; name: string; mimeType: string; }
@@ -903,10 +912,10 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
   const total = docs.length;
   const pct = total ? Math.round((okCount / total) * 100) : 0;
   const falhos = docs.filter((d) => !d.ok);
-  const donut = [{ name: "Analisados", value: okCount }, { name: "Pendentes", value: total - okCount }];
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [exp, setExp] = useState<string | null>(null);
   const toggleSel = (n: string) => setSel((s) => { const x = new Set(s); x.has(n) ? x.delete(n) : x.add(n); return x; });
+  const anelCls = pct >= 80 ? "text-emerald-400" : pct >= 40 ? "text-amber-400" : "text-rose-400";
 
   const badge = (status: string) =>
     status === "reconciliado" ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" }
@@ -914,19 +923,33 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
     : { txt: "não analisado", cls: "text-amber-400 ring-amber-500/25 bg-amber-500/10" };
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
-      <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-3 flex items-center gap-1.5">
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-4 flex items-center gap-1.5">
         <Activity className="h-3.5 w-3.5" /> Status de abrangência
       </p>
-      <div className="flex items-center gap-4 mb-3">
-        <div className="w-[150px] shrink-0"><DonutChart data={donut} height={130} /></div>
+
+      <div className="flex items-center gap-5 mb-5">
+        <div className="relative h-24 w-24 shrink-0">
+          <svg viewBox="0 0 36 36" className="h-24 w-24 -rotate-90">
+            <circle cx="18" cy="18" r="15.915" fill="none" strokeWidth="3.2" stroke="currentColor" className="text-white/[0.06]" />
+            <circle cx="18" cy="18" r="15.915" fill="none" strokeWidth="3.2" stroke="currentColor" strokeLinecap="round"
+              strokeDasharray={`${pct} ${100 - pct}`} className={`${anelCls} transition-all duration-700`} />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`text-[22px] font-semibold tabular-nums leading-none ${anelCls}`}>{pct}%</span>
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">analisado</span>
+          </div>
+        </div>
         <div className="min-w-0">
-          <p className="text-3xl font-semibold tabular-nums text-foreground">{pct}%</p>
-          <p className="text-[12px] text-muted-foreground">{okCount} de {total} documento(s) analisado(s) com sucesso</p>
-          {falhos.length > 0 && <p className="text-[12px] text-amber-400 mt-1 inline-flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" /> {falhos.length} ficaram sem análise</p>}
+          <p className="text-sm text-foreground"><span className="font-semibold tabular-nums">{okCount}</span> de <span className="tabular-nums">{total}</span> documentos analisados com sucesso</p>
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px]">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {okCount} com sucesso</span>
+            {falhos.length > 0 && <span className="inline-flex items-center gap-1.5 text-amber-400"><span className="h-2 w-2 rounded-full bg-amber-400" /> {falhos.length} sem análise</span>}
+          </div>
         </div>
       </div>
 
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Documentos</p>
       <div className="space-y-1.5">
         {docs.map((d) => {
           const b = badge(d.status);
@@ -973,7 +996,7 @@ function CardAbrangencia({ a, onReanalisar, reanalisando }: { a: Analise; onRean
                       </div>}
                 </div>
               )}
-              {!d.ok && d.erro && <p className="text-[10px] text-muted-foreground px-2.5 pb-2 -mt-1">Motivo: {String(d.erro).slice(0, 120)}</p>}
+              {!d.ok && d.erro && <p className="text-[11px] text-muted-foreground px-2.5 pb-2 pl-[38px] -mt-0.5">{motivoHumano(d.erro)}</p>}
             </div>
           );
         })}
