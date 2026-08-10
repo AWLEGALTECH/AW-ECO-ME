@@ -348,6 +348,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [reanalisando, setReanalisando] = useState(false);
   // Mantém a tela de análise aberta entre o fim da extração e o "Cruzar dados".
   const [posAnalise, setPosAnalise] = useState(false);
+  const [gerandoInsights, setGerandoInsights] = useState(false);
   const preRef = useRef<string | null>(null);
 
   const { data: drive, isLoading: loadingDrive, error: driveErr, refetch: refetchDrive } = useQuery({
@@ -421,10 +422,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   // perfil, onde a ficha aparece no topo.
   const ultimaConcluida = analises.find((x) => x.status === "concluida") || null;
   useEffect(() => {
-    if (posAnalise && !analises.some((x) => x.status === "processando") && (ultimaConcluida?.resumo as any)?.insights) {
+    if (posAnalise && !gerandoInsights && !analises.some((x) => x.status === "processando") && (ultimaConcluida?.resumo as any)?.insights) {
       setPosAnalise(false);
     }
-  }, [posAnalise, analises, ultimaConcluida]);
+  }, [posAnalise, analises, ultimaConcluida, gerandoInsights]);
 
   const toggleFile = (id: string) => setSelFiles((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -490,10 +491,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
   // Insights comerciais (roteiro): o servidor computa o digest por código e faz
   // 1 chamada de IA para prioridades, fichas, narrativa e resumo. Fica salvo.
-  const [gerandoInsights, setGerandoInsights] = useState(false);
   const gerarInsights = async (a: Analise) => {
     if (gerandoInsights) return;
     setGerandoInsights(true);
+    setPosAnalise(true); // página dedicada de carregamento (radar + feed hacker)
     try {
       const { data, error } = await supabase.functions.invoke("spy-insights", { body: { cliente_id: cliente.id, analise_id: a.id } });
       if (error || (data as any)?.error) { toast.error(`Não consegui gerar os insights${(data as any)?.error ? `: ${(data as any).error}` : ""}.`); return; }
@@ -550,12 +551,13 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     toast.success("Análise cancelada.");
   };
 
-  // ── TELA DE ANÁLISE (estilo Finder): anexar → extrair (radar) → quadros →
-  // cruzar dados (animação hacker) → volta ao perfil com a ficha no topo. ─────
-  if (mostrarDocs || rodando || posAnalise) {
+  // ── TELA DE ANÁLISE (estilo Finder): anexar → radar (extração) → quadros →
+  // cruzar dados (página hacker) → volta ao perfil com a ficha no topo. ────────
+  if (mostrarDocs || enviando || rodando || posAnalise) {
     const sair = () => { setMostrarDocs(false); setPosAnalise(false); };
+    const fase = gerandoInsights ? "hacker" : (enviando || rodando) ? "radar" : mostrarDocs ? "picker" : ultima ? "quadros" : "vazio";
     return (
-      <div className="spy-lock space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <button onClick={sair} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="h-4 w-4" /> {cliente.nome}
@@ -563,32 +565,40 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Análise Spy</p>
         </div>
 
-        {rodando ? (
-          <AnaliseCard a={rodando} flags={[]} defaultAberto ocultarInsights onCancel={() => { cancelarAnalise(rodando.id); sair(); }} />
-        ) : mostrarDocs ? (
-          <DocPicker
-            cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
-            selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()} onAnalisar={analisar} onCancel={sair}
-          />
-        ) : ultima ? (
-          <>
-            <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Extração concluída · {ultima.n_transacoes ?? 0} transações mapeadas</p>
-                <p className="text-[12px] text-muted-foreground mt-0.5">{gerandoInsights ? "Cruzando as transações com a IA e montando a ficha…" : "Revise os quadros abaixo e cruze os dados para gerar a ficha do cliente."}</p>
+        {/* key={fase} remonta o bloco a cada etapa → animação de transição (spy-lock) */}
+        <div key={fase} className="spy-lock">
+          {fase === "hacker" && ultima ? (
+            <TelaHacker a={ultima} />
+          ) : fase === "radar" ? (
+            <TelaRadar
+              nome={cliente.nome}
+              detalhe={enviando ? (preparo || "Preparando os extratos…") : (rodando?.progresso?.detalhe || "Analisando…")}
+              pct={rodando ? Math.min(100, Math.max(0, Number(rodando.progresso?.pct) || 0)) : null}
+              desde={rodando?.created_at || null}
+              onCancel={rodando ? () => { cancelarAnalise(rodando.id); sair(); } : undefined}
+            />
+          ) : fase === "picker" ? (
+            <DocPicker
+              cliente={cliente} drive={drive} loading={loadingDrive} err={!!driveErr} temAnalise={!!ultima} enviando={enviando} preparo={preparo}
+              selFiles={selFiles} onToggle={toggleFile} onRefetch={() => refetchDrive()} onAnalisar={analisar} onCancel={sair}
+            />
+          ) : fase === "quadros" && ultima ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Extração concluída · {ultima.n_transacoes ?? 0} transações mapeadas</p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">Revise os quadros abaixo e cruze os dados para gerar a ficha do cliente.</p>
+                </div>
+                <Button onClick={() => gerarInsights(ultima)} className="gap-2 h-10 px-5 shrink-0">
+                  <ScanLine className="h-4 w-4" /> Cruzar dados
+                </Button>
               </div>
-              <Button onClick={() => gerarInsights(ultima)} disabled={gerandoInsights} className="gap-2 h-10 px-5 shrink-0">
-                {gerandoInsights ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                {gerandoInsights ? "Cruzando dados…" : "Cruzar dados"}
-              </Button>
-            </div>
-            <div className={`relative rounded-2xl ${gerandoInsights ? "spy-hack overflow-hidden" : ""}`}>
               <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto ocultarInsights onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} />
             </div>
-          </>
-        ) : (
-          <SemAnalise onStart={() => setMostrarDocs(true)} />
-        )}
+          ) : (
+            <SemAnalise onStart={() => setMostrarDocs(true)} />
+          )}
+        </div>
       </div>
     );
   }
@@ -822,26 +832,7 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, preparo
         <p className="text-sm text-rose-400 py-8 text-center">Não consegui ler a pasta do Drive.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/[0.06]">
-          {/* Esquerda: anexos da análise */}
-          <div className="p-4 min-h-[280px]">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Anexados ({anexados.length})</p>
-            {anexados.length === 0 ? (
-              <div className="h-40 rounded-lg border border-dashed border-white/[0.12] flex items-center justify-center text-[12px] text-muted-foreground text-center px-4">
-                Nenhum extrato anexado.<br />Clique nos arquivos do Drive ao lado para anexar.
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {anexados.map((f) => (
-                  <div key={f.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-primary/30 bg-primary/[0.07]">
-                    <FileText className="h-4 w-4 text-primary shrink-0" />
-                    <span className="text-sm truncate flex-1">{f.name}</span>
-                    <button onClick={() => onToggle(f.id)} className="text-muted-foreground hover:text-rose-400 shrink-0" title="Remover"><X className="h-3.5 w-3.5" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* Direita: arquivos do Drive para anexar */}
+          {/* Esquerda (padrão Finder): arquivos do Drive para ANEXAR */}
           <div className="p-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><FolderOpen className="h-3.5 w-3.5" /> Pasta do Drive ({(drive || []).length})</p>
@@ -855,13 +846,32 @@ function DocPicker({ cliente, drive, loading, err, temAnalise, enviando, preparo
                   const on = selFiles.has(f.id);
                   return (
                     <button key={f.id} onClick={() => onToggle(f.id)}
-                      className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors ${on ? "border-primary/30 bg-primary/[0.05] opacity-60" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14]"}`}>
+                      className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-all duration-200 ${on ? "border-primary/30 bg-primary/[0.05] opacity-50 scale-[0.99]" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14] hover:translate-x-0.5"}`}>
                       <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm truncate flex-1">{f.name}</span>
                       <span className={`text-[10px] shrink-0 ${on ? "text-primary" : "text-muted-foreground"}`}>{on ? "anexado ✓" : "+ anexar"}</span>
                     </button>
                   );
                 })}
+              </div>
+            )}
+          </div>
+          {/* Direita: fila da análise (anexados) */}
+          <div className="p-4 min-h-[280px]">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> Fila de análise ({anexados.length})</p>
+            {anexados.length === 0 ? (
+              <div className="h-40 rounded-lg border border-dashed border-white/[0.12] flex items-center justify-center text-[12px] text-muted-foreground text-center px-4">
+                Nenhum extrato na fila.<br />Clique nos arquivos do Drive ao lado para anexar.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {anexados.map((f) => (
+                  <div key={f.id} className="spy-lock flex items-center gap-2.5 px-3 py-2 rounded-lg border border-primary/30 bg-primary/[0.07]">
+                    <FileText className="h-4 w-4 text-primary shrink-0" />
+                    <span className="text-sm truncate flex-1">{f.name}</span>
+                    <button onClick={() => onToggle(f.id)} className="text-muted-foreground hover:text-rose-400 shrink-0" title="Remover"><X className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -966,6 +976,75 @@ function Elapsed({ from }: { from: string }) {
   const mm = String(Math.floor(secs / 60)).padStart(2, "0");
   const ss = String(secs % 60).padStart(2, "0");
   return <span className="tabular-nums">{mm}:{ss}</span>;
+}
+
+// Tela de EXTRAÇÃO: só o radar, centralizado, com o passo atual e a barra.
+function TelaRadar({ nome, detalhe, pct, desde, onCancel }: { nome: string; detalhe: string; pct: number | null; desde: string | null; onCancel?: () => void }) {
+  return (
+    <div className="spy-scan relative overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.03] spy-grid min-h-[420px] flex flex-col items-center justify-center gap-5 p-8">
+      <RadarViz size={150} />
+      <div className="text-center max-w-md">
+        <p className="text-lg font-semibold tracking-tight">{nome}</p>
+        <p className="text-[13px] text-muted-foreground mt-1 inline-flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /> {detalhe}
+        </p>
+      </div>
+      <div className="w-full max-w-sm">
+        <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct ?? 8}%` }} />
+        </div>
+        <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground uppercase tracking-wider">
+          <span>analisando</span>
+          <span className="inline-flex items-center gap-2">
+            {pct !== null && <span className="tabular-nums text-primary/80">{pct}%</span>}
+            {desde && <span>· <Elapsed from={desde} /></span>}
+          </span>
+        </div>
+      </div>
+      {onCancel && (
+        <button onClick={onCancel} className="text-[11px] text-muted-foreground hover:text-rose-400 inline-flex items-center gap-1"><X className="h-3.5 w-3.5" /> Cancelar</button>
+      )}
+    </div>
+  );
+}
+
+// Feed "hacker": as transações do cliente correndo rápido num terminal.
+function HackerFeed({ linhas }: { linhas: string[] }) {
+  const [i, setI] = useState(0);
+  useEffect(() => { const id = setInterval(() => setI((x) => x + 1), 55); return () => clearInterval(id); }, []);
+  if (!linhas.length) return null;
+  const vis: string[] = [];
+  for (let k = 13; k >= 0; k--) { const idx = i - k; if (idx >= 0) vis.push(linhas[idx % linhas.length]); }
+  return (
+    <div className="spy-hack relative rounded-xl border border-emerald-500/20 bg-black/60 font-mono text-[11px] leading-relaxed p-3.5 h-64 overflow-hidden w-full max-w-lg">
+      {vis.map((l, k) => (
+        <p key={i - (vis.length - 1 - k)} className={`truncate ${k === vis.length - 1 ? "text-emerald-300" : k >= vis.length - 4 ? "text-emerald-400/70" : "text-emerald-500/35"}`}>▸ {l}</p>
+      ))}
+    </div>
+  );
+}
+
+// Tela de CRUZAMENTO: radar + card com as transações sendo processadas em
+// ritmo hacker, enquanto a IA monta a ficha.
+function TelaHacker({ a }: { a: Analise }) {
+  const linhas = useMemo(() => {
+    const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
+    const out: string[] = [];
+    for (const p of parciais) if (Array.isArray(p.transacoes)) for (const t of p.transacoes) out.push(`${t.data || ""}  ${String(t.descricao || "").slice(0, 58)}  ${Number(t.valor) < 0 ? "-" : "+"}${Math.abs(Number(t.valor) || 0).toFixed(2)}`);
+    // embaralha de leve para não rodar em ordem estrita
+    for (let k = out.length - 1; k > 0; k--) { const r = (k * 7919) % (k + 1); [out[k], out[r]] = [out[r], out[k]]; }
+    return out;
+  }, [a.id]);
+  return (
+    <div className="spy-scan relative overflow-hidden rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.02] spy-grid min-h-[460px] flex flex-col items-center justify-center gap-5 p-8">
+      <RadarViz size={110} className="text-emerald-400" />
+      <div className="text-center">
+        <p className="text-lg font-semibold tracking-tight">Cruzando dados</p>
+        <p className="text-[13px] text-muted-foreground mt-1">A IA está processando as {a.n_transacoes ?? linhas.length} transações e montando a ficha do cliente…</p>
+      </div>
+      <HackerFeed linhas={linhas} />
+    </div>
+  );
 }
 
 // Quadro de UM extrato (isolado): mapeamento NEUTRO de TODAS as transações, num
@@ -1401,7 +1480,18 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
         </div>
       )}
 
-      {arquivos.length > 0 && <CardAbrangencia a={a} onReanalisar={onReanalisar} reanalisando={reanalisando} />}
+      {/* Falhas viram só um aviso fino (a central de abrangência foi aposentada). */}
+      {parciais.some((p) => p.falhou) && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2 text-[12px] text-amber-400 flex items-center gap-2 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>{parciais.filter((p) => p.falhou).map((p) => p.name).join(", ")} sem análise.</span>
+          {onReanalisar && (
+            <button onClick={() => onReanalisar(parciais.filter((p) => p.falhou).map((p) => p.name))} disabled={reanalisando} className="ml-auto inline-flex items-center gap-1 text-amber-300 hover:underline disabled:opacity-50">
+              <RefreshCw className={`h-3 w-3 ${reanalisando ? "animate-spin" : ""}`} /> reanalisar
+            </button>
+          )}
+        </div>
+      )}
       {(quadros.length > 0 || pendentes.length > 0) && (
         <div className="space-y-3">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" /> Quadros por extrato</p>
