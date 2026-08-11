@@ -437,67 +437,62 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
   );
 }
 
-// ── Banco de transações gerais: busca no servidor + rolagem infinita ─────────
-const LOTE_BANCO = 150;
+// ── Banco de transações gerais: TUDO na tela, em colunas de jornal ───────────
+// Carrega o banco inteiro em PARALELO (páginas de 1000 simultâneas) e renderiza
+// em blocos automáticos até a última linha — nada de "carregar mais" nem scroll
+// que para no meio. Busca instantânea em memória sobre o conjunto completo.
 function BancoTransacoes({ clientes, onBack, onAbrir }: {
   clientes: Cliente[]; onBack: () => void; onAbrir: (c: Cliente, alvo: AlvoTx) => void;
 }) {
   const [busca, setBusca] = useState("");
-  const [q, setQ] = useState("");
-  const [linhas, setLinhas] = useState<any[]>([]);
-  const [fim, setFim] = useState(false);
-  const [carregando, setCarregando] = useState(false);
-  const sentinelaRef = useRef<HTMLDivElement | null>(null);
-  const reqRef = useRef(0);
+  const [renderCap, setRenderCap] = useState(2500);
 
-  // Debounce: espera o usuário parar de digitar antes de perguntar ao servidor.
-  useEffect(() => {
-    const t = setTimeout(() => setQ(busca.trim()), 300);
-    return () => clearTimeout(t);
-  }, [busca]);
-
-  const { data: total = 0 } = useQuery({
-    queryKey: ["spy-banco-count"],
-    queryFn: async (): Promise<number> => {
+  const { data: txs = [], isLoading } = useQuery({
+    queryKey: ["spy-banco-tx"],
+    staleTime: 60000,
+    queryFn: async (): Promise<any[]> => {
       const { count } = await (supabase.from("spy_transacao" as any) as any).select("id", { count: "exact", head: true });
-      return count ?? 0;
+      const total = count ?? 0;
+      const paginas: Promise<any[]>[] = [];
+      for (let de = 0; de < total; de += 1000) {
+        paginas.push((async () => {
+          const { data, error } = await (supabase.from("spy_transacao" as any) as any)
+            .select("id, cliente_id, data, valor, sinal, descricao")
+            .order("data", { ascending: false }).order("id", { ascending: true })
+            .range(de, Math.min(de + 999, total - 1));
+          if (error) throw error;
+          return data || [];
+        })());
+      }
+      return (await Promise.all(paginas)).flat();
     },
   });
 
-  const carregar = async (reset: boolean) => {
-    const meuReq = ++reqRef.current;
-    setCarregando(true);
-    try {
-      const off = reset ? 0 : linhas.length;
-      const { data, error } = await (supabase.rpc as any)("spy_buscar_transacoes", { q, lim: LOTE_BANCO, off });
-      if (error) throw error;
-      if (meuReq !== reqRef.current) return; // resposta velha (usuário já digitou outra coisa)
-      const novas = (data || []) as any[];
-      setLinhas((prev) => (reset ? novas : [...prev, ...novas]));
-      setFim(novas.length < LOTE_BANCO);
-    } catch (_e) {
-      if (meuReq === reqRef.current) setFim(true);
-    } finally {
-      if (meuReq === reqRef.current) setCarregando(false);
-    }
-  };
-
-  // Nova busca (ou primeira carga) recomeça do zero.
-  useEffect(() => { setLinhas([]); setFim(false); carregar(true); }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Rolagem infinita: chegou perto do fim, carrega o próximo lote sozinho.
-  useEffect(() => {
-    const el = sentinelaRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && !carregando && !fim) carregar(false);
-    }, { rootMargin: "400px" });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [carregando, fim, linhas.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const clientePor = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
-  const fmtD = (d: any) => (d ? String(d).split("-").reverse().join("/") : "—");
+  const enriquecidas = useMemo(() => txs.map((t: any) => {
+    const v = (Number(t.valor) || 0) * (Number(t.sinal) < 0 ? -1 : 1);
+    const nome = clientePor.get(t.cliente_id)?.nome || "";
+    return {
+      ...t, v, nome,
+      blob: `${t.data || ""} ${t.descricao || ""} ${nome} ${Math.abs(v).toFixed(2)} ${fmtBRL(Math.abs(v))}`.toLowerCase(),
+    };
+  }), [txs, clientePor]);
+
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return q ? enriquecidas.filter((t) => t.blob.includes(q)) : enriquecidas;
+  }, [enriquecidas, busca]);
+
+  // Renderização progressiva AUTOMÁTICA: blocos de 2500 até mostrar TODAS,
+  // sem depender de scroll nem clique.
+  useEffect(() => { setRenderCap(2500); }, [busca, txs.length]);
+  useEffect(() => {
+    if (renderCap >= filtradas.length) return;
+    const t = setTimeout(() => setRenderCap((c) => c + 2500), 60);
+    return () => clearTimeout(t);
+  }, [renderCap, filtradas.length]);
+  const visiveis = filtradas.slice(0, renderCap);
+  const fmtD = (d: any) => { const pp = String(d || "").split("-"); return pp.length === 3 ? `${pp[2]}/${pp[1]}/${pp[0].slice(2)}` : "—"; };
 
   return (
     <div className="spy-lock space-y-4">
@@ -508,9 +503,11 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
           </button>
           <h2 className="text-xl font-semibold tracking-tight mt-1.5 flex items-center gap-2">
             <ArrowLeftRight className="h-5 w-5 text-primary" /> Banco de transações
-            <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({total.toLocaleString("pt-BR")})</span>
+            <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({txs.length.toLocaleString("pt-BR")})</span>
           </h2>
-          <p className="text-[12.5px] text-muted-foreground mt-0.5">A busca vasculha o banco inteiro no servidor. Clique numa linha para abrir o cliente com a transação destacada.</p>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            {busca ? `${filtradas.length.toLocaleString("pt-BR")} transação(ões) encontrada(s)` : "Todas as transações monitoradas"} · leitura em colunas, de cima pra baixo · clique para abrir o cliente com a transação destacada
+          </p>
         </div>
         <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -519,47 +516,47 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
         </div>
       </div>
 
-      <div className="rounded-xl border border-white/[0.09] bg-black/25 overflow-hidden">
-        <div className="grid grid-cols-[86px,minmax(120px,220px),1fr,110px] gap-3 px-4 py-2 border-b border-white/[0.07] bg-white/[0.02] text-[9.5px] uppercase tracking-wider text-muted-foreground font-mono">
-          <span>Data</span><span>Cliente</span><span>Transação</span><span className="text-right">Valor</span>
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-20 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando o banco completo…
         </div>
-        {linhas.length === 0 && !carregando ? (
-          <p className="text-[12.5px] text-muted-foreground text-center py-14">
-            {q ? `Nenhuma transação bate com "${q}".` : "O banco enche conforme as análises rodarem."}
+      ) : filtradas.length === 0 ? (
+        <div className="rounded-xl border border-white/[0.09] bg-black/25 py-14">
+          <p className="text-[12.5px] text-muted-foreground text-center">
+            {busca ? `Nenhuma transação bate com "${busca}".` : "O banco enche conforme as análises rodarem."}
           </p>
-        ) : (
-          <div className="max-h-[68vh] overflow-y-auto scrollbar-thin">
-            {linhas.map((t: any) => {
-              const v = (Number(t.valor) || 0) * (Number(t.sinal) < 0 ? -1 : 1);
-              const cat = categoria(t.descricao || ""); const neg = v < 0;
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/[0.09] bg-black/25 p-3">
+          <div className="columns-1 md:columns-2 xl:columns-3 2xl:columns-4 gap-x-6">
+            {visiveis.map((t: any) => {
+              const neg = t.v < 0;
+              const cat = categoria(t.descricao || "");
               const c = clientePor.get(t.cliente_id);
               return (
                 <button key={t.id} disabled={!c}
-                  onClick={() => c && onAbrir(c, { data: t.data, valor: v, descricao: t.descricao || "" })}
-                  className="w-full text-left grid grid-cols-[86px,minmax(120px,220px),1fr,110px] gap-3 items-center px-4 py-[5px] border-b border-white/[0.04] font-mono text-[11px] leading-tight hover:bg-primary/[0.06] transition-colors disabled:opacity-50 group">
-                  <span className="text-muted-foreground tabular-nums">{fmtD(t.data)}</span>
-                  <span className="truncate text-foreground/70 group-hover:text-primary transition-colors">{t.cliente_nome || c?.nome || "—"}</span>
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
-                    <span className="truncate text-foreground/85">{t.descricao || "—"}</span>
-                  </span>
-                  <span className={`text-right tabular-nums ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(v))}</span>
+                  onClick={() => c && onAbrir(c, { data: t.data, valor: t.v, descricao: t.descricao || "" })}
+                  className="break-inside-avoid w-full text-left flex items-center gap-1.5 py-[3px] border-b border-white/[0.045] font-mono text-[10.5px] leading-tight hover:bg-primary/[0.07] transition-colors disabled:opacity-50 group">
+                  <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
+                  <span className="text-muted-foreground tabular-nums shrink-0 w-[54px]">{fmtD(t.data)}</span>
+                  <span className="text-foreground/55 truncate shrink-0 max-w-[84px] group-hover:text-primary transition-colors">{(t.nome || "").split(" ")[0] || "—"}</span>
+                  <span className="truncate flex-1 text-foreground/85">{t.descricao || "—"}</span>
+                  <span className={`tabular-nums shrink-0 ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(t.v))}</span>
                 </button>
               );
             })}
-            {/* sentinela: entrou na tela → carrega o próximo lote sozinho */}
-            <div ref={sentinelaRef} />
-            {carregando && (
-              <p className="flex items-center justify-center gap-2 py-3 text-[11.5px] font-mono text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> carregando…
-              </p>
-            )}
-            {fim && linhas.length > 0 && (
-              <p className="text-center py-2.5 text-[10.5px] font-mono text-muted-foreground/60">fim do banco{q ? " para esta busca" : ""}</p>
-            )}
           </div>
-        )}
-      </div>
+          {renderCap < filtradas.length ? (
+            <p className="flex items-center justify-center gap-2 py-3 text-[11px] font-mono text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> desenhando {visiveis.length.toLocaleString("pt-BR")} de {filtradas.length.toLocaleString("pt-BR")}…
+            </p>
+          ) : (
+            <p className="text-center pt-3 pb-1 text-[10.5px] font-mono text-muted-foreground/60">
+              {filtradas.length.toLocaleString("pt-BR")} transação(ões) — todas na tela
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
