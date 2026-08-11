@@ -91,8 +91,9 @@ const drivePastaId = (c: Pick<Cliente, "drive_folder_id" | "drive_folder_url">) 
 interface Analise { id: string; cliente_id: string; status: string; arquivos: any[]; parciais?: any[]; relatorio: string | null; resumo: any; erro: string | null; progresso: any; n_transacoes: number | null; created_at: string; }
 interface Flag { id: string; analise_id: string; eixo: string | null; codigo: string | null; label: string | null; valor: any; confianca: number | null; evidencia: string | null; }
 
-// ── Radar (SVG animado, clima de espionagem) ─────────────────────────────────
-function RadarViz({ size = 120, blips = true, className = "" }: { size?: number; blips?: boolean; className?: string }) {
+// ── Radar (SVG animado, clima de espionagem; estatico = só o desenho) ────────
+function RadarViz({ size = 120, blips = true, estatico = false, className = "" }: { size?: number; blips?: boolean; estatico?: boolean; className?: string }) {
+  if (estatico) blips = false;
   return (
     <div className={`relative text-primary ${className}`} style={{ width: size, height: size }}>
       <svg viewBox="0 0 100 100" className="w-full h-full">
@@ -107,10 +108,12 @@ function RadarViz({ size = 120, blips = true, className = "" }: { size?: number;
         <circle cx="50" cy="50" r="18" fill="none" stroke="currentColor" strokeOpacity="0.12" />
         <line x1="2" y1="50" x2="98" y2="50" stroke="currentColor" strokeOpacity="0.10" />
         <line x1="50" y1="2" x2="50" y2="98" stroke="currentColor" strokeOpacity="0.10" />
-        <g className="spy-sweep">
-          <path d="M50 50 L50 2 A48 48 0 0 1 95 33 Z" fill="url(#spy-beam)" />
-          <line x1="50" y1="50" x2="50" y2="2" stroke="currentColor" strokeOpacity="0.5" strokeWidth="0.6" />
-        </g>
+        {!estatico && (
+          <g className="spy-sweep">
+            <path d="M50 50 L50 2 A48 48 0 0 1 95 33 Z" fill="url(#spy-beam)" />
+            <line x1="50" y1="50" x2="50" y2="2" stroke="currentColor" strokeOpacity="0.5" strokeWidth="0.6" />
+          </g>
+        )}
       </svg>
       {blips && (
         <>
@@ -123,12 +126,13 @@ function RadarViz({ size = 120, blips = true, className = "" }: { size?: number;
   );
 }
 
+type ModoLobby = "analisados" | "pendentes" | "andamento" | "novo";
+
 export default function Spy() {
   useEffect(() => { document.title = `Spy · ${appConfig.name}`; }, []);
   const { user } = useAuth();
-  const [busca, setBusca] = useState("");
-  const [soPasta, setSoPasta] = useState(true);
   const [sel, setSel] = useState<Cliente | null>(null);
+  const [modo, setModo] = useState<ModoLobby | null>(null);
   const [pendingFoco, setPendingFoco] = useState<string | null>(null);
 
   const { data: clientes = [] } = useQuery({
@@ -141,73 +145,7 @@ export default function Spy() {
     },
   });
 
-  const comPasta = useMemo(() => clientes.filter((c) => drivePastaId(c)).length, [clientes]);
-  const lista = useMemo(() => {
-    const s = busca.trim().toLowerCase();
-    return clientes.filter((c) => {
-      if (soPasta && !drivePastaId(c)) return false;
-      if (!s) return true;
-      return (c.nome || "").toLowerCase().includes(s) || (c.cpf_cnpj || "").includes(s);
-    });
-  }, [clientes, busca, soPasta]);
-
-  return (
-    <div className="max-w-6xl mx-auto space-y-5">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Spy</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano, então você pode navegar pelo Eco enquanto o radar trabalha.
-        </p>
-      </header>
-
-      {sel ? (
-        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} initialFoco={pendingFoco}
-          onBack={() => { setSel(null); setPendingFoco(null); }} />
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[300px,1fr] gap-5">
-          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden flex flex-col max-h-[76vh]">
-            <div className="p-3 border-b border-white/[0.06] space-y-2.5">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente…" className="pl-9 h-9" />
-              </div>
-              <div className="flex items-center gap-1 rounded-lg bg-white/[0.03] p-0.5 text-[11px]">
-                <button onClick={() => setSoPasta(true)}
-                  className={`flex-1 py-1.5 rounded-md transition-colors ${soPasta ? "bg-primary/15 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}>
-                  Com pasta ({comPasta})
-                </button>
-                <button onClick={() => setSoPasta(false)}
-                  className={`flex-1 py-1.5 rounded-md transition-colors ${!soPasta ? "bg-primary/15 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}>
-                  Todos ({clientes.length})
-                </button>
-              </div>
-            </div>
-            <div className="overflow-y-auto scrollbar-thin">
-              {lista.map((c) => (
-                <button key={c.id} onClick={() => setSel(c)}
-                  className="w-full text-left px-3 py-2.5 border-b border-white/[0.04] transition-colors hover:bg-white/[0.03] group">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-foreground truncate group-hover:text-primary transition-colors">{c.nome}</span>
-                    <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${drivePastaId(c) ? "text-emerald-400/70" : "text-muted-foreground/30"}`} />
-                  </div>
-                  {c.cpf_cnpj && <span className="text-[11px] text-muted-foreground">{c.cpf_cnpj}</span>}
-                </button>
-              ))}
-              {lista.length === 0 && <p className="text-center text-xs text-muted-foreground py-8">Nenhum cliente.</p>}
-            </div>
-          </div>
-
-          <IntelPanel totalClientes={clientes.length} comPasta={comPasta} clientes={clientes}
-            onOpen={(c, aid) => { setSel(c); setPendingFoco(aid); }} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Painel de inteligência (cruzamento de todas as análises) ─────────────────
-function IntelPanel({ totalClientes, comPasta, clientes, onOpen }: { totalClientes: number; comPasta: number; clientes: Cliente[]; onOpen: (c: Cliente, analiseId: string) => void }) {
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: analises = [] } = useQuery({
     queryKey: ["spy-stats"],
     queryFn: async (): Promise<Analise[]> => {
       const { data, error } = await (supabase.from("spy_analise" as any) as any)
@@ -218,145 +156,265 @@ function IntelPanel({ totalClientes, comPasta, clientes, onOpen }: { totalClient
     refetchInterval: (q: any) => ((q.state.data as Analise[] | undefined)?.some((a) => a.status === "processando") ? 3000 : false),
   });
 
-  const emAndamento = useMemo(() => rows.filter((r) => r.status === "processando"), [rows]);
-  const feitas = useMemo(() => rows.filter((r) => r.status === "concluida"), [rows]);
-  const clienteDe = (id: string) => clientes.find((c) => c.id === id) || null;
-
-  const stats = useMemo(() => {
-    const concl = rows.filter((r) => r.status === "concluida");
-    const rodando = rows.filter((r) => r.status === "processando").length;
-    const seteDias = concl.filter((r) => Date.now() - new Date(r.created_at).getTime() < 7 * 864e5).length;
-    const clientes = new Set(concl.map((r) => r.cliente_id)).size;
-    const transacoes = concl.reduce((s, r) => s + (r.n_transacoes || 0), 0);
-    const risco: Record<string, number> = { baixo: 0, medio: 0, alto: 0, critico: 0 };
-    for (const r of concl) { const k = (r.resumo?.risco_geral || "").toLowerCase(); if (k in risco) risco[k]++; }
-    return { feitas: concl.length, rodando, seteDias, clientes, transacoes, risco };
-  }, [rows]);
-
-  const totalRisco = stats.risco.baixo + stats.risco.medio + stats.risco.alto + stats.risco.critico;
+  const comPasta = useMemo(() => clientes.filter((c) => drivePastaId(c)).length, [clientes]);
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] min-h-[60vh] p-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.15em] text-primary/80 flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5" /> Central de inteligência
+    <div className="w-full space-y-5">
+      {!sel && (
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight">Spy</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano, então você pode navegar pelo Eco enquanto o radar trabalha.
           </p>
-          <h2 className="text-lg font-semibold mt-1">Radar do Spy</h2>
-          <p className="text-sm text-muted-foreground mt-0.5 max-w-md">
-            O cruzamento de tudo que o Spy já analisou. Selecione um cliente à esquerda pra abrir o dossiê dele.
-          </p>
-        </div>
-        <RadarViz size={30} blips={false} className="shrink-0 opacity-50 hidden sm:block" />
-      </div>
-
-      {emAndamento.length > 0 && (
-        <div className="mt-5 rounded-xl border border-primary/25 bg-primary/[0.04] p-3">
-          <p className="text-[11px] uppercase tracking-wider text-primary/80 mb-2 flex items-center gap-1.5">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Em andamento ({emAndamento.length})
-          </p>
-          <div className="space-y-1.5">
-            {emAndamento.map((r) => {
-              const c = clienteDe(r.cliente_id);
-              const pct = Math.min(100, Math.max(0, Number(r.progresso?.pct) || 0));
-              return (
-                <button key={r.id} disabled={!c} onClick={() => c && onOpen(c, r.id)}
-                  className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:border-primary/40 transition-colors disabled:opacity-60">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
-                    <span className="text-[10px] text-primary/80 tabular-nums shrink-0">{pct}%</span>
-                  </div>
-                  <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1 truncate">{r.progresso?.detalhe || "processando"}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        </header>
       )}
 
-      {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-16 justify-center">
-            <Loader2 className="h-4 w-4 animate-spin" /> Reunindo os dados…
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-              <StatCard icon={<ScanLine className="h-4 w-4" />} valor={stats.feitas} label="Análises feitas"
-                sub={stats.rodando ? `${stats.rodando} rodando agora` : stats.seteDias ? `${stats.seteDias} nos últimos 7 dias` : "-"} />
-              <StatCard icon={<Users className="h-4 w-4" />} valor={stats.clientes} label="Clientes analisados"
-                sub={`de ${comPasta} com pasta · ${totalClientes} no total`} />
-              <StatCard icon={<TrendingUp className="h-4 w-4" />} valor={stats.transacoes} label="Transações lidas"
-                sub="movimentações extraídas" />
-              <StatCard icon={<Layers className="h-4 w-4" />} valor={totalRisco} label="Perfis com risco"
-                sub={totalRisco ? "veja a distribuição" : "-"} />
-            </div>
-
-            {totalRisco > 0 && (
-              <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Distribuição de risco</p>
-                <div className="flex h-2.5 rounded-full overflow-hidden bg-white/[0.04]">
-                  {(["baixo", "medio", "alto", "critico"] as const).map((k) =>
-                    stats.risco[k] > 0 ? (
-                      <div key={k} className={RISCO[k].bar} style={{ width: `${(stats.risco[k] / totalRisco) * 100}%` }} title={`${RISCO[k].label}: ${stats.risco[k]}`} />
-                    ) : null
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                  {(["baixo", "medio", "alto", "critico"] as const).map((k) => (
-                    <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className={`h-2 w-2 rounded-full ${RISCO[k].bar}`} /> {RISCO[k].label}
-                      <span className="tabular-nums text-foreground/80">{stats.risco[k]}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {feitas.length > 0 && (
-              <div className="mt-6">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Análises feitas ({feitas.length})</p>
-                <div className="space-y-1.5 max-h-[42vh] overflow-y-auto scrollbar-thin">
-                  {feitas.map((r) => {
-                    const c = clienteDe(r.cliente_id);
-                    const risco = (r.resumo?.risco_geral || "").toLowerCase();
-                    const rm = RISCO[risco];
-                    return (
-                      <button key={r.id} disabled={!c} onClick={() => c && onOpen(c, null)}
-                        className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 hover:border-primary/40 transition-colors flex items-center justify-between gap-2 disabled:opacity-60">
-                        <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
-                        <span className="flex items-center gap-2 shrink-0">
-                          {rm && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ring-1 ${rm.text} ${rm.ring}`}>{rm.label}</span>}
-                          <span className="text-[10px] text-muted-foreground tabular-nums hidden sm:inline">{new Date(r.created_at).toLocaleDateString("pt-BR")}</span>
-                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {stats.feitas === 0 && (
-              <p className="text-sm text-muted-foreground mt-8 text-center">
-                Nenhuma análise ainda. Selecione um cliente e rode a primeira; o radar começa a preencher aqui.
-              </p>
-            )}
-          </>
-        )}
+      {sel ? (
+        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} initialFoco={pendingFoco}
+          onBack={() => { setSel(null); setPendingFoco(null); }} />
+      ) : modo ? (
+        <LobbyLista modo={modo} clientes={clientes} analises={analises} onBack={() => setModo(null)}
+          onOpen={(c, aid) => { setSel(c); setPendingFoco(aid); }} />
+      ) : (
+        <Lobby clientes={clientes} analises={analises} comPasta={comPasta} onModo={setModo} />
+      )}
     </div>
   );
 }
 
-function StatCard({ icon, valor, label, sub }: { icon: ReactNode; valor: number; label: string; sub: string }) {
+// ── Lobby: central do Spy em tela cheia (ações + coletas + radar de fundo) ───
+function Lobby({ clientes, analises, comPasta, onModo }: {
+  clientes: Cliente[]; analises: Analise[]; comPasta: number; onModo: (m: ModoLobby) => void;
+}) {
+  const { palette } = useTheme();
+  const corPrimaria = PRIMARY_HSL[palette] ?? PRIMARY_HSL.default;
+  const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
+  const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
+  const analisadosIds = useMemo(() => new Set(concluidas.map((a) => a.cliente_id)), [concluidas]);
+  const andamentoIds = useMemo(() => new Set(rodando.map((a) => a.cliente_id)), [rodando]);
+  const nAnalisados = analisadosIds.size;
+  const nPendentes = useMemo(
+    () => clientes.filter((c) => drivePastaId(c) && !analisadosIds.has(c.id) && !andamentoIds.has(c.id)).length,
+    [clientes, analisadosIds, andamentoIds],
+  );
+  const totalTx = concluidas.reduce((s, r) => s + (r.n_transacoes || 0), 0);
+  const ultima = concluidas[0] || null;
+
+  // Transações registradas ao longo do tempo (acumulado por dia de coleta).
+  const serie = useMemo(() => {
+    const porDia = new Map<string, number>();
+    for (const r of [...concluidas].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
+      const d = String(r.created_at).slice(0, 10);
+      porDia.set(d, (porDia.get(d) || 0) + (r.n_transacoes || 0));
+    }
+    let acc = 0;
+    return [...porDia.entries()].map(([dia, v]) => { acc += v; return { dia, transacoes: acc }; });
+  }, [concluidas]);
+  const fmtDia = (d: string) => { const p = String(d).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : d; };
+
+  const OPCOES: { key: ModoLobby; icon: LucideIcon; label: string; valor: number; sub: string; vivo?: boolean }[] = [
+    { key: "analisados", icon: Users, label: "Clientes com análise", valor: nAnalisados, sub: "fichas prontas para consulta" },
+    { key: "pendentes", icon: FolderOpen, label: "Clientes pendentes", valor: nPendentes, sub: "com pasta no Drive, sem análise" },
+    { key: "andamento", icon: Activity, label: "Em andamento", valor: rodando.length, sub: rodando.length ? "o radar está trabalhando" : "nada rodando agora", vivo: rodando.length > 0 },
+    { key: "novo", icon: ScanLine, label: "Nova análise", valor: comPasta, sub: "escolher um cliente e rodar" },
+  ];
+
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-      <div className="flex items-center gap-1.5 text-primary/70">{icon}</div>
-      <div className="text-2xl font-semibold tabular-nums mt-1.5">{valor.toLocaleString("pt-BR")}</div>
-      <div className="text-[12px] text-foreground/80 mt-0.5">{label}</div>
-      <div className="text-[10.5px] text-muted-foreground mt-0.5 truncate">{sub}</div>
+    <div className="relative">
+      {/* Radar estático, sutil, de fundo — só o desenho. */}
+      <div className="pointer-events-none absolute -right-24 -top-24 opacity-[0.05] hidden md:block" aria-hidden>
+        <RadarViz size={460} estatico />
+      </div>
+
+      <div className="relative space-y-5">
+        {/* Ações principais */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {OPCOES.map((o) => (
+            <button key={o.key} onClick={() => onModo(o.key)}
+              className="group text-left rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-200 hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5">
+              <div className="flex items-start justify-between gap-2">
+                <span className="h-11 w-11 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center">
+                  <o.icon className="h-5 w-5" />
+                </span>
+                <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all mt-1" />
+              </div>
+              <p className="text-3xl font-semibold tabular-nums mt-4 leading-none flex items-center gap-2">
+                {o.valor.toLocaleString("pt-BR")}
+                {o.vivo && <span className="h-2 w-2 rounded-full bg-primary spy-blip" />}
+              </p>
+              <p className="text-[13.5px] font-medium text-foreground mt-1.5">{o.label}</p>
+              <p className="text-[11.5px] text-muted-foreground mt-0.5">{o.sub}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Em andamento: progresso vivo direto no lobby */}
+        {rodando.length > 0 && (
+          <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
+            <p className="text-[10px] uppercase tracking-wider text-primary/80 mb-2.5 flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analisando agora
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {rodando.map((r) => {
+                const c = clientes.find((x) => x.id === r.cliente_id);
+                const pct = Math.min(100, Math.max(0, Number(r.progresso?.pct) || 0));
+                return (
+                  <div key={r.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
+                      <span className="text-[10px] text-primary/80 tabular-nums shrink-0">{pct}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Coletas já feitas: números + curva de transações registradas */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-3 items-stretch">
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+              <span className="uppercase tracking-wider">Transações registradas · acumulado</span>
+              <span className="tabular-nums text-foreground font-medium">{totalTx.toLocaleString("pt-BR")}</span>
+            </div>
+            {serie.length > 1 ? (
+              <div className="h-[190px] w-full mt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={serie} margin={{ top: 6, right: 14, left: 4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="areaColetas" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={corPrimaria} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={corPrimaria} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="dia" tickFormatter={fmtDia} tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                      axisLine={false} tickLine={false} minTickGap={28} />
+                    <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={46} allowDecimals={false} />
+                    <ChartTooltip content={<ChartTip render={(l: string, v: number) => (<><p className="font-medium">{fmtDia(l)}</p><p className="text-muted-foreground">{Number(v).toLocaleString("pt-BR")} transações registradas</p></>)} />} />
+                    <Area type="monotone" dataKey="transacoes" stroke={corPrimaria} strokeWidth={2} fill="url(#areaColetas)" animationDuration={700} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-14 text-center">
+                A curva das coletas aparece aqui conforme as análises forem rodando.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 flex flex-col justify-between gap-4">
+            {[
+              { label: "Análises feitas", valor: concluidas.length.toLocaleString("pt-BR"), sub: rodando.length ? `${rodando.length} rodando agora` : "coletas concluídas" },
+              { label: "Clientes analisados", valor: String(nAnalisados), sub: `de ${comPasta} com pasta · ${clientes.length} no total` },
+              { label: "Última coleta", valor: ultima ? new Date(ultima.created_at).toLocaleDateString("pt-BR") : "—", sub: ultima ? `${(ultima.n_transacoes || 0).toLocaleString("pt-BR")} transações mapeadas` : "nenhuma ainda" },
+            ].map((m, i) => (
+              <div key={i} className={i > 0 ? "pt-4 border-t border-white/[0.06]" : ""}>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{m.label}</p>
+                <p className="text-[22px] font-semibold tabular-nums leading-tight mt-0.5">{m.valor}</p>
+                <p className="text-[11.5px] text-muted-foreground mt-0.5">{m.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Lista do lobby: clientes filtrados pela opção escolhida ──────────────────
+const MODO_META: Record<ModoLobby, { titulo: string; sub: string }> = {
+  analisados: { titulo: "Clientes com análise", sub: "clique para abrir a ficha" },
+  pendentes: { titulo: "Clientes pendentes", sub: "com pasta no Drive e ainda sem análise — clique para analisar" },
+  andamento: { titulo: "Análises em andamento", sub: "clique para acompanhar o radar" },
+  novo: { titulo: "Nova análise", sub: "escolha o cliente para rodar o Spy" },
+};
+
+function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
+  modo: ModoLobby; clientes: Cliente[]; analises: Analise[]; onBack: () => void; onOpen: (c: Cliente, analiseId: string | null) => void;
+}) {
+  const [busca, setBusca] = useState("");
+  const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
+  const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
+  const ultimaDe = (cid: string) => concluidas.find((a) => a.cliente_id === cid) || null;
+  const rodandoDe = (cid: string) => rodando.find((a) => a.cliente_id === cid) || null;
+
+  const base = useMemo(() => {
+    const analisados = new Set(concluidas.map((a) => a.cliente_id));
+    const emAnd = new Set(rodando.map((a) => a.cliente_id));
+    switch (modo) {
+      case "analisados": return clientes.filter((c) => analisados.has(c.id));
+      case "pendentes": return clientes.filter((c) => drivePastaId(c) && !analisados.has(c.id) && !emAnd.has(c.id));
+      case "andamento": return clientes.filter((c) => emAnd.has(c.id));
+      case "novo": return clientes.filter((c) => drivePastaId(c));
+    }
+  }, [modo, clientes, concluidas, rodando]);
+
+  const lista = useMemo(() => {
+    const s = busca.trim().toLowerCase();
+    if (!s) return base;
+    return base.filter((c) => (c.nome || "").toLowerCase().includes(s) || (c.cpf_cnpj || "").includes(s));
+  }, [base, busca]);
+
+  const meta = MODO_META[modo];
+
+  return (
+    <div className="spy-lock space-y-4">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" /> Central do Spy
+          </button>
+          <h2 className="text-xl font-semibold tracking-tight mt-1.5">{meta.titulo} <span className="text-muted-foreground font-normal">({lista.length})</span></h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">{meta.sub}</p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente…" className="pl-9 h-9" />
+        </div>
+      </div>
+
+      {lista.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-white/[0.1] py-16 text-center text-sm text-muted-foreground">
+          <SearchX className="h-6 w-6 mx-auto mb-2 opacity-50" />
+          {busca ? `Nenhum cliente bate com "${busca}".` : "Nenhum cliente aqui por enquanto."}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+          {lista.map((c) => {
+            const rod = rodandoDe(c.id);
+            const ult = ultimaDe(c.id);
+            const pct = rod ? Math.min(100, Math.max(0, Number(rod.progresso?.pct) || 0)) : null;
+            return (
+              <button key={c.id} onClick={() => onOpen(c, rod ? rod.id : null)}
+                className="group text-left rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5 transition-all duration-200 hover:border-primary/40 hover:bg-white/[0.04]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium truncate group-hover:text-primary transition-colors">{c.nome}</span>
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <span className="text-[11px] text-muted-foreground">{c.cpf_cnpj || "sem CPF"}</span>
+                  {rod ? (
+                    <span className="text-[10px] text-primary tabular-nums inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> {pct}%</span>
+                  ) : ult ? (
+                    <span className="text-[10px] px-1.5 py-px rounded-full ring-1 text-emerald-400 ring-emerald-500/25 bg-emerald-500/10">análise de {new Date(ult.created_at).toLocaleDateString("pt-BR")}</span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-px rounded-full ring-1 text-muted-foreground ring-white/10 bg-white/[0.03]">sem análise</span>
+                  )}
+                </div>
+                {rod && (
+                  <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
