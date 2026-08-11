@@ -12,7 +12,7 @@ import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, Check, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
   ArrowDownRight, ArrowUpRight, ArrowLeft, Activity, Users, TrendingUp, Layers,
-  Scale, CalendarDays, ClipboardList, X, ChevronRight, SearchX,
+  Scale, CalendarDays, ClipboardList, X, ChevronRight, SearchX, Eye,
   Landmark, Utensils, Car, Home, GraduationCap, HeartPulse, CreditCard, Receipt, Banknote, ArrowLeftRight, Circle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -727,7 +727,9 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <h2 className="text-3xl font-semibold tracking-tight truncate">{cliente.nome}</h2>
+          <h2 className="text-3xl font-semibold tracking-tight truncate flex items-center gap-3">
+            <Eye className="h-7 w-7 text-primary shrink-0" /> <span className="truncate">{cliente.nome}</span>
+          </h2>
           {cliente.cpf_cnpj && <p className="text-xs text-muted-foreground mt-1">{cliente.cpf_cnpj}</p>}
         </div>
         {cliente.drive_folder_url && (
@@ -1005,8 +1007,18 @@ type Ficha = {
   fechamento: { responsavel: string | null; data: string | null } | null;
 } | undefined;
 
+// Interpreta valores digitados no formato brasileiro: "5.500,00" é 5500 (o
+// parser antigo descartava a vírgula e virava 550000 — zeros a mais no Spy).
+const parseValorBR = (v: string): number | null => {
+  let t = String(v).replace(/[^\d.,]/g, "");
+  if (!t) return null;
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  else if ((t.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(t)) t = t.replace(/\./g, "");
+  const n = Number(t);
+  return isFinite(n) && n > 0 ? n : null;
+};
 const SOCIO_CAMPOS: { key: string; label: string; fmt?: (v: string) => string }[] = [
-  { key: "renda_mensal", label: "Renda mensal", fmt: (v) => { const n = Number(String(v).replace(/[^\d]/g, "")); return isFinite(n) && n > 0 ? fmtBRL(n) : String(v); } },
+  { key: "renda_mensal", label: "Renda mensal", fmt: (v) => { const n = parseValorBR(v); return n !== null ? fmtBRL(n) : String(v); } },
   { key: "idade", label: "Idade" },
   { key: "escolaridade", label: "Escolaridade" },
   { key: "numero_filhos", label: "Filhos" },
