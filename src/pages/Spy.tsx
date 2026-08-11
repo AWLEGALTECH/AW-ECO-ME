@@ -16,6 +16,25 @@ import {
   Landmark, Utensils, Car, Home, GraduationCap, HeartPulse, CreditCard, Receipt, Banknote, ArrowLeftRight, Circle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
+import { useTheme } from "@/hooks/useTheme";
+
+// Mesma paleta do gráfico da aba Processos (o stroke SVG não resolve var()).
+const PRIMARY_HSL: Record<string, string> = {
+  default: "hsl(270, 100%, 62%)",
+  "midnight-blue": "hsl(222, 90%, 58%)",
+  vermelho: "hsl(0, 84%, 58%)",
+  "space-gray": "hsl(215, 18%, 62%)",
+  sei: "hsl(270, 100%, 62%)",
+};
+function ChartTip({ active, payload, label, render }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur px-2.5 py-1.5 text-xs shadow-lg">
+      {render(label, payload[0].value)}
+    </div>
+  );
+}
 
 const EIXOS: Record<string, { label: string; cls: string }> = {
   financeira:      { label: "Financeira",      cls: "text-rose-400 bg-rose-500/12 ring-rose-500/25" },
@@ -960,11 +979,11 @@ function FichaCliente({ ficha }: { ficha: Ficha }) {
   const obs = String(socio.observacoes_livres || "").trim();
   const saude = v("condicao_saude");
 
-  // Mesmo destaque dos cards extraídos dos extratos, mas em tom próprio (azul)
-  // porque a fonte é outra: o próprio cliente.
+  // Mesmo design dos cards da ficha, no tema padrão — só um pouco mais
+  // brilhantes, porque a fonte é outra: o próprio cliente.
   const SocioCard = ({ icon: I, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) => (
-    <div className="rounded-2xl border border-sky-400/[0.14] bg-sky-400/[0.025] p-4 flex items-start gap-3.5">
-      <span className="h-11 w-11 rounded-xl bg-sky-400/[0.08] ring-1 ring-sky-400/20 text-sky-400 flex items-center justify-center shrink-0"><I className="h-5 w-5" /></span>
+    <div className="rounded-2xl border border-white/[0.12] bg-white/[0.04] p-4 flex items-start gap-3.5">
+      <span className="h-11 w-11 rounded-xl bg-primary/[0.14] ring-1 ring-primary/25 text-primary flex items-center justify-center shrink-0"><I className="h-5 w-5" /></span>
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
         <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5 truncate">{value}</p>
@@ -1009,7 +1028,7 @@ function FichaCliente({ ficha }: { ficha: Ficha }) {
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1.5">
             <ClipboardList className="h-3.5 w-3.5" /> Socioeconômico
           </p>
-          <span className="text-[9px] px-1.5 py-px rounded-full ring-1 text-sky-400 ring-sky-400/25 bg-sky-400/10">informado pelo cliente</span>
+          <span className="text-[9px] px-1.5 py-px rounded-full ring-1 text-primary ring-primary/25 bg-primary/10">informado pelo cliente</span>
         </div>
         {cards.length > 0 ? (
           <>
@@ -1261,33 +1280,71 @@ const fmtQuando = (q: any) => {
   return s;
 };
 
-// Pizza simples em SVG (donut) com legenda — sem libs.
+// Pizza interativa em SVG (donut): hover realça a fatia e mostra o segmento no
+// centro; clique seleciona o segmento (o pai destaca as transações dele).
 const PIZZA_CORES = ["hsl(var(--primary))", "#38bdf8", "#a78bfa", "#f59e0b", "#f43f5e", "#10b981", "#64748b"];
-function PizzaConsumo({ dados }: { dados: { label: string; value: number }[] }) {
+function PizzaConsumo({ dados, selecionado, onSelecionar }: {
+  dados: { seg: string; label: string; value: number }[];
+  selecionado?: string | null;
+  onSelecionar?: (seg: string | null) => void;
+}) {
+  const [hover, setHover] = useState<string | null>(null);
   const total = dados.reduce((s, d) => s + d.value, 0);
   if (!total) return null;
+  const foco = hover ?? selecionado ?? null;
+  const focoDado = foco ? dados.find((d) => d.seg === foco) : null;
+  const alternar = (seg: string) => onSelecionar?.(selecionado === seg ? null : seg);
   let acc = 0;
   return (
     <div className="flex items-center gap-5 flex-wrap">
-      <svg viewBox="0 0 42 42" className="h-32 w-32 shrink-0 -rotate-90">
+      <div className="relative shrink-0">
+        <svg viewBox="0 0 42 42" className="h-36 w-36 -rotate-90">
+          {dados.map((d, i) => {
+            const pct = (d.value / total) * 100;
+            const ativo = foco === d.seg;
+            const el = (
+              <circle key={d.seg} cx="21" cy="21" r="15.915" fill="none" stroke={PIZZA_CORES[i % PIZZA_CORES.length]}
+                strokeWidth={ativo ? 8.8 : 7} strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acc}
+                opacity={foco && !ativo ? 0.3 : 1}
+                className="cursor-pointer transition-all duration-200"
+                onMouseEnter={() => setHover(d.seg)} onMouseLeave={() => setHover(null)}
+                onClick={() => alternar(d.seg)}
+              />
+            );
+            acc += pct;
+            return el;
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-7">
+          {focoDado ? (
+            <>
+              <p className="text-[9.5px] text-muted-foreground leading-tight line-clamp-2">{focoDado.label}</p>
+              <p className="text-[14px] font-semibold tabular-nums text-foreground mt-0.5">{Math.round((focoDado.value / total) * 100)}%</p>
+              <p className="text-[10px] text-muted-foreground tabular-nums">{fmtBRL(focoDado.value)}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground">Total</p>
+              <p className="text-[12.5px] font-semibold tabular-nums text-foreground mt-0.5">{fmtBRL(total)}</p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="space-y-0.5 min-w-0 flex-1">
         {dados.map((d, i) => {
-          const pct = (d.value / total) * 100;
-          const el = (
-            <circle key={i} cx="21" cy="21" r="15.915" fill="none" stroke={PIZZA_CORES[i % PIZZA_CORES.length]}
-              strokeWidth="7" strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acc} strokeLinecap="butt" />
+          const ativo = foco === d.seg;
+          return (
+            <button key={d.seg} type="button"
+              onMouseEnter={() => setHover(d.seg)} onMouseLeave={() => setHover(null)}
+              onClick={() => alternar(d.seg)}
+              className={`w-full text-left text-[11.5px] flex items-center gap-2 rounded-md px-1.5 py-1 transition-all duration-200 cursor-pointer ${ativo ? "bg-white/[0.05]" : foco ? "opacity-45" : "hover:bg-white/[0.03]"} ${selecionado === d.seg ? "ring-1 ring-primary/30" : ""}`}>
+              <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: PIZZA_CORES[i % PIZZA_CORES.length] }} />
+              <span className="text-foreground/85 truncate">{d.label}</span>
+              <span className="text-muted-foreground tabular-nums ml-auto pl-3 shrink-0">{fmtBRL(d.value)} · {Math.round((d.value / total) * 100)}%</span>
+            </button>
           );
-          acc += pct;
-          return el;
         })}
-      </svg>
-      <div className="space-y-1.5 min-w-0 flex-1">
-        {dados.map((d, i) => (
-          <p key={i} className="text-[11.5px] flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: PIZZA_CORES[i % PIZZA_CORES.length] }} />
-            <span className="text-foreground/85 truncate">{d.label}</span>
-            <span className="text-muted-foreground tabular-nums ml-auto pl-3 shrink-0">{fmtBRL(d.value)} · {Math.round((d.value / total) * 100)}%</span>
-          </p>
-        ))}
+        {selecionado && <p className="text-[10px] text-muted-foreground pl-1.5 pt-1">segmento destacado acima · clique de novo para limpar</p>}
       </div>
     </div>
   );
@@ -1303,7 +1360,12 @@ function Sec({ icon: Icon, title, children, right }: { icon: LucideIcon; title: 
     </div>
   );
 }
-function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
+function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }) {
+  const { palette } = useTheme();
+  const corPrimaria = PRIMARY_HSL[palette] ?? PRIMARY_HSL.default;
+  // Segmento de consumo selecionado na pizza (clique) — destaca as transações
+  // daquele segmento dentro da própria seção de relações de consumo.
+  const [segSel, setSegSel] = useState<string | null>(null);
   const rc = ins?.resumo_comercial || {};
   const emprestimos: any[] = Array.isArray(ins?.emprestimos) ? ins.emprestimos : [];
   const linha: any[] = Array.isArray(ins?.linha_endividamento) ? ins.linha_endividamento : [];
@@ -1329,9 +1391,37 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
   // Pizza das relações de consumo: total gasto por segmento do varejo.
   const pieDados = Object.entries(varejo)
     .filter(([, v]: any) => v?.length)
-    .map(([seg, list]: any) => ({ label: SEG_LABEL[seg] || seg, value: list.reduce((s: number, v: any) => s + (Number(v.total) || 0), 0) }))
+    .map(([seg, list]: any) => ({ seg, label: SEG_LABEL[seg] || seg, value: list.reduce((s: number, v: any) => s + (Number(v.total) || 0), 0) }))
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value);
+
+  // Série mensal de combustível (linha do tempo do veículo), computada das
+  // transações mapeadas: todos os meses do período, com zero onde não houve.
+  const serieVeiculo = useMemo(() => {
+    const comb = new Map<string, number>();
+    let min = "", max = "";
+    for (const t of txs) {
+      const d = String(t?.data || "");
+      if (!/^\d{4}-\d{2}/.test(d)) continue;
+      const m = d.slice(0, 7);
+      if (!min || m < min) min = m;
+      if (!max || m > max) max = m;
+      if (Number(t.valor) < 0 && /POSTO|COMBUST|GASOLINA/i.test(String(t.descricao || ""))) {
+        comb.set(m, (comb.get(m) || 0) + Math.abs(Number(t.valor)));
+      }
+    }
+    if (!min || !comb.size) return [];
+    const pts: { mes: string; valor: number }[] = [];
+    let [y, mo] = min.split("-").map(Number);
+    const [ym, mm2] = max.split("-").map(Number);
+    while (y < ym || (y === ym && mo <= mm2)) {
+      const k = `${y}-${String(mo).padStart(2, "0")}`;
+      pts.push({ mes: k, valor: +(comb.get(k) || 0).toFixed(2) });
+      mo++; if (mo > 12) { mo = 1; y++; }
+    }
+    return pts;
+  }, [txs]);
+  const fmtMes = (m: string) => { const [a, b] = String(m).split("-"); return b ? `${b}/${a.slice(2)}` : m; };
 
   const StatCard = ({ icon: I, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) => (
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
@@ -1433,35 +1523,81 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         </Sec>
       )}
 
-      {/* Cartões + Veículo lado a lado */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {cartoes && (cartoes.pagamentos > 0 || cartoes.mora_cartao?.n > 0) && (
-          <Sec icon={CreditCard} title="Cartões">
-            <div className="space-y-1.5 text-[12px]">
-              <p><span className="text-muted-foreground">Pagamentos de fatura/cartão:</span> <span className="tabular-nums text-foreground/90">{cartoes.pagamentos}x · {fmtBRL(cartoes.total)}</span></p>
-              {cartoes.mora_cartao?.n > 0
-                ? <p className="text-amber-400">⚠ Mora de cartão {cartoes.mora_cartao.n}x ({fmtBRL(cartoes.mora_cartao.total)}) · indício de pagamento parcial/rotativo. Solicitar faturas.</p>
-                : <p className="text-muted-foreground">Sem mora de cartão identificada no período.</p>}
+      {/* Cartões */}
+      {cartoes && (cartoes.pagamentos > 0 || cartoes.mora_cartao?.n > 0) && (
+        <Sec icon={CreditCard} title="Cartões">
+          <div className="space-y-1.5 text-[12px]">
+            <p><span className="text-muted-foreground">Pagamentos de fatura/cartão:</span> <span className="tabular-nums text-foreground/90">{cartoes.pagamentos}x · {fmtBRL(cartoes.total)}</span></p>
+            {cartoes.mora_cartao?.n > 0
+              ? <p className="text-amber-400">⚠ Mora de cartão {cartoes.mora_cartao.n}x ({fmtBRL(cartoes.mora_cartao.total)}) · indício de pagamento parcial/rotativo. Solicitar faturas.</p>
+              : <p className="text-muted-foreground">Sem mora de cartão identificada no período.</p>}
+          </div>
+        </Sec>
+      )}
+
+      {/* Indícios de veículo: cards claros + linha do tempo do gasto com combustível */}
+      {veiculo && veiculo.abastecimentos > 0 && (
+        <Sec icon={Car} title="Indícios de veículo">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { label: "Abastecimentos", value: `${veiculo.abastecimentos}x`, sub: "lançamentos de combustível no período" },
+                { label: "Total com combustível", value: fmtBRL(veiculo.total), sub: `${veiculo.meses_com_gasto} de ${veiculo.meses_no_periodo} meses com gasto` },
+                { label: "Média por mês", value: `${fmtBRL(veiculo.media_mensal_quando_ha)}`, sub: "nos meses em que houve gasto" },
+              ].map((c, i) => (
+                <div key={i} className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 flex items-start gap-3.5">
+                  <span className="h-11 w-11 rounded-xl bg-primary/[0.08] ring-1 ring-primary/15 text-primary flex items-center justify-center shrink-0"><Car className="h-5 w-5" /></span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.label}</p>
+                    <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5 truncate">{c.value}</p>
+                    <p className="text-[11.5px] text-muted-foreground mt-1 leading-snug">{c.sub}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          </Sec>
-        )}
-        {veiculo && veiculo.abastecimentos > 0 && (
-          <Sec icon={Car} title="Indícios de veículo">
-            <div className="space-y-1.5 text-[12px]">
-              <p><span className="text-muted-foreground">Combustível:</span> <span className="tabular-nums text-foreground/90">{veiculo.abastecimentos}x · {fmtBRL(veiculo.total)} · média {fmtBRL(veiculo.media_mensal_quando_ha)}/mês</span></p>
-              <p><span className="text-muted-foreground">Período:</span> <span className="text-foreground/90">{veiculo.primeiro_mes} a {veiculo.ultimo_mes} ({veiculo.meses_com_gasto} de {veiculo.meses_no_periodo} meses)</span></p>
-              {veiculo.surgiu_no_meio_do_periodo && <p className="text-sky-400">ℹ O gasto com combustível surgiu no meio do período (antes não havia) · possível veículo recente. Verificar financiamento.</p>}
-            </div>
-          </Sec>
-        )}
-      </div>
+
+            {serieVeiculo.length > 1 && (
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+                  <span>Gasto com combustível mês a mês</span>
+                  <span>{fmtMes(veiculo.primeiro_mes)} a {fmtMes(veiculo.ultimo_mes)}</span>
+                </div>
+                <div className="h-[160px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={serieVeiculo} margin={{ top: 6, right: 14, left: 4, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="areaVeiculo" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={corPrimaria} stopOpacity={0.35} />
+                          <stop offset="100%" stopColor={corPrimaria} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="mes" tickFormatter={fmtMes} tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                        axisLine={false} tickLine={false} minTickGap={24} />
+                      <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={52}
+                        tickFormatter={(n: number) => `R$${Math.round(n)}`} />
+                      <ChartTooltip content={<ChartTip render={(l: string, valor: number) => (<><p className="font-medium">{fmtMes(l)}</p><p className="text-muted-foreground">{fmtBRL(valor)} em combustível</p></>)} />} />
+                      <Area type="monotone" dataKey="valor" stroke={corPrimaria} strokeWidth={2} fill="url(#areaVeiculo)" animationDuration={700} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {veiculo.surgiu_no_meio_do_periodo && (
+              <p className="text-[12px] text-foreground/85 rounded-lg border border-primary/15 bg-primary/[0.05] px-3 py-2">
+                O gasto com combustível <span className="font-medium">começou em {fmtMes(veiculo.primeiro_mes)}</span> — antes disso não havia. Possível veículo recente; vale verificar financiamento.
+              </p>
+            )}
+          </div>
+        </Sec>
+      )}
 
       {/* Varejo, supermercados e telecom */}
       {(Object.keys(varejo).some((k) => varejo[k]?.length) || superC?.n > 0 || telecom.length > 0) && (
         <Sec icon={Home} title="Relações de consumo">
           <div className="space-y-2.5">
             {Object.entries(varejo).filter(([, v]: any) => v?.length).map(([seg, list]: any) => (
-              <div key={seg}>
+              <div key={seg} className={`rounded-lg transition-all duration-300 ${segSel ? (segSel === seg ? "ring-1 ring-primary/25 bg-primary/[0.04] p-2.5 -mx-1" : "opacity-35") : ""}`}>
                 <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{SEG_LABEL[seg] || seg}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {list.map((v: any, k: number) => (
@@ -1476,8 +1612,8 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
             ))}
             {pieDados.length > 1 && (
               <div className="pt-3 mt-1 border-t border-white/[0.05]">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Gasto por segmento</p>
-                <PizzaConsumo dados={pieDados} />
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">Gasto por segmento · passe o mouse e clique para destacar</p>
+                <PizzaConsumo dados={pieDados} selecionado={segSel} onSelecionar={setSegSel} />
               </div>
             )}
             {superC?.n > 0 && (
@@ -1588,7 +1724,7 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
             )}
           </div>
           {(a.resumo as any)?.insights ? (
-            <InsightsView ins={(a.resumo as any).insights} dg={(a.resumo as any).digest} />
+            <InsightsView ins={(a.resumo as any).insights} dg={(a.resumo as any).digest} txs={quadros.flatMap((p) => (Array.isArray(p.transacoes) ? p.transacoes : []))} />
           ) : onInsights ? (
             <div className="rounded-xl border border-dashed border-white/[0.12] p-4 flex items-center justify-between gap-3 flex-wrap">
               <p className="text-[12px] text-muted-foreground">As transações estão mapeadas, mas os dados ainda não foram cruzados com a IA.</p>
