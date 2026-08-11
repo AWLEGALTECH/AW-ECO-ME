@@ -8,6 +8,7 @@ import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Search, FileText, FolderOpen, Loader2, CheckCircle2, Check, AlertTriangle,
   ChevronDown, ShieldAlert, ExternalLink, RefreshCw, ScanLine, ListChecks,
@@ -81,7 +82,7 @@ const motivoHumano = (erro: any): string => {
   return (e.slice(0, 80) || "não foi possível ler");
 };
 
-interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; }
+interface Cliente { id: string; nome: string; cpf_cnpj: string | null; drive_folder_id: string | null; drive_folder_url: string | null; requerido?: string | null; }
 interface DriveFile { id: string; name: string; mimeType: string; }
 
 // Alguns clientes têm só a URL da pasta (drive_folder_id nulo) — extrai o id
@@ -144,7 +145,7 @@ export default function Spy() {
     queryKey: ["spy-clientes"],
     queryFn: async (): Promise<Cliente[]> => {
       const { data, error } = await supabase.from("clientes")
-        .select("id, nome, cpf_cnpj, drive_folder_id, drive_folder_url").order("nome");
+        .select("id, nome, cpf_cnpj, drive_folder_id, drive_folder_url, requerido").order("nome");
       if (error) throw error;
       return (data || []) as any;
     },
@@ -355,10 +356,32 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
   modo: ModoLobby; clientes: Cliente[]; analises: Analise[]; onBack: () => void; onOpen: (c: Cliente, analiseId: string | null) => void;
 }) {
   const [busca, setBusca] = useState("");
+  const [fComarca, setFComarca] = useState("todas");
+  const [fRequerido, setFRequerido] = useState("todos");
   const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
   const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
   const ultimaDe = (cid: string) => concluidas.find((a) => a.cliente_id === cid) || null;
   const rodandoDe = (cid: string) => rodando.find((a) => a.cliente_id === cid) || null;
+
+  // Comarca vem dos PROCESSOS do cliente (um cliente pode ter mais de uma).
+  const { data: procs = [] } = useQuery({
+    queryKey: ["spy-proc-comarcas"],
+    queryFn: async (): Promise<{ cliente_id: string; comarca_uf: string | null }[]> => {
+      const { data, error } = await supabase.from("processos").select("cliente_id, comarca_uf");
+      if (error) throw error;
+      return (data || []) as any;
+    },
+  });
+  const comarcasDoCliente = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const pr of procs) {
+      const cm = String(pr.comarca_uf || "").trim().toUpperCase();
+      if (!cm || !pr.cliente_id) continue;
+      if (!m.has(pr.cliente_id)) m.set(pr.cliente_id, new Set());
+      m.get(pr.cliente_id)!.add(cm);
+    }
+    return m;
+  }, [procs]);
 
   const base = useMemo(() => {
     const analisados = new Set(concluidas.map((a) => a.cliente_id));
@@ -373,9 +396,24 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
 
   const lista = useMemo(() => {
     const s = busca.trim().toLowerCase();
-    if (!s) return base;
-    return base.filter((c) => (c.nome || "").toLowerCase().includes(s) || (c.cpf_cnpj || "").includes(s));
-  }, [base, busca]);
+    return base.filter((c) => {
+      if (fComarca !== "todas" && !comarcasDoCliente.get(c.id)?.has(fComarca)) return false;
+      if (fRequerido !== "todos" && String(c.requerido || "").trim().toUpperCase() !== fRequerido) return false;
+      if (!s) return true;
+      return (c.nome || "").toLowerCase().includes(s) || (c.cpf_cnpj || "").includes(s);
+    });
+  }, [base, busca, fComarca, fRequerido, comarcasDoCliente]);
+
+  const opcoesComarca = useMemo(() => {
+    const cont = new Map<string, number>();
+    for (const c of base) for (const cm of (comarcasDoCliente.get(c.id) || [])) cont.set(cm, (cont.get(cm) || 0) + 1);
+    return [...cont.entries()].sort((a, b) => b[1] - a[1]);
+  }, [base, comarcasDoCliente]);
+  const opcoesRequerido = useMemo(() => {
+    const cont = new Map<string, number>();
+    for (const c of base) { const r = String(c.requerido || "").trim().toUpperCase(); if (r) cont.set(r, (cont.get(r) || 0) + 1); }
+    return [...cont.entries()].sort((a, b) => b[1] - a[1]);
+  }, [base]);
 
   const meta = MODO_META[modo];
 
@@ -389,9 +427,25 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
           <h2 className="text-xl font-semibold tracking-tight mt-1.5">{meta.titulo} <span className="text-muted-foreground font-normal">({lista.length})</span></h2>
           <p className="text-[12.5px] text-muted-foreground mt-0.5">{meta.sub}</p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente…" className="pl-9 h-9" />
+        <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente…" className="pl-9 h-9" />
+          </div>
+          <Select value={fComarca} onValueChange={setFComarca}>
+            <SelectTrigger className="h-9 w-full sm:w-48 text-[12.5px]"><SelectValue placeholder="Comarca" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Comarca: todas</SelectItem>
+              {opcoesComarca.map(([cm, n]) => <SelectItem key={cm} value={cm}>{cm} ({n})</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={fRequerido} onValueChange={setFRequerido}>
+            <SelectTrigger className="h-9 w-full sm:w-56 text-[12.5px]"><SelectValue placeholder="Requerido" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Requerido: todos</SelectItem>
+              {opcoesRequerido.map(([r, n]) => <SelectItem key={r} value={r}>{r} ({n})</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
