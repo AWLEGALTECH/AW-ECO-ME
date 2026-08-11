@@ -183,6 +183,75 @@ export default function Spy() {
 }
 
 // ── Lobby: console de vigilância (número monitorado + coletas + 2 ações) ─────
+// Heatmap de atividade (estilo GitHub): um quadrado por dia, mais aceso =
+// mais transações coletadas naquele dia. Log de operação.
+const chaveDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function HeatmapAtividade({ porDia }: { porDia: Map<string, number> }) {
+  const SEMANAS = 22;
+  const MES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const fimSemana = new Date(hoje); fimSemana.setDate(fimSemana.getDate() + (6 - fimSemana.getDay()));
+  const dias: { d: Date; k: string; v: number; futuro: boolean }[] = [];
+  for (let i = SEMANAS * 7 - 1; i >= 0; i--) {
+    const d = new Date(fimSemana); d.setDate(d.getDate() - i);
+    const k = chaveDia(d);
+    dias.push({ d, k, v: porDia.get(k) || 0, futuro: d > hoje });
+  }
+  const max = Math.max(1, ...dias.map((x) => x.v));
+  const nivel = (v: number) => (v === 0 ? 0 : v <= max * 0.25 ? 1 : v <= max * 0.5 ? 2 : v <= max * 0.75 ? 3 : 4);
+  const COR = ["bg-white/[0.05]", "bg-primary/25", "bg-primary/45", "bg-primary/70", "bg-primary"];
+  const colunas: (typeof dias)[] = [];
+  for (let i = 0; i < dias.length; i += 7) colunas.push(dias.slice(i, i + 7));
+  const fmt = (x: { d: Date; v: number }) => `${String(x.d.getDate()).padStart(2, "0")}/${String(x.d.getMonth() + 1).padStart(2, "0")} · ${x.v.toLocaleString("pt-BR")} transação(ões)`;
+  return (
+    <div className="overflow-x-auto scrollbar-thin">
+      <div className="inline-block">
+        <div className="flex gap-[3px] mb-1">
+          {colunas.map((col, ci) => (
+            <span key={ci} className="w-[11px] font-mono text-[8px] text-muted-foreground/70 leading-none">
+              {ci === 0 || col.some((x) => x.d.getDate() === 1) ? MES[(col.find((x) => x.d.getDate() === 1)?.d || col[0].d).getMonth()] : ""}
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-[3px]">
+          {colunas.map((col, ci) => (
+            <div key={ci} className="flex flex-col gap-[3px]">
+              {col.map((x) => (
+                <span key={x.k} title={x.futuro ? undefined : fmt(x)}
+                  className={`h-[11px] w-[11px] rounded-[2.5px] ${x.futuro ? "opacity-0" : COR[nivel(x.v)]}`} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-[3px] mt-1.5 font-mono text-[9px] text-muted-foreground/70">
+          <span className="mr-1">menos</span>
+          {COR.map((c, i) => <span key={i} className={`h-[9px] w-[9px] rounded-[2px] ${c}`} />)}
+          <span className="ml-1">mais</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Gauge de cobertura: meio-círculo "X de Y alvos varridos".
+function GaugeCobertura({ feito, total }: { feito: number; total: number }) {
+  const pct = total > 0 ? Math.min(1, feito / total) : 0;
+  const C = Math.PI * 50; // comprimento do arco de 180°
+  return (
+    <div className="relative w-full max-w-[240px] mx-auto">
+      <svg viewBox="0 0 120 64" className="w-full">
+        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="currentColor" strokeOpacity="0.09" strokeWidth="9" strokeLinecap="round" className="text-foreground" />
+        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" className="text-primary transition-all duration-1000"
+          strokeDasharray={String(C)} strokeDashoffset={C * (1 - pct)} />
+      </svg>
+      <div className="absolute inset-x-0 bottom-0 text-center">
+        <p className="font-mono text-2xl font-semibold tabular-nums leading-none">{Math.round(pct * 100)}%</p>
+        <p className="font-mono text-[10px] text-muted-foreground mt-1">{feito} de {total} alvos varridos</p>
+      </div>
+    </div>
+  );
+}
+
 // Contador que sobe até o valor (clima de painel de vigilância).
 function ContadorVivo({ ate }: { ate: number }) {
   const [v, setV] = useState(0);
@@ -226,6 +295,16 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
       n: r.n_transacoes || 0,
     })), [concluidas, clientes]);
   const fmtDia = (d: string) => { const pp = String(d).split("-"); return pp.length === 3 ? `${pp[2]}/${pp[1]}` : d; };
+
+  // Transações coletadas por dia (alimenta o heatmap de atividade).
+  const porDia = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of concluidas) {
+      const k = String(r.created_at).slice(0, 10);
+      m.set(k, (m.get(k) || 0) + (r.n_transacoes || 0));
+    }
+    return m;
+  }, [concluidas]);
 
   return (
     <div className="space-y-4">
@@ -278,6 +357,17 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
               ) : (
                 <p className="font-mono text-[12px] text-muted-foreground py-12">aguardando a primeira coleta…</p>
               )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr,260px] gap-x-10 gap-y-6 items-center mt-6 pt-6 border-t border-white/[0.06]">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2.5">Log de atividade · transações coletadas por dia</p>
+              <HeatmapAtividade porDia={porDia} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2.5 text-center">Cobertura da carteira</p>
+              <GaugeCobertura feito={nAnalisados} total={comPasta} />
             </div>
           </div>
         </div>
