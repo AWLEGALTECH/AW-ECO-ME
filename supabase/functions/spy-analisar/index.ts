@@ -177,7 +177,9 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         const codeTx = (a.reconciliado === true && Array.isArray(a.transacoes))
           ? a.transacoes.filter((t: any) => typeof t?.valor === "number") : [];
         if (codeTx.length >= 3) {
-          const transacoes = codeTx.slice(0, 600).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 }));
+          // Teto por extrato: 2500 (o antigo 600 truncava extratos grandes em
+          // silêncio — 19 quadros bateram exatamente em 600).
+          const transacoes = codeTx.slice(0, 2500).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 }));
           const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
           parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes, header: String(a.header || "").slice(0, 300) });
           const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos mapeados (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
@@ -249,9 +251,9 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     }).eq("id", analiseId);
 
     if (txs.length) {
-      // Banco de transações gerais: grava TODAS (teto de 6000; era 1200 e
-      // cortava análises grandes), em lotes de 500 pra não estourar payload.
-      const rows = txs.slice(0, 6000).map((t: any) => ({
+      // Banco de transações gerais: grava TODAS (teto de 20000 por análise),
+      // em lotes de 500 pra não estourar payload.
+      const rows = txs.slice(0, 20000).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
         data: normalizeDate(t.data),
         valor: Math.abs(Number(t.valor) || 0),
