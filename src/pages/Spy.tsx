@@ -16,7 +16,7 @@ import {
   Landmark, Utensils, Car, Home, GraduationCap, HeartPulse, CreditCard, Receipt, Banknote, ArrowLeftRight, Circle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
 import { useTheme } from "@/hooks/useTheme";
 
 // Mesma paleta do gráfico da aba Processos (o stroke SVG não resolve var()).
@@ -183,56 +183,6 @@ export default function Spy() {
 }
 
 // ── Lobby: console de vigilância (número monitorado + coletas + 2 ações) ─────
-// Heatmap de atividade (estilo GitHub): um quadrado por dia, mais aceso =
-// mais transações coletadas naquele dia. Log de operação.
-const chaveDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-function HeatmapAtividade({ porDia }: { porDia: Map<string, number> }) {
-  const SEMANAS = 22;
-  const MES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const fimSemana = new Date(hoje); fimSemana.setDate(fimSemana.getDate() + (6 - fimSemana.getDay()));
-  const dias: { d: Date; k: string; v: number; futuro: boolean }[] = [];
-  for (let i = SEMANAS * 7 - 1; i >= 0; i--) {
-    const d = new Date(fimSemana); d.setDate(d.getDate() - i);
-    const k = chaveDia(d);
-    dias.push({ d, k, v: porDia.get(k) || 0, futuro: d > hoje });
-  }
-  const max = Math.max(1, ...dias.map((x) => x.v));
-  const nivel = (v: number) => (v === 0 ? 0 : v <= max * 0.25 ? 1 : v <= max * 0.5 ? 2 : v <= max * 0.75 ? 3 : 4);
-  const COR = ["bg-white/[0.05]", "bg-primary/25", "bg-primary/45", "bg-primary/70", "bg-primary"];
-  const colunas: (typeof dias)[] = [];
-  for (let i = 0; i < dias.length; i += 7) colunas.push(dias.slice(i, i + 7));
-  const fmt = (x: { d: Date; v: number }) => `${String(x.d.getDate()).padStart(2, "0")}/${String(x.d.getMonth() + 1).padStart(2, "0")} · ${x.v.toLocaleString("pt-BR")} transação(ões)`;
-  return (
-    <div className="overflow-x-auto scrollbar-thin">
-      <div className="inline-block">
-        <div className="flex gap-[3px] mb-1">
-          {colunas.map((col, ci) => (
-            <span key={ci} className="w-[11px] font-mono text-[8px] text-muted-foreground/70 leading-none">
-              {ci === 0 || col.some((x) => x.d.getDate() === 1) ? MES[(col.find((x) => x.d.getDate() === 1)?.d || col[0].d).getMonth()] : ""}
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-[3px]">
-          {colunas.map((col, ci) => (
-            <div key={ci} className="flex flex-col gap-[3px]">
-              {col.map((x) => (
-                <span key={x.k} title={x.futuro ? undefined : fmt(x)}
-                  className={`h-[11px] w-[11px] rounded-[2.5px] ${x.futuro ? "opacity-0" : COR[nivel(x.v)]}`} />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-end gap-[3px] mt-1.5 font-mono text-[9px] text-muted-foreground/70">
-          <span className="mr-1">menos</span>
-          {COR.map((c, i) => <span key={i} className={`h-[9px] w-[9px] rounded-[2px] ${c}`} />)}
-          <span className="ml-1">mais</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Gauge de cobertura: meio-círculo "X de Y alvos varridos".
 function GaugeCobertura({ feito, total }: { feito: number; total: number }) {
   const pct = total > 0 ? Math.min(1, feito / total) : 0;
@@ -271,8 +221,6 @@ function ContadorVivo({ ate }: { ate: number }) {
 function Lobby({ clientes, analises, comPasta, onModo }: {
   clientes: Cliente[]; analises: Analise[]; comPasta: number; onModo: (m: ModoLobby) => void;
 }) {
-  const { palette } = useTheme();
-  const corPrimaria = PRIMARY_HSL[palette] ?? PRIMARY_HSL.default;
   const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
   const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
   const analisadosIds = useMemo(() => new Set(concluidas.map((a) => a.cliente_id)), [concluidas]);
@@ -283,28 +231,6 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
   );
   const totalTx = concluidas.reduce((s, r) => s + (r.n_transacoes || 0), 0);
   const ultima = concluidas[0] || null;
-
-  // Sinais captados por coleta: uma barra por análise concluída (as últimas 14).
-  const barras = useMemo(() => [...concluidas]
-    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
-    .slice(-14)
-    .map((r) => ({
-      id: r.id,
-      dia: String(r.created_at).slice(0, 10),
-      nome: (clientes.find((c) => c.id === r.cliente_id)?.nome || "—").split(" ")[0],
-      n: r.n_transacoes || 0,
-    })), [concluidas, clientes]);
-  const fmtDia = (d: string) => { const pp = String(d).split("-"); return pp.length === 3 ? `${pp[2]}/${pp[1]}` : d; };
-
-  // Transações coletadas por dia (alimenta o heatmap de atividade).
-  const porDia = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of concluidas) {
-      const k = String(r.created_at).slice(0, 10);
-      m.set(k, (m.get(k) || 0) + (r.n_transacoes || 0));
-    }
-    return m;
-  }, [concluidas]);
 
   return (
     <div className="space-y-4">
@@ -321,7 +247,7 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
             <span className="text-muted-foreground/50 hidden sm:block">AW Spy · uso interno</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,380px),1fr] gap-x-10 gap-y-6 items-end mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-x-12 gap-y-8 items-center mt-6">
             <div>
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Transações sob monitoramento</p>
               <p className="text-5xl md:text-6xl font-semibold tabular-nums tracking-tight mt-2 font-mono text-foreground">
@@ -332,38 +258,6 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
                 <p>▸ {nAnalisados} cliente(s) sob análise · {comPasta} alvos com pasta</p>
                 <p>▸ última varredura: {ultima ? `${new Date(ultima.created_at).toLocaleDateString("pt-BR")} · ${(ultima.n_transacoes || 0).toLocaleString("pt-BR")} transações` : "—"}</p>
               </div>
-            </div>
-
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2">Sinais captados por coleta</p>
-              {barras.length > 0 ? (
-                <div className="h-[170px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barras} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                      <XAxis dataKey="nome" tick={{ fontSize: 9, fill: "currentColor", fontFamily: "monospace" }} className="text-muted-foreground"
-                        axisLine={false} tickLine={false} interval={0} />
-                      <YAxis tick={{ fontSize: 9, fill: "currentColor", fontFamily: "monospace" }} className="text-muted-foreground"
-                        axisLine={false} tickLine={false} width={44} allowDecimals={false} />
-                      <ChartTooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} content={({ active, payload }: any) => (active && payload?.length ? (
-                        <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur px-2.5 py-1.5 text-xs shadow-lg">
-                          <p className="font-medium">{payload[0].payload.nome} · {fmtDia(payload[0].payload.dia)}</p>
-                          <p className="text-muted-foreground">{Number(payload[0].value).toLocaleString("pt-BR")} transações captadas</p>
-                        </div>
-                      ) : null)} />
-                      <Bar dataKey="n" fill={corPrimaria} fillOpacity={0.85} radius={[3, 3, 0, 0]} maxBarSize={28} animationDuration={700} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="font-mono text-[12px] text-muted-foreground py-12">aguardando a primeira coleta…</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr,260px] gap-x-10 gap-y-6 items-center mt-6 pt-6 border-t border-white/[0.06]">
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2.5">Log de atividade · transações coletadas por dia</p>
-              <HeatmapAtividade porDia={porDia} />
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2.5 text-center">Cobertura da carteira</p>
