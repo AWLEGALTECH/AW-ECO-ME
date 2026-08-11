@@ -295,24 +295,34 @@ function montarDigest(txs: Tx[], headers: string[] = [], nomeCliente = "") {
   };
 
   // VAREJO por segmento (com sinalização de loja com cartão próprio/crediário).
+  // Ordem importa: a primeira regra que casar leva a transação. Saúde/estética/
+  // concessionárias vêm antes do marketplace para "AMAZONAS CLINICA" ou
+  // "AMAZONAS ENERGIA" não caírem em marketplace (AMAZON\b não casa AMAZONAS,
+  // mas nomes locais com CLINICA/ENERGIA precisam da categoria própria).
   const SEGMENTOS: { seg: string; re: RegExp }[] = [
+    { seg: "saude_clinicas", re: /CLINICA|HOSPITAL|LABORAT|ODONTO|DENTAL|DENTIST|FISIOTER|PSICOLOG|OFTALMO|OTICA|ÓTICA|VETERINAR/i },
+    { seg: "estetica", re: /ESTETIC|SALAO|BELEZA|BARBEAR|CABELEIR|MANICURE|\bSPA\b|COSMETIC/i },
+    { seg: "concessionarias", re: /ENERGIA|ELETRICID|\bENEL\b|ELETROBRAS|CEMIG|CELPA|COSANPA|SANEAMENTO|AGUAS DE|CAESA|CAERD|GAS NATURAL/i },
     { seg: "roupas_departamento", re: /RAMSONS|RENNER|RIACHUELO|C&A|MARISA|PERNAMBUCANAS|HAVAN|BELLAS MODAS|FASHION|LOJAS AMERICANAS|MODAS/i },
     { seg: "supermercado_atacado", re: /SUPERMERC|MERCAD(?!O ?PAGO)|ATACAD|ASSAI|CARREFOUR|DB\b|NOVA ERA|PANIFICADORA|COMERCIAL/i },
     { seg: "farmacia", re: /FARMAC|DROGA|PAGUE MENOS|FARMABEM/i },
-    { seg: "marketplace", re: /SHOPEE|MERCADO ?LIVRE|AMAZON|ALIEXPRESS|SHEIN|MAGALU|AMERICANAS\.?COM/i },
+    { seg: "marketplace", re: /SHOPEE|MERCADO ?LIVRE|AMAZON\b|ALIEXPRESS|SHEIN|MAGALU|AMERICANAS\.?COM/i },
   ];
   const COM_CREDITO_PROPRIO = /BEMOL|RIACHUELO|RENNER|MARISA|PERNAMBUCANAS|CASAS BAHIA|MAGALU|AMERICANAS|HAVAN|RAMSONS/i;
   const varejo: Record<string, any[]> = {};
+  const reivindicada = new Set<number>(); // primeira regra que casa leva a transação
   for (const { seg, re } of SEGMENTOS) {
     const m = new Map<string, { n: number; total: number; primeiro: any; ultimo: any }>();
-    for (const t of comData) {
-      if (t.valor >= 0 || !re.test(t.descricao)) continue;
+    for (let ti = 0; ti < comData.length; ti++) {
+      const t = comData[ti];
+      if (t.valor >= 0 || reivindicada.has(ti) || !re.test(t.descricao)) continue;
       const k = norm(semPrefixo(t.descricao)).slice(0, 45);
       if (!k) continue;
+      reivindicada.add(ti);
       const e = m.get(k) || { n: 0, total: 0, primeiro: t.data, ultimo: t.data };
       e.n++; e.total += Math.abs(t.valor); e.ultimo = t.data; m.set(k, e);
     }
-    varejo[seg] = [...m.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 8)
+    varejo[seg] = [...m.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 12)
       .map(([nome, v]) => ({ nome, n: v.n, total: +v.total.toFixed(2), media: +(v.total / v.n).toFixed(2), primeiro: v.primeiro, ultimo: v.ultimo, credito_proprio_conhecido: COM_CREDITO_PROPRIO.test(nome) }));
   }
 

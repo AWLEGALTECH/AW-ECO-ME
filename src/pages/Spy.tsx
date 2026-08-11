@@ -1206,6 +1206,18 @@ function QuadroExtrato({ p }: { p: any }) {
 const SEG_LABEL: Record<string, string> = {
   roupas_departamento: "Roupas e departamento", supermercado_atacado: "Supermercados e atacado",
   farmacia: "Farmácias", marketplace: "Marketplaces",
+  saude_clinicas: "Saúde e clínicas", estetica: "Estética e cuidados", concessionarias: "Concessionárias (energia/água)",
+};
+// Cor fixa e coerente por segmento — a mesma na fatia da pizza, na legenda e
+// no grupo de transações (nada de paleta aleatória por índice).
+const SEG_COR: Record<string, string> = {
+  supermercado_atacado: "#10b981",   // verde · alimentação
+  farmacia: "#f43f5e",               // rosa-vermelho · farmácia
+  saude_clinicas: "#14b8a6",         // teal · saúde/clínicas
+  estetica: "#ec4899",               // pink · estética
+  marketplace: "#38bdf8",            // azul-céu · compras online
+  roupas_departamento: "#f59e0b",    // âmbar · vestuário
+  concessionarias: "#eab308",        // amarelo · energia/água
 };
 const MARCO_LABEL: Record<string, string> = {
   primeiro_sinal_endividamento: "Primeiro sinal de endividamento",
@@ -1256,6 +1268,17 @@ const INST_MARCA: Record<string, { dominio: string; cor: string }> = {
   "Daycoval": { dominio: "daycoval.com.br", cor: "#00437A" },
   "Safra": { dominio: "safra.com.br", cor: "#06357A" },
 };
+// Detecção do banco/financeira no histórico de um crédito (para dizer de onde
+// o empréstimo veio). Sem match → banco emissor do extrato.
+const INST_RE: Array<[RegExp, string]> = [
+  [/BRADESCO/i, "Bradesco"], [/ITAU|ITAÚ/i, "Itaú"], [/SANTANDER/i, "Santander"],
+  [/CAIXA ECON|\bCEF\b/i, "Caixa Econômica"], [/BANCO DO BRASIL|BCO (DO )?BRASIL/i, "Banco do Brasil"],
+  [/CREFISA/i, "Crefisa"], [/AGIBANK/i, "Agibank"], [/\bBMG\b/i, "BMG"], [/\bPAN\b/i, "Banco Pan"],
+  [/\bFACTA\b/i, "Facta"], [/LOSANGO/i, "Losango"], [/\bOMNI\b/i, "Omni"], [/DAYCOVAL/i, "Daycoval"],
+  [/\bSAFRA\b/i, "Safra"], [/\bBV\b|VOTORANTIM/i, "Banco BV"], [/SICOOB/i, "Sicoob"], [/SICREDI/i, "Sicredi"],
+  [/\bINTER\b/i, "Banco Inter"], [/\bC6\b/i, "C6 Bank"], [/NUBANK|NU PAGAMENTOS/i, "Nubank"],
+];
+
 function LogoBanco({ nome }: { nome: string }) {
   const [erro, setErro] = useState(false);
   const marca = INST_MARCA[nome];
@@ -1282,9 +1305,8 @@ const fmtQuando = (q: any) => {
 
 // Pizza interativa em SVG (donut): hover realça a fatia e mostra o segmento no
 // centro; clique seleciona o segmento (o pai destaca as transações dele).
-const PIZZA_CORES = ["hsl(var(--primary))", "#38bdf8", "#a78bfa", "#f59e0b", "#f43f5e", "#10b981", "#64748b"];
 function PizzaConsumo({ dados, selecionado, onSelecionar }: {
-  dados: { seg: string; label: string; value: number }[];
+  dados: { seg: string; label: string; cor: string; value: number }[];
   selecionado?: string | null;
   onSelecionar?: (seg: string | null) => void;
 }) {
@@ -1299,11 +1321,11 @@ function PizzaConsumo({ dados, selecionado, onSelecionar }: {
     <div className="flex items-center gap-5 flex-wrap">
       <div className="relative shrink-0">
         <svg viewBox="0 0 42 42" className="h-36 w-36 -rotate-90">
-          {dados.map((d, i) => {
+          {dados.map((d) => {
             const pct = (d.value / total) * 100;
             const ativo = foco === d.seg;
             const el = (
-              <circle key={d.seg} cx="21" cy="21" r="15.915" fill="none" stroke={PIZZA_CORES[i % PIZZA_CORES.length]}
+              <circle key={d.seg} cx="21" cy="21" r="15.915" fill="none" stroke={d.cor}
                 strokeWidth={ativo ? 8.8 : 7} strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={-acc}
                 opacity={foco && !ativo ? 0.3 : 1}
                 className="cursor-pointer transition-all duration-200"
@@ -1331,14 +1353,14 @@ function PizzaConsumo({ dados, selecionado, onSelecionar }: {
         </div>
       </div>
       <div className="space-y-0.5 min-w-0 flex-1">
-        {dados.map((d, i) => {
+        {dados.map((d) => {
           const ativo = foco === d.seg;
           return (
             <button key={d.seg} type="button"
               onMouseEnter={() => setHover(d.seg)} onMouseLeave={() => setHover(null)}
               onClick={() => alternar(d.seg)}
               className={`w-full text-left text-[11.5px] flex items-center gap-2 rounded-md px-1.5 py-1 transition-all duration-200 cursor-pointer ${ativo ? "bg-white/[0.05]" : foco ? "opacity-45" : "hover:bg-white/[0.03]"} ${selecionado === d.seg ? "ring-1 ring-primary/30" : ""}`}>
-              <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: PIZZA_CORES[i % PIZZA_CORES.length] }} />
+              <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: d.cor }} />
               <span className="text-foreground/85 truncate">{d.label}</span>
               <span className="text-muted-foreground tabular-nums ml-auto pl-3 shrink-0">{fmtBRL(d.value)} · {Math.round((d.value / total) * 100)}%</span>
             </button>
@@ -1391,7 +1413,7 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
   // Pizza das relações de consumo: total gasto por segmento do varejo.
   const pieDados = Object.entries(varejo)
     .filter(([, v]: any) => v?.length)
-    .map(([seg, list]: any) => ({ seg, label: SEG_LABEL[seg] || seg, value: list.reduce((s: number, v: any) => s + (Number(v.total) || 0), 0) }))
+    .map(([seg, list]: any) => ({ seg, label: SEG_LABEL[seg] || seg, cor: SEG_COR[seg] || "#64748b", value: list.reduce((s: number, v: any) => s + (Number(v.total) || 0), 0) }))
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value);
 
@@ -1598,7 +1620,9 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
           <div className="space-y-2.5">
             {Object.entries(varejo).filter(([, v]: any) => v?.length).map(([seg, list]: any) => (
               <div key={seg} className={`rounded-lg transition-all duration-300 ${segSel ? (segSel === seg ? "ring-1 ring-primary/25 bg-primary/[0.04] p-2.5 -mx-1" : "opacity-35") : ""}`}>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{SEG_LABEL[seg] || seg}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-sm shrink-0" style={{ background: SEG_COR[seg] || "#64748b" }} /> {SEG_LABEL[seg] || seg}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
                   {list.map((v: any, k: number) => (
                     <span key={k} className="inline-flex items-center gap-1.5 text-[11px] rounded-md border border-white/[0.07] bg-white/[0.02] px-2 py-1">
@@ -1616,11 +1640,43 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
                 <PizzaConsumo dados={pieDados} selecionado={segSel} onSelecionar={setSegSel} />
               </div>
             )}
-            {superC?.n > 0 && (
-              <p className="text-[12px] text-muted-foreground">Supermercados: {superC.n} compras · gasto médio {fmtBRL(superC.gasto_medio_por_compra)} · 1ª metade {fmtBRL(superC.total_primeira_metade)} vs 2ª metade {fmtBRL(superC.total_segunda_metade)}.</p>
-            )}
-            {telecom.length > 0 && (
-              <p className="text-[12px] text-muted-foreground">Telefonia/Internet: {telecom.map((t: any) => `${t.nome} ${t.n}x (${fmtBRL(t.menor)}${t.menor !== t.maior ? ` a ${fmtBRL(t.maior)}` : ""})`).join(" · ")}</p>
+            {(superC?.n > 0 || telecom.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {superC?.n > 0 && (
+                  <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2.5">
+                      <span className="h-2 w-2 rounded-sm shrink-0" style={{ background: SEG_COR.supermercado_atacado }} /> Supermercados · modelo de consumo
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                      <div><p className="text-[10px] text-muted-foreground">Compras</p><p className="text-[16px] font-semibold tabular-nums leading-tight">{superC.n}</p></div>
+                      <div><p className="text-[10px] text-muted-foreground">Gasto médio por compra</p><p className="text-[16px] font-semibold tabular-nums leading-tight">{fmtBRL(superC.gasto_medio_por_compra)}</p></div>
+                      <div><p className="text-[10px] text-muted-foreground">1ª metade do período</p><p className="text-[14px] font-medium tabular-nums leading-tight">{fmtBRL(superC.total_primeira_metade)}</p></div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">2ª metade do período</p>
+                        <p className={`text-[14px] font-medium tabular-nums leading-tight ${superC.total_segunda_metade > superC.total_primeira_metade ? "text-amber-400" : ""}`}>
+                          {fmtBRL(superC.total_segunda_metade)}{superC.total_segunda_metade > superC.total_primeira_metade ? " ↑" : ""}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {telecom.length > 0 && (
+                  <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2.5">Telefonia e internet</p>
+                    <div className="divide-y divide-white/[0.05]">
+                      {telecom.slice(0, 4).map((t: any, k: number) => (
+                        <div key={k} className="flex items-center justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                          <p className="text-[12px] text-foreground/85 truncate">{t.nome}</p>
+                          <div className="text-right shrink-0">
+                            <p className="text-[12px] tabular-nums text-foreground/90">{t.n} contas</p>
+                            <p className="text-[10.5px] tabular-nums text-muted-foreground">{t.menor !== t.maior ? `${fmtBRL(t.menor)} a ${fmtBRL(t.maior)}` : fmtBRL(t.menor)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </Sec>
@@ -1661,29 +1717,71 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
         </Sec>
       )}
 
-      {/* Empréstimos: recolhíveis (podem ser muitos), só o detalhe transacional */}
-      {emprestimos.length > 0 && (
-        <details className="group rounded-xl border border-white/[0.08] bg-white/[0.015] overflow-hidden">
-          <summary className="list-none cursor-pointer select-none flex items-center justify-between gap-2 px-4 py-3 hover:bg-white/[0.02] transition-colors">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
-              <CreditCard className="h-3.5 w-3.5" /> Créditos de empréstimo ({emprestimos.length}{totalCred ? ` · ${fmtBRL(totalCred)}` : ""})
-            </p>
-            <ChevronDown className="h-4 w-4 text-muted-foreground group-open:rotate-180 transition-transform" />
-          </summary>
-          <div className="px-4 pb-4 space-y-2 border-t border-white/[0.06] pt-3">
-            {emprestimos.map((e, i) => (
-              <div key={i} className="rounded-lg border border-white/[0.06] border-l-2 border-l-rose-400/70 bg-white/[0.01] px-3 py-2.5">
-                <div className="flex items-baseline gap-2.5 flex-wrap">
-                  <span className="text-[14px] font-semibold tabular-nums text-rose-300">{e.valor}</span>
-                  <span className="text-[11px] text-muted-foreground tabular-nums">{e.data}</span>
-                </div>
-                <p className="text-[12px] text-foreground/80 mt-0.5 leading-relaxed">{e.detalhe}</p>
-                <p className="text-[11.5px] text-muted-foreground mt-0.5"><span className="text-foreground/60">Parcelas:</span> {e.parcelas}</p>
+      {/* Empréstimos: card grande e clicável; aberto, uma ficha completa por
+          crédito com o banco de origem (logo), rotulando cada informação. */}
+      {(creditos.length > 0 || emprestimos.length > 0) && (() => {
+        const bancoExtrato = instituicoes.find((i: any) => i.recorrencia === "banco do extrato")?.nome || null;
+        const refiKeys = new Set((Array.isArray(dg?.sinais_refinanciamento) ? dg.sinais_refinanciamento : []).map((r: any) => `${r.credito?.data}|${r.credito?.valor}`));
+        const fmtD = (d: any) => (d ? String(d).split("-").reverse().join("/") : "—");
+        const nEmp = creditos.length || emprestimos.length;
+        const nRefi = creditos.filter((c: any) => refiKeys.has(`${c.data}|${c.valor}`)).length;
+        const loans = creditos.length
+          ? creditos.map((c: any, i: number) => {
+              const detectado = INST_RE.find(([re]) => re.test(String(c.descricao || "")))?.[1] || null;
+              return {
+                valor: fmtBRL(Number(c.valor) || 0), data: fmtD(c.data), descricao: String(c.descricao || ""),
+                banco: detectado || bancoExtrato, viaExtrato: !detectado && !!bancoExtrato,
+                pct: c.pct_da_renda_mensal, dias: c.dias_desde_anterior,
+                refi: refiKeys.has(`${c.data}|${c.valor}`), ficha: emprestimos[i],
+              };
+            })
+          : emprestimos.map((e: any) => ({ valor: e.valor, data: e.data, descricao: "", banco: bancoExtrato, viaExtrato: !!bancoExtrato, pct: null, dias: null, refi: false, ficha: e }));
+        return (
+          <details className="group rounded-2xl border border-white/[0.1] bg-white/[0.02] overflow-hidden">
+            <summary className="list-none cursor-pointer select-none flex items-center gap-3.5 p-4 hover:bg-white/[0.035] transition-colors">
+              <span className="h-11 w-11 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center shrink-0"><CreditCard className="h-5 w-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Créditos de empréstimo</p>
+                <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5">{nEmp} empréstimo{nEmp === 1 ? "" : "s"}{totalCred ? ` · ${fmtBRL(totalCred)}` : ""}</p>
+                <p className="text-[11.5px] text-muted-foreground mt-0.5">clique para abrir a ficha de cada um{nRefi ? ` · ${nRefi} com sinal de refinanciamento` : ""}</p>
               </div>
-            ))}
-          </div>
-        </details>
-      )}
+              <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-primary">
+                ver todos <ChevronDown className="h-4 w-4 group-open:rotate-180 transition-transform" />
+              </span>
+            </summary>
+            <div className="px-4 pb-4 space-y-2.5 border-t border-white/[0.06] pt-3.5">
+              {loans.map((l: any, i: number) => (
+                <div key={i} className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-3.5 flex gap-3.5">
+                  <LogoBanco nome={l.banco || ""} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2.5 flex-wrap">
+                      <span className="text-[16px] font-semibold tabular-nums text-foreground">{l.valor}</span>
+                      <span className="text-[11px] text-muted-foreground tabular-nums">{l.data}</span>
+                      {l.banco && (
+                        <span className="text-[10px] px-1.5 py-px rounded-full ring-1 ring-white/[0.1] bg-white/[0.03] text-foreground/80">
+                          via {l.banco}{l.viaExtrato ? " · banco do extrato" : ""}
+                        </span>
+                      )}
+                      {l.refi && <span className="text-[10px] px-1.5 py-px rounded-full ring-1 text-amber-400 ring-amber-400/25 bg-amber-400/10">sinal de refinanciamento</span>}
+                    </div>
+                    {l.descricao && <p className="font-mono text-[10.5px] text-muted-foreground mt-1 truncate">{l.descricao}</p>}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 mt-2.5">
+                      {l.pct != null && (
+                        <div><p className="text-[9.5px] uppercase tracking-wide text-muted-foreground">% da renda mensal</p><p className="text-[13px] font-medium tabular-nums mt-0.5">{l.pct}%</p></div>
+                      )}
+                      <div><p className="text-[9.5px] uppercase tracking-wide text-muted-foreground">Intervalo do anterior</p><p className="text-[13px] font-medium tabular-nums mt-0.5">{l.dias != null ? `${l.dias} dias` : "primeiro do período"}</p></div>
+                      {l.ficha?.parcelas && (
+                        <div className="col-span-2 sm:col-span-1"><p className="text-[9.5px] uppercase tracking-wide text-muted-foreground">Parcelas</p><p className="text-[12px] text-foreground/85 mt-0.5 leading-snug">{l.ficha.parcelas}</p></div>
+                      )}
+                    </div>
+                    {l.ficha?.detalhe && <p className="text-[11.5px] text-foreground/70 mt-2 leading-relaxed">{l.ficha.detalhe}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        );
+      })()}
 
     </div>
   );
