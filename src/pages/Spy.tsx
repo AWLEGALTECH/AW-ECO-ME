@@ -237,7 +237,7 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
         <div className="relative p-6">
           <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.22em]">
             <span className="inline-flex items-center gap-2 text-primary/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /> Central de inteligência
+              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /> Sala de operações
             </span>
             <span className="text-muted-foreground/50 hidden sm:block">AW Spy · uso interno</span>
           </div>
