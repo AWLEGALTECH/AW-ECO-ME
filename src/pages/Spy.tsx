@@ -1737,19 +1737,12 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
             })
           : emprestimos.map((e: any) => ({ valor: e.valor, data: e.data, descricao: "", banco: bancoExtrato, viaExtrato: !!bancoExtrato, pct: null, dias: null, refi: false, ficha: e }));
         return (
-          <details className="group rounded-2xl border border-white/[0.1] bg-white/[0.02] overflow-hidden">
-            <summary className="list-none cursor-pointer select-none flex items-center gap-3.5 p-4 hover:bg-white/[0.035] transition-colors">
-              <span className="h-11 w-11 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center shrink-0"><CreditCard className="h-5 w-5" /></span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Créditos de empréstimo</p>
-                <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5">{nEmp} empréstimo{nEmp === 1 ? "" : "s"}{totalCred ? ` · ${fmtBRL(totalCred)}` : ""}</p>
-                <p className="text-[11.5px] text-muted-foreground mt-0.5">clique para abrir a ficha de cada um{nRefi ? ` · ${nRefi} com sinal de refinanciamento` : ""}</p>
-              </div>
-              <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-primary">
-                ver todos <ChevronDown className="h-4 w-4 group-open:rotate-180 transition-transform" />
-              </span>
-            </summary>
-            <div className="px-4 pb-4 space-y-2.5 border-t border-white/[0.06] pt-3.5">
+          <Sec icon={CreditCard} title={`Créditos de empréstimo (${nEmp})`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-3">
+              <StatCard icon={CreditCard} label="Empréstimos no período" value={String(nEmp)} sub={nRefi ? `${nRefi} com sinal de refinanciamento` : "sem sinal de refinanciamento"} />
+              {totalCred > 0 && <StatCard icon={Receipt} label="Total emprestado" value={fmtBRL(totalCred)} sub="soma dos créditos de empréstimo" />}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start">
               {loans.map((l: any, i: number) => (
                 <div key={i} className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-3.5 flex gap-3.5">
                   <LogoBanco nome={l.banco || ""} />
@@ -1779,7 +1772,7 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
                 </div>
               ))}
             </div>
-          </details>
+          </Sec>
         );
       })()}
 
