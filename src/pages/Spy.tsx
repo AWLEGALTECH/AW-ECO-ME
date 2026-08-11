@@ -16,7 +16,7 @@ import {
   Landmark, Utensils, Car, Home, GraduationCap, HeartPulse, CreditCard, Receipt, Banknote, ArrowLeftRight, Circle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
 import { useTheme } from "@/hooks/useTheme";
 
 // Mesma paleta do gráfico da aba Processos (o stroke SVG não resolve var()).
@@ -182,7 +182,23 @@ export default function Spy() {
   );
 }
 
-// ── Lobby: central do Spy em tela cheia (ações + coletas + radar de fundo) ───
+// ── Lobby: console de vigilância (número monitorado + coletas + 2 ações) ─────
+// Contador que sobe até o valor (clima de painel de vigilância).
+function ContadorVivo({ ate }: { ate: number }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    let raf = 0; const t0 = performance.now(); const dur = 900;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - t0) / dur);
+      setV(Math.round(ate * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ate]);
+  return <>{v.toLocaleString("pt-BR")}</>;
+}
+
 function Lobby({ clientes, analises, comPasta, onModo }: {
   clientes: Cliente[]; analises: Analise[]; comPasta: number; onModo: (m: ModoLobby) => void;
 }) {
@@ -191,136 +207,134 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
   const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
   const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
   const analisadosIds = useMemo(() => new Set(concluidas.map((a) => a.cliente_id)), [concluidas]);
-  const andamentoIds = useMemo(() => new Set(rodando.map((a) => a.cliente_id)), [rodando]);
   const nAnalisados = analisadosIds.size;
   const nPendentes = useMemo(
-    () => clientes.filter((c) => drivePastaId(c) && !analisadosIds.has(c.id) && !andamentoIds.has(c.id)).length,
-    [clientes, analisadosIds, andamentoIds],
+    () => clientes.filter((c) => drivePastaId(c) && !analisadosIds.has(c.id)).length,
+    [clientes, analisadosIds],
   );
   const totalTx = concluidas.reduce((s, r) => s + (r.n_transacoes || 0), 0);
   const ultima = concluidas[0] || null;
 
-  // Transações registradas ao longo do tempo (acumulado por dia de coleta).
-  const serie = useMemo(() => {
-    const porDia = new Map<string, number>();
-    for (const r of [...concluidas].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))) {
-      const d = String(r.created_at).slice(0, 10);
-      porDia.set(d, (porDia.get(d) || 0) + (r.n_transacoes || 0));
-    }
-    let acc = 0;
-    return [...porDia.entries()].map(([dia, v]) => { acc += v; return { dia, transacoes: acc }; });
-  }, [concluidas]);
-  const fmtDia = (d: string) => { const p = String(d).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : d; };
-
-  const OPCOES: { key: ModoLobby; icon: LucideIcon; label: string; valor: number; sub: string; vivo?: boolean }[] = [
-    { key: "analisados", icon: Users, label: "Clientes com análise", valor: nAnalisados, sub: "fichas prontas para consulta" },
-    { key: "pendentes", icon: FolderOpen, label: "Clientes pendentes", valor: nPendentes, sub: "com pasta no Drive, sem análise" },
-    { key: "andamento", icon: Activity, label: "Em andamento", valor: rodando.length, sub: rodando.length ? "o radar está trabalhando" : "nada rodando agora", vivo: rodando.length > 0 },
-    { key: "novo", icon: ScanLine, label: "Nova análise", valor: comPasta, sub: "escolher um cliente e rodar" },
-  ];
+  // Sinais captados por coleta: uma barra por análise concluída (as últimas 14).
+  const barras = useMemo(() => [...concluidas]
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .slice(-14)
+    .map((r) => ({
+      id: r.id,
+      dia: String(r.created_at).slice(0, 10),
+      nome: (clientes.find((c) => c.id === r.cliente_id)?.nome || "—").split(" ")[0],
+      n: r.n_transacoes || 0,
+    })), [concluidas, clientes]);
+  const fmtDia = (d: string) => { const pp = String(d).split("-"); return pp.length === 3 ? `${pp[2]}/${pp[1]}` : d; };
 
   return (
-    <div className="relative">
-      {/* Radar estático, sutil, de fundo — só o desenho. */}
-      <div className="pointer-events-none absolute -right-24 -top-24 opacity-[0.05] hidden md:block" aria-hidden>
-        <RadarViz size={460} estatico />
+    <div className="space-y-4">
+      {/* Console de vigilância */}
+      <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-primary/[0.03] spy-grid">
+        <div className="pointer-events-none absolute -right-14 -bottom-28 opacity-[0.07] hidden sm:block" aria-hidden>
+          <RadarViz size={400} estatico />
+        </div>
+        <div className="relative p-6">
+          <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.22em]">
+            <span className="inline-flex items-center gap-2 text-primary/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /> Central de inteligência
+            </span>
+            <span className="text-muted-foreground/50 hidden sm:block">AW Spy · uso interno</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(280px,380px),1fr] gap-x-10 gap-y-6 items-end mt-6">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-mono">Transações sob monitoramento</p>
+              <p className="text-5xl md:text-6xl font-semibold tabular-nums tracking-tight mt-2 font-mono text-foreground">
+                <ContadorVivo ate={totalTx} />
+              </p>
+              <div className="mt-4 space-y-1 font-mono text-[11.5px] text-muted-foreground">
+                <p>▸ {concluidas.length.toLocaleString("pt-BR")} coleta(s) concluída(s)</p>
+                <p>▸ {nAnalisados} cliente(s) sob análise · {comPasta} alvos com pasta</p>
+                <p>▸ última varredura: {ultima ? `${new Date(ultima.created_at).toLocaleDateString("pt-BR")} · ${(ultima.n_transacoes || 0).toLocaleString("pt-BR")} transações` : "—"}</p>
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-mono mb-2">Sinais captados por coleta</p>
+              {barras.length > 0 ? (
+                <div className="h-[170px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={barras} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="nome" tick={{ fontSize: 9, fill: "currentColor", fontFamily: "monospace" }} className="text-muted-foreground"
+                        axisLine={false} tickLine={false} interval={0} />
+                      <YAxis tick={{ fontSize: 9, fill: "currentColor", fontFamily: "monospace" }} className="text-muted-foreground"
+                        axisLine={false} tickLine={false} width={44} allowDecimals={false} />
+                      <ChartTooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} content={({ active, payload }: any) => (active && payload?.length ? (
+                        <div className="rounded-lg border border-border/60 bg-popover/95 backdrop-blur px-2.5 py-1.5 text-xs shadow-lg">
+                          <p className="font-medium">{payload[0].payload.nome} · {fmtDia(payload[0].payload.dia)}</p>
+                          <p className="text-muted-foreground">{Number(payload[0].value).toLocaleString("pt-BR")} transações captadas</p>
+                        </div>
+                      ) : null)} />
+                      <Bar dataKey="n" fill={corPrimaria} fillOpacity={0.85} radius={[3, 3, 0, 0]} maxBarSize={28} animationDuration={700} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="font-mono text-[12px] text-muted-foreground py-12">aguardando a primeira coleta…</p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="relative space-y-5">
-        {/* Ações principais */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-          {OPCOES.map((o) => (
-            <button key={o.key} onClick={() => onModo(o.key)}
-              className="group text-left rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-200 hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2">
-                <span className="h-11 w-11 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center">
-                  <o.icon className="h-5 w-5" />
-                </span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all mt-1" />
-              </div>
-              <p className="text-3xl font-semibold tabular-nums mt-4 leading-none flex items-center gap-2">
-                {o.valor.toLocaleString("pt-BR")}
-                {o.vivo && <span className="h-2 w-2 rounded-full bg-primary spy-blip" />}
-              </p>
-              <p className="text-[13.5px] font-medium text-foreground mt-1.5">{o.label}</p>
-              <p className="text-[11.5px] text-muted-foreground mt-0.5">{o.sub}</p>
-            </button>
-          ))}
-        </div>
+      {/* Ações: iniciar análise + banco de análises */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <button onClick={() => onModo("novo")}
+          className="group text-left rounded-2xl border border-primary/40 bg-primary/[0.08] p-5 flex items-center gap-4 transition-all duration-200 hover:bg-primary/[0.14] hover:-translate-y-0.5">
+          <span className="h-12 w-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shrink-0">
+            <ScanLine className="h-6 w-6" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold text-foreground">Iniciar nova análise</span>
+            <span className="block text-[12px] text-muted-foreground mt-0.5">{comPasta} clientes com pasta no Drive · {nPendentes} ainda sem análise</span>
+          </span>
+          <ChevronRight className="h-5 w-5 text-primary group-hover:translate-x-0.5 transition-transform shrink-0" />
+        </button>
 
-        {/* Em andamento: progresso vivo direto no lobby */}
-        {rodando.length > 0 && (
-          <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
-            <p className="text-[10px] uppercase tracking-wider text-primary/80 mb-2.5 flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analisando agora
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {rodando.map((r) => {
-                const c = clientes.find((x) => x.id === r.cliente_id);
-                const pct = Math.min(100, Math.max(0, Number(r.progresso?.pct) || 0));
-                return (
-                  <div key={r.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
-                      <span className="text-[10px] text-primary/80 tabular-nums shrink-0">{pct}%</span>
-                    </div>
-                    <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
-                      <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
-                    </div>
+        <button onClick={() => onModo("analisados")}
+          className="group text-left rounded-2xl border border-white/[0.09] bg-white/[0.02] p-5 flex items-center gap-4 transition-all duration-200 hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5">
+          <span className="h-12 w-12 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center shrink-0">
+            <Eye className="h-6 w-6" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold text-foreground">Banco de análises</span>
+            <span className="block text-[12px] text-muted-foreground mt-0.5">{nAnalisados} ficha(s) pronta(s) para consulta</span>
+          </span>
+          <ChevronRight className="h-5 w-5 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+        </button>
+      </div>
+
+      {/* Analisando agora: progresso vivo */}
+      {rodando.length > 0 && (
+        <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] p-4">
+          <p className="text-[10px] uppercase tracking-wider text-primary/80 mb-2.5 flex items-center gap-1.5 font-mono">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analisando agora
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {rodando.map((r) => {
+              const c = clientes.find((x) => x.id === r.cliente_id);
+              const pct = Math.min(100, Math.max(0, Number(r.progresso?.pct) || 0));
+              return (
+                <div key={r.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm truncate">{c?.nome || "Cliente"}</span>
+                    <span className="text-[10px] text-primary/80 tabular-nums shrink-0">{pct}%</span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Coletas já feitas: números + curva de transações registradas */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-3 items-stretch">
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-              <span className="uppercase tracking-wider">Transações registradas · acumulado</span>
-              <span className="tabular-nums text-foreground font-medium">{totalTx.toLocaleString("pt-BR")}</span>
-            </div>
-            {serie.length > 1 ? (
-              <div className="h-[190px] w-full mt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={serie} margin={{ top: 6, right: 14, left: 4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="areaColetas" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={corPrimaria} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={corPrimaria} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="dia" tickFormatter={fmtDia} tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
-                      axisLine={false} tickLine={false} minTickGap={28} />
-                    <YAxis tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground" axisLine={false} tickLine={false} width={46} allowDecimals={false} />
-                    <ChartTooltip content={<ChartTip render={(l: string, v: number) => (<><p className="font-medium">{fmtDia(l)}</p><p className="text-muted-foreground">{Number(v).toLocaleString("pt-BR")} transações registradas</p></>)} />} />
-                    <Area type="monotone" dataKey="transacoes" stroke={corPrimaria} strokeWidth={2} fill="url(#areaColetas)" animationDuration={700} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground py-14 text-center">
-                A curva das coletas aparece aqui conforme as análises forem rodando.
-              </p>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 flex flex-col justify-between gap-4">
-            {[
-              { label: "Análises feitas", valor: concluidas.length.toLocaleString("pt-BR"), sub: rodando.length ? `${rodando.length} rodando agora` : "coletas concluídas" },
-              { label: "Clientes analisados", valor: String(nAnalisados), sub: `de ${comPasta} com pasta · ${clientes.length} no total` },
-              { label: "Última coleta", valor: ultima ? new Date(ultima.created_at).toLocaleDateString("pt-BR") : "—", sub: ultima ? `${(ultima.n_transacoes || 0).toLocaleString("pt-BR")} transações mapeadas` : "nenhuma ainda" },
-            ].map((m, i) => (
-              <div key={i} className={i > 0 ? "pt-4 border-t border-white/[0.06]" : ""}>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{m.label}</p>
-                <p className="text-[22px] font-semibold tabular-nums leading-tight mt-0.5">{m.valor}</p>
-                <p className="text-[11.5px] text-muted-foreground mt-0.5">{m.sub}</p>
-              </div>
-            ))}
+                  <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-primary transition-all duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
