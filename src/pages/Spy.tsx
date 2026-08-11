@@ -127,12 +127,17 @@ function RadarViz({ size = 120, blips = true, estatico = false, className = "" }
 }
 
 type ModoLobby = "analisados" | "pendentes" | "andamento" | "novo";
+// Transação-alvo vinda do banco geral: abre o perfil do cliente e destaca a
+// linha correspondente dentro do quadro do extrato.
+type AlvoTx = { data: string | null; valor: number; descricao: string };
 
 export default function Spy() {
   useEffect(() => { document.title = `Spy · ${appConfig.name}`; }, []);
   const { user } = useAuth();
   const [sel, setSel] = useState<Cliente | null>(null);
   const [modo, setModo] = useState<ModoLobby | null>(null);
+  const [verBanco, setVerBanco] = useState(false);
+  const [alvoTx, setAlvoTx] = useState<AlvoTx | null>(null);
   const [pendingFoco, setPendingFoco] = useState<string | null>(null);
 
   const { data: clientes = [] } = useQuery({
@@ -170,13 +175,16 @@ export default function Spy() {
       )}
 
       {sel ? (
-        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} initialFoco={pendingFoco}
-          onBack={() => { setSel(null); setPendingFoco(null); }} />
+        <SpyClientPage key={sel.id} cliente={sel} userId={user?.id || null} initialFoco={pendingFoco} alvoTx={alvoTx}
+          onBack={() => { setSel(null); setPendingFoco(null); setAlvoTx(null); }} />
+      ) : verBanco ? (
+        <BancoTransacoes clientes={clientes} onBack={() => setVerBanco(false)}
+          onAbrir={(c, alvo) => { setAlvoTx(alvo); setSel(c); setVerBanco(false); }} />
       ) : modo ? (
         <LobbyLista modo={modo} clientes={clientes} analises={analises} onBack={() => setModo(null)}
           onOpen={(c, aid) => { setSel(c); setPendingFoco(aid); }} />
       ) : (
-        <Lobby clientes={clientes} analises={analises} comPasta={comPasta} onModo={setModo} />
+        <Lobby clientes={clientes} analises={analises} comPasta={comPasta} onModo={setModo} onBanco={() => setVerBanco(true)} />
       )}
     </div>
   );
@@ -218,8 +226,8 @@ function ContadorVivo({ ate }: { ate: number }) {
   return <>{v.toLocaleString("pt-BR")}</>;
 }
 
-function Lobby({ clientes, analises, comPasta, onModo }: {
-  clientes: Cliente[]; analises: Analise[]; comPasta: number; onModo: (m: ModoLobby) => void;
+function Lobby({ clientes, analises, comPasta, onModo, onBanco }: {
+  clientes: Cliente[]; analises: Analise[]; comPasta: number; onModo: (m: ModoLobby) => void; onBanco: () => void;
 }) {
   const concluidas = useMemo(() => analises.filter((a) => a.status === "concluida"), [analises]);
   const rodando = useMemo(() => analises.filter((a) => a.status === "processando"), [analises]);
@@ -267,8 +275,8 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
         </div>
       </div>
 
-      {/* Ações: iniciar análise + banco de análises */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Ações: iniciar análise + banco de transações + banco de análises */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <button onClick={() => onModo("novo")}
           className="group text-left rounded-2xl border border-primary/40 bg-primary/[0.08] p-5 flex items-center gap-4 transition-all duration-200 hover:bg-primary/[0.14] hover:-translate-y-0.5">
           <span className="h-12 w-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shrink-0">
@@ -279,6 +287,18 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
             <span className="block text-[12px] text-muted-foreground mt-0.5">{comPasta} clientes com pasta no Drive · {nPendentes} ainda sem análise</span>
           </span>
           <ChevronRight className="h-5 w-5 text-primary group-hover:translate-x-0.5 transition-transform shrink-0" />
+        </button>
+
+        <button onClick={onBanco}
+          className="group text-left rounded-2xl border border-white/[0.09] bg-white/[0.02] p-5 flex items-center gap-4 transition-all duration-200 hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5">
+          <span className="h-12 w-12 rounded-xl bg-primary/[0.1] ring-1 ring-primary/20 text-primary flex items-center justify-center shrink-0">
+            <ArrowLeftRight className="h-6 w-6" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold text-foreground">Banco de transações</span>
+            <span className="block text-[12px] text-muted-foreground mt-0.5">{totalTx.toLocaleString("pt-BR")} transações de todos os clientes</span>
+          </span>
+          <ChevronRight className="h-5 w-5 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
         </button>
 
         <button onClick={() => onModo("analisados")}
@@ -417,8 +437,120 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
   );
 }
 
+// ── Banco de transações gerais: tudo que o Spy já monitorou, pesquisável ─────
+function BancoTransacoes({ clientes, onBack, onAbrir }: {
+  clientes: Cliente[]; onBack: () => void; onAbrir: (c: Cliente, alvo: AlvoTx) => void;
+}) {
+  const [busca, setBusca] = useState("");
+  const [mostrar, setMostrar] = useState(400);
+
+  // Carrega o banco INTEIRO (em páginas de 1000, por baixo dos panos) para a
+  // busca ser instantânea no navegador.
+  const { data: txs = [], isLoading } = useQuery({
+    queryKey: ["spy-banco-tx"],
+    staleTime: 60000,
+    queryFn: async (): Promise<any[]> => {
+      const out: any[] = [];
+      for (let de = 0; de < 100000; de += 1000) {
+        const { data, error } = await (supabase.from("spy_transacao" as any) as any)
+          .select("id, cliente_id, data, valor, sinal, descricao")
+          .order("data", { ascending: false }).order("id", { ascending: true })
+          .range(de, de + 999);
+        if (error) throw error;
+        out.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      return out;
+    },
+  });
+
+  const clientePor = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
+  // Enriquecidas uma vez só: valor com sinal + "blob" pesquisável
+  // (data, descrição, nome do cliente e valor nos dois formatos).
+  const enriquecidas = useMemo(() => txs.map((t: any) => {
+    const v = (Number(t.valor) || 0) * (Number(t.sinal) < 0 ? -1 : 1);
+    const nome = clientePor.get(t.cliente_id)?.nome || "";
+    return {
+      ...t, v, nome,
+      blob: `${t.data || ""} ${t.descricao || ""} ${nome} ${Math.abs(v).toFixed(2)} ${fmtBRL(Math.abs(v))}`.toLowerCase(),
+    };
+  }), [txs, clientePor]);
+
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return q ? enriquecidas.filter((t) => t.blob.includes(q)) : enriquecidas;
+  }, [enriquecidas, busca]);
+  const visiveis = filtradas.slice(0, mostrar);
+  const fmtD = (d: any) => (d ? String(d).split("-").reverse().join("/") : "—");
+
+  return (
+    <div className="spy-lock space-y-4">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <button onClick={onBack} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" /> Central do Spy
+          </button>
+          <h2 className="text-xl font-semibold tracking-tight mt-1.5 flex items-center gap-2">
+            <ArrowLeftRight className="h-5 w-5 text-primary" /> Banco de transações
+            <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({txs.length.toLocaleString("pt-BR")})</span>
+          </h2>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">Todas as transações monitoradas pelo Spy. Clique numa linha para abrir o cliente com a transação destacada.</p>
+        </div>
+        <div className="relative w-full sm:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input value={busca} onChange={(e) => { setBusca(e.target.value); setMostrar(400); }}
+            placeholder="Buscar por descrição, cliente ou valor…" className="pl-9 h-10 font-mono text-[13px]" />
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-20 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando o banco de transações…
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/[0.09] bg-black/25 overflow-hidden">
+          <div className="grid grid-cols-[86px,minmax(120px,220px),1fr,110px] gap-3 px-4 py-2 border-b border-white/[0.07] bg-white/[0.02] text-[9.5px] uppercase tracking-wider text-muted-foreground font-mono">
+            <span>Data</span><span>Cliente</span><span>Transação</span><span className="text-right">Valor</span>
+          </div>
+          {visiveis.length === 0 ? (
+            <p className="text-[12.5px] text-muted-foreground text-center py-14">
+              {busca ? `Nenhuma transação bate com "${busca}".` : "O banco enche conforme as análises rodarem."}
+            </p>
+          ) : (
+            <div className="max-h-[68vh] overflow-y-auto scrollbar-thin">
+              {visiveis.map((t: any) => {
+                const cat = categoria(t.descricao || ""); const neg = t.v < 0;
+                const c = clientePor.get(t.cliente_id);
+                return (
+                  <button key={t.id} disabled={!c}
+                    onClick={() => c && onAbrir(c, { data: t.data, valor: t.v, descricao: t.descricao || "" })}
+                    className="w-full text-left grid grid-cols-[86px,minmax(120px,220px),1fr,110px] gap-3 items-center px-4 py-[5px] border-b border-white/[0.04] font-mono text-[11px] leading-tight hover:bg-primary/[0.06] transition-colors disabled:opacity-50 group">
+                    <span className="text-muted-foreground tabular-nums">{fmtD(t.data)}</span>
+                    <span className="truncate text-foreground/70 group-hover:text-primary transition-colors">{t.nome || "—"}</span>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
+                      <span className="truncate text-foreground/85">{t.descricao || "—"}</span>
+                    </span>
+                    <span className={`text-right tabular-nums ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(t.v))}</span>
+                  </button>
+                );
+              })}
+              {filtradas.length > visiveis.length && (
+                <button onClick={() => setMostrar((m) => m + 800)}
+                  className="w-full py-2.5 text-[11.5px] font-mono text-primary hover:bg-white/[0.03] transition-colors">
+                  mostrando {visiveis.length.toLocaleString("pt-BR")} de {filtradas.length.toLocaleString("pt-BR")} · carregar mais
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Página do cliente (toma a tela; a análise é a protagonista) ──────────────
-function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Cliente; userId: string | null; onBack: () => void; initialFoco?: string | null }) {
+function SpyClientPage({ cliente, userId, onBack, initialFoco, alvoTx }: { cliente: Cliente; userId: string | null; onBack: () => void; initialFoco?: string | null; alvoTx?: AlvoTx | null }) {
   const qc = useQueryClient();
   const [selFiles, setSelFiles] = useState<Set<string>>(new Set());
   const [mostrarDocs, setMostrarDocs] = useState(false);
@@ -747,7 +879,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       <FichaCliente ficha={ficha} />
 
       {ultima ? (
-        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} onInsights={() => gerarInsights(ultima)} gerandoInsights={gerandoInsights} />
+        <AnaliseCard a={ultima} flags={flags.filter((f) => f.analise_id === ultima.id)} defaultAberto onRegenerar={() => setMostrarDocs(true)} onReanalisar={(names) => reanalisar(ultima, names)} reanalisando={reanalisando} onInsights={() => gerarInsights(ultima)} gerandoInsights={gerandoInsights} alvoTx={alvoTx} />
       ) : erroAnalise ? (
         <AnaliseErro a={erroAnalise} onTentar={() => setMostrarDocs(true)} />
       ) : (
@@ -1201,9 +1333,27 @@ function TelaHacker({ a }: { a: Analise }) {
 
 // Quadro de UM extrato (isolado): mapeamento NEUTRO de TODAS as transações, num
 // grid denso estilo terminal financeiro, em múltiplas colunas (não empilha tudo).
-function QuadroExtrato({ p }: { p: any }) {
+function QuadroExtrato({ p, alvoTx }: { p: any; alvoTx?: AlvoTx | null }) {
   const [busca, setBusca] = useState("");
   const txs: any[] = Array.isArray(p?.transacoes) ? p.transacoes : [];
+  const alvoRef = useRef<HTMLDivElement | null>(null);
+  // Transação-alvo (veio do banco geral): acha a linha neste quadro — primeiro
+  // por data+valor+descrição exata; se não, relaxa pra data+valor.
+  const alvoIdx = useMemo(() => {
+    if (!alvoTx) return -1;
+    const vAlvo = Math.abs(Number(alvoTx.valor) || 0).toFixed(2);
+    const dAlvo = String(alvoTx.data || "");
+    const descAlvo = String(alvoTx.descricao || "").trim();
+    let i = txs.findIndex((t) => String(t.data || "") === dAlvo && Math.abs(Number(t.valor) || 0).toFixed(2) === vAlvo && String(t.descricao || "").trim() === descAlvo);
+    if (i < 0 && descAlvo === "") i = txs.findIndex((t) => String(t.data || "") === dAlvo && Math.abs(Number(t.valor) || 0).toFixed(2) === vAlvo);
+    return i;
+  }, [txs, alvoTx]);
+  useEffect(() => {
+    if (alvoIdx >= 0) {
+      const id = setTimeout(() => alvoRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 350);
+      return () => clearTimeout(id);
+    }
+  }, [alvoIdx]);
   const q = busca.trim().toLowerCase();
   const visiveis = q
     ? txs.filter((t) => `${t.data || ""} ${t.descricao || ""} ${Math.abs(Number(t.valor) || 0).toFixed(2)}`.toLowerCase().includes(q))
@@ -1259,8 +1409,10 @@ function QuadroExtrato({ p }: { p: any }) {
           <div className="columns-1 md:columns-2 2xl:columns-3 gap-x-6">
             {visiveis.map((t, i) => {
               const cat = categoria(t.descricao); const neg = Number(t.valor) < 0;
+              const ehAlvo = !busca && alvoIdx >= 0 && txs[alvoIdx] === t;
               return (
-                <div key={i} className="break-inside-avoid flex items-center gap-2 py-[3px] border-b border-white/[0.045] font-mono text-[11px] leading-tight">
+                <div key={i} ref={ehAlvo ? alvoRef : undefined}
+                  className={`break-inside-avoid flex items-center gap-2 py-[3px] font-mono text-[11px] leading-tight ${ehAlvo ? "bg-amber-400/15 ring-1 ring-amber-400/50 rounded-md px-1.5 -mx-1.5 border-b border-transparent" : "border-b border-white/[0.045]"}`}>
                   <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
                   <span className="text-muted-foreground tabular-nums shrink-0 w-[72px]">{t.data || "—"}</span>
                   <span className="truncate flex-1 text-foreground/75">{t.descricao}</span>
@@ -1855,7 +2007,7 @@ function InsightsView({ ins, dg, txs = [] }: { ins: any; dg?: any; txs?: any[] }
   );
 }
 
-function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel, onInsights, gerandoInsights, ocultarInsights }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void; onInsights?: () => void; gerandoInsights?: boolean; ocultarInsights?: boolean }) {
+function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reanalisando, onCancel, onInsights, gerandoInsights, ocultarInsights, alvoTx }: { a: Analise; flags: Flag[]; defaultAberto?: boolean; onRegenerar?: () => void; onReanalisar?: (docNames: string[]) => void; reanalisando?: boolean; onCancel?: () => void; onInsights?: () => void; gerandoInsights?: boolean; ocultarInsights?: boolean; alvoTx?: AlvoTx | null }) {
   const [aberto, setAberto] = useState(!!defaultAberto);
   const arquivos: Array<{ name?: string }> = Array.isArray(a.arquivos) ? a.arquivos : [];
   const parciais: any[] = Array.isArray(a.parciais) ? a.parciais : [];
@@ -1918,7 +2070,7 @@ function AnaliseCard({ a, flags, defaultAberto, onRegenerar, onReanalisar, reana
       {(quadros.length > 0 || pendentes.length > 0) && (
         <div className="space-y-3">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" /> Quadros por extrato</p>
-          {quadros.map((p, i) => <QuadroExtrato key={p.name || i} p={p} />)}
+          {quadros.map((p, i) => <QuadroExtrato key={p.name || i} p={p} alvoTx={alvoTx} />)}
           {pendentes.map((n) => (
             <div key={n} className="rounded-xl border border-primary/15 bg-primary/[0.03] p-4 flex items-center gap-2.5 text-[12px] text-muted-foreground">
               <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" /> Analisando <span className="text-foreground/80">{n}</span>…

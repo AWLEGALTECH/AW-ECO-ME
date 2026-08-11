@@ -249,15 +249,20 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     }).eq("id", analiseId);
 
     if (txs.length) {
-      const rows = txs.slice(0, 1200).map((t: any) => ({
+      // Banco de transações gerais: grava TODAS (teto de 6000; era 1200 e
+      // cortava análises grandes), em lotes de 500 pra não estourar payload.
+      const rows = txs.slice(0, 6000).map((t: any) => ({
         analise_id: analiseId, cliente_id: clienteId,
         data: normalizeDate(t.data),
         valor: Math.abs(Number(t.valor) || 0),
         sinal: Number(t.valor) >= 0 ? 1 : -1,
         saldo: null, descricao: t.descricao || null,
       }));
-      const { error: eTx } = await s.from("spy_transacao").insert(rows);
-      if (eTx) { for (const row of rows) { await s.from("spy_transacao").insert(row); } }
+      for (let i = 0; i < rows.length; i += 500) {
+        const lote = rows.slice(i, i + 500);
+        const { error: eTx } = await s.from("spy_transacao").insert(lote);
+        if (eTx) { for (const row of lote) { await s.from("spy_transacao").insert(row); } }
+      }
     }
 
     // Unicidade: esta análise passa a ser a ÚNICA do cliente.
