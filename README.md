@@ -74,3 +74,4 @@ E removendo (fora de escopo desta operação):
 - Atendimento (WhatsApp), CRM, Financeiro, Marketing
 - Publicações, Generator, Diligências, Agenda, PreProtocolo
 - Bot/CRM (segundo Supabase)
+
