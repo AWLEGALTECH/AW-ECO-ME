@@ -453,26 +453,55 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
   const [alturaVis, setAlturaVis] = useState(600);
   const [cols, setCols] = useState(4);
 
-  const { data: txs = [], isLoading } = useQuery({
-    queryKey: ["spy-banco-tx"],
-    staleTime: 60000,
-    queryFn: async (): Promise<any[]> => {
-      const { count } = await (supabase.from("spy_transacao" as any) as any).select("id", { count: "exact", head: true });
-      const total = count ?? 0;
-      const paginas: Promise<any[]>[] = [];
-      for (let de = 0; de < total; de += 1000) {
-        paginas.push((async () => {
+  // Carregamento PROGRESSIVO e resiliente: as linhas aparecem conforme chegam
+  // (dá pra usar e buscar no meio), 4 páginas de 1000 por rodada, retry por
+  // página — a falha de uma não derruba as demais (o tudo-em-paralelo antigo
+  // recomeçava do zero a cada falha e nunca terminava no 4G).
+  const [txs, setTxs] = useState<any[]>([]);
+  const [totalEsperado, setTotalEsperado] = useState(0);
+  const [carregandoBanco, setCarregandoBanco] = useState(true);
+  const [paginasFalhas, setPaginasFalhas] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    const pagina = async (de: number, ate: number): Promise<any[]> => {
+      for (let tent = 1; tent <= 3; tent++) {
+        try {
           const { data, error } = await (supabase.from("spy_transacao" as any) as any)
             .select("id, cliente_id, data, valor, sinal, descricao")
             .order("data", { ascending: false }).order("id", { ascending: true })
-            .range(de, Math.min(de + 999, total - 1));
+            .range(de, ate);
           if (error) throw error;
           return data || [];
-        })());
+        } catch (_e) {
+          if (tent === 3) { if (vivo) setPaginasFalhas((n) => n + 1); return []; }
+          await new Promise((r) => setTimeout(r, 700 * tent));
+        }
       }
-      return (await Promise.all(paginas)).flat();
-    },
-  });
+      return [];
+    };
+    (async () => {
+      try {
+        const { count } = await (supabase.from("spy_transacao" as any) as any).select("id", { count: "exact", head: true });
+        const total = count ?? 0;
+        if (!vivo) return;
+        setTotalEsperado(total);
+        const out: any[] = [];
+        for (let de = 0; de < total && vivo; de += 4000) {
+          const rodada: Promise<any[]>[] = [];
+          for (let ini2 = de; ini2 < Math.min(de + 4000, total); ini2 += 1000) {
+            rodada.push(pagina(ini2, Math.min(ini2 + 999, total - 1)));
+          }
+          const partes = await Promise.all(rodada);
+          out.push(...partes.flat());
+          if (vivo) setTxs(out.slice());
+        }
+      } finally {
+        if (vivo) setCarregandoBanco(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, []);
+  const isLoading = carregandoBanco && txs.length === 0;
 
   const clientePor = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
   const enriquecidas = useMemo(() => txs.map((t: any) => {
@@ -528,7 +557,12 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
           </button>
           <h2 className="text-xl font-semibold tracking-tight mt-1.5 flex items-center gap-2">
             <ArrowLeftRight className="h-5 w-5 text-primary" /> Banco de transações
-            <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({txs.length.toLocaleString("pt-BR")})</span>
+            <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({(totalEsperado || txs.length).toLocaleString("pt-BR")})</span>
+            {carregandoBanco && txs.length > 0 && (
+              <span className="font-mono text-[11px] font-normal text-primary/80 tabular-nums inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> {txs.length.toLocaleString("pt-BR")} carregadas…
+              </span>
+            )}
           </h2>
           <p className="text-[12.5px] text-muted-foreground mt-0.5">
             {busca ? `${filtradas.length.toLocaleString("pt-BR")} de ${txs.length.toLocaleString("pt-BR")} transações` : "Todas as transações monitoradas"} · leitura em colunas, de cima pra baixo · clique para abrir o cliente
@@ -585,7 +619,8 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
             </div>
           </div>
           <p className="text-center pt-2.5 pb-0.5 text-[10.5px] font-mono text-muted-foreground/60">
-            {filtradas.length.toLocaleString("pt-BR")} transação(ões) no total — role para percorrer todas
+            {filtradas.length.toLocaleString("pt-BR")} transação(ões) — role para percorrer todas
+            {paginasFalhas > 0 && <span className="text-amber-400/80"> · {paginasFalhas} bloco(s) não carregaram, recarregue a página</span>}
           </p>
         </div>
       )}
