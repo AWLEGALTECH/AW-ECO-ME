@@ -354,6 +354,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   // Mantém a tela de análise aberta entre o fim da extração e o "Cruzar dados".
   const [posAnalise, setPosAnalise] = useState(false);
   const [gerandoInsights, setGerandoInsights] = useState(false);
+  // Ponte entre "invoquei o motor" e "o poll viu a análise processando": sem
+  // isso o radar desmonta e remonta (piscava) no vão entre os dois estados.
+  const [aguardaMotor, setAguardaMotor] = useState(false);
+  const invocouEmRef = useRef(0);
   const preRef = useRef<string | null>(null);
 
   const pastaId = drivePastaId(cliente);
@@ -407,6 +411,31 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const concluidas = analises.filter((a) => a.status === "concluida");
   const erroAnalise = analises.find((a) => a.status === "erro") || null;
   const ultima = concluidas[0] || null;
+
+  // Solta a ponte quando o poll enxerga a análise (processando, ou já concluída
+  // se o motor foi mais rápido que o intervalo do poll).
+  useEffect(() => {
+    if (!aguardaMotor) return;
+    const processando = analises.some((a) => a.status === "processando");
+    const terminouDepois = analises.some((a) => a.status !== "processando" && new Date((a as any).updated_at || a.created_at).getTime() >= invocouEmRef.current);
+    if (processando || terminouDepois) setAguardaMotor(false);
+  }, [analises, aguardaMotor]);
+  useEffect(() => {
+    if (!aguardaMotor) return;
+    const id = setTimeout(() => setAguardaMotor(false), 30000); // trava de segurança
+    return () => clearTimeout(id);
+  }, [aguardaMotor]);
+
+  // % real da extração: o nº de quadros prontos (parciais) sobre o nº de
+  // extratos enviados — não depende do pct que o servidor grava por janela.
+  const pctDe = (a: Analise | null) => {
+    if (!a) return null;
+    const total = (Array.isArray(a.arquivos) ? a.arquivos : []).length;
+    const prontos = (Array.isArray(a.parciais) ? a.parciais : []).length;
+    const doServidor = Math.min(100, Math.max(0, Number(a.progresso?.pct) || 0));
+    const daContagem = total > 0 ? Math.round((prontos / total) * 100) : 0;
+    return Math.min(99, Math.max(doServidor, daContagem)); // 100 só quando concluir
+  };
 
   const { data: flags = [] } = useQuery({
     queryKey: ["spy-flags", cliente.id],
@@ -486,6 +515,8 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       if (error) { toast.error("Não consegui iniciar a análise."); return; }
       setMostrarDocs(false);
       setPosAnalise(true); // segue na tela de análise: radar → quadros → cruzar dados
+      invocouEmRef.current = Date.now();
+      setAguardaMotor(true); // segura o radar até o poll enxergar a análise
       qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
       const novoId = (data as any)?.analise_id || null;
       if (novoId) setFoco(novoId);
@@ -559,9 +590,9 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
 
   // ── TELA DE ANÁLISE (estilo Finder): anexar → radar (extração) → quadros →
   // cruzar dados (página hacker) → volta ao perfil com a ficha no topo. ────────
-  if (mostrarDocs || enviando || rodando || posAnalise) {
-    const sair = () => { setMostrarDocs(false); setPosAnalise(false); };
-    const fase = gerandoInsights ? "hacker" : (enviando || rodando) ? "radar" : mostrarDocs ? "picker" : ultima ? "quadros" : "vazio";
+  if (mostrarDocs || enviando || rodando || posAnalise || aguardaMotor) {
+    const sair = () => { setMostrarDocs(false); setPosAnalise(false); setAguardaMotor(false); };
+    const fase = gerandoInsights ? "hacker" : (enviando || rodando || aguardaMotor) ? "radar" : mostrarDocs ? "picker" : ultima ? "quadros" : "vazio";
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -578,8 +609,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
           ) : fase === "radar" ? (
             <TelaRadar
               nome={cliente.nome}
-              detalhe={enviando ? (preparo || "Preparando os extratos…") : (rodando?.progresso?.detalhe || "Analisando…")}
-              pct={rodando ? Math.min(100, Math.max(0, Number(rodando.progresso?.pct) || 0)) : null}
+              detalhe={rodando
+                ? `${(Array.isArray(rodando.parciais) ? rodando.parciais.length : 0)} de ${(Array.isArray(rodando.arquivos) ? rodando.arquivos.length : 0)} extratos mapeados`
+                : enviando ? (preparo || "Preparando os extratos…") : "Iniciando o motor…"}
+              pct={pctDe(rodando)}
               desde={rodando?.created_at || null}
               onCancel={rodando ? () => { cancelarAnalise(rodando.id); sair(); } : undefined}
             />
@@ -922,52 +955,71 @@ function FichaCliente({ ficha }: { ficha: Ficha }) {
   const responsavel = ficha.fechamento?.responsavel || null;
 
   const socio: Record<string, any> = ficha.socio || {};
-  const socioItens = SOCIO_CAMPOS
-    .filter((c) => { const v = socio[c.key]; return v !== undefined && v !== null && String(v).trim() !== ""; })
-    .map((c) => ({ key: c.key, label: c.label, valor: c.fmt ? c.fmt(String(socio[c.key])) : String(socio[c.key]) }));
-  const temSocio = socioItens.length > 0;
+  const v = (k: string) => { const x = socio[k]; return x === undefined || x === null || String(x).trim() === "" ? null : String(x).trim(); };
+  const fmtRenda = SOCIO_CAMPOS[0].fmt!;
   const obs = String(socio.observacoes_livres || "").trim();
+  const saude = v("condicao_saude");
 
-  const saude = String(socio.condicao_saude || "").trim();
+  // Mesmo destaque dos cards extraídos dos extratos, mas em tom próprio (azul)
+  // porque a fonte é outra: o próprio cliente.
+  const SocioCard = ({ icon: I, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) => (
+    <div className="rounded-2xl border border-sky-400/[0.14] bg-sky-400/[0.025] p-4 flex items-start gap-3.5">
+      <span className="h-11 w-11 rounded-xl bg-sky-400/[0.08] ring-1 ring-sky-400/20 text-sky-400 flex items-center justify-center shrink-0"><I className="h-5 w-5" /></span>
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[19px] font-semibold text-foreground leading-tight mt-0.5 truncate">{value}</p>
+        {sub && <p className="text-[11.5px] text-muted-foreground mt-1 leading-snug line-clamp-2">{sub}</p>}
+      </div>
+    </div>
+  );
+
+  const cards: Array<{ icon: LucideIcon; label: string; value: string; sub?: string }> = [];
+  if (v("renda_mensal")) cards.push({ icon: Banknote, label: "Renda mensal (informada)", value: fmtRenda(v("renda_mensal")!) });
+  if (v("idade")) cards.push({ icon: CalendarDays, label: "Idade", value: `${v("idade")} anos` });
+  if (v("escolaridade")) cards.push({ icon: GraduationCap, label: "Escolaridade", value: v("escolaridade")! });
+  if (v("numero_filhos")) cards.push({ icon: Users, label: "Filhos", value: v("numero_filhos")!, sub: v("idades_filhos") ? `idades: ${v("idades_filhos")}` : undefined });
+  if (v("tipo_moradia")) cards.push({ icon: Home, label: "Moradia", value: capitalizar(v("tipo_moradia")) });
+  if (v("unico_provedor")) cards.push({
+    icon: Scale, label: "Único provedor", value: capitalizar(v("unico_provedor")),
+    sub: [v("conjuge_trabalha") ? `cônjuge trabalha: ${v("conjuge_trabalha")}` : null, v("outros_dependentes") ? `outros dependentes: ${v("outros_dependentes")}` : null].filter(Boolean).join(" · ") || undefined,
+  });
+  if (saude && !/^n[aã]o$/i.test(saude)) cards.push({ icon: HeartPulse, label: "Saúde", value: saude });
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 space-y-2.5 text-[13px]">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
-        <span className="inline-flex items-center gap-1.5">
-          <Scale className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-muted-foreground">Requerido:</span>
-          <span className={parteRequerida ? "text-foreground/90" : "text-muted-foreground"}>{parteRequerida || "não informado"}</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-muted-foreground">Assinado:</span>
-          <span className={dataAssin ? "text-foreground/90" : "text-muted-foreground"}>
-            {dataAssin ? (responsavel ? `${dataAssin} · com ${responsavel}` : dataAssin) : "não informado"}
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-3 text-[13px]">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
+          <span className="inline-flex items-center gap-1.5">
+            <Scale className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Requerido:</span>
+            <span className={parteRequerida ? "text-foreground/90" : "text-muted-foreground"}>{parteRequerida || "não informado"}</span>
           </span>
-        </span>
+          <span className="inline-flex items-center gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">Assinado:</span>
+            <span className={dataAssin ? "text-foreground/90" : "text-muted-foreground"}>
+              {dataAssin ? (responsavel ? `${dataAssin} · com ${responsavel}` : dataAssin) : "não informado"}
+            </span>
+          </span>
+        </div>
       </div>
 
-      <div className="border-t border-white/[0.06] pt-2.5">
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1.5 mr-3 align-middle">
-          <ClipboardList className="h-3.5 w-3.5" /> Socioeconômico
-        </span>
-        {temSocio ? (
-          <span className="inline-flex flex-wrap gap-x-4 gap-y-1 align-middle text-[12.5px]">
-            {socioItens.filter((i) => i.key !== "condicao_saude").map((i) => (
-              <span key={i.key} className="inline-flex items-center gap-1">
-                <span className="text-muted-foreground">{i.label}:</span>
-                <span className="text-foreground/90">{i.valor}</span>
-              </span>
-            ))}
-          </span>
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1.5">
+            <ClipboardList className="h-3.5 w-3.5" /> Socioeconômico
+          </p>
+          <span className="text-[9px] px-1.5 py-px rounded-full ring-1 text-sky-400 ring-sky-400/25 bg-sky-400/10">informado pelo cliente</span>
+        </div>
+        {cards.length > 0 ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {cards.map((c, i) => <SocioCard key={i} {...c} />)}
+            </div>
+            {obs && <p className="text-[12px] text-muted-foreground mt-2"><span className="text-foreground/70">Obs.:</span> {obs}</p>}
+          </>
         ) : (
-          <span className="text-muted-foreground">o cliente não preencheu ainda.</span>
-        )}
-        {(saude || obs) && (
-          <div className="mt-1.5 space-y-0.5">
-            {saude && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Saúde:</span> {saude}</p>}
-            {obs && <p className="text-[12px] text-muted-foreground"><span className="text-foreground/70">Obs.:</span> {obs}</p>}
-          </div>
+          <p className="text-[12.5px] text-muted-foreground rounded-xl border border-dashed border-white/[0.1] px-4 py-3">O cliente ainda não preencheu o formulário socioeconômico.</p>
         )}
       </div>
     </div>
@@ -1022,9 +1074,9 @@ function HackerFeed({ linhas }: { linhas: string[] }) {
   const vis: string[] = [];
   for (let k = 13; k >= 0; k--) { const idx = i - k; if (idx >= 0) vis.push(linhas[idx % linhas.length]); }
   return (
-    <div className="spy-hack relative rounded-xl border border-emerald-500/20 bg-black/60 font-mono text-[11px] leading-relaxed p-3.5 h-64 overflow-hidden w-full max-w-lg">
+    <div className="spy-hack relative rounded-xl border border-white/[0.08] bg-black/40 font-mono text-[11px] leading-relaxed p-3.5 h-64 overflow-hidden w-full max-w-lg">
       {vis.map((l, k) => (
-        <p key={i - (vis.length - 1 - k)} className={`truncate ${k === vis.length - 1 ? "text-emerald-300" : k >= vis.length - 4 ? "text-emerald-400/70" : "text-emerald-500/35"}`}>▸ {l}</p>
+        <p key={i - (vis.length - 1 - k)} className={`truncate ${k === vis.length - 1 ? "text-emerald-400/75" : k >= vis.length - 4 ? "text-emerald-400/40" : "text-muted-foreground/30"}`}>▸ {l}</p>
       ))}
     </div>
   );
@@ -1042,8 +1094,8 @@ function TelaHacker({ a }: { a: Analise }) {
     return out;
   }, [a.id]);
   return (
-    <div className="spy-scan relative overflow-hidden rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.02] spy-grid min-h-[460px] flex flex-col items-center justify-center gap-5 p-8">
-      <RadarViz size={110} className="text-emerald-400" />
+    <div className="spy-scan relative overflow-hidden rounded-2xl border border-emerald-500/15 bg-transparent spy-grid min-h-[460px] flex flex-col items-center justify-center gap-5 p-8">
+      <RadarViz size={110} className="text-emerald-400/70" />
       <div className="text-center">
         <p className="text-lg font-semibold tracking-tight">Cruzando dados</p>
         <p className="text-[13px] text-muted-foreground mt-1">A IA está processando as {a.n_transacoes ?? linhas.length} transações e montando a ficha do cliente…</p>
@@ -1056,7 +1108,12 @@ function TelaHacker({ a }: { a: Analise }) {
 // Quadro de UM extrato (isolado): mapeamento NEUTRO de TODAS as transações, num
 // grid denso estilo terminal financeiro, em múltiplas colunas (não empilha tudo).
 function QuadroExtrato({ p }: { p: any }) {
+  const [busca, setBusca] = useState("");
   const txs: any[] = Array.isArray(p?.transacoes) ? p.transacoes : [];
+  const q = busca.trim().toLowerCase();
+  const visiveis = q
+    ? txs.filter((t) => `${t.data || ""} ${t.descricao || ""} ${Math.abs(Number(t.valor) || 0).toFixed(2)}`.toLowerCase().includes(q))
+    : txs;
   const entradas = txs.reduce((s, t) => s + (Number(t.valor) > 0 ? Number(t.valor) : 0), 0);
   const saidas = txs.reduce((s, t) => s + (Number(t.valor) < 0 ? Math.abs(Number(t.valor)) : 0), 0);
   const res = entradas - saidas;
@@ -1086,9 +1143,27 @@ function QuadroExtrato({ p }: { p: any }) {
       </div>
 
       {txs.length > 0 && (
+        <div className="px-3 pt-2.5 flex items-center gap-2">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar transação…"
+              className="w-full h-8 rounded-md border border-white/[0.08] bg-white/[0.02] pl-8 pr-7 text-[12px] font-mono outline-none focus:border-primary/40 placeholder:text-muted-foreground/60"
+            />
+            {busca && (
+              <button onClick={() => setBusca("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+            )}
+          </div>
+          {q && <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{visiveis.length} de {txs.length}</span>}
+        </div>
+      )}
+      {txs.length > 0 && (
         <div className="max-h-[70vh] overflow-y-auto scrollbar-thin p-3">
+          {visiveis.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground text-center py-6">Nenhuma transação bate com "{busca}".</p>
+          ) : (
           <div className="columns-1 md:columns-2 2xl:columns-3 gap-x-6">
-            {txs.map((t, i) => {
+            {visiveis.map((t, i) => {
               const cat = categoria(t.descricao); const neg = Number(t.valor) < 0;
               return (
                 <div key={i} className="break-inside-avoid flex items-center gap-2 py-[3px] border-b border-white/[0.045] font-mono text-[11px] leading-tight">
@@ -1100,6 +1175,7 @@ function QuadroExtrato({ p }: { p: any }) {
               );
             })}
           </div>
+          )}
         </div>
       )}
     </div>
@@ -1123,6 +1199,60 @@ const MARCO_LABEL: Record<string, string> = {
   maior_concentracao_de_dividas: "Maior concentração de dívidas",
 };
 const capitalizar = (s: any) => { const t = String(s || "").trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ""; };
+
+// Logos das instituições: favicon do site oficial (serviço público do Google).
+// Se não carregar, cai no ícone pintado com a cor da marca.
+const INST_MARCA: Record<string, { dominio: string; cor: string }> = {
+  "Bradesco": { dominio: "bradesco.com.br", cor: "#CC092F" },
+  "Itaú": { dominio: "itau.com.br", cor: "#EC7000" },
+  "Santander": { dominio: "santander.com.br", cor: "#EC0000" },
+  "Caixa Econômica": { dominio: "caixa.gov.br", cor: "#0070AF" },
+  "Banco do Brasil": { dominio: "bb.com.br", cor: "#F8D117" },
+  "Banco Inter": { dominio: "bancointer.com.br", cor: "#FF7A00" },
+  "C6 Bank": { dominio: "c6bank.com.br", cor: "#9AA1A9" },
+  "Nubank": { dominio: "nubank.com.br", cor: "#820AD1" },
+  "PagBank": { dominio: "pagbank.com.br", cor: "#01AA3C" },
+  "Mercado Pago": { dominio: "mercadopago.com.br", cor: "#00AEEF" },
+  "PicPay": { dominio: "picpay.com", cor: "#21C25E" },
+  "Neon": { dominio: "neon.com.br", cor: "#00A5EB" },
+  "Will Bank": { dominio: "willbank.com.br", cor: "#FFD500" },
+  "Crefisa": { dominio: "crefisa.com.br", cor: "#00539F" },
+  "Agibank": { dominio: "agibank.com.br", cor: "#0090FF" },
+  "BMG": { dominio: "bancobmg.com.br", cor: "#FF6900" },
+  "Banco Pan": { dominio: "bancopan.com.br", cor: "#00B4E5" },
+  "Facta": { dominio: "facta.com.br", cor: "#00A859" },
+  "Losango": { dominio: "losango.com.br", cor: "#E30613" },
+  "Omni": { dominio: "omni.com.br", cor: "#F58220" },
+  "Credsystem": { dominio: "credsystem.com.br", cor: "#E4002B" },
+  "Midway (Riachuelo)": { dominio: "midway.com.br", cor: "#00A5A8" },
+  "Riachuelo": { dominio: "riachuelo.com.br", cor: "#00A5A8" },
+  "Renner/Realize": { dominio: "lojasrenner.com.br", cor: "#C8102E" },
+  "Pernambucanas": { dominio: "pernambucanas.com.br", cor: "#F26522" },
+  "Casas Bahia": { dominio: "casasbahia.com.br", cor: "#1A4A9E" },
+  "Magalu/Luizacred": { dominio: "magazineluiza.com.br", cor: "#0086FF" },
+  "Carrefour": { dominio: "carrefour.com.br", cor: "#004E9F" },
+  "Sicoob": { dominio: "sicoob.com.br", cor: "#003641" },
+  "Sicredi": { dominio: "sicredi.com.br", cor: "#3FA110" },
+  "Banco BV": { dominio: "bv.com.br", cor: "#243BFF" },
+  "Daycoval": { dominio: "daycoval.com.br", cor: "#00437A" },
+  "Safra": { dominio: "safra.com.br", cor: "#06357A" },
+};
+function LogoBanco({ nome }: { nome: string }) {
+  const [erro, setErro] = useState(false);
+  const marca = INST_MARCA[nome];
+  if (!marca || erro) {
+    return (
+      <span className="h-9 w-9 rounded-lg bg-white/[0.04] ring-1 ring-white/[0.1] flex items-center justify-center shrink-0" style={marca ? { color: marca.cor } : undefined}>
+        <Landmark className={`h-4 w-4 ${marca ? "" : "text-primary"}`} />
+      </span>
+    );
+  }
+  return (
+    <span className="h-9 w-9 rounded-lg bg-white ring-1 ring-white/15 flex items-center justify-center shrink-0 overflow-hidden">
+      <img src={`https://www.google.com/s2/favicons?domain=${marca.dominio}&sz=64`} alt={nome} loading="lazy" className="h-[22px] w-[22px] object-contain" onError={() => setErro(true)} />
+    </span>
+  );
+}
 const marcoLabel = (m: any) => MARCO_LABEL[String(m || "")] || capitalizar(String(m || "").replace(/_/g, " "));
 const fmtQuando = (q: any) => {
   const s = String(q || "").trim();
@@ -1256,18 +1386,24 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
         <Sec icon={TrendingUp} title="Ciclo do endividamento">
           <p className="text-[11.5px] text-muted-foreground mb-3.5">A ordem dos acontecimentos no extrato: quando começou, como evoluiu e onde chegou.</p>
           <div>
-            {linha.map((m, i) => (
+            {linha.map((m, i) => {
+              // do amarelo (início) ao vermelho (auge do endividamento)
+              const f = linha.length > 1 ? i / (linha.length - 1) : 1;
+              const cor = f < 0.34 ? "bg-amber-400/10 ring-amber-400/30 text-amber-400" : f < 0.67 ? "bg-orange-400/10 ring-orange-400/30 text-orange-400" : "bg-rose-500/10 ring-rose-500/30 text-rose-400";
+              const trilho = f < 0.34 ? "bg-amber-400/25" : f < 0.67 ? "bg-orange-400/25" : "bg-rose-500/25";
+              return (
               <div key={i} className="flex gap-3">
                 <div className="flex flex-col items-center">
-                  <span className="h-6 w-6 rounded-full bg-primary/10 ring-1 ring-primary/25 text-primary text-[11px] font-semibold flex items-center justify-center shrink-0">{i + 1}</span>
-                  {i < linha.length - 1 && <span className="w-px flex-1 bg-white/[0.08] my-1" />}
+                  <span className={`h-6 w-6 rounded-full ring-1 text-[11px] font-semibold flex items-center justify-center shrink-0 ${cor}`}>{i + 1}</span>
+                  {i < linha.length - 1 && <span className={`w-px flex-1 my-1 ${trilho}`} />}
                 </div>
                 <div className={`min-w-0 ${i < linha.length - 1 ? "pb-4" : ""}`}>
                   <p className="text-[12.5px] font-medium text-foreground">{marcoLabel(m.marco)} <span className="text-[11px] font-normal text-muted-foreground tabular-nums">· {fmtQuando(m.quando)}</span></p>
                   <p className="text-[12px] text-foreground/75 leading-relaxed">{m.detalhe}</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </Sec>
       )}
@@ -1278,7 +1414,7 @@ function InsightsView({ ins, dg }: { ins: any; dg?: any }) {
           <div className="divide-y divide-white/[0.05]">
             {instituicoes.map((i, k) => (
               <div key={k} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                <span className="h-9 w-9 rounded-lg bg-primary/[0.08] ring-1 ring-primary/15 text-primary flex items-center justify-center shrink-0"><Landmark className="h-4 w-4" /></span>
+                <LogoBanco nome={i.nome} />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium text-foreground truncate">{i.nome}</p>
                   <p className="text-[11px] text-muted-foreground">{capitalizar(i.tipo)}{i.recorrencia ? ` · ${i.recorrencia}` : ""}</p>

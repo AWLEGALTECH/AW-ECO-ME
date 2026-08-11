@@ -84,11 +84,23 @@ const catDe = (d: string) => { for (const c of CATS) if (c.re.test(d)) return c.
 
 const dias = (a: string, b: string) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
 const norm = (s: string) => s.toUpperCase().replace(/\d{2}\/\d{2}/g, "").replace(/[0-9*./-]{4,}/g, "").replace(/\s+/g, " ").trim();
+// Prefixos operacionais do histórico ("PIX QR CODE DINAMICO DES:", "COMPRA ELO
+// DEBITO VISTA"...) poluem os nomes de lojas/contrapartes — sai só o nome.
+const RE_PREFIXO_TX = /^\s*(?:TRANSFERENCIA PIX (?:DES|DEST|REM)\.?:?|PIX QR CODE (?:DINAMICO|ESTATICO) DES\.?:?|COMPRA ELO (?:DEBITO|CREDITO) VISTA|PAGTO ELETRON(?:ICO)? COBRANCA|PAGTO ELETRONICO|COMPRA CARTAO|TED-TRANSF ELET DISPON REMET\.?:?|DOC\/TED)\s*/i;
+const semPrefixo = (d: string) => { let s = d; for (let i = 0; i < 3; i++) { const n = s.replace(RE_PREFIXO_TX, ""); if (n === s) break; s = n; } return s; };
 
 interface Tx { data: string | null; descricao: string; valor: number }
 
 // ── CAMADA A: digest determinístico (todo número citado nasce aqui) ──────────
-function montarDigest(txs: Tx[], headers: string[] = []) {
+function montarDigest(txs: Tx[], headers: string[] = [], nomeCliente = "") {
+  // Palavras do nome do cliente: PIX entre contas da própria pessoa não é
+  // "relação" — sai das contrapartes.
+  const nomeNorm = norm(nomeCliente);
+  const ehProprioNome = (k: string) => {
+    if (!nomeNorm) return false;
+    const duas = k.split(" ").slice(0, 2).join(" ");
+    return duas.length >= 6 && nomeNorm.includes(duas);
+  };
   const comData = txs.filter((t) => t.data).sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const periodo = comData.length ? { de: comData[0].data, ate: comData[comData.length - 1].data } : { de: null, ate: null };
 
@@ -165,7 +177,7 @@ function montarDigest(txs: Tx[], headers: string[] = []) {
     const m = t.descricao.match(/(?:DES|REM|DEST)\.?:?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .]{2,40})/);
     if (!m) continue;
     const k = norm(m[1]).slice(0, 40);
-    if (!k || k.length < 3) continue;
+    if (!k || k.length < 3 || ehProprioNome(k)) continue;
     const c = contrapartes.get(k) || { enviado: 0, recebido: 0, n: 0 };
     c.n++; if (t.valor < 0) c.enviado += Math.abs(t.valor); else c.recebido += t.valor;
     contrapartes.set(k, c);
@@ -179,7 +191,7 @@ function montarDigest(txs: Tx[], headers: string[] = []) {
     if (t.valor >= 0) continue;
     const cat = catDe(t.descricao);
     if (!["alimentacao", "transporte", "saude", "telecom"].includes(cat)) continue;
-    const k = norm(t.descricao.replace(/COMPRA ELO DEBITO VISTA|PAGTO ELETRONICO|COMPRA CARTAO/gi, "")).slice(0, 45);
+    const k = norm(semPrefixo(t.descricao)).slice(0, 45);
     if (!k) continue;
     const m = (porCat[cat] ||= new Map());
     const e = m.get(k) || { n: 0, total: 0 };
@@ -295,7 +307,7 @@ function montarDigest(txs: Tx[], headers: string[] = []) {
     const m = new Map<string, { n: number; total: number; primeiro: any; ultimo: any }>();
     for (const t of comData) {
       if (t.valor >= 0 || !re.test(t.descricao)) continue;
-      const k = norm(t.descricao.replace(/COMPRA ELO DEBITO VISTA|PAGTO ELETRONICO|COMPRA CARTAO/gi, "")).slice(0, 45);
+      const k = norm(semPrefixo(t.descricao)).slice(0, 45);
       if (!k) continue;
       const e = m.get(k) || { n: 0, total: 0, primeiro: t.data, ultimo: t.data };
       e.n++; e.total += Math.abs(t.valor); e.ultimo = t.data; m.set(k, e);
@@ -320,7 +332,7 @@ function montarDigest(txs: Tx[], headers: string[] = []) {
   const telecomTx = comData.filter((t) => t.valor < 0 && /CLARO|VIVO|\bTIM\b|\bOI\b|INTERNET|TELEFONE|CONTA DE TELEFONE|NET SERV|SKY\b/i.test(t.descricao));
   const telecomMap = new Map<string, { n: number; total: number; valores: number[] }>();
   for (const t of telecomTx) {
-    const k = norm(t.descricao).slice(0, 40) || "TELECOM";
+    const k = norm(semPrefixo(t.descricao)).slice(0, 40) || "TELECOM";
     const e = telecomMap.get(k) || { n: 0, total: 0, valores: [] };
     e.n++; e.total += Math.abs(t.valor); e.valores.push(Math.abs(t.valor)); telecomMap.set(k, e);
   }
@@ -504,7 +516,8 @@ Deno.serve(async (req: Request) => {
 
     // CAMADA A: digest por código.
     const headers = parciais.map((p) => String(p?.header || "")).filter(Boolean);
-    const digest = montarDigest(txs, headers);
+    const { data: cli } = await s.from("clientes").select("nome").eq("id", clienteId).maybeSingle();
+    const digest = montarDigest(txs, headers, String(cli?.nome || ""));
 
     // CAMADA B: 1 chamada.
     const insights = await openaiCall(`${PROMPT_INSIGHTS}\n\n=== DIGEST (computado por código, números exatos) ===\n${JSON.stringify(digest)}`, 90000);
