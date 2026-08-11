@@ -241,8 +241,8 @@ function Lobby({ clientes, analises, comPasta, onModo }: {
         </div>
         <div className="relative p-6">
           <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-[0.22em]">
-            <span className="inline-flex items-center gap-2 text-primary/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" /> Sala de operações
+            <span className="inline-flex items-center text-primary/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary spy-blip" />
             </span>
             <span className="text-muted-foreground/50 hidden sm:block">AW Spy · uso interno</span>
           </div>
@@ -425,6 +425,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
   const [foco, setFoco] = useState<string | null>(initialFoco || null);
   const [enviando, setEnviando] = useState(false);
   const [preparo, setPreparo] = useState<string | null>(null);
+  const [preparoPct, setPreparoPct] = useState(0); // avanço da leitura local dos PDFs
   const [reanalisando, setReanalisando] = useState(false);
   // Mantém a tela de análise aberta entre o fim da extração e o "Cruzar dados".
   const [posAnalise, setPosAnalise] = useState(false);
@@ -555,6 +556,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       for (let i = 0; i < escolhidos.length; i++) {
         const f = escolhidos[i];
         setPreparo(`Lendo ${f.name} (${i + 1}/${escolhidos.length})`);
+        setPreparoPct(Math.round((i / escolhidos.length) * 100));
         try {
           const resp = await supabase.functions.invoke("fetch-drive-file", { body: { file_id: f.id } });
           if (resp.error) throw resp.error;
@@ -586,6 +588,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
       }
       if (ilegiveis.length) toast.warning(`${ilegiveis.length} extrato(s) sem texto legível foram ignorados: ${ilegiveis.join(", ")}`);
       setPreparo("Iniciando análise…");
+      setPreparoPct(100);
       const { data, error } = await supabase.functions.invoke("spy-analisar", { body: { cliente_id: cliente.id, arquivos, created_by: userId } });
       if (error) { toast.error("Não consegui iniciar a análise."); return; }
       setMostrarDocs(false);
@@ -598,6 +601,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     } finally {
       setEnviando(false);
       setPreparo(null);
+      setPreparoPct(0);
     }
   };
 
@@ -690,7 +694,7 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
               detalhe={rodando
                 ? `${(Array.isArray(rodando.parciais) ? rodando.parciais.length : 0)} de ${(Array.isArray(rodando.arquivos) ? rodando.arquivos.length : 0)} extratos mapeados`
                 : enviando ? (preparo || "Preparando os extratos…") : "Iniciando o motor…"}
-              pct={pctDe(rodando)}
+              pct={rodando ? pctDe(rodando) : enviando ? preparoPct : null}
               desde={rodando?.created_at || null}
               onCancel={rodando ? () => { cancelarAnalise(rodando.id); sair(); } : undefined}
             />
