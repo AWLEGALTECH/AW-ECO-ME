@@ -437,15 +437,21 @@ function LobbyLista({ modo, clientes, analises, onBack, onOpen }: {
   );
 }
 
-// ── Banco de transações gerais: TUDO na tela, em colunas de jornal ───────────
-// Carrega o banco inteiro em PARALELO (páginas de 1000 simultâneas) e renderiza
-// em blocos automáticos até a última linha — nada de "carregar mais" nem scroll
-// que para no meio. Busca instantânea em memória sobre o conjunto completo.
+// ── Banco de transações gerais: colunas de jornal VIRTUALIZADAS ──────────────
+// Todos os dados ficam em memória (busca completa e instantânea), mas o DOM só
+// desenha as linhas visíveis na janela de rolagem — leve mesmo com dezenas de
+// milhares. Colunas calculadas na mão: coluna 1 = primeiro quarto da lista,
+// coluna 2 = o seguinte... (lê-se de cima pra baixo e segue pro topo da próxima).
+const LINHA_H = 24; // altura fixa de cada linha (px) — chave da virtualização
 function BancoTransacoes({ clientes, onBack, onAbrir }: {
   clientes: Cliente[]; onBack: () => void; onAbrir: (c: Cliente, alvo: AlvoTx) => void;
 }) {
   const [busca, setBusca] = useState("");
-  const [renderCap, setRenderCap] = useState(2500);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [alturaVis, setAlturaVis] = useState(600);
+  const [cols, setCols] = useState(4);
 
   const { data: txs = [], isLoading } = useQuery({
     queryKey: ["spy-banco-tx"],
@@ -483,15 +489,34 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
     return q ? enriquecidas.filter((t) => t.blob.includes(q)) : enriquecidas;
   }, [enriquecidas, busca]);
 
-  // Renderização progressiva AUTOMÁTICA: blocos de 2500 até mostrar TODAS,
-  // sem depender de scroll nem clique.
-  useEffect(() => { setRenderCap(2500); }, [busca, txs.length]);
+  // Mede a janela e decide o nº de colunas pelo espaço real.
   useEffect(() => {
-    if (renderCap >= filtradas.length) return;
-    const t = setTimeout(() => setRenderCap((c) => c + 2500), 60);
-    return () => clearTimeout(t);
-  }, [renderCap, filtradas.length]);
-  const visiveis = filtradas.slice(0, renderCap);
+    const el = scrollRef.current;
+    if (!el) return;
+    const medir = () => {
+      setAlturaVis(el.clientHeight || 600);
+      const w = el.clientWidth || 1200;
+      setCols(w > 1500 ? 4 : w > 1050 ? 3 : w > 680 ? 2 : 1);
+    };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLoading]);
+
+  // Rolagem com rAF (uma atualização por frame, sem engasgo).
+  const onScroll = () => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      setScrollTop(scrollRef.current?.scrollTop || 0);
+    });
+  };
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); setScrollTop(0); }, [busca]);
+
+  const porColuna = cols > 0 ? Math.ceil(filtradas.length / cols) : 0;
+  const i0 = Math.max(0, Math.floor(scrollTop / LINHA_H) - 12);
+  const i1 = Math.min(porColuna, Math.ceil((scrollTop + alturaVis) / LINHA_H) + 12);
   const fmtD = (d: any) => { const pp = String(d || "").split("-"); return pp.length === 3 ? `${pp[2]}/${pp[1]}/${pp[0].slice(2)}` : "—"; };
 
   return (
@@ -506,7 +531,7 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
             <span className="font-mono text-[13px] font-normal text-muted-foreground tabular-nums">({txs.length.toLocaleString("pt-BR")})</span>
           </h2>
           <p className="text-[12.5px] text-muted-foreground mt-0.5">
-            {busca ? `${filtradas.length.toLocaleString("pt-BR")} transação(ões) encontrada(s)` : "Todas as transações monitoradas"} · leitura em colunas, de cima pra baixo · clique para abrir o cliente com a transação destacada
+            {busca ? `${filtradas.length.toLocaleString("pt-BR")} de ${txs.length.toLocaleString("pt-BR")} transações` : "Todas as transações monitoradas"} · leitura em colunas, de cima pra baixo · clique para abrir o cliente
           </p>
         </div>
         <div className="relative w-full sm:w-96">
@@ -528,33 +553,40 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
         </div>
       ) : (
         <div className="rounded-xl border border-white/[0.09] bg-black/25 p-3">
-          <div className="columns-1 md:columns-2 xl:columns-3 2xl:columns-4 gap-x-6">
-            {visiveis.map((t: any) => {
-              const neg = t.v < 0;
-              const cat = categoria(t.descricao || "");
-              const c = clientePor.get(t.cliente_id);
-              return (
-                <button key={t.id} disabled={!c}
-                  onClick={() => c && onAbrir(c, { data: t.data, valor: t.v, descricao: t.descricao || "" })}
-                  className="break-inside-avoid w-full text-left flex items-center gap-1.5 py-[3px] border-b border-white/[0.045] font-mono text-[10.5px] leading-tight hover:bg-primary/[0.07] transition-colors disabled:opacity-50 group">
-                  <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
-                  <span className="text-muted-foreground tabular-nums shrink-0 w-[54px]">{fmtD(t.data)}</span>
-                  <span className="text-foreground/55 truncate shrink-0 max-w-[84px] group-hover:text-primary transition-colors">{(t.nome || "").split(" ")[0] || "—"}</span>
-                  <span className="truncate flex-1 text-foreground/85">{t.descricao || "—"}</span>
-                  <span className={`tabular-nums shrink-0 ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(t.v))}</span>
-                </button>
-              );
-            })}
+          <div ref={scrollRef} onScroll={onScroll} className="h-[70vh] overflow-y-auto scrollbar-thin">
+            <div className="flex gap-x-6 items-start">
+              {Array.from({ length: cols }, (_, ci) => {
+                const base = ci * porColuna;
+                const fatia = filtradas.slice(base + i0, Math.min(base + i1, base + porColuna, filtradas.length));
+                return (
+                  <div key={ci} className="flex-1 min-w-0" style={{ height: porColuna * LINHA_H }}>
+                    <div style={{ transform: `translateY(${i0 * LINHA_H}px)` }}>
+                      {fatia.map((t: any) => {
+                        const neg = t.v < 0;
+                        const cat = categoria(t.descricao || "");
+                        const c = clientePor.get(t.cliente_id);
+                        return (
+                          <button key={t.id} disabled={!c}
+                            onClick={() => c && onAbrir(c, { data: t.data, valor: t.v, descricao: t.descricao || "" })}
+                            style={{ height: LINHA_H }}
+                            className="w-full text-left flex items-center gap-1.5 border-b border-white/[0.045] font-mono text-[10.5px] leading-none hover:bg-primary/[0.07] transition-colors disabled:opacity-50 group">
+                            <span className={`${cat.cls} h-1.5 w-1.5 rounded-full bg-current shrink-0 opacity-80`} />
+                            <span className="text-muted-foreground tabular-nums shrink-0 w-[54px]">{fmtD(t.data)}</span>
+                            <span className="text-foreground/55 truncate shrink-0 max-w-[84px] group-hover:text-primary transition-colors">{(t.nome || "").split(" ")[0] || "—"}</span>
+                            <span className="truncate flex-1 text-foreground/85">{t.descricao || "—"}</span>
+                            <span className={`tabular-nums shrink-0 ${neg ? "text-rose-400" : "text-emerald-400"}`}>{neg ? "-" : "+"}{fmtBRL(Math.abs(t.v))}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          {renderCap < filtradas.length ? (
-            <p className="flex items-center justify-center gap-2 py-3 text-[11px] font-mono text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> desenhando {visiveis.length.toLocaleString("pt-BR")} de {filtradas.length.toLocaleString("pt-BR")}…
-            </p>
-          ) : (
-            <p className="text-center pt-3 pb-1 text-[10.5px] font-mono text-muted-foreground/60">
-              {filtradas.length.toLocaleString("pt-BR")} transação(ões) — todas na tela
-            </p>
-          )}
+          <p className="text-center pt-2.5 pb-0.5 text-[10.5px] font-mono text-muted-foreground/60">
+            {filtradas.length.toLocaleString("pt-BR")} transação(ões) no total — role para percorrer todas
+          </p>
         </div>
       )}
     </div>
