@@ -626,7 +626,10 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco }: { cliente: Clie
     try {
       const { data, error } = await supabase.functions.invoke("spy-insights", { body: { cliente_id: cliente.id, analise_id: a.id } });
       if (error || (data as any)?.error) { toast.error(`Não consegui gerar os insights${(data as any)?.error ? `: ${(data as any).error}` : ""}.`); return; }
-      qc.invalidateQueries({ queryKey: ["spy-analises", cliente.id] });
+      // Segura a tela hacker até a ficha chegar do banco e então vai DIRETO
+      // pro perfil com os insights (sem piscar a tela de quadros no meio).
+      await qc.refetchQueries({ queryKey: ["spy-analises", cliente.id] });
+      setPosAnalise(false);
       toast.success("Insights gerados.");
     } finally {
       setGerandoInsights(false);
