@@ -235,9 +235,18 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   };
 
   const setSpec = (idx: number, valor: string) => {
-  const setPauta = (i: number, v: string) => setArtesanalPautas((prev) => prev.map((x, k) => (k === i ? v : x)));
     setArtesanalSpecs(prev => {
       const next = [...prev];
+      next[idx] = valor;
+      return next;
+    });
+  };
+  // Pauta por peça. Cresce o array se ainda não tiver a posição (o dialog pode
+  // abrir com 1 item e a quantidade mudar depois).
+  const setPauta = (idx: number, valor: string) => {
+    setArtesanalPautas(prev => {
+      const next = [...prev];
+      while (next.length <= idx) next.push("");
       next[idx] = valor;
       return next;
     });
