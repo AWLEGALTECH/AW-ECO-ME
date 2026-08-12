@@ -143,15 +143,12 @@ export default function Chamados() {
   const countTipo = (t: string) => porTab.filter((c) => c.tipo === t).length;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Header */}
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Ticket className="h-6 w-6 text-primary" /> Chamados
-            <span className="text-[9px] uppercase font-semibold tracking-wide px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
-              beta
-            </span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Achou um bug, quer uma melhoria ou teve uma ideia? Abre um chamado. Fica tudo aqui
@@ -231,7 +228,7 @@ export default function Chamados() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
           {lista.map((c) => (
             <ChamadoCard key={c.id} c={c} onClick={() => setDetalhe(c)} />
           ))}
@@ -267,35 +264,37 @@ function ChamadoCard({ c, onClick }: { c: Chamado; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-colors p-4 sm:p-5"
+      className="h-full text-left rounded-xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-colors p-4 flex flex-col"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${t.cls}`}>
-              <t.icon className="h-3 w-3" /> {t.label}
-            </span>
-            <h3 className="text-sm font-semibold text-foreground truncate">{c.titulo}</h3>
-          </div>
-          {c.observacoes && (
-            <p className="text-[12px] text-muted-foreground mt-1.5 line-clamp-2 whitespace-pre-line">{c.observacoes}</p>
-          )}
-        </div>
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 shrink-0 ${st.cls}`}>
+      {/* topo: tipo + status */}
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] ring-1 shrink-0 ${t.cls}`}>
+          <t.icon className="h-3 w-3" /> {t.label}
+        </span>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] ring-1 shrink-0 ${st.cls}`}>
           <st.icon className={`h-3 w-3 ${c.status === "em_andamento" ? "animate-spin" : ""}`} /> {st.label}
         </span>
       </div>
 
-      <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/[0.06] text-[11px] text-muted-foreground flex-wrap">
-        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-          <span className="inline-flex items-center gap-1"><SisIcon className="h-3 w-3" /> {c.sistema || "Geral"}</span>
+      {/* corpo: título + observação (cresce para alinhar os rodapés) */}
+      <div className="flex-1 min-h-0 mt-2.5">
+        <h3 className="text-[13.5px] font-semibold text-foreground leading-snug line-clamp-2">{c.titulo}</h3>
+        {c.observacoes && (
+          <p className="text-[11.5px] text-muted-foreground mt-1.5 line-clamp-3 whitespace-pre-line leading-snug">{c.observacoes}</p>
+        )}
+      </div>
+
+      {/* rodapé: sistema, referência, autor e tempo */}
+      <div className="mt-3 pt-2.5 border-t border-white/[0.06] text-[10.5px] text-muted-foreground space-y-1">
+        <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+          <span className="inline-flex items-center gap-1"><SisIcon className="h-3 w-3 shrink-0" /> {c.sistema || "Geral"}</span>
           {c.referencia && (
-            <span className="inline-flex items-center gap-1 min-w-0"><Link2 className="h-3 w-3 shrink-0" /> <span className="truncate max-w-[200px]">{c.referencia}</span></span>
+            <span className="inline-flex items-center gap-1 min-w-0"><Link2 className="h-3 w-3 shrink-0" /> <span className="truncate max-w-[140px]">{c.referencia}</span></span>
           )}
         </div>
-        <div className="flex items-center gap-x-3">
-          <span className="inline-flex items-center gap-1"><User className="h-3 w-3" /> {c.autor_nome || "Alguém"}</span>
-          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {tempoAtras(c.created_at)}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1 min-w-0"><User className="h-3 w-3 shrink-0" /> <span className="truncate">{c.autor_nome || "Alguém"}</span></span>
+          <span className="inline-flex items-center gap-1 shrink-0"><Clock className="h-3 w-3" /> {tempoAtras(c.created_at)}</span>
         </div>
       </div>
     </button>

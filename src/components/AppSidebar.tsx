@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },
   { title: "Fechamentos",   url: "/fechamentos",   icon: Trophy,          module: "fechamentos",  beta: true },
   { title: "Tracker",       url: "/tracker",       icon: BarChart3,       module: "tracker",      beta: true },
-  { title: "Chamados",      url: "/chamados",      icon: Ticket,          module: "chamados",     beta: true },
+  { title: "Chamados",      url: "/chamados",      icon: Ticket,          module: "chamados" },
   { title: "Spy",           url: "/spy",           icon: Eye,             module: "spy",          beta: true },
   { title: "Sheets",        url: "/sheets",        icon: FileSpreadsheet, module: "sheets",       beta: true },
 ];
