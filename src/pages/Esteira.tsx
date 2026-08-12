@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock, Tag,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -439,11 +439,17 @@ export default function Esteira() {
   };
 
 
-  const avancarArtesanalParaPronta = async (d: DemandaEsteira) => {
+  // A peça artesanal não nasce de uma rubrica do Finder, então a PAUTA é
+  // digitada na hora de concluir: vira o `desconto` da demanda e, com isso,
+  // aparece no título ("ESPECÍFICA — <pauta>"), no card e no Espelho de
+  // Protocolo (campo matéria). Sem pauta, cai no nome do cliente como antes.
+  const avancarArtesanalParaPronta = async (d: DemandaEsteira, pauta?: string) => {
     const nome = d.cliente?.nome || "cliente";
-    const novoTitulo = `Pronto pra protocolo — ${d.desconto || nome}`;
+    const assunto = (pauta || "").trim();
+    const materia = assunto ? `ESPECÍFICA — ${assunto}` : (d.desconto || null);
+    const novoTitulo = `Pronto pra protocolo — ${materia || nome}`;
     const { error } = await supabase.from("demandas" as any)
-      .update({ etapa: "pronta_para_protocolo", titulo: novoTitulo })
+      .update({ etapa: "pronta_para_protocolo", titulo: novoTitulo, ...(materia ? { desconto: materia } : {}) })
       .eq("id", d.id);
     if (error) { toast.error(error.message); return; }
     toast.success("Peça movida pra fila de protocolo");
@@ -777,7 +783,7 @@ export default function Esteira() {
                       <CardArtesanal
                         key={d.id}
                         demanda={d}
-                        onAvancar={() => avancarArtesanalParaPronta(d)}
+                        onAvancar={(pauta?: string) => avancarArtesanalParaPronta(d, pauta)}
                         onCancelar={() => cancelarArtesanal(d)}
                         audit={lookupAudit(d.id)}
                         bloqueada={bloqueado}
@@ -1227,15 +1233,17 @@ function CardBotao({
 // Card do "Fluxo artesanal": card inteiro e clicavel. Ao clicar, abre um
 // dialog com botao pra abrir a pasta do Drive (subir a peca) e so depois
 // permite confirmar a conclusao — evita conclusao acidental.
-function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = false, motivoBloqueio }: { demanda: DemandaEsteira; onAvancar: () => void; onCancelar: () => void; audit?: AuditInfo; bloqueada?: boolean; motivoBloqueio?: string }) {
+function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = false, motivoBloqueio }: { demanda: DemandaEsteira; onAvancar: (pauta?: string) => void; onCancelar: () => void; audit?: AuditInfo; bloqueada?: boolean; motivoBloqueio?: string }) {
   const [open, setOpen] = useState(false);
+  const [pauta, setPauta] = useState(demanda.desconto?.replace(/^ESPEC[ÍI]FICA\s*[—-]\s*/i, "") || "");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const navigate = useNavigate();
   const drive = demanda.cliente?.drive_folder_url;
   const nomeCliente = demanda.cliente?.nome || "cliente";
   const handleConfirm = () => {
+    if (!pauta.trim()) { toast.error("Informe a pauta da peça antes de concluir."); return; }
     setOpen(false);
-    onAvancar();
+    onAvancar(pauta.trim());
   };
   const handleCancel = () => {
     setOpen(false);
@@ -1319,6 +1327,24 @@ function CardArtesanal({ demanda, onAvancar, onCancelar, audit, bloqueada = fals
               </p>
             </div>
           )}
+
+          {/* PAUTA da peça: a artesanal não tem rubrica do Finder, então o
+              assunto é digitado aqui e vira "ESPECÍFICA — <pauta>" no título,
+              no card e no Espelho de Protocolo. */}
+          <div className="rounded-xl border border-primary/25 bg-primary/[0.04] px-3 py-2.5 space-y-1.5">
+            <label className="text-[10px] uppercase tracking-[0.15em] text-primary/80 font-semibold flex items-center gap-1.5">
+              <Tag className="h-3 w-3" /> Pauta da peça
+            </label>
+            <Input
+              value={pauta}
+              onChange={(e) => setPauta(e.target.value)}
+              placeholder="Ex.: Empréstimo consignado não contratado"
+              className="h-9 text-sm"
+            />
+            <p className="text-[10.5px] text-muted-foreground">
+              Vai registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {pauta.trim() || "assunto"}</span> no protocolo.
+            </p>
+          </div>
 
           <div className="space-y-2 pt-1">
             {demanda.cliente && (
