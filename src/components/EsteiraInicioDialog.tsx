@@ -584,30 +584,42 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
           {stage === "artesanal_specs" && (
             <>
-              <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[52vh] overflow-y-auto pr-1.5 -mr-1.5">
                 {artesanalSpecs.map((spec, i) => (
-                  <div key={i} className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground flex items-center gap-2">
-                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold">
+                  <div key={i} className="rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold shrink-0">
                         {i + 1}
                       </span>
-                      Peça {i + 1} de {artesanalQtd}
-                    </label>
-                    <Input
-                      value={artesanalPautas[i] || ""}
-                      onChange={(e) => setPauta(i, e.target.value)}
-                      placeholder="Pauta (vai no protocolo). Ex.: Empréstimo consignado não contratado"
-                      className="h-9 text-sm"
-                    />
-                    <p className="text-[10.5px] text-muted-foreground -mt-0.5">
-                      Registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {(artesanalPautas[i] || "").trim() || "assunto"}</span>
-                    </p>
-                    <Textarea
-                      value={spec}
-                      onChange={(e) => setSpec(i, e.target.value)}
-                      placeholder="Ex.: Ação revisional contra Banco Pan — empréstimo consignado com taxa de 5,2% a.m., questionar abusividade."
-                      className="resize-none min-h-[80px]"
-                    />
+                      <span className="text-xs font-semibold text-foreground">Peça {i + 1} de {artesanalQtd}</span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-foreground/80">
+                        Pauta <span className="text-muted-foreground font-normal">· vai no protocolo</span>
+                      </label>
+                      <Input
+                        value={artesanalPautas[i] || ""}
+                        onChange={(e) => setPauta(i, e.target.value)}
+                        placeholder="Empréstimo consignado não contratado"
+                        className="h-9 text-sm"
+                      />
+                      <p className="text-[10.5px] text-muted-foreground truncate">
+                        Registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {(artesanalPautas[i] || "").trim() || "assunto"}</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-foreground/80">
+                        Especificação <span className="text-muted-foreground font-normal">· o que o advogado deve produzir</span>
+                      </label>
+                      <Textarea
+                        value={spec}
+                        onChange={(e) => setSpec(i, e.target.value)}
+                        placeholder="Ex.: Ação revisional contra Banco Pan — empréstimo consignado com taxa de 5,2% a.m., questionar abusividade."
+                        className="resize-none min-h-[76px] text-sm"
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
