@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock, Tag,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock, Tag, Pencil,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
@@ -111,6 +111,11 @@ export default function Esteira() {
   // Espelho de protocolo (clicar em "Pecas Prontas" abre o dialog
   // direto, sem passar pela ficha do cliente).
   const [espelhoOpen, setEspelhoOpen] = useState<{ cliente: ClienteCheia; demanda: DemandaCheia } | null>(null);
+  // CORREÇÃO de pauta: peças ESPECÍFICAS já paradas na coluna de protocolo
+  // (criadas antes do campo de pauta existir, ou com pauta errada) podem ser
+  // renomeadas aqui — o novo texto vai pro banco em `desconto` e no título.
+  const [renomear, setRenomear] = useState<{ id: string; atual: string; cliente: string } | null>(null);
+  const [novaPauta, setNovaPauta] = useState("");
   const [espelhoLoading, setEspelhoLoading] = useState(false);
   const abrirEspelho = async (d: DemandaEsteira) => {
     if (espelhoLoading || !d.cliente?.id) return;
@@ -443,6 +448,21 @@ export default function Esteira() {
   // digitada na hora de concluir: vira o `desconto` da demanda e, com isso,
   // aparece no título ("ESPECÍFICA — <pauta>"), no card e no Espelho de
   // Protocolo (campo matéria). Sem pauta, cai no nome do cliente como antes.
+  const salvarPauta = async () => {
+    if (!renomear) return;
+    const p = novaPauta.trim();
+    if (!p) { toast.error("Informe a pauta."); return; }
+    const materia = `ESPECÍFICA — ${p}`;
+    const { error } = await supabase.from("demandas" as any)
+      .update({ desconto: materia, titulo: `Pronto pra protocolo — ${materia}` })
+      .eq("id", renomear.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Pauta atualizada");
+    setRenomear(null);
+    setNovaPauta("");
+    refetchAll();
+  };
+
   const avancarArtesanalParaPronta = async (d: DemandaEsteira, pauta?: string) => {
     const nome = d.cliente?.nome || "cliente";
     const assunto = (pauta || "").trim();
@@ -834,6 +854,14 @@ export default function Esteira() {
                         audit={lookupAudit(d.id)}
                         bloqueada={bloqueado}
                         motivoBloqueio={MOTIVO_BLOQUEIO}
+                        onRenomear={ehEspecifica(d) ? () => {
+                          setRenomear({
+                            id: d.id,
+                            atual: (d.desconto || "").replace(/^ESPEC[ÍI]FICA\s*[—-]\s*/i, ""),
+                            cliente: d.cliente?.nome || "cliente",
+                          });
+                          setNovaPauta((d.desconto || "").replace(/^ESPEC[ÍI]FICA\s*[—-]\s*/i, ""));
+                        } : undefined}
                       />
                     ))}
                   </ClienteAccordion>
@@ -888,6 +916,40 @@ export default function Esteira() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Correção de pauta das peças específicas já na fila de protocolo */}
+      <Dialog open={!!renomear} onOpenChange={(v) => { if (!v) { setRenomear(null); setNovaPauta(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5 text-primary" /> Corrigir pauta
+            </DialogTitle>
+            <DialogDescription>{renomear?.cliente} · peça específica aguardando protocolo</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-foreground/80">
+                Pauta <span className="text-muted-foreground font-normal">· vai no protocolo</span>
+              </label>
+              <Input
+                value={novaPauta}
+                onChange={(e) => setNovaPauta(e.target.value)}
+                placeholder="Empréstimo consignado não contratado"
+                className="h-9 text-sm"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") salvarPauta(); }}
+              />
+              <p className="text-[10.5px] text-muted-foreground truncate">
+                Registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {novaPauta.trim() || "assunto"}</span>
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => { setRenomear(null); setNovaPauta(""); }}>Cancelar</Button>
+              <Button onClick={salvarPauta}><CheckCircle2 className="h-4 w-4 mr-1" /> Salvar pauta</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <EspelhoProtocoloDialog
         demanda={espelhoOpen?.demanda || null}
@@ -1127,9 +1189,14 @@ function CardLinha({
 
 // Versao botao do CardLinha — usada quando o clique nao navega mas abre
 // um dialog (ex: espelho de protocolo na coluna "Pecas Prontas").
+// Peça ESPECÍFICA = artesanal: ou já vem marcada, ou não tem rubrica do
+// Finder (desconto nulo → título caiu no nome do cliente).
+const ehEspecifica = (d: DemandaEsteira) =>
+  !d.desconto || /^ESPEC[ÍI]FICA\s*[—-]/i.test(d.desconto);
+
 function CardBotaoLinha({
   onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
-  bloqueada = false, motivoBloqueio,
+  bloqueada = false, motivoBloqueio, onRenomear,
 }: {
   onClick: () => void;
   titulo: string;
@@ -1140,6 +1207,7 @@ function CardBotaoLinha({
   audit?: AuditInfo;
   bloqueada?: boolean;
   motivoBloqueio?: string;
+  onRenomear?: () => void;
 }) {
   const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
   // Bloqueada: card permanece VISÍVEL (nada some), mas acinzentado, com
@@ -1171,11 +1239,18 @@ function CardBotaoLinha({
     );
   }
   return (
-    <button
-      onClick={onClick}
-      className={`block w-full text-left ${GLASS_CARD} p-3 group`}
-    >
-      <div className="flex items-center gap-2 mb-1.5">
+    <div className={`relative block w-full text-left ${GLASS_CARD} p-3 group`}>
+      {onRenomear && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRenomear(); }}
+          title="Corrigir a pauta desta peça"
+          className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+        >
+          <Pencil className="h-3 w-3" /> pauta
+        </button>
+      )}
+      <button onClick={onClick} className="block w-full text-left">
+      <div className="flex items-center gap-2 mb-1.5 pr-14">
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold truncate">{titulo}</span>
       </div>
@@ -1191,7 +1266,8 @@ function CardBotaoLinha({
         </span>
       </div>
       <AuditFooter audit={audit} />
-    </button>
+      </button>
+    </div>
   );
 }
 
