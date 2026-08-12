@@ -162,13 +162,16 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   // Fluxo artesanal: quantidade de pecas + descricao de cada uma
   const [artesanalQtd, setArtesanalQtd] = useState<number>(1);
   const [artesanalSpecs, setArtesanalSpecs] = useState<string[]>([""]);
+  // PAUTA de cada peça: assunto curto que vira "ESPECÍFICA — <pauta>" no
+  // título, no card e no campo matéria do Espelho de Protocolo.
+  const [artesanalPautas, setArtesanalPautas] = useState<string[]>([""]);
 
   const reset = () => {
     setStage("actions");
     setTipos(new Set());
     setCustom("");
     setArtesanalQtd(1);
-    setArtesanalSpecs([""]);
+    setArtesanalSpecs([""]); setArtesanalPautas([""]);
   };
 
   const toggleTipo = (key: TipoPendencia) => {
@@ -213,7 +216,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   // pecas, depois descreve cada uma. So cria as demandas no final.
   const iniciarArtesanal = () => {
     setArtesanalQtd(1);
-    setArtesanalSpecs([""]);
+    setArtesanalSpecs([""]); setArtesanalPautas([""]);
     setStage("artesanal_qtd");
   };
 
@@ -227,10 +230,12 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
       next.length = n;
       return next;
     });
+    setArtesanalPautas((prev) => Array.from({ length: n }, (_, i) => prev[i] || ""));
     setStage("artesanal_specs");
   };
 
   const setSpec = (idx: number, valor: string) => {
+  const setPauta = (i: number, v: string) => setArtesanalPautas((prev) => prev.map((x, k) => (k === i ? v : x)));
     setArtesanalSpecs(prev => {
       const next = [...prev];
       next[idx] = valor;
@@ -245,18 +250,27 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
       toast.error("Descreva cada peça antes de continuar.");
       return;
     }
+    const pautas = artesanalSpecs.map((_, i) => (artesanalPautas[i] || "").trim());
+    if (pautas.some(p => !p)) {
+      toast.error("Informe a pauta de cada peça (vai no protocolo).");
+      return;
+    }
     setSaving(true);
     const total = especs.length;
     const rows = especs.map((spec, i) => {
       const sufixo = total > 1 ? ` (${i + 1}/${total})` : "";
-      const tituloCurto = spec.length > 50 ? spec.slice(0, 50) + "…" : spec;
+      // A peça artesanal não vem de rubrica do Finder: a PAUTA ocupa o campo
+      // `desconto`, que é o que alimenta título, card, ficha e o campo matéria
+      // do Espelho de Protocolo.
+      const materia = `ESPECÍFICA — ${pautas[i]}`;
       return {
         cliente_id: cliente.id,
         tipo: "pre_protocolo",
         etapa: "fluxo_artesanal",
         status: "pendente",
         // titulo eh o que aparece como hint no card da esteira
-        titulo: `Peça artesanal${sufixo} — ${tituloCurto}`,
+        titulo: `Peça artesanal${sufixo} — ${materia}`,
+        desconto: materia,
         // descricao guarda a especificacao COMPLETA, exibida no popup
         descricao: spec,
         created_by: userId,
@@ -579,6 +593,15 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
                       </span>
                       Peça {i + 1} de {artesanalQtd}
                     </label>
+                    <Input
+                      value={artesanalPautas[i] || ""}
+                      onChange={(e) => setPauta(i, e.target.value)}
+                      placeholder="Pauta (vai no protocolo). Ex.: Empréstimo consignado não contratado"
+                      className="h-9 text-sm"
+                    />
+                    <p className="text-[10.5px] text-muted-foreground -mt-0.5">
+                      Registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {(artesanalPautas[i] || "").trim() || "assunto"}</span>
+                    </p>
                     <Textarea
                       value={spec}
                       onChange={(e) => setSpec(i, e.target.value)}
