@@ -6,7 +6,9 @@ import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { extrairTextoPdf } from "@/lib/pdfText";
-import { parseContracheque, type Contracheque } from "@/lib/parseContracheque";
+import { parseContracheque, parseSemad, type Contracheque } from "@/lib/parseContracheque";
+import { extrairItensPdf } from "@/lib/pdfText";
+import { SpotlightCard } from "@/components/SpotlightCard";
 import {
   FileSpreadsheet, Shield, Landmark, Briefcase, ChevronRight, ArrowLeft, Upload,
   FileText, X, Loader2, Check, AlertTriangle, Download, RefreshCw, CheckCircle2,
@@ -14,9 +16,15 @@ import {
 
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+type TipoDoc = "militar" | "semad";
+const TIPOS: Record<TipoDoc, { titulo: string; sub: string; icon: typeof Shield; labelGanhos: string }> = {
+  militar: { titulo: "Contracheque militar", sub: "Exército · CPEx — comprovante mensal de rendimentos", icon: Shield, labelGanhos: "Receitas" },
+  semad: { titulo: "Contracheque SEMAD", sub: "Prefeitura de Manaus — servidores municipais", icon: Landmark, labelGanhos: "Ganhos" },
+};
+
 export default function Sheets() {
   useEffect(() => { document.title = `Sheets · ${appConfig.name}`; }, []);
-  const [tipo, setTipo] = useState<null | "militar">(null);
+  const [tipo, setTipo] = useState<null | TipoDoc>(null);
 
   return (
     <div className="w-full space-y-5">
@@ -28,50 +36,58 @@ export default function Sheets() {
           </p>
         </header>
       )}
-      {tipo === "militar" ? <SessaoMilitar onBack={() => setTipo(null)} /> : <EscolhaTipo onEscolher={setTipo} />}
+      {tipo ? <Sessao tipo={tipo} onBack={() => setTipo(null)} /> : <EscolhaTipo onEscolher={setTipo} />}
     </div>
   );
 }
 
-// ── Lobby: tipos de documento ────────────────────────────────────────────────
-function EscolhaTipo({ onEscolher }: { onEscolher: (t: "militar") => void }) {
+// ── Lobby: tipos de documento (cards no padrão do dashboard) ─────────────────
+function EscolhaTipo({ onEscolher }: { onEscolher: (t: TipoDoc) => void }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-      <button onClick={() => onEscolher("militar")}
-        className="group text-left rounded-2xl border border-primary/40 bg-primary/[0.08] p-5 flex items-center gap-4 transition-all duration-200 hover:bg-primary/[0.14] hover:-translate-y-0.5">
-        <span className="h-12 w-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shrink-0">
-          <Shield className="h-6 w-6" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[16px] font-semibold text-foreground">Contracheque militar</span>
-          <span className="block text-[12px] text-muted-foreground mt-0.5">Exército · CPEx — comprovante mensal de rendimentos</span>
-        </span>
-        <ChevronRight className="h-5 w-5 text-primary group-hover:translate-x-0.5 transition-transform shrink-0" />
-      </button>
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      {(Object.keys(TIPOS) as TipoDoc[]).map((k) => {
+        const t = TIPOS[k];
+        return (
+          <SpotlightCard key={k} onClick={() => onEscolher(k)} className="cursor-pointer">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Extração de rubricas</p>
+                <p className="font-display text-xl font-medium tracking-tight mt-2">{t.titulo}</p>
+                <p className="text-[12.5px] text-muted-foreground mt-1 leading-snug">{t.sub}</p>
+                <p className="text-[12px] text-primary mt-4 inline-flex items-center gap-1 group-hover:gap-2 transition-all">
+                  Abrir sessão <ChevronRight className="h-3.5 w-3.5" />
+                </p>
+              </div>
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
+                <t.icon className="h-7 w-7 text-primary" />
+              </div>
+            </div>
+          </SpotlightCard>
+        );
+      })}
 
-      {[
-        { icon: Landmark, titulo: "Contracheque de servidor público", sub: "estadual e federal" },
-        { icon: Briefcase, titulo: "Holerite CLT / benefício INSS", sub: "empresas e previdência" },
-      ].map((t, i) => (
-        <div key={i} className="rounded-2xl border border-white/[0.07] bg-white/[0.015] p-5 flex items-center gap-4 opacity-50 cursor-not-allowed select-none">
-          <span className="h-12 w-12 rounded-xl bg-white/[0.05] ring-1 ring-white/[0.08] text-muted-foreground flex items-center justify-center shrink-0">
-            <t.icon className="h-6 w-6" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[16px] font-semibold text-foreground/70">{t.titulo}</span>
-            <span className="block text-[12px] text-muted-foreground mt-0.5">{t.sub}</span>
-          </span>
-          <span className="text-[9px] px-1.5 py-px rounded-full ring-1 text-amber-400 ring-amber-400/25 bg-amber-400/10 shrink-0">em breve</span>
+      <SpotlightCard className="opacity-55 select-none">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Extração de rubricas</p>
+            <p className="font-display text-xl font-medium tracking-tight mt-2 text-foreground/70">Holerite CLT / INSS</p>
+            <p className="text-[12.5px] text-muted-foreground mt-1 leading-snug">empresas e previdência — mesma estrutura</p>
+            <p className="mt-4"><span className="text-[10px] px-2 py-0.5 rounded-full ring-1 text-amber-400 ring-amber-400/25 bg-amber-400/10">em breve</span></p>
+          </div>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/[0.05] ring-1 ring-white/[0.08] shrink-0">
+            <Briefcase className="h-7 w-7 text-muted-foreground" />
+          </div>
         </div>
-      ))}
+      </SpotlightCard>
     </div>
   );
 }
 
-// ── Sessão: contracheque militar ─────────────────────────────────────────────
+// ── Sessão de extração (militar e SEMAD compartilham o fluxo inteiro) ────────
 type Fase = "anexar" | "analisando" | "rubricas" | "tabela";
 
-function SessaoMilitar({ onBack }: { onBack: () => void }) {
+function Sessao({ tipo, onBack }: { tipo: TipoDoc; onBack: () => void }) {
+  const meta = TIPOS[tipo];
   const [fase, setFase] = useState<Fase>("anexar");
   const [fila, setFila] = useState<File[]>([]);
   const [docs, setDocs] = useState<Contracheque[]>([]);
@@ -98,9 +114,14 @@ function SessaoMilitar({ onBack }: { onBack: () => void }) {
       setProgresso(`Lendo ${f.name} (${i + 1}/${fila.length})`);
       try {
         const buf = await f.arrayBuffer();
-        const ext = await extrairTextoPdf(f.name, buf);
-        if (ext.vazio) { out.push({ name: f.name, ok: false, erro: "sem texto legível (escaneado?)", competencia: null, competenciaLabel: "", nome: null, cpf: null, rubricas: [], totalReceitas: null, totalDespesas: null, totalLiquido: null }); continue; }
-        out.push(parseContracheque(f.name, ext.texto));
+        if (tipo === "semad") {
+          // SEMAD é colunar: parser posicional (classifica cada valor pela coluna).
+          out.push(parseSemad(f.name, await extrairItensPdf(buf)));
+        } else {
+          const ext = await extrairTextoPdf(f.name, buf);
+          if (ext.vazio) { out.push({ name: f.name, ok: false, erro: "sem texto legível (escaneado?)", competencia: null, competenciaLabel: "", nome: null, cpf: null, rubricas: [], totalReceitas: null, totalDespesas: null, totalLiquido: null }); continue; }
+          out.push(parseContracheque(f.name, ext.texto));
+        }
       } catch (e) {
         out.push({ name: f.name, ok: false, erro: String((e as Error)?.message || e).slice(0, 80), competencia: null, competenciaLabel: "", nome: null, cpf: null, rubricas: [], totalReceitas: null, totalDespesas: null, totalLiquido: null });
       }
@@ -177,7 +198,7 @@ function SessaoMilitar({ onBack }: { onBack: () => void }) {
         <ArrowLeft className="h-4 w-4" /> {fase === "tabela" ? "Ajustar rubricas" : fase === "rubricas" ? "Anexar documentos" : "Sheets"}
       </button>
       <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-1.5">
-        <Shield className="h-3.5 w-3.5" /> Contracheque militar
+        <meta.icon className="h-3.5 w-3.5" /> {meta.titulo}
       </p>
     </div>
   );
@@ -290,7 +311,7 @@ function SessaoMilitar({ onBack }: { onBack: () => void }) {
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           <Grupo titulo="Descontos" itens={descontos} />
-          <Grupo titulo="Receitas" itens={receitas} />
+          <Grupo titulo={meta.labelGanhos} itens={receitas} />
         </div>
       </div>
     );

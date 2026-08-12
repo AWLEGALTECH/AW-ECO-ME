@@ -98,3 +98,105 @@ export function parseContracheque(name: string, texto: string): Contracheque {
     erro: ok ? undefined : (!competencia ? "competência não encontrada" : "nenhuma rubrica encontrada"),
   };
 }
+
+// ── SEMAD (Prefeitura de Manaus) — parser POSICIONAL ─────────────────────────
+// O contracheque da SEMAD é uma tabela em colunas (COD · DESCRIÇÃO · PARC ·
+// INF. · BASE · GANHOS · DESCONTOS). O texto plano embaralha as colunas, então
+// aqui cada valor é classificado pela COLUNA em que está (coordenada X da
+// célula vs. X dos cabeçalhos GANHOS/BASE/DESCONTOS) e as linhas são
+// reconstruídas agrupando pela coordenada Y.
+
+export interface ItemPosicional { page: number; x: number; y: number; w: number; str: string }
+
+const RE_DECIMAL = /^-?\d{1,3}(?:\.\d{3})*,\d{2}$/;
+
+export function parseSemad(name: string, itens: ItemPosicional[]): Contracheque {
+  const vazio: Contracheque = {
+    name, competencia: null, competenciaLabel: "", nome: null, cpf: null, rubricas: [],
+    totalReceitas: null, totalDespesas: null, totalLiquido: null, ok: false, erro: "estrutura não reconhecida",
+  };
+  // Usa a primeira página que tiver os cabeçalhos das colunas.
+  const paginas = [...new Set(itens.map((i) => i.page))];
+  let pg: ItemPosicional[] | null = null;
+  let hGan: ItemPosicional | undefined, hDes: ItemPosicional | undefined, hBase: ItemPosicional | undefined;
+  for (const pnum of paginas) {
+    const cand = itens.filter((i) => i.page === pnum);
+    const g = cand.find((i) => semAcento(i.str.toUpperCase()).trim() === "GANHOS");
+    const d = cand.find((i) => semAcento(i.str.toUpperCase()).trim() === "DESCONTOS");
+    if (g && d) { pg = cand; hGan = g; hDes = d; hBase = cand.find((i) => semAcento(i.str.toUpperCase()).trim() === "BASE"); break; }
+  }
+  if (!pg || !hGan || !hDes) return vazio;
+
+  const centro = (i: ItemPosicional) => i.x + (i.w || 0) / 2;
+
+  // Competência: "01/2020".
+  const mComp = pg.find((i) => /^\d{2}\/\d{4}$/.test(i.str.trim()));
+  let competencia: string | null = null, competenciaLabel = "";
+  if (mComp) {
+    const [mm, aaaa] = mComp.str.trim().split("/");
+    competencia = `${aaaa}-${mm}`;
+    competenciaLabel = `${MES_ABREV[parseInt(mm, 10)] || mm}/${aaaa}`;
+  }
+
+  // Nome: primeiro texto longo em MAIÚSCULAS logo abaixo do cabeçalho "NOME".
+  let nome: string | null = null;
+  const hNome = pg.find((i) => semAcento(i.str.toUpperCase()).trim() === "NOME");
+  if (hNome) {
+    const cand = pg
+      .filter((i) => i.y < hNome.y && hNome.y - i.y < 25)
+      .filter((i) => /^[A-ZÀ-Ü][A-ZÀ-Ü ]{6,}$/.test(i.str.trim()))
+      .sort((a, b) => b.y - a.y)[0];
+    if (cand) nome = cand.str.trim().replace(/\s{2,}/g, " ");
+  }
+
+  // Matrícula (a SEMAD não traz CPF): "073.006-8".
+  const mMat = pg.find((i) => /^\d{3}\.\d{3}-\d/.test(i.str.trim()));
+  const cpf = mMat ? `matrícula ${mMat.str.trim()}` : null;
+
+  // Totais: valores com "**" (ganhos · descontos · líquido, em ordem de X).
+  const tot = pg.filter((i) => /^\*\*[\d.,]+$/.test(i.str.trim())).sort((a, b) => a.x - b.x);
+  const totalReceitas = tot[0] ? valorBR(tot[0].str.replace(/\*/g, "")) : null;
+  const totalDespesas = tot[1] ? valorBR(tot[1].str.replace(/\*/g, "")) : null;
+  const totalLiquido = tot[2] ? valorBR(tot[2].str.replace(/\*/g, "")) : null;
+
+  // Linhas de rubrica: entre o cabeçalho e a linha dos totais, agrupadas por Y
+  // (clusterização de verdade, independente da ordem dos itens no PDF).
+  const yTot = tot.length ? Math.max(...tot.map((t) => t.y)) : -Infinity;
+  const corpo = pg.filter((i) => i.y < hGan!.y - 2 && i.y > yTot + 2);
+  const linhasY: { y: number; itens: ItemPosicional[] }[] = [];
+  for (const it of corpo.sort((a, b) => b.y - a.y)) {
+    const l = linhasY.find((x) => Math.abs(x.y - it.y) <= 2.5);
+    if (l) { l.itens.push(it); l.y = (l.y + it.y) / 2; }
+    else linhasY.push({ y: it.y, itens: [it] });
+  }
+
+  const rubricas: RubricaCC[] = [];
+  for (const linha of linhasY) {
+    const ordenados = linha.itens.sort((a, b) => a.x - b.x);
+    const cod = ordenados.find((i) => /^\d{4}$/.test(i.str.trim()));
+    if (!cod) continue;
+    const descItens = ordenados.filter((i) => i !== cod && !RE_DECIMAL.test(i.str.trim()) && !/^[PVD]$/.test(i.str.trim()));
+    const desc = descItens.map((i) => i.str.trim()).join(" ").replace(/\s{2,}/g, " ").trim();
+    for (const num of ordenados.filter((i) => RE_DECIMAL.test(i.str.trim()))) {
+      // classifica pela coluna mais próxima (BASE é ignorada)
+      const c = centro(num);
+      const dGan = Math.abs(c - centro(hGan!));
+      const dDes = Math.abs(c - centro(hDes!));
+      const dBase = hBase ? Math.abs(c - centro(hBase)) : Infinity;
+      if (dBase < dGan && dBase < dDes) continue;
+      rubricas.push({
+        codigo: cod.str.trim(),
+        descricao: desc || cod.str.trim(),
+        tipo: dDes < dGan ? "desconto" : "receita",
+        valor: valorBR(num.str.trim()),
+      });
+    }
+  }
+
+  const ok = !!competencia && rubricas.length > 0;
+  return {
+    name, competencia, competenciaLabel, nome, cpf, rubricas,
+    totalReceitas, totalDespesas, totalLiquido, ok,
+    erro: ok ? undefined : (!competencia ? "competência não encontrada" : "nenhuma rubrica encontrada"),
+  };
+}
