@@ -28,6 +28,7 @@ import Fechamentos from "./pages/Fechamentos";
 import Tracker from "./pages/Tracker";
 import Chamados from "./pages/Chamados";
 import Spy from "./pages/Spy";
+import Sheets from "./pages/Sheets";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import AdminNotificacoes from "./pages/AdminNotificacoes";
@@ -107,6 +108,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="spy" />}>
                   <Route path="/spy" element={<PageErrorBoundary pageName="Spy"><Spy /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="sheets" />}>
+                  <Route path="/sheets" element={<PageErrorBoundary pageName="Sheets"><Sheets /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo, Ticket, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -37,6 +37,7 @@ const navItems: NavItem[] = [
   { title: "Tracker",       url: "/tracker",       icon: BarChart3,       module: "tracker",      beta: true },
   { title: "Chamados",      url: "/chamados",      icon: Ticket,          module: "chamados",     beta: true },
   { title: "Spy",           url: "/spy",           icon: Eye,             module: "spy",          beta: true },
+  { title: "Sheets",        url: "/sheets",        icon: FileSpreadsheet, module: "sheets",       beta: true },
 ];
 
 export function AppSidebar() {
