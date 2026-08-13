@@ -632,7 +632,7 @@ export default function ClienteDetail() {
               </Button>
             </div>
             {cliente.analise_comercial ? (
-              <DescontosAnaliseComercial analise={cliente.analise_comercial} />
+              <DescontosAnaliseComercial analise={cliente.analise_comercial} contratos={contratos} />
             ) : (
               <p className="text-xs text-muted-foreground/60 italic px-1 py-3">
                 Nenhuma análise comercial ainda. Clique em <strong>Fazer análise</strong> pra criar.

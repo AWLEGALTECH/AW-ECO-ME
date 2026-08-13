@@ -636,6 +636,15 @@ export default function PreClientes() {
       setStage("contrato", { status: "error", detail: errContrato.message });
     } else {
       setStage("contrato", { status: "done" });
+      // Cada desconto passa a apontar pro CONTRATO que o originou (este kit),
+      // pra ficha do cliente agrupar por contrato em vez de listar solto.
+      const ctId = (contrato as any)?.id;
+      const rubs = dk?._analise_comercial?.rubricas;
+      if (ctId && Array.isArray(rubs) && rubs.length) {
+        await supabase.from("clientes")
+          .update({ analise_comercial: { ...(dk._analise_comercial as any), rubricas: rubs.map((r: any) => ({ ...r, contrato_id: ctId })) } } as any)
+          .eq("id", novoCliente.id);
+      }
     }
 
     // 3. cria análise documental inicial
