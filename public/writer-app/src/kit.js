@@ -874,6 +874,7 @@ function renderKitDescontos(view) {
 
       <section class="kit-section">
         <div class="kit-section-title">Selecione as ações <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
+        <p class="kit-desc-hint">Todas as ações abaixo ficam atreladas ao <strong>contrato deste kit</strong> — o instrumento procuratório que nos dá poderes para ajuizá-las.</p>
         <div class="kit-desc-grid" id="kitDescGrid"></div>
       </section>
 

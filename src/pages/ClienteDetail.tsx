@@ -644,6 +644,7 @@ export default function ClienteDetail() {
             open={refazerAcOpen}
             onClose={() => setRefazerAcOpen(false)}
             cliente={cliente ? { id: cliente.id, nome: cliente.nome, analise_comercial: cliente.analise_comercial } : null}
+            contratos={contratos}
             onSaved={load}
             editorId={user?.id ?? null}
           />

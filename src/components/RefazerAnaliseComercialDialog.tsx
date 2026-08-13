@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, Pencil, ClipboardList, ChevronLeft, Loader2, Check, Plus, X, Lock } from "lucide-react";
+import { Building2, Pencil, ClipboardList, ChevronLeft, Loader2, Check, Plus, X, Lock, FileSignature } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 
@@ -17,7 +17,7 @@ const MOTIVO_LABEL: Record<Motivo, string> = {
 };
 
 // Cada AÇÃO selecionada (pode repetir a mesma ação para réus diferentes).
-interface Sel { rubrica: string; detalhe: string; requerido: string; bloqueada: boolean; motivo: Motivo }
+interface Sel { rubrica: string; detalhe: string; requerido: string; bloqueada: boolean; motivo: Motivo; contrato_id: string | null }
 
 // Lê as rubricas de uma análise (aceita array direto ou { rubricas: [...] }).
 function rubricasDaAnalise(ac: any): Sel[] {
@@ -30,22 +30,35 @@ function rubricasDaAnalise(ac: any): Sel[] {
       requerido: String(r?.requerido ?? "").trim(),
       bloqueada: !!r?.bloqueada,
       motivo: (r?.motivo as Motivo) || "rubrica_invalida",
+      contrato_id: (r?.contrato_id && String(r.contrato_id)) || null,
     }))
     .filter((r) => r.rubrica);
+}
+
+export interface ContratoOpt {
+  id: string;
+  modalidade?: string | null;
+  data_assinatura?: string | null;
+  reus?: string[] | null;
+  status?: string | null;
 }
 
 interface Props {
   open: boolean;
   onClose: () => void;
   cliente: { id: string; nome: string; analise_comercial?: any } | null;
+  contratos?: ContratoOpt[];
   onSaved: () => void;
   editorId: string | null;
 }
 
-export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved, editorId }: Props) {
+export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "manual">("chooser");
+  const [stage, setStage] = useState<"chooser" | "contrato" | "manual">("chooser");
+  // Toda ação nasce presa a um CONTRATO (o instrumento procuratório que nos dá
+  // poderes). Editar exige escolher de qual contrato são as ações.
+  const [contratoSel, setContratoSel] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
   // Catálogo GLOBAL de ações (tabela acoes_ajuizaveis): o mesmo do Writer.
@@ -68,16 +81,35 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
     setChaveInit(chaveAtual);
     setSel(rubricasDaAnalise(cliente?.analise_comercial));
     setStage("chooser");
+    setContratoSel(null);
     setAddAberto(false);
     setNovaAcao("");
   }
 
-  const contagem = (label: string) => sel.filter((s2) => s2.rubrica.toLowerCase() === label.toLowerCase()).length;
+  // Só as ações DO contrato escolhido entram no editor; as dos outros ficam
+  // intactas e são recompostas no salvamento.
+  const doContrato = sel.filter((s2) => s2.contrato_id === contratoSel);
+  const deOutros = sel.filter((s2) => s2.contrato_id !== contratoSel);
+  const fmtDataCt = (d?: string | null) => {
+    if (!d) return null;
+    const dt = new Date(`${d}T00:00:00`);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("pt-BR");
+  };
+  const rotuloCt = (c: ContratoOpt) =>
+    [(c.reus || []).filter(Boolean).join(", ") || "réu não informado",
+     fmtDataCt(c.data_assinatura) ? `assinado em ${fmtDataCt(c.data_assinatura)}` : null]
+      .filter(Boolean).join(" · ");
+
+  const contagem = (label: string) => doContrato.filter((s2) => s2.rubrica.toLowerCase() === label.toLowerCase()).length;
   const addAcao = (label: string) =>
-    setSel((old) => [...old, { rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida" }]);
-  const removerSel = (idx: number) => setSel((old) => old.filter((_, i) => i !== idx));
-  const patchSel = (idx: number, campo: keyof Sel, valor: any) =>
-    setSel((old) => old.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it)));
+    setSel((old) => [...old, { rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida", contrato_id: contratoSel }]);
+  // Os índices da UI são os da lista FILTRADA — converte pro índice real.
+  const idxReal = (i: number) => sel.indexOf(doContrato[i]);
+  const removerSel = (i: number) => { const r = idxReal(i); setSel((old) => old.filter((_, k) => k !== r)); };
+  const patchSel = (i: number, campo: keyof Sel, valor: any) => {
+    const r = idxReal(i);
+    setSel((old) => old.map((it, k) => (k === r ? { ...it, [campo]: valor } : it)));
+  };
 
   // Nova AÇÃO PADRÃO: entra no catálogo global (vale pra todos) e já é
   // atrelada a este cliente.
@@ -101,6 +133,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
   };
 
   const ajuizaveis = sel.filter((s2) => !s2.bloqueada).length;
+  const ajuizaveisCt = doContrato.filter((s2) => !s2.bloqueada).length;
 
   // Refazer = abre o Finder no modo ESTEIRA (sessão persistente) no contexto
   // deste cliente. O Finder puxa a pasta do Drive dele pro gatilho e a nova
@@ -113,12 +146,13 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
 
   const salvarManual = async () => {
     if (!cliente) return;
-    if (sel.length === 0) {
-      toast.error("Selecione ao menos uma ação.");
+    if (!contratoSel) { toast.error("Escolha o contrato das ações."); return; }
+    if (doContrato.length === 0) {
+      toast.error("Selecione ao menos uma ação para este contrato.");
       return;
     }
     // O REQUERIDO é obrigatório: é ele que diz contra quem a ação vai.
-    const semRequerido = sel.filter((s2) => !s2.requerido.trim()).length;
+    const semRequerido = doContrato.filter((s2) => !s2.requerido.trim()).length;
     if (semRequerido > 0) {
       toast.error(`Informe o requerido de ${semRequerido === 1 ? "1 ação" : `${semRequerido} ações`} (contra quem será ajuizada).`);
       return;
@@ -126,13 +160,15 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
     setSalvando(true);
     const analise = {
       origem: "manual",
-      rubricas: sel.map((s2) => ({
+      // Preserva as ações dos OUTROS contratos; substitui só as deste.
+      rubricas: [...deOutros, ...doContrato].map((s2) => ({
         rubrica: s2.rubrica,
         detalhe: s2.detalhe.trim() || null,
         requerido: s2.requerido.trim(),
         valor: null,
         bloqueada: s2.bloqueada,
         motivo: s2.bloqueada ? s2.motivo : null,
+        contrato_id: s2.contrato_id,
       })),
     };
     const { data, error } = await supabase.rpc("fn_refazer_analise_comercial" as any, {
@@ -161,8 +197,8 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
       <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-hidden flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            {stage === "manual" && (
-              <button onClick={() => setStage("chooser")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+            {stage !== "chooser" && (
+              <button onClick={() => setStage(stage === "manual" && contratos.length > 1 ? "contrato" : "chooser")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -172,6 +208,8 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
           <DialogDescription>
             {stage === "chooser"
               ? "Edite as ações na hora ou refaça a análise do zero no Finder."
+              : stage === "contrato"
+              ? "Cada ação pertence a um contrato do cliente. Escolha qual deles você vai editar."
               : "Atrele as ações, diga contra quem cada uma vai e salve. Cada mudança recalcula o fechamento (mantendo quem captou)."}
           </DialogDescription>
         </DialogHeader>
@@ -179,7 +217,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
         {stage === "chooser" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <button
-              onClick={() => setStage("manual")}
+              onClick={() => {
+                if (contratos.length === 0) { toast.error("Este cliente não tem contrato. Cadastre o contrato antes de definir as ações."); return; }
+                if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); }
+                else setStage("contrato");
+              }}
               className="text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center mb-3">
@@ -203,11 +245,63 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
               </p>
             </button>
           </div>
+        ) : stage === "contrato" ? (
+          <div className="space-y-2 py-1 overflow-y-auto">
+            <p className="text-[12px] text-muted-foreground">
+              Toda ação é ajuizada com base num contrato — o instrumento que nos dá poderes para
+              representar o cliente. Escolha de qual contrato você vai editar as ações.
+            </p>
+            {contratos.map((c) => {
+              const n = sel.filter((s2) => s2.contrato_id === c.id).length;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { setContratoSel(c.id); setStage("manual"); }}
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04] p-3.5 flex items-center gap-3 transition-colors"
+                >
+                  <span className="h-10 w-10 rounded-xl bg-primary/10 ring-1 ring-primary/20 text-primary flex items-center justify-center shrink-0">
+                    <FileSignature className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">
+                      Contrato {c.modalidade ? `de ${c.modalidade}` : ""}
+                    </span>
+                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 truncate">{rotuloCt(c)}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {n} ação(ões)
+                  </span>
+                </button>
+              );
+            })}
+            {sel.some((s2) => !s2.contrato_id) && (
+              <button
+                onClick={() => { setContratoSel(null); setStage("manual"); }}
+                className="w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-amber-400/[0.04] p-3.5 flex items-center gap-3 hover:bg-amber-400/[0.08] transition-colors"
+              >
+                <span className="h-10 w-10 rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 text-amber-400 flex items-center justify-center shrink-0">
+                  <ClipboardList className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground/85">Ações sem contrato</span>
+                  <span className="block text-[11.5px] text-muted-foreground mt-0.5">
+                    Ações antigas, sem contrato de origem — abra para atribuí-las a um contrato.
+                  </span>
+                </span>
+                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                  {sel.filter((s2) => !s2.contrato_id).length} ação(ões)
+                </span>
+              </button>
+            )}
+          </div>
         ) : (
           <>
             <div className="flex items-center justify-between px-1 py-1 shrink-0">
-              <span className="text-[11px] text-muted-foreground">
-                {ajuizaveis} ajuizável(is) = <strong className="text-foreground">{Math.max(1, ajuizaveis)}</strong> ação(ões) no fechamento
+              <span className="text-[11px] text-muted-foreground truncate">
+                {contratoSel
+                  ? <>Editando o <strong className="text-foreground">contrato {contratos.find((c) => c.id === contratoSel)?.modalidade || ""} · {rotuloCt(contratos.find((c) => c.id === contratoSel) || { id: "" })}</strong></>
+                  : <>Editando as <strong className="text-amber-300">ações sem contrato</strong></>}
+                {" · "}{ajuizaveisCt} nesta · {ajuizaveis} no total = <strong className="text-foreground">{Math.max(1, ajuizaveis)}</strong> ação(ões) no fechamento
               </span>
             </div>
 
@@ -215,7 +309,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
               {/* GRADE DE AÇÕES — mesmo padrão do Writer: clicar atrela (pode repetir) */}
               <div>
                 <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
-                  Selecione as ações ({sel.length})
+                  Selecione as ações ({doContrato.length})
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {catalogo.map((label) => {
@@ -276,15 +370,15 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
               {/* AÇÕES ATRELADAS — detalhe + REQUERIDO (obrigatório) */}
               <div>
                 <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
-                  Ações atreladas ({sel.length})
+                  Ações atreladas a este contrato ({doContrato.length})
                 </p>
-                {sel.length === 0 ? (
+                {doContrato.length === 0 ? (
                   <p className="text-[12px] text-muted-foreground rounded-lg border border-dashed border-border px-3 py-6 text-center">
                     Clique nas ações acima para atrelá-las. Elas aparecem aqui.
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {sel.map((it, i) => (
+                    {doContrato.map((it, i) => (
                       <div key={i} className={`rounded-lg border px-3 py-2.5 space-y-2 ${it.bloqueada ? "border-amber-400/30 bg-amber-400/[0.04]" : "border-border bg-white/[0.02]"}`}>
                         <div className="flex items-center gap-2">
                           <span className={`text-[13px] font-medium flex-1 min-w-0 truncate ${it.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>
@@ -346,7 +440,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, onSaved,
             </div>
 
             <DialogFooter className="shrink-0 gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setStage("chooser")} disabled={salvando}>Voltar</Button>
+              <Button variant="ghost" onClick={() => setStage(contratos.length > 1 ? "contrato" : "chooser")} disabled={salvando}>Voltar</Button>
               <Button onClick={salvarManual} disabled={salvando}>
                 {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
                 Salvar e recalcular

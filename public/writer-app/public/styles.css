@@ -3363,3 +3363,11 @@ select:has(option[value=""]:checked) {
 }
 /* Requerido: obrigatório, então ganha destaque em relação ao detalhe. */
 .kit-desc-req { border-color: rgba(0, 160, 190, 0.55) !important; }
+
+/* Aviso de vínculo com o contrato do kit. */
+.kit-desc-hint {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin: -0.35rem 0 0.75rem;
+  line-height: 1.45;
+}
