@@ -1249,7 +1249,7 @@ function PreClienteExpandido({ pre, onClose }: { pre: PreCliente | null; onClose
           {/* Rubricas não bloqueadas */}
           {rubricas.length > 0 ? (
             <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Descontos ajuizáveis ({rubricas.length})</p>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Ações ajuizáveis ({rubricas.length})</p>
               <div className="flex flex-wrap gap-1.5">
                 {rubricas.map((r, i) => (
                   <span key={i} className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2.5 py-1">

@@ -625,10 +625,10 @@ export default function ClienteDetail() {
 
           <section className="space-y-2">
             <div className="flex items-center justify-between gap-2 px-1">
-              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Análise comercial</h2>
+              <h2 className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Ações ajuizáveis</h2>
               <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={() => setRefazerAcOpen(true)}>
                 <ClipboardList className="h-3.5 w-3.5" />
-                {cliente.analise_comercial ? "Editar análise comercial" : "Fazer análise"}
+                {cliente.analise_comercial ? "Editar ações ajuizáveis" : "Definir ações ajuizáveis"}
               </Button>
             </div>
             {cliente.analise_comercial ? (

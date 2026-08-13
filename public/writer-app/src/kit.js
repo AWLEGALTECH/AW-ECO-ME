@@ -767,7 +767,8 @@ function onKitReuRemove(idx) {
    formato do Finder ({rubrica, valor, bloqueada}), de modo que o eco (card do
    pré-cliente + lançamento automático em Fechamentos) já entende sem mudanças.
    ========================================================================= */
-const DESCONTOS_KIT = [
+// Fallback local: usado só se o catálogo do banco não responder.
+const DESCONTOS_KIT_FALLBACK = [
   'RMC - Reserva de Margem Consignável',
   'RCC - Reserva de Cartão de Crédito',
   'Cesta de tarifas',
@@ -790,6 +791,38 @@ const DESCONTOS_KIT = [
   'Encargos por descoberto',
   'Encargos em excesso',
 ];
+
+// Catálogo GLOBAL de ações ajuizáveis (tabela acoes_ajuizaveis do aw-eco-me):
+// a mesma lista que o app React mostra. Qualquer ação padrão criada por um
+// usuário aparece aqui para todos.
+let DESCONTOS_KIT = DESCONTOS_KIT_FALLBACK.slice();
+async function carregarAcoesAjuizaveis() {
+  try {
+    const r = await fetch(`${PRE_CLIENTE_SUPABASE_URL}/rest/v1/acoes_ajuizaveis?select=nome&ativo=eq.true&order=ordem.asc,nome.asc`, {
+      headers: { apikey: PRE_CLIENTE_SUPABASE_ANON_KEY, Authorization: `Bearer ${PRE_CLIENTE_SUPABASE_ANON_KEY}` },
+    });
+    if (!r.ok) return;
+    const rows = await r.json();
+    if (Array.isArray(rows) && rows.length) DESCONTOS_KIT = rows.map((x) => String(x.nome));
+  } catch (_e) { /* mantém o fallback */ }
+}
+
+// Cria uma AÇÃO PADRÃO no catálogo global (vale pra todos os usuários).
+async function criarAcaoPadrao(nome) {
+  try {
+    const r = await fetch(`${PRE_CLIENTE_SUPABASE_URL}/rest/v1/acoes_ajuizaveis`, {
+      method: 'POST',
+      headers: {
+        apikey: PRE_CLIENTE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${PRE_CLIENTE_SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify({ nome }),
+    });
+    return r.ok;
+  } catch (_e) { return false; }
+}
 
 // Rota do botão "Continuar" do formulário do kit. Valida e decide o caminho:
 // quem veio de análise comercial do Finder já tem rubricas → gera direto;
@@ -840,7 +873,7 @@ function renderKitDescontos(view) {
       </div>
 
       <section class="kit-section">
-        <div class="kit-section-title">Selecione os descontos <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
+        <div class="kit-section-title">Selecione as ações <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
         <div class="kit-desc-grid" id="kitDescGrid"></div>
       </section>
 
@@ -848,14 +881,14 @@ function renderKitDescontos(view) {
         <div class="kit-section-title">Outros</div>
         <div class="kit-desc-outro-row">
           <input type="text" id="kitDescOutroInput" class="kit-desc-outro-input"
-                 placeholder="Digite um desconto que não está na lista e tecle Enter"
+                 placeholder="Digite uma ação que não está na lista e tecle Enter"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarDescontoOutro();}">
           <button type="button" class="btn btn-ghost" onclick="adicionarDescontoOutro()">Adicionar</button>
         </div>
       </section>
 
       <section class="kit-section" id="kitDescAtreladasSection">
-        <div class="kit-section-title">Rubricas atreladas <span class="kit-desc-counter">(<span id="kitDescAtreladasCount">0</span>)</span></div>
+        <div class="kit-section-title">Ações atreladas <span class="kit-desc-counter">(<span id="kitDescAtreladasCount">0</span>)</span></div>
         <div class="kit-desc-atreladas" id="kitDescAtreladas"></div>
       </section>
 
@@ -867,9 +900,12 @@ function renderKitDescontos(view) {
   `;
   renderKitDescChips();
   renderKitDescAtreladas();
+  // Busca o catálogo global e redesenha quando chegar (a tela já abriu com o
+  // fallback, então nunca fica vazia).
+  carregarAcoesAjuizaveis().then(() => renderKitDescChips());
 }
 
-// Grade de descontos do catálogo. Clicar ATRELA uma instância (pode repetir);
+// Grade de ações do catálogo. Clicar ATRELA uma instância (pode repetir);
 // o chip mostra um badge com a quantidade já atrelada daquele desconto.
 function renderKitDescChips() {
   const box = document.getElementById('kitDescGrid');
@@ -887,13 +923,34 @@ function renderKitDescChips() {
         <span class="kit-desc-label">${escapeHtml(label)}</span>
         ${n > 0 ? `<span class="kit-desc-badge">${n}</span>` : ''}
       </button>`;
-  }).join('');
+  }).join('') + `
+      <button type="button" class="kit-desc-chip kit-desc-chip-add" onclick="promptAcaoPadrao()"
+              title="Cria uma ação padrão que passa a aparecer para todos os usuários">
+        <span class="kit-desc-box">+</span>
+        <span class="kit-desc-label">Nova ação padrão</span>
+      </button>`;
+}
+
+// Nova ação PADRÃO: entra no catálogo global e já é atrelada aqui.
+async function promptAcaoPadrao() {
+  const nome = (prompt('Nome da nova ação padrão (aparecerá para todos):') || '').trim();
+  if (!nome) return;
+  if (DESCONTOS_KIT.some((d) => d.toLowerCase() === nome.toLowerCase())) {
+    alert('Essa ação já existe na lista.');
+    return;
+  }
+  const ok = await criarAcaoPadrao(nome);
+  if (!ok) { alert('Não consegui salvar a ação no catálogo. Ela foi adicionada só nesta peça.'); }
+  else { await carregarAcoesAjuizaveis(); }
+  _kitLista().push({ rubrica: nome, detalhe: '', requerido: '' });
+  renderKitDescChips();
+  renderKitDescAtreladas();
 }
 
 function addKitDesconto(el) {
   const label = el && el.getAttribute('data-label');
   if (!label) return;
-  _kitLista().push({ rubrica: label, detalhe: '' });
+  _kitLista().push({ rubrica: label, detalhe: '', requerido: '' });
   renderKitDescChips();
   renderKitDescAtreladas();
 }
@@ -903,7 +960,7 @@ function adicionarDescontoOutro() {
   if (!inp) return;
   const v = (inp.value || '').trim();
   if (!v) return;
-  _kitLista().push({ rubrica: v, detalhe: '' });
+  _kitLista().push({ rubrica: v, detalhe: '', requerido: '' });
   inp.value = '';
   inp.focus();
   renderKitDescChips();      // se o "outro" bater com um do catálogo, atualiza o badge
@@ -924,6 +981,12 @@ function setKitDescDetalhe(idx, valor) {
   if (lista[idx]) lista[idx].detalhe = valor;
 }
 
+// REQUERIDO: contra quem a ação será ajuizada (obrigatório).
+function setKitDescRequerido(idx, valor) {
+  const lista = _kitLista();
+  if (lista[idx]) lista[idx].requerido = valor;
+}
+
 // Lista EMPILHADA das rubricas atreladas, no mesmo visual verde do card do
 // pré-cliente, cada uma com um campo de detalhamento (litigante/banco/etc.).
 function renderKitDescAtreladas() {
@@ -935,7 +998,7 @@ function renderKitDescAtreladas() {
   const box = document.getElementById('kitDescAtreladas');
   if (!box) return;
   if (lista.length === 0) {
-    box.innerHTML = `<div class="kit-desc-atreladas-vazio">Clique nos descontos acima para atrelá-los. Eles aparecem aqui empilhados.</div>`;
+    box.innerHTML = `<div class="kit-desc-atreladas-vazio">Clique nas ações acima para atrelá-las. Elas aparecem aqui empilhadas.</div>`;
     return;
   }
   box.innerHTML = lista.map((it, i) => `
@@ -944,7 +1007,9 @@ function renderKitDescAtreladas() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="kit-desc-pill-ic"><path d="M20 6L9 17l-5-5"/></svg>
         ${escapeHtml(it.rubrica)}
       </span>
-      <input type="text" class="kit-desc-detalhe" placeholder="detalhe (ex.: litigante / banco)"
+      <input type="text" class="kit-desc-detalhe kit-desc-req" placeholder="requerido * (ex.: Bradesco)"
+             value="${escapeAttr(it.requerido || '')}" oninput="setKitDescRequerido(${i}, this.value)">
+      <input type="text" class="kit-desc-detalhe" placeholder="detalhe (ex.: cliente não reconhece)"
              value="${escapeAttr(it.detalhe || '')}" oninput="setKitDescDetalhe(${i}, this.value)">
       <button type="button" class="kit-desc-atrelada-x" onclick="removerKitDesconto(${i})" aria-label="remover">×</button>
     </div>`).join('');
@@ -962,13 +1027,19 @@ function confirmarDescontosEGerar() {
   if (!state.dadosKit) { navegarPara('pacoteKit'); return; }
   const lista = _kitLista();
   if (lista.length === 0) {
-    if (!confirm('Nenhum desconto ajuizável atrelado. Continuar mesmo assim?')) return;
+    if (!confirm('Nenhuma ação ajuizável atrelada. Continuar mesmo assim?')) return;
+  }
+  const semReq = lista.filter((it) => !String(it.requerido || '').trim()).length;
+  if (semReq > 0) {
+    alert(`Informe o REQUERIDO de ${semReq === 1 ? '1 ação' : semReq + ' ações'} (contra quem será ajuizada).`);
+    return;
   }
   state.dadosKit._analise_comercial = {
     origem: 'writer_manual',
     rubricas: lista.map((it) => ({
       rubrica: it.rubrica,
       detalhe: (it.detalhe || '').trim() || null,
+      requerido: (it.requerido || '').trim(),
       valor: null, bloqueada: false, motivo: null,
     })),
   };

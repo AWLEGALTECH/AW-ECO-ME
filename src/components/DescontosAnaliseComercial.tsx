@@ -6,7 +6,7 @@ import { Lock, CheckCircle2, ClipboardList, FileSignature, HelpCircle } from "lu
 // selecionável") pra impedir que a análise primária reconsidere um desconto
 // já descartado no comercial. Os ajuizáveis aparecem em verde.
 
-interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null; detalhe: string | null; contrato_id: string | null }
+interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null; detalhe: string | null; requerido: string | null; contrato_id: string | null }
 
 // Contrato (só o que importa pra rotular o grupo).
 export interface ContratoRef { id: string; modalidade?: string | null; data_assinatura?: string | null; reus?: string[] | null }
@@ -31,6 +31,7 @@ export function rubricasDaAnalise(ac: any): RubricaAC[] {
       bloqueada: !!r?.bloqueada,
       motivo: r?.motivo ?? null,
       detalhe: (r?.detalhe && String(r.detalhe).trim()) || null,
+      requerido: (r?.requerido && String(r.requerido).trim()) || null,
       contrato_id: (r?.contrato_id && String(r.contrato_id)) || null,
     }))
     .filter((r: RubricaAC) => r.rubrica);
@@ -56,6 +57,7 @@ function LinhaRubrica({ r }: { r: RubricaAC }) {
       )}
       <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through text-muted-foreground" : "text-foreground"}`}>
         {r.rubrica}
+        {r.requerido && <span className="text-muted-foreground font-normal"> · contra {r.requerido}</span>}
         {r.detalhe && <span className="text-muted-foreground font-normal"> · {r.detalhe}</span>}
       </span>
       {fmtBRL(r.valor) && (
@@ -100,14 +102,14 @@ export function DescontosAnaliseComercial({ analise, contratos, className }: { a
     <div className={`rounded-xl border border-border bg-card/40 p-3 ${className || ""}`}>
       <div className="flex items-center gap-2 mb-1.5">
         <ClipboardList className="h-4 w-4 text-primary" />
-        <span className="text-xs font-semibold uppercase tracking-wider">Descontos · análise comercial</span>
+        <span className="text-xs font-semibold uppercase tracking-wider">Ações ajuizáveis · análise comercial</span>
         <span className="text-[11px] text-muted-foreground ml-auto tabular-nums">
           {nOk} ajuizável{nOk === 1 ? "" : "is"} · {nBloq} bloqueado{nBloq === 1 ? "" : "s"}
         </span>
       </div>
       {nBloq > 0 && (
         <p className="text-[11px] text-muted-foreground mb-2 leading-snug">
-          Os descontos <strong>bloqueados</strong> foram descartados na análise comercial e não podem ser reconsiderados aqui.
+          As ações <strong>bloqueadas</strong> foram descartadas na análise comercial e não podem ser reconsideradas aqui.
         </p>
       )}
 
@@ -137,8 +139,8 @@ export function DescontosAnaliseComercial({ analise, contratos, className }: { a
             </div>
             <p className="text-[10.5px] text-muted-foreground mt-1 leading-snug">
               {grupos.length > 0
-                ? "Estes descontos não vieram de nenhum contrato específico (foram adicionados direto na análise)."
-                : "A origem por contrato aparece quando o desconto vem do kit que gerou o contrato."}
+                ? "Estas ações não vieram de nenhum contrato específico (foram adicionadas direto na análise)."
+                : "A origem por contrato aparece quando a ação vem do kit que gerou o contrato."}
             </p>
           </div>
         )}
