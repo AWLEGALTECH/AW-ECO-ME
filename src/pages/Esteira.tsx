@@ -956,6 +956,7 @@ export default function Esteira() {
         cliente={espelhoOpen?.cliente || null}
         onClose={() => setEspelhoOpen(null)}
         onProtocolado={() => { setEspelhoOpen(null); refetchAll(); }}
+        onCancelado={() => refetchAll()}
         onVerPerfil={() => {
           const id = espelhoOpen?.cliente?.id;
           setEspelhoOpen(null);

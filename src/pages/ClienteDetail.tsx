@@ -34,6 +34,7 @@ import {
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
   Scale, Gavel, Building2, Hammer, ClipboardPaste,
+  Package, CalendarDays, UserX, PhoneOff, XCircle,
 } from "lucide-react";
 
 export interface Cliente {
@@ -1118,21 +1119,31 @@ function AnaliseDocumentalCard({ demanda, filhas, autor }: { demanda: Demanda; f
 }
 
 function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: () => void; autor?: string | null }) {
-  const protocolado = !!demanda.protocolado_at;
+  const cancelado = !!(demanda as any).cancelado_at || demanda.status === "cancelada";
+  const protocolado = !cancelado && !!demanda.protocolado_at;
+  const motivoKey = (demanda as any).cancelamento_motivo as string | null;
+  const motivoLabel = MOTIVOS_CANCELAMENTO.find((m) => m.key === motivoKey)?.label
+    || (motivoKey === "outro" ? "Outro motivo" : null);
+  const motivoDetalhe = (demanda as any).cancelamento_detalhe as string | null;
   return (
     <button
       onClick={onClick}
       className={`text-left w-full rounded-xl border p-4 transition-all ${
-        protocolado
-          ? "border-emerald-400/30 bg-emerald-400/5 hover:border-emerald-400/60"
-          : "border-border bg-card/40 hover:border-primary/40 hover:bg-card/60"
+        cancelado
+          ? "border-rose-500/25 bg-rose-500/[0.04] hover:border-rose-500/50 opacity-90"
+          : protocolado
+            ? "border-emerald-400/30 bg-emerald-400/5 hover:border-emerald-400/60"
+            : "border-border bg-card/40 hover:border-primary/40 hover:bg-card/60"
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`h-9 w-9 shrink-0 rounded-lg flex items-center justify-center ${
-          protocolado ? "bg-emerald-400/15 ring-1 ring-emerald-400/30" : "bg-muted/30"
+          cancelado ? "bg-rose-500/15 ring-1 ring-rose-500/30"
+            : protocolado ? "bg-emerald-400/15 ring-1 ring-emerald-400/30" : "bg-muted/30"
         }`}>
-          <Send className={`h-4 w-4 ${protocolado ? "text-emerald-400" : "text-muted-foreground"}`} />
+          {cancelado
+            ? <XCircle className="h-4 w-4 text-rose-400" />
+            : <Send className={`h-4 w-4 ${protocolado ? "text-emerald-400" : "text-muted-foreground"}`} />}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
@@ -1147,7 +1158,11 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
                 </p>
               )}
             </div>
-            {protocolado ? (
+            {cancelado ? (
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border text-rose-400 bg-rose-500/10 border-rose-500/30 shrink-0">
+                <XCircle className="h-2.5 w-2.5" /> Cancelada
+              </span>
+            ) : protocolado ? (
               <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border text-emerald-400 bg-emerald-400/10 border-emerald-400/30 shrink-0">
                 <CheckCircle2 className="h-2.5 w-2.5" /> Protocolado
               </span>
@@ -1157,7 +1172,20 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
               </span>
             )}
           </div>
-          {protocolado ? (
+          {cancelado ? (
+            <div className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-2.5 py-1.5">
+              <p className="text-[11px] text-rose-300 font-medium inline-flex items-center gap-1.5">
+                <Ban className="h-3 w-3 shrink-0" />
+                {motivoLabel || "Cancelada"}
+                <span className="text-rose-400/60 font-normal">
+                  · {fmtDateTime((demanda as any).cancelado_at)}
+                </span>
+              </p>
+              {motivoDetalhe && (
+                <p className="text-[11px] text-muted-foreground mt-0.5 pl-[18px]">{motivoDetalhe}</p>
+              )}
+            </div>
+          ) : protocolado ? (
             <p className="text-[11px] text-emerald-400 mt-2 inline-flex items-center gap-1.5">
               <CheckCircle2 className="h-3 w-3" />
               <span>nº {demanda.numero_processo || "—"} · {fmtDateTime(demanda.protocolado_at)}</span>
@@ -1174,7 +1202,18 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
 }
 
 // ─── ESPELHO DE PROTOCOLO — modal multi-etapa ────────────────────────────
-type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success";
+type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success" | "cancelar" | "cancelado";
+
+// Motivos de cancelamento de protocolo. Sao os tres que mais aparecem na
+// operacao — o quarto ("outro") sempre exige o texto livre.
+const MOTIVOS_CANCELAMENTO: Array<{ key: string; label: string; hint: string; Icon: any }> = [
+  { key: "cliente_desistiu", label: "Cliente desistiu", Icon: UserX,
+    hint: "Mudou de ideia, fechou acordo direto com o banco ou não quer mais ajuizar" },
+  { key: "cliente_nao_localizado", label: "Cliente não localizado", Icon: PhoneOff,
+    hint: "Parou de responder ou não entregou os documentos necessários" },
+  { key: "acao_inviavel", label: "Ação inviável", Icon: Ban,
+    hint: "Prescrita, já ajuizada por outro escritório, duplicada ou de valor irrisório" },
+];
 
 // Comarca em Title Case, preservando preposições em minúsculo ("São José do
 // Egito"). Usado quando a fonte vem em CAIXA ALTA (ex.: "MANAUS").
@@ -1257,7 +1296,7 @@ export function parseProjudiEspelho(raw: string): {
 }
 
 export function EspelhoProtocoloDialog({
-  demanda, cliente, onClose, onProtocolado, onVerPerfil,
+  demanda, cliente, onClose, onProtocolado, onVerPerfil, onCancelado,
 }: {
   demanda: Demanda | null;
   cliente: Cliente | null;
@@ -1267,7 +1306,10 @@ export function EspelhoProtocoloDialog({
   // inicial do dialog. Util quando o dialog e aberto fora da ficha do
   // cliente (ex: clicando direto em "Pecas Prontas" na esteira geral).
   onVerPerfil?: () => void;
+  // Chamado apos o protocolo ser cancelado, pra quem abriu recarregar.
+  onCancelado?: () => void;
 }) {
+  const { user } = useAuth();
   const [stage, setStage] = useState<EspelhoStage>("actions");
   const [copiados, setCopiados] = useState<Set<string>>(new Set());
   const [numeroProcesso, setNumeroProcesso] = useState("");
@@ -1293,6 +1335,10 @@ export function EspelhoProtocoloDialog({
   // Valor efetivamente protocolado (digitado no dialogo). Usado na tela
   // de sucesso, ja que demanda.valor_causa so atualiza apos refetch.
   const [valorProtocolado, setValorProtocolado] = useState<number>(0);
+  // Cancelamento do protocolo: motivo escolhido + texto livre.
+  const [motivoSel, setMotivoSel] = useState<string>("");
+  const [motivoTexto, setMotivoTexto] = useState("");
+  const [cancelando, setCancelando] = useState(false);
 
   useEffect(() => {
     if (demanda) {
@@ -1306,6 +1352,9 @@ export function EspelhoProtocoloDialog({
       setProcedimentoIn(demanda.procedimento || "");
       setProjudiRaw("");
       setProjudiPreenchidos([]);
+      setMotivoSel("");
+      setMotivoTexto("");
+      setCancelando(false);
       // Inicializa competencia: prioriza valor gravado pelo Writer, senao
       // fallback baseado em valor (limite atualizado 64.840).
       const v = Number(demanda.valor_causa || 0);
@@ -1384,6 +1433,30 @@ export function EspelhoProtocoloDialog({
     } else {
       toast.success(`${feitos.length} campo${feitos.length > 1 ? "s" : ""} preenchido${feitos.length > 1 ? "s" : ""} do Projudi`);
     }
+  };
+
+  // Cancela o protocolo. Nao apaga a peca — ela continua na ficha do cliente,
+  // agora marcada como cancelada e com o motivo. `status = 'cancelada'` e o
+  // que tira o card da esteira (a query da esteira filtra status = pendente).
+  const cancelarProtocolo = async () => {
+    if (!motivoSel) return;
+    const detalhe = motivoTexto.trim();
+    if (motivoSel === "outro" && !detalhe) {
+      toast.error("Descreva o motivo do cancelamento");
+      return;
+    }
+    setCancelando(true);
+    const { error } = await supabase.from("demandas" as any).update({
+      status: "cancelada",
+      cancelado_at: new Date().toISOString(),
+      cancelado_por: user?.id ?? null,
+      cancelamento_motivo: motivoSel,
+      cancelamento_detalhe: detalhe || null,
+    }).eq("id", demanda.id);
+    setCancelando(false);
+    if (error) { toast.error("Erro ao cancelar: " + error.message); return; }
+    setStage("cancelado");
+    onCancelado?.();
   };
 
   const finalizar = async () => {
@@ -1487,8 +1560,17 @@ export function EspelhoProtocoloDialog({
                 <Send className="h-5 w-5 text-primary" />
                 {cliente.nome}
               </DialogTitle>
-              <DialogDescription>
-                Peça pronta — {demanda.desconto || demanda.titulo} · finalizada em {fmtDateTime(demanda.completed_at)}
+              <DialogDescription asChild>
+                <div className="space-y-1">
+                  <span className="flex items-center gap-1.5 text-foreground/90">
+                    <Package className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="font-medium">{demanda.desconto || demanda.titulo}</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                    finalizada em {fmtDateTime(demanda.completed_at)}
+                  </span>
+                </div>
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
@@ -1526,8 +1608,126 @@ export function EspelhoProtocoloDialog({
                 variant="primary"
                 onClick={() => setStage("tribunal")}
               />
+              <div className="pt-1">
+                <AcaoCard
+                  icon={XCircle}
+                  titulo="Cancelar protocolo"
+                  hint="A peça sai da esteira e fica registrada como cancelada na ficha"
+                  variant="perigo"
+                  onClick={() => setStage("cancelar")}
+                />
+              </div>
             </div>
           </>
+        )}
+
+        {stage === "cancelar" && (
+          <>
+            <DialogHeader className="shrink-0">
+              <DialogTitle className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-rose-400" /> Cancelar protocolo
+              </DialogTitle>
+              <DialogDescription>
+                Por que esta peça não será mais protocolada? O motivo fica registrado na ficha de {cliente.nome}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+              {MOTIVOS_CANCELAMENTO.map((m) => {
+                const ativo = motivoSel === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    onClick={() => { setMotivoSel(m.key); setMotivoTexto(""); }}
+                    className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left border transition-colors ${
+                      ativo
+                        ? "border-rose-500/60 bg-rose-500/10"
+                        : "border-border bg-card/40 hover:border-rose-500/40 hover:bg-rose-500/[0.04]"
+                    }`}
+                  >
+                    <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
+                      ativo ? "bg-rose-500/25" : "bg-rose-500/10"
+                    }`}>
+                      <m.Icon className="h-5 w-5 text-rose-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold ${ativo ? "text-rose-300" : ""}`}>{m.label}</p>
+                      <p className="text-[11px] text-muted-foreground">{m.hint}</p>
+                    </div>
+                    {ativo && <Check className="h-4 w-4 text-rose-400 shrink-0" />}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => setMotivoSel("outro")}
+                className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left border transition-colors ${
+                  motivoSel === "outro"
+                    ? "border-rose-500/60 bg-rose-500/10"
+                    : "border-dashed border-border bg-card/40 hover:border-rose-500/40 hover:bg-rose-500/[0.04]"
+                }`}
+              >
+                <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
+                  motivoSel === "outro" ? "bg-rose-500/25" : "bg-rose-500/10"
+                }`}>
+                  <PenSquare className="h-5 w-5 text-rose-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${motivoSel === "outro" ? "text-rose-300" : ""}`}>Outro motivo</p>
+                  <p className="text-[11px] text-muted-foreground">Descrever com as minhas palavras</p>
+                </div>
+                {motivoSel === "outro" && <Check className="h-4 w-4 text-rose-400 shrink-0" />}
+              </button>
+
+              {motivoSel && (
+                <div className="pt-1 animate-in fade-in duration-200">
+                  <Label className="text-[11px] text-muted-foreground">
+                    {motivoSel === "outro" ? "Descreva o motivo" : "Complemento (opcional)"}
+                  </Label>
+                  <Textarea
+                    value={motivoTexto}
+                    onChange={(e) => setMotivoTexto(e.target.value)}
+                    rows={3}
+                    autoFocus={motivoSel === "outro"}
+                    placeholder={motivoSel === "outro"
+                      ? "Ex: cliente faleceu; herdeiros ainda decidindo se prosseguem"
+                      : "Algum detalhe que valha registrar na ficha"}
+                    className="mt-1 resize-none"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 pt-3 shrink-0">
+              <Button variant="outline" className="flex-1" onClick={() => setStage("actions")} disabled={cancelando}>
+                Voltar
+              </Button>
+              <Button
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white"
+                onClick={cancelarProtocolo}
+                disabled={!motivoSel || cancelando || (motivoSel === "outro" && !motivoTexto.trim())}
+              >
+                {cancelando ? "Cancelando…" : "Confirmar cancelamento"}
+              </Button>
+            </div>
+          </>
+        )}
+
+        {stage === "cancelado" && (
+          <div className="flex flex-col items-center justify-center text-center py-10 gap-3">
+            <div className="h-16 w-16 rounded-2xl bg-rose-500/15 ring-1 ring-rose-500/30 grid place-items-center">
+              <XCircle className="h-8 w-8 text-rose-400" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">Protocolo cancelado</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                A peça saiu da esteira e ficou registrada na ficha de {cliente.nome} com o motivo.
+              </p>
+            </div>
+            <p className="text-[11px] text-muted-foreground/80 max-w-xs">
+              {MOTIVOS_CANCELAMENTO.find((m) => m.key === motivoSel)?.label || "Outro motivo"}
+              {motivoTexto.trim() && ` — ${motivoTexto.trim()}`}
+            </p>
+            <Button variant="outline" className="mt-2" onClick={onClose}>Fechar</Button>
+          </div>
         )}
 
         {stage === "tribunal" && (
@@ -2401,6 +2601,7 @@ function PrePipeline({
         cliente={cliente}
         onClose={() => setEspelhoDemanda(null)}
         onProtocolado={() => onChange()}
+        onCancelado={() => onChange()}
       />
 
       {/* Diálogo: Vincular análise do Finder ao cliente */}
