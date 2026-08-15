@@ -1440,12 +1440,24 @@ export function EspelhoProtocoloDialog({
     // 3. Cria entrada na tabela processos pra aparecer na aba Processos
     //    do cliente. Usa numero_processo unico — se ja existe, ignora.
     const comarcaUf = [comarcaIn.trim(), demanda.uf].filter(Boolean).join(" / ");
+    // A materia vem do desconto da peca. Nas artesanais o desconto e nulo e o
+    // titulo e so "Pronto pra protocolo — NOME" — isso nao e materia, entao
+    // limpa o prefixo e descarta se sobrar apenas o nome do cliente.
+    const doTitulo = (demanda.titulo || "")
+      .replace(/^Pronto pra protocolo\s*—\s*/i, "")
+      .trim();
+    const materiaLimpa =
+      demanda.desconto ||
+      (doTitulo && doTitulo.toUpperCase() !== (cliente.nome || "").toUpperCase()
+        ? doTitulo
+        : null);
     const { error: errProc } = await supabase.from("processos").insert({
       cliente_id: cliente.id,
       numero_processo: numeroProcesso.trim(),
-      materia: demanda.desconto || demanda.titulo || null,
+      materia: materiaLimpa,
       fase_processual: "Inicial",
       status_tarefa: "ativo",
+      vara_juizo_origem: localTramiteIn.trim() || null,
       comarca_uf: comarcaUf || null,
       valor_causa: valorFinal,
     } as any);
