@@ -1455,7 +1455,7 @@ export function EspelhoProtocoloDialog({
       cliente_id: cliente.id,
       numero_processo: numeroProcesso.trim(),
       materia: materiaLimpa,
-      fase_processual: "Inicial",
+      fase_processual: "AG. DECISÃO INICIAL",
       status_tarefa: "ativo",
       vara_juizo_origem: localTramiteIn.trim() || null,
       comarca_uf: comarcaUf || null,
