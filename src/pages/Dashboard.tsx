@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonutChart } from "@/components/DonutChart";
 import {
   Briefcase, Users, DollarSign, TrendingUp,
-  PlayCircle, PauseCircle, Archive, AlertCircle,
+  PlayCircle, PauseCircle, AlertCircle,
   CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks, Gavel,
+  Zap, Eye, Flame, Trophy, Send,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -100,24 +101,108 @@ function BarList({
   );
 }
 
+// Tarefa achatada da linha temporal (view vw_tarefas_processo).
+interface TarefaRow {
+  processo_id: string;
+  numero_processo: string;
+  cliente_nome: string | null;
+  materia: string | null;
+  fase_processual: string | null;
+  tipo: "acao" | "monitoramento" | "pendencia";
+  titulo: string;
+  conteudo: string | null;
+  prazo: string | null;
+  desfecho: string | null;
+}
+
+const hojeISO = () => new Date().toISOString().slice(0, 10);
+const emDiasISO = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+
+// "venceu há 3 dias" / "hoje" / "em 5 dias" + a cor da urgência.
+function urgencia(prazo: string) {
+  const dias = Math.round(
+    (new Date(prazo + "T00:00:00").getTime() - new Date(hojeISO() + "T00:00:00").getTime()) / 86400000,
+  );
+  if (dias < 0) return { dias, label: `venceu há ${Math.abs(dias)}d`, cls: "text-rose-400", chip: "bg-rose-500/15 text-rose-400 ring-rose-500/30" };
+  if (dias === 0) return { dias, label: "vence hoje", cls: "text-rose-400", chip: "bg-rose-500/15 text-rose-400 ring-rose-500/30" };
+  if (dias <= 3) return { dias, label: `em ${dias}d`, cls: "text-orange-400", chip: "bg-orange-500/15 text-orange-400 ring-orange-500/30" };
+  if (dias <= 7) return { dias, label: `em ${dias}d`, cls: "text-amber-400", chip: "bg-amber-500/15 text-amber-400 ring-amber-500/30" };
+  return { dias, label: `em ${dias}d`, cls: "text-muted-foreground", chip: "bg-muted/30 text-muted-foreground ring-border" };
+}
+
 export default function Dashboard() {
   useEffect(() => { document.title = "Dashboard · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [totalClientes, setTotalClientes] = useState(0);
+  const [tarefas, setTarefas] = useState<TarefaRow[]>([]);
+  const [esteira, setEsteira] = useState({ prontas: 0, emProducao: 0 });
+  const [sentencas, setSentencas] = useState({ registradas: 0, aRegistrar: 0 });
+  const [janela, setJanela] = useState<"vencidas" | "7" | "30">("vencidas");
 
   useEffect(() => {
     (async () => {
-      const [{ data: procs }, { count: cliCount }] = await Promise.all([
-        supabase
-          .from("processos")
-          .select("id, numero_processo, cliente_id, materia, data_ultimo_andamento, prazo_processual, fase_processual, tipo_pendencia, status_tarefa, vara_juizo_origem, valor_causa, comarca_uf, parceiro, clientes(nome)"),
-        supabase.from("clientes").select("*", { count: "exact", head: true }),
-      ]);
+      const [{ data: procs }, { count: cliCount }, { data: tks }, { data: dem }, { count: sentCount }] =
+        await Promise.all([
+          supabase
+            .from("processos")
+            .select("id, numero_processo, cliente_id, materia, data_ultimo_andamento, prazo_processual, fase_processual, tipo_pendencia, status_tarefa, vara_juizo_origem, valor_causa, comarca_uf, parceiro, clientes(nome)"),
+          supabase.from("clientes").select("*", { count: "exact", head: true }),
+          supabase
+            .from("vw_tarefas_processo" as never)
+            .select("processo_id, numero_processo, cliente_nome, materia, fase_processual, tipo, titulo, conteudo, prazo, desfecho")
+            .is("desfecho", null)
+            .not("prazo", "is", null)
+            .order("prazo", { ascending: true }),
+          supabase.from("demandas" as never).select("etapa").eq("status", "pendente"),
+          supabase.from("sentencas" as never).select("*", { count: "exact", head: true }),
+        ]);
       if (procs) setProcessos(procs as unknown as Processo[]);
       setTotalClientes(cliCount ?? 0);
+      if (tks) setTarefas(tks as unknown as TarefaRow[]);
+      if (dem) {
+        const rows = dem as unknown as Array<{ etapa: string }>;
+        setEsteira({
+          prontas: rows.filter((d) => d.etapa === "pronta_para_protocolo").length,
+          emProducao: rows.filter((d) =>
+            ["analise_vinculada", "fluxo_artesanal", "confeccao_peca", "pendencia_documental"].includes(d.etapa),
+          ).length,
+        });
+      }
+      setSentencas((s) => ({ ...s, registradas: sentCount ?? 0 }));
     })();
   }, []);
+
+  // Processos que já passaram da sentença mas não têm sentença registrada —
+  // o buraco descoberto ao sincronizar a planilha. Calculado sobre `processos`
+  // pra não precisar de mais um round-trip.
+  const FASES_POS_SENTENCA = [
+    "AG. CONTRARRAZÕES", "AG. REMESSA AO 2º GRAU", "AG. DISTRIBUIÇÃO 2º GRAU",
+    "AG. DESPACHO INICIAL 2º GRAU", "AG. RECURSO INOMINADO", "AG. TJ ACÓRDÃO",
+    "AG. PAGAMENTO VOLUNTÁRIO", "AG. PAGAMENTO ACORDO", "AG. EXPEDIÇÃO ALVARÁ", "ARQUIVADO",
+  ];
+  const posSentenca = processos.filter((p) => FASES_POS_SENTENCA.includes(p.fase_processual ?? "")).length;
+  const sentencasAFazer = Math.max(0, posSentenca - sentencas.registradas);
+
+  const tarefasStats = useMemo(() => {
+    const hoje = hojeISO();
+    const d7 = emDiasISO(7);
+    const d30 = emDiasISO(30);
+    const abertas = tarefas.filter((t) => t.prazo);
+    const vencidas = abertas.filter((t) => t.prazo! < hoje);
+    const ate7 = abertas.filter((t) => t.prazo! >= hoje && t.prazo! <= d7);
+    const ate30 = abertas.filter((t) => t.prazo! >= hoje && t.prazo! <= d30);
+    return {
+      total: abertas.length,
+      vencidas, ate7, ate30,
+      acoes: abertas.filter((t) => t.tipo === "acao").length,
+      monitoramento: abertas.filter((t) => t.tipo === "monitoramento").length,
+      acoesUrgentes: abertas.filter((t) => t.tipo === "acao" && t.prazo! <= d7).length,
+    };
+  }, [tarefas]);
+
+  const listaJanela = janela === "vencidas" ? tarefasStats.vencidas
+    : janela === "7" ? tarefasStats.ate7 : tarefasStats.ate30;
 
   const stats = useMemo(() => {
     const total = processos.length;
@@ -137,16 +222,10 @@ export default function Dashboard() {
     const emAndamento = total - suspensos - arquivados;
     const comPendencia = processos.filter((p) => p.tipo_pendencia != null && p.tipo_pendencia !== "").length;
 
-    const hoje = new Date().toISOString().slice(0, 10);
-    const em30dias = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
-    const prazosProximos = processos
-      .filter((p) => p.prazo_processual && p.prazo_processual >= hoje && p.prazo_processual <= em30dias)
-      .sort((a, b) => (a.prazo_processual ?? "").localeCompare(b.prazo_processual ?? ""));
-
     return {
       total, valorTotal, valorMedio,
       valorAjuizado, valorAtivo, valorSuspensos, valorArquivados,
-      suspensos, arquivados, emAndamento, comPendencia, prazosProximos,
+      suspensos, arquivados, emAndamento, comPendencia,
     };
   }, [processos]);
 
@@ -156,11 +235,10 @@ export default function Dashboard() {
   const distVara = useMemo(() => countBy(processos, (p) => p.vara_juizo_origem), [processos]);
   const distParceiro = useMemo(() => countBy(processos, (p) => p.parceiro), [processos]);
   const distPendencia = useMemo(() => countBy(processos, (p) => p.tipo_pendencia), [processos]);
-  const distStatus = useMemo(() => countBy(processos, (p) => p.status_tarefa), [processos]);
+  const distEtapaTarefa = useMemo(() => countBy(tarefas, (t) => t.titulo), [tarefas]);
 
   const totalComarca = distComarca.reduce((s, d) => s + d.value, 0);
   const totalParceiro = distParceiro.reduce((s, d) => s + d.value, 0);
-  const totalStatus = distStatus.reduce((s, d) => s + d.value, 0);
 
   return (
     <div className="space-y-6">
@@ -203,7 +281,7 @@ export default function Dashboard() {
         <SpotlightCard onClick={() => navigate("/processos?fase=SUSPENSO")} className="cursor-pointer">
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
-            <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas paradas</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5">{stats.suspensos} processos parados</p>
             <Money
               value={stats.valorSuspensos}
               className="block text-2xl font-semibold font-display mt-2 text-amber-400"
@@ -213,7 +291,7 @@ export default function Dashboard() {
         <SpotlightCard onClick={() => navigate("/processos?fase=ARQUIVADO")} className="cursor-pointer">
           <div>
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
-            <p className="text-[10px] text-muted-foreground/70 mt-0.5">valor das causas encerradas</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-0.5">{stats.arquivados} processos encerrados</p>
             <Money
               value={stats.valorArquivados}
               className="block text-2xl font-semibold font-display mt-2"
@@ -265,9 +343,64 @@ export default function Dashboard() {
         </SpotlightCard>
       </div>
 
-      {/* Status operacional */}
+      {/* O que exige alguém hoje */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <SpotlightCard>
+        <SpotlightCard
+          onClick={() => { setJanela("vencidas"); document.getElementById("prazos")?.scrollIntoView({ behavior: "smooth" }); }}
+          className={`cursor-pointer ${tarefasStats.vencidas.length ? "ring-1 ring-rose-500/30" : ""}`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Prazos vencidos</p>
+              <p className={`text-2xl font-normal font-display mt-1 ${tarefasStats.vencidas.length ? "text-rose-400" : ""}`}>
+                {tarefasStats.vencidas.length}
+              </p>
+            </div>
+            <Flame className={`h-7 w-7 ${tarefasStats.vencidas.length ? "text-rose-400/70" : "text-primary/60"}`} />
+          </div>
+        </SpotlightCard>
+
+        <SpotlightCard onClick={() => navigate("/tarefas?tipo=acao")} className="cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Ações a protocolar</p>
+              <p className="text-2xl font-normal font-display mt-1">{tarefasStats.acoes}</p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                {tarefasStats.acoesUrgentes} vencendo em 7 dias
+              </p>
+            </div>
+            <Zap className="h-7 w-7 text-primary/60" />
+          </div>
+        </SpotlightCard>
+
+        <SpotlightCard onClick={() => navigate("/tarefas?tipo=monitoramento")} className="cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Em monitoramento</p>
+              <p className="text-2xl font-normal font-display mt-1">{tarefasStats.monitoramento}</p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">prazo do juízo ou da outra parte</p>
+            </div>
+            <Eye className="h-7 w-7 text-primary/60" />
+          </div>
+        </SpotlightCard>
+
+        <SpotlightCard onClick={() => navigate("/esteira")} className="cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Prontas pra protocolar</p>
+              <p className="text-2xl font-normal font-display mt-1">{esteira.prontas}</p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                + {esteira.emProducao} em produção
+              </p>
+            </div>
+            <Send className="h-7 w-7 text-primary/60" />
+          </div>
+        </SpotlightCard>
+      </div>
+
+      {/* Carteira em números */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <SpotlightCard onClick={() => navigate("/processos")} className="cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Em Andamento</p>
@@ -285,15 +418,6 @@ export default function Dashboard() {
             <PauseCircle className="h-7 w-7 text-primary/60" />
           </div>
         </SpotlightCard>
-        <SpotlightCard onClick={() => navigate("/processos?fase=ARQUIVADO")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Arquivados</p>
-              <p className="text-2xl font-normal font-display mt-1">{stats.arquivados}</p>
-            </div>
-            <Archive className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
         <SpotlightCard>
           <div className="flex items-center justify-between">
             <div>
@@ -301,6 +425,21 @@ export default function Dashboard() {
               <p className="text-2xl font-normal font-display mt-1">{stats.comPendencia}</p>
             </div>
             <AlertCircle className="h-7 w-7 text-primary/60" />
+          </div>
+        </SpotlightCard>
+        <SpotlightCard
+          onClick={() => navigate("/processos")}
+          className={`cursor-pointer ${sentencasAFazer ? "ring-1 ring-amber-500/25" : ""}`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Sentenças</p>
+              <p className="text-2xl font-normal font-display mt-1">{sentencas.registradas}</p>
+              <p className={`text-[10px] mt-0.5 ${sentencasAFazer ? "text-amber-400/80" : "text-muted-foreground/70"}`}>
+                {sentencasAFazer > 0 ? `${sentencasAFazer} por registrar` : "tudo registrado"}
+              </p>
+            </div>
+            <Trophy className={`h-7 w-7 ${sentencasAFazer ? "text-amber-400/70" : "text-primary/60"}`} />
           </div>
         </SpotlightCard>
       </div>
@@ -404,19 +543,18 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-primary" /> Status da Tarefa
+              <ListChecks className="h-4 w-4 text-primary" /> Tarefas por etapa
             </CardTitle>
           </CardHeader>
           <CardContent>
             <BarList
-              data={distStatus}
-              total={totalStatus || 1}
+              data={distEtapaTarefa}
+              total={tarefasStats.total || 1}
               max={10}
-              onItemClick={(name) => navigate(`/processos?status=${encodeURIComponent(name)}`)}
-              emptyMessage="Nenhum status informado."
+              emptyMessage="Nenhuma tarefa com prazo aberto."
             />
             <p className="text-[11px] text-muted-foreground mt-3 text-center">
-              {totalStatus} processos com status informado
+              {tarefasStats.total} tarefas abertas com prazo
             </p>
           </CardContent>
         </Card>
@@ -442,41 +580,88 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Próximos prazos */}
-      <Card>
+      {/* Central de prazos — a lista some quando não há nada, e abre nos
+          vencidos, que é o que ninguém pode deixar passar. */}
+      <Card id="prazos" className={tarefasStats.vencidas.length ? "border-rose-500/25" : undefined}>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-primary" /> Prazos nos próximos 30 dias
-            <span className="ml-auto text-xs font-normal text-muted-foreground">
-              {stats.prazosProximos.length} prazos
-            </span>
+          <CardTitle className="text-base flex flex-wrap items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-primary" /> Prazos
+            <div className="ml-auto flex items-center gap-1">
+              {([
+                ["vencidas", "Vencidos", tarefasStats.vencidas.length, true],
+                ["7", "7 dias", tarefasStats.ate7.length, false],
+                ["30", "30 dias", tarefasStats.ate30.length, false],
+              ] as const).map(([key, label, qtd, urgente]) => (
+                <button
+                  key={key}
+                  onClick={() => setJanela(key as typeof janela)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full ring-1 transition-colors ${
+                    janela === key
+                      ? urgente && qtd > 0
+                        ? "bg-rose-500/15 text-rose-300 ring-rose-500/40"
+                        : "bg-primary/15 text-primary ring-primary/40"
+                      : "bg-transparent text-muted-foreground ring-border hover:bg-white/[0.04]"
+                  }`}
+                >
+                  {label}
+                  <span className={`ml-1.5 tabular-nums ${urgente && qtd > 0 && janela !== key ? "text-rose-400" : "opacity-70"}`}>
+                    {qtd}
+                  </span>
+                </button>
+              ))}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {stats.prazosProximos.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">Nenhum prazo nos próximos 30 dias.</p>
+          {listaJanela.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              {janela === "vencidas"
+                ? "Nenhum prazo vencido. Carteira em dia. 👏"
+                : `Nenhum prazo nos próximos ${janela} dias.`}
+            </p>
           ) : (
             <div className="divide-y divide-border/40">
-              {stats.prazosProximos.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between gap-3 py-2 px-1 cursor-pointer hover:bg-white/[0.03] rounded"
-                  onClick={() => navigate(`/processos/${p.id}`)}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{p.numero_processo}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {p.clientes?.nome ?? "—"} · {p.fase_processual ?? "—"}
-                    </p>
+              {listaJanela.map((t) => {
+                const u = urgencia(t.prazo!);
+                const acao = t.tipo === "acao";
+                const Icon = acao ? Zap : Eye;
+                return (
+                  <div
+                    key={`${t.processo_id}-${t.titulo}-${t.prazo}`}
+                    className="flex items-center gap-3 py-2.5 px-1 cursor-pointer hover:bg-white/[0.03] rounded"
+                    onClick={() => navigate(`/processos/${t.processo_id}`)}
+                  >
+                    <span className={`h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1 ${
+                      acao ? "bg-primary/12 ring-primary/25" : "bg-muted/30 ring-border"
+                    }`}>
+                      <Icon className={`h-4 w-4 ${acao ? "text-primary" : "text-muted-foreground"}`} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{t.titulo}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {t.cliente_nome ?? "—"} · <span className="font-mono">{t.numero_processo}</span>
+                      </p>
+                      {t.conteudo && (
+                        <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{t.conteudo}</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-sm font-mono ${u.cls}`}>{fmtDate(t.prazo!)}</p>
+                      <span className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full ring-1 mt-0.5 ${u.chip}`}>
+                        {u.label}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-mono">{fmtDate(p.prazo_processual!)}</p>
-                    <p className="text-[11px] text-muted-foreground">{p.materia ?? ""}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+          <button
+            onClick={() => navigate("/tarefas")}
+            className="w-full mt-3 text-[11px] text-primary hover:underline"
+          >
+            Ver todas as tarefas
+          </button>
         </CardContent>
       </Card>
     </div>
