@@ -7,7 +7,7 @@ import {
   Briefcase, Users, DollarSign, TrendingUp,
   PlayCircle, PauseCircle, AlertCircle,
   CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks, Gavel,
-  Zap, Eye, Flame, Trophy, Send,
+  Zap, Eye, Flame, Send,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -137,12 +137,11 @@ export default function Dashboard() {
   const [totalClientes, setTotalClientes] = useState(0);
   const [tarefas, setTarefas] = useState<TarefaRow[]>([]);
   const [esteira, setEsteira] = useState({ prontas: 0, emProducao: 0 });
-  const [sentencas, setSentencas] = useState({ registradas: 0, aRegistrar: 0 });
   const [janela, setJanela] = useState<"vencidas" | "7" | "30">("vencidas");
 
   useEffect(() => {
     (async () => {
-      const [{ data: procs }, { count: cliCount }, { data: tks }, { data: dem }, { count: sentCount }] =
+      const [{ data: procs }, { count: cliCount }, { data: tks }, { data: dem }] =
         await Promise.all([
           supabase
             .from("processos")
@@ -155,7 +154,6 @@ export default function Dashboard() {
             .not("prazo", "is", null)
             .order("prazo", { ascending: true }),
           supabase.from("demandas" as never).select("etapa").eq("status", "pendente"),
-          supabase.from("sentencas" as never).select("*", { count: "exact", head: true }),
         ]);
       if (procs) setProcessos(procs as unknown as Processo[]);
       setTotalClientes(cliCount ?? 0);
@@ -169,20 +167,8 @@ export default function Dashboard() {
           ).length,
         });
       }
-      setSentencas((s) => ({ ...s, registradas: sentCount ?? 0 }));
     })();
   }, []);
-
-  // Processos que já passaram da sentença mas não têm sentença registrada —
-  // o buraco descoberto ao sincronizar a planilha. Calculado sobre `processos`
-  // pra não precisar de mais um round-trip.
-  const FASES_POS_SENTENCA = [
-    "AG. CONTRARRAZÕES", "AG. REMESSA AO 2º GRAU", "AG. DISTRIBUIÇÃO 2º GRAU",
-    "AG. DESPACHO INICIAL 2º GRAU", "AG. RECURSO INOMINADO", "AG. TJ ACÓRDÃO",
-    "AG. PAGAMENTO VOLUNTÁRIO", "AG. PAGAMENTO ACORDO", "AG. EXPEDIÇÃO ALVARÁ", "ARQUIVADO",
-  ];
-  const posSentenca = processos.filter((p) => FASES_POS_SENTENCA.includes(p.fase_processual ?? "")).length;
-  const sentencasAFazer = Math.max(0, posSentenca - sentencas.registradas);
 
   const tarefasStats = useMemo(() => {
     const hoje = hojeISO();
@@ -344,7 +330,7 @@ export default function Dashboard() {
       </div>
 
       {/* O que exige alguém hoje */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <SpotlightCard
           onClick={() => { setJanela("vencidas"); document.getElementById("prazos")?.scrollIntoView({ behavior: "smooth" }); }}
           className={`cursor-pointer ${tarefasStats.vencidas.length ? "ring-1 ring-rose-500/30" : ""}`}
@@ -360,30 +346,6 @@ export default function Dashboard() {
           </div>
         </SpotlightCard>
 
-        <SpotlightCard onClick={() => navigate("/tarefas?tipo=acao")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Ações a protocolar</p>
-              <p className="text-2xl font-normal font-display mt-1">{tarefasStats.acoes}</p>
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                {tarefasStats.acoesUrgentes} vencendo em 7 dias
-              </p>
-            </div>
-            <Zap className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-
-        <SpotlightCard onClick={() => navigate("/tarefas?tipo=monitoramento")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Em monitoramento</p>
-              <p className="text-2xl font-normal font-display mt-1">{tarefasStats.monitoramento}</p>
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5">prazo do juízo ou da outra parte</p>
-            </div>
-            <Eye className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-
         <SpotlightCard onClick={() => navigate("/esteira")} className="cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
@@ -394,52 +356,6 @@ export default function Dashboard() {
               </p>
             </div>
             <Send className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-      </div>
-
-      {/* Carteira em números */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <SpotlightCard onClick={() => navigate("/processos")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Em Andamento</p>
-              <p className="text-2xl font-normal font-display mt-1">{stats.emAndamento}</p>
-            </div>
-            <PlayCircle className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-        <SpotlightCard onClick={() => navigate("/processos?fase=SUSPENSO")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Suspensos</p>
-              <p className="text-2xl font-normal font-display mt-1">{stats.suspensos}</p>
-            </div>
-            <PauseCircle className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-        <SpotlightCard>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Com Pendência</p>
-              <p className="text-2xl font-normal font-display mt-1">{stats.comPendencia}</p>
-            </div>
-            <AlertCircle className="h-7 w-7 text-primary/60" />
-          </div>
-        </SpotlightCard>
-        <SpotlightCard
-          onClick={() => navigate("/processos")}
-          className={`cursor-pointer ${sentencasAFazer ? "ring-1 ring-amber-500/25" : ""}`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Sentenças</p>
-              <p className="text-2xl font-normal font-display mt-1">{sentencas.registradas}</p>
-              <p className={`text-[10px] mt-0.5 ${sentencasAFazer ? "text-amber-400/80" : "text-muted-foreground/70"}`}>
-                {sentencasAFazer > 0 ? `${sentencasAFazer} por registrar` : "tudo registrado"}
-              </p>
-            </div>
-            <Trophy className={`h-7 w-7 ${sentencasAFazer ? "text-amber-400/70" : "text-primary/60"}`} />
           </div>
         </SpotlightCard>
       </div>
