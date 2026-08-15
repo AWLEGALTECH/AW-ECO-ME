@@ -1,30 +1,23 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
   ScanSearch, AlertTriangle, X, Check, ChevronLeft, ChevronRight, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
-  type LucideIcon,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
+import { SectionLabel, ActionRow } from "@/components/AcaoEsteira";
+import { PendenciaPicker } from "@/components/PendenciaPicker";
+import { criarPendencias, type TipoPendencia as TP } from "@/lib/pendencias";
 
-// Catálogo de tipos de pendência. A chave bate com demandas.pendencia_tipo.
-export const TIPOS_PENDENCIA = [
-  { key: "comprovante_residencia", label: "Comprovante de residência no nome" },
-  { key: "extratos_bancarios",     label: "Extratos bancários" },
-  { key: "contrato_drive",         label: "Contrato no drive" },
-  { key: "rg",                     label: "RG" },
-  { key: "cpf",                    label: "CPF" },
-  { key: "procuracao",             label: "Procuração assinada" },
-  { key: "personalizada",          label: "Outro (personalizada)" },
-] as const;
-export type TipoPendencia = typeof TIPOS_PENDENCIA[number]["key"];
+// Catálogo e criação de pendência vivem em lib/pendencias — re-exportados
+// aqui porque outras telas já importavam TIPOS_PENDENCIA deste módulo.
+export { TIPOS_PENDENCIA, type TipoPendencia } from "@/lib/pendencias";
 
 interface Props {
   open: boolean;
@@ -55,108 +48,11 @@ interface Props {
 
 type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_qtd" | "artesanal_specs";
 
-// Rótulo de seção com fio: separa visualmente os 3 tipos de interação
-// (cadastral, fluxo da matéria, conclusão) sem pesar o card.
-function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 pt-1">
-      <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground whitespace-nowrap">
-        {children}
-      </span>
-      <span className="h-px flex-1 bg-border/60" />
-    </div>
-  );
-}
-
-// Botão-linha padronizado, inspirado nos cards do Dashboard: fundo neutro
-// glassy (a cor NÃO preenche a linha) e só o chip do ícone carrega o tom.
-// `hero` liga o tratamento de destaque (borda + gradiente + fio primário)
-// reservado ao Fluxo da matéria — a função principal do card.
-function ActionRow({
-  icon: Icon,
-  title,
-  subtitle,
-  onClick,
-  href,
-  tone = "primary",
-  hero = false,
-  disabled,
-  trailing,
-}: {
-  icon: LucideIcon;
-  title: string;
-  subtitle: string;
-  onClick?: () => void;
-  href?: string;
-  tone?: "primary" | "amber" | "emerald" | "muted";
-  hero?: boolean;
-  disabled?: boolean;
-  trailing?: ReactNode;
-}) {
-  // Chip do ícone — único elemento que "colore" a linha.
-  const iconChip = {
-    primary: "bg-primary/12 ring-1 ring-primary/25 text-primary",
-    amber: "bg-amber-400/12 ring-1 ring-amber-400/30 text-amber-400",
-    emerald: "bg-emerald-500/12 ring-1 ring-emerald-500/30 text-emerald-400",
-    muted: "bg-white/[0.04] ring-1 ring-white/10 text-muted-foreground",
-  }[tone];
-
-  // Fundo da linha. Neutro por padrão (glassy). Hero ganha destaque primário;
-  // as conclusões (amber/emerald) levam só um véu de cor pra se reconhecer.
-  let wrap: string;
-  if (hero) {
-    wrap =
-      "relative border-primary/30 bg-gradient-to-br from-primary/[0.13] via-primary/[0.05] to-transparent " +
-      "hover:border-primary/55 hover:from-primary/[0.18] shadow-lg shadow-black/20";
-  } else if (tone === "amber") {
-    wrap = "border-amber-400/20 bg-amber-400/[0.04] hover:bg-amber-400/[0.07] hover:border-amber-400/40";
-  } else if (tone === "emerald") {
-    wrap = "border-emerald-500/20 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.07] hover:border-emerald-500/40";
-  } else {
-    wrap = "border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.05] hover:border-white/[0.12]";
-  }
-
-  const chipSize = hero ? "h-11 w-11" : "h-10 w-10";
-  const pad = hero ? "px-4 py-3.5" : "px-4 py-3";
-  const titleSize = hero ? "text-[15px]" : "text-sm";
-
-  const inner = (
-    <>
-      {hero && (
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-xl bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-      )}
-      <div className={`${chipSize} rounded-xl flex items-center justify-center shrink-0 ${iconChip}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="flex-1 min-w-0 text-left">
-        <p className={`${titleSize} font-semibold text-foreground`}>{title}</p>
-        <p className="text-[11px] text-muted-foreground leading-snug">{subtitle}</p>
-      </div>
-      {trailing}
-    </>
-  );
-
-  const base = `w-full flex items-center gap-3 rounded-xl border transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none ${pad} ${wrap}`;
-
-  if (href) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={base}>
-        {inner}
-      </a>
-    );
-  }
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className={base}>
-      {inner}
-    </button>
-  );
-}
-
 export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo, permitirFinalizarPrimaria }: Props) {
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>("actions");
   const [finalizandoPrimaria, setFinalizandoPrimaria] = useState(false);
-  const [tipos, setTipos] = useState<Set<TipoPendencia>>(new Set());
+  const [tipos, setTipos] = useState<Set<TP>>(new Set());
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);
   // Fluxo artesanal: quantidade de pecas + descricao de cada uma
@@ -174,7 +70,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     setArtesanalSpecs([""]); setArtesanalPautas([""]);
   };
 
-  const toggleTipo = (key: TipoPendencia) => {
+  const toggleTipo = (key: TP) => {
     setTipos(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
@@ -295,31 +191,12 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
   const salvarPendencia = async () => {
     if (!cliente) return;
-    if (tipos.size === 0) { toast.error("Selecione ao menos um tipo de pendência."); return; }
-    if (tipos.has("personalizada") && !custom.trim()) {
-      toast.error("Descreva a pendência personalizada.");
-      return;
-    }
     setSaving(true);
-    const rows = Array.from(tipos).map(t => {
-      const tipoLabel = TIPOS_PENDENCIA.find(x => x.key === t)?.label ?? t;
-      const titulo = t === "personalizada"
-        ? `Pendência: ${custom.trim().slice(0, 80)}`
-        : `Pendência: ${tipoLabel}`;
-      return {
-        cliente_id: cliente.id,
-        tipo: "pre_protocolo",
-        etapa: "pendencia_documental",
-        status: "pendente",
-        titulo,
-        descricao: t === "personalizada" ? custom.trim() : null,
-        pendencia_tipo: t,
-        created_by: userId,
-      };
+    const { error, qtd } = await criarPendencias({
+      clienteId: cliente.id, tipos: Array.from(tipos), custom, userId,
     });
-    const { error } = await supabase.from("demandas" as any).insert(rows);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(error); return; }
     // Cliente com pendência sai da fila de "Análise primária" e fica SÓ na
     // fila de pendências — nunca coexiste nas duas. Volta pra análise
     // primária automaticamente quando todas as pendências forem resolvidas.
@@ -330,7 +207,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
         analise_primaria_finalizada_by: userId,
       } as any)
       .eq("id", cliente.id);
-    toast.success(rows.length === 1 ? "Pendência registrada" : `${rows.length} pendências registradas`);
+    toast.success(qtd === 1 ? "Pendência registrada" : `${qtd} pendências registradas`);
     onCreated();
     setStage("pos_pendencia");
   };
@@ -509,43 +386,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
 
           {stage === "pendencia" && (
             <>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-foreground">
-                  Tipos de pendência <span className="text-muted-foreground">(marque todas)</span>
-                </label>
-                <div className="rounded-lg border border-border divide-y divide-border/60">
-                  {TIPOS_PENDENCIA.map(t => {
-                    const checked = tipos.has(t.key);
-                    return (
-                      <label
-                        key={t.key}
-                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
-                          checked ? "bg-primary/5" : "hover:bg-muted/30"
-                        }`}
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={() => toggleTipo(t.key)}
-                        />
-                        <span className="text-sm">{t.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {tipos.has("personalizada") && (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-foreground">Descreva a pendência personalizada</label>
-                  <Textarea
-                    value={custom}
-                    onChange={(e) => setCustom(e.target.value)}
-                    placeholder="Ex: falta termo de declaração assinado pelo cliente"
-                    className="resize-none min-h-[80px]"
-                  />
-                </div>
-              )}
-
+              <PendenciaPicker tipos={tipos} onToggle={toggleTipo} custom={custom} onCustom={setCustom} />
               <div className="flex items-center justify-between gap-2 pt-2">
                 <span className="text-[11px] text-muted-foreground">
                   {tipos.size === 0

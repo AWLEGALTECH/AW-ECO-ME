@@ -27,14 +27,16 @@ import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicio
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { RefazerAnaliseComercialDialog } from "@/components/RefazerAnaliseComercialDialog";
 import { SpotlightCard } from "@/components/SpotlightCard";
-import { AcaoCard } from "@/components/AcaoCard";
+import { SectionLabel, ActionRow } from "@/components/AcaoEsteira";
+import { PendenciaPicker } from "@/components/PendenciaPicker";
+import { criarPendencias, type TipoPendencia as TP } from "@/lib/pendencias";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
   Mail, Phone, MapPin, CreditCard, IdCard, ListTodo, GitBranch, Plus, Send, LayoutGrid,
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
   Scale, Gavel, Building2, Hammer, ClipboardPaste,
-  Package, CalendarDays, UserX, PhoneOff, XCircle,
+  Package, CalendarDays, UserX, PhoneOff, XCircle, ChevronRight,
 } from "lucide-react";
 
 export interface Cliente {
@@ -1202,7 +1204,9 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
 }
 
 // ─── ESPELHO DE PROTOCOLO — modal multi-etapa ────────────────────────────
-type EspelhoStage = "actions" | "tribunal" | "projudi" | "finalizar" | "success" | "cancelar" | "cancelado";
+type EspelhoStage =
+  | "actions" | "tribunal" | "projudi" | "finalizar" | "success"
+  | "cancelar" | "cancelado" | "pendencia" | "pendencia_ok";
 
 // Motivos de cancelamento de protocolo. Sao os tres que mais aparecem na
 // operacao — o quarto ("outro") sempre exige o texto livre.
@@ -1339,6 +1343,10 @@ export function EspelhoProtocoloDialog({
   const [motivoSel, setMotivoSel] = useState<string>("");
   const [motivoTexto, setMotivoTexto] = useState("");
   const [cancelando, setCancelando] = useState(false);
+  // Pendência documental relatada direto da peça pronta.
+  const [pendTipos, setPendTipos] = useState<Set<TP>>(new Set());
+  const [pendCustom, setPendCustom] = useState("");
+  const [salvandoPend, setSalvandoPend] = useState(false);
 
   useEffect(() => {
     if (demanda) {
@@ -1355,6 +1363,9 @@ export function EspelhoProtocoloDialog({
       setMotivoSel("");
       setMotivoTexto("");
       setCancelando(false);
+      setPendTipos(new Set());
+      setPendCustom("");
+      setSalvandoPend(false);
       // Inicializa competencia: prioriza valor gravado pelo Writer, senao
       // fallback baseado em valor (limite atualizado 64.840).
       const v = Number(demanda.valor_causa || 0);
@@ -1433,6 +1444,32 @@ export function EspelhoProtocoloDialog({
     } else {
       toast.success(`${feitos.length} campo${feitos.length > 1 ? "s" : ""} preenchido${feitos.length > 1 ? "s" : ""} do Projudi`);
     }
+  };
+
+  const togglePend = (k: TP) =>
+    setPendTipos((prev) => {
+      const n = new Set(prev);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      return n;
+    });
+
+  // Relata pendência documental a partir da peça pronta. Cria exatamente a
+  // mesma demanda `pendencia_documental` da análise primária — e é ela que
+  // trava a peça: `clientesComPendencia` (Esteira) bloqueia TODA demanda de
+  // um cliente com pendência aberta. Diferente da análise primária, aqui NÃO
+  // mexemos em `analise_primaria_finalizada_at`: o cliente já passou daquela
+  // fase, e marcar de novo o tiraria da coluna 1 pra sempre.
+  const relatarPendencia = async () => {
+    if (!cliente) return;
+    setSalvandoPend(true);
+    const { error, qtd } = await criarPendencias({
+      clienteId: cliente.id, tipos: Array.from(pendTipos), custom: pendCustom, userId: user?.id ?? null,
+    });
+    setSalvandoPend(false);
+    if (error) { toast.error(error); return; }
+    toast.success(qtd === 1 ? "Pendência registrada" : `${qtd} pendências registradas`);
+    setStage("pendencia_ok");
+    onCancelado?.();
   };
 
   // Cancela o protocolo. Nao apaga a peca — ela continua na ficha do cliente,
@@ -1573,52 +1610,138 @@ export function EspelhoProtocoloDialog({
                 </div>
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
-              {onVerPerfil && (
-                <AcaoCard
-                  icon={User}
-                  titulo="Ver perfil do cliente"
-                  hint={`Abre a ficha completa de ${cliente.nome}`}
-                  onClick={onVerPerfil}
-                />
-              )}
-              <AcaoCard
-                icon={Download}
-                titulo="Baixar peça (.docx)"
-                hint={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
-                href={demanda.peca_drive_url || undefined}
-                external
-                acaoIcon={ExternalLink}
-                disabled={!demanda.peca_drive_url}
-              />
-              {cliente.drive_folder_url && (
-                <AcaoCard
-                  icon={FolderOpen}
-                  titulo="Abrir pasta no Drive"
-                  hint="Documentos do cliente"
-                  href={cliente.drive_folder_url}
-                  external
-                  acaoIcon={ExternalLink}
-                />
-              )}
-              <AcaoCard
-                icon={Scale}
-                titulo="Espelho de Protocolo"
-                hint="Copia-cola assistido pelo tribunal"
-                variant="primary"
-                onClick={() => setStage("tribunal")}
-              />
-              <div className="pt-1">
-                <AcaoCard
-                  icon={XCircle}
-                  titulo="Cancelar protocolo"
-                  hint="A peça sai da esteira e fica registrada como cancelada na ficha"
-                  variant="perigo"
-                  onClick={() => setStage("cancelar")}
-                />
+
+            <div className="space-y-4 pt-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+              {/* ── 1) CLIENTE — o contexto de quem é a peça ───────────── */}
+              <div className="space-y-2.5">
+                <SectionLabel>Cliente</SectionLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {onVerPerfil ? (
+                    <ActionRow
+                      icon={User}
+                      title="Abrir perfil do cliente"
+                      subtitle="Dados, demandas e histórico"
+                      onClick={onVerPerfil}
+                      trailing={<ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                    />
+                  ) : (
+                    <ActionRow
+                      icon={User}
+                      title={cliente.nome}
+                      subtitle={cliente.cpf_cnpj || "Sem CPF cadastrado"}
+                      tone="muted"
+                      disabled
+                    />
+                  )}
+                  <ActionRow
+                    icon={FolderOpen}
+                    title="Abrir pasta no Drive"
+                    subtitle={cliente.drive_folder_url ? "Documentos do cliente" : "Cliente sem pasta no Drive"}
+                    href={cliente.drive_folder_url || undefined}
+                    external
+                    disabled={!cliente.drive_folder_url}
+                    trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  />
+                </div>
+              </div>
+
+              {/* ── 2) A PEÇA — o arquivo e o que pode travá-lo ────────── */}
+              <div className="space-y-2.5">
+                <SectionLabel>A peça</SectionLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <ActionRow
+                    icon={Download}
+                    title="Baixar peça (.docx)"
+                    subtitle={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
+                    href={demanda.peca_drive_url || undefined}
+                    external
+                    disabled={!demanda.peca_drive_url}
+                    trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  />
+                  <ActionRow
+                    icon={AlertTriangle}
+                    title="Relatar pendência"
+                    subtitle="Trava a peça na esteira até o documento chegar"
+                    onClick={() => setStage("pendencia")}
+                    tone="amber"
+                  />
+                </div>
+              </div>
+
+              {/* ── 3) PROTOCOLO — os dois desfechos possíveis ─────────── */}
+              <div className="space-y-2.5">
+                <SectionLabel>Protocolo</SectionLabel>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <ActionRow
+                    hero
+                    icon={Scale}
+                    title="Espelho de Protocolo"
+                    subtitle="Copia-cola assistido pelo tribunal"
+                    onClick={() => setStage("tribunal")}
+                    trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
+                  />
+                  <ActionRow
+                    icon={XCircle}
+                    title="Cancelar protocolo"
+                    subtitle="A peça sai da esteira e fica registrada como cancelada"
+                    onClick={() => setStage("cancelar")}
+                    tone="rose"
+                  />
+                </div>
               </div>
             </div>
           </>
+        )}
+
+        {stage === "pendencia" && (
+          <>
+            <DialogHeader className="shrink-0">
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-400" /> Relatar pendência
+              </DialogTitle>
+              <DialogDescription>
+                Selecione tudo que está faltando. Enquanto a pendência estiver aberta, esta peça
+                e as demais demandas de {cliente.nome} ficam travadas na esteira.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+              <PendenciaPicker
+                tipos={pendTipos}
+                onToggle={togglePend}
+                custom={pendCustom}
+                onCustom={setPendCustom}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-3 shrink-0">
+              <span className="text-[11px] text-muted-foreground">
+                {pendTipos.size === 0
+                  ? "Nenhuma selecionada"
+                  : pendTipos.size === 1 ? "1 pendência" : `${pendTipos.size} pendências`}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" onClick={() => setStage("actions")} disabled={salvandoPend}>Voltar</Button>
+                <Button onClick={relatarPendencia} disabled={salvandoPend || pendTipos.size === 0}>
+                  {salvandoPend ? "Salvando…" : <><Check className="h-4 w-4 mr-1" /> Salvar pendência</>}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {stage === "pendencia_ok" && (
+          <div className="flex flex-col items-center justify-center text-center py-10 gap-3">
+            <div className="h-16 w-16 rounded-2xl bg-amber-400/15 ring-1 ring-amber-400/30 grid place-items-center">
+              <AlertTriangle className="h-8 w-8 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">Pendência registrada</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                A peça ficou travada na esteira e aparece com cadeado. Ela libera sozinha
+                assim que a pendência for resolvida na coluna de pendências.
+              </p>
+            </div>
+            <Button variant="outline" className="mt-2" onClick={onClose}>Fechar</Button>
+          </div>
         )}
 
         {stage === "cancelar" && (
