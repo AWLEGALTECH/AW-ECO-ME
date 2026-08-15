@@ -81,21 +81,23 @@ Deno.serve(async (req: Request) => {
       .single();
     if (cfg && cfg.ativo === false) return j({ ok: true, skipped: "tipo_inativo" });
 
-    // 3. Destinatários. Direcionada (destinatario_id) → só aquele usuário.
-    //    Senão broadcast: admins (sempre) + usuários com o tipo permitido.
-    let userIds: string[];
-    if (notif.destinatario_id) {
-      userIds = [notif.destinatario_id];
-    } else {
-      const [{ data: admins }, { data: prefs }] = await Promise.all([
-        sb.from("profiles").select("id").eq("approved", true).eq("role", "admin"),
-        sb.from("notificacao_user_prefs").select("user_id").eq("tipo", notif.tipo).eq("permitido", true),
-      ]);
-      userIds = [...new Set<string>([
-        ...(admins || []).map((a: any) => a.id),
-        ...(prefs || []).map((p: any) => p.user_id),
-      ])];
-    }
+    // 3. Destinatários: admins (sempre) + usuários com o tipo permitido, MAIS
+    //    o destinatário direto quando houver.
+    //
+    //    O `destinatario_id` SOMA, não substitui. Antes ele trocava a audiência
+    //    inteira, e o único tipo que o usa — chamado_resolvido — só chegava a
+    //    quem tinha aberto o chamado: quem resolveu e o resto do time nunca
+    //    recebiam o push, embora vissem a notificação no sino (a RLS já libera
+    //    tudo pra admin). Somar alinha o push ao que o sino sempre mostrou.
+    const [{ data: admins }, { data: prefs }] = await Promise.all([
+      sb.from("profiles").select("id").eq("approved", true).eq("role", "admin"),
+      sb.from("notificacao_user_prefs").select("user_id").eq("tipo", notif.tipo).eq("permitido", true),
+    ]);
+    const userIds: string[] = [...new Set<string>([
+      ...(admins || []).map((a: any) => a.id),
+      ...(prefs || []).map((p: any) => p.user_id),
+      ...(notif.destinatario_id ? [notif.destinatario_id as string] : []),
+    ])];
     if (!userIds.length) return j({ ok: true, sent: 0, motivo: "sem_destinatarios" });
 
     // 4. Inscrições desses usuários
