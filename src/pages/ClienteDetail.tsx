@@ -1588,7 +1588,9 @@ export function EspelhoProtocoloDialog({
 
   return (
     <Dialog open={!!demanda} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-lg max-h-[88dvh] flex flex-col overflow-hidden">
+      <DialogContent
+        className={`${stage === "actions" ? "sm:max-w-2xl" : "sm:max-w-lg"} max-w-[95vw] max-h-[88dvh] flex flex-col overflow-hidden`}
+      >
         <div key={stage} className="animate-in fade-in duration-300 flex flex-col min-h-0 flex-1 overflow-hidden">
         {stage === "actions" && (
           <>
@@ -1597,55 +1599,66 @@ export function EspelhoProtocoloDialog({
                 <Send className="h-5 w-5 text-primary" />
                 {cliente.nome}
               </DialogTitle>
-              <DialogDescription asChild>
-                <div className="space-y-1">
-                  <span className="flex items-center gap-1.5 text-foreground/90">
-                    <Package className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="font-medium">{demanda.desconto || demanda.titulo}</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-                    finalizada em {fmtDateTime(demanda.completed_at)}
-                  </span>
-                </div>
+              <DialogDescription>
+                Peça pronta no Drive. Escolha o próximo passo.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 pt-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
-              {/* ── 1) CLIENTE — o contexto de quem é a peça ───────────── */}
-              <div className="space-y-2.5">
-                <SectionLabel>Cliente</SectionLabel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {onVerPerfil ? (
+              {/* BRIEFING + CADASTRAL, lado a lado — mesmo bloco da Análise
+                  Primária: à esquerda os dados de leitura da peça, à direita
+                  os atalhos (perfil / Drive). No mobile colapsa pra coluna. */}
+              <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 p-4">
+                  {/* Coluna esquerda: o que é a peça e quando ficou pronta */}
+                  <div className="space-y-2.5 min-w-0 sm:self-center">
+                    <div className="flex items-start gap-2.5">
+                      <Package className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Matéria</p>
+                        <p className="text-sm font-medium text-foreground break-words">
+                          {demanda.desconto || demanda.titulo || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Finalizada em</p>
+                        <p className="text-sm text-foreground/90 break-words">
+                          {fmtDateTime(demanda.completed_at)}
+                        </p>
+                      </div>
+                    </div>
+                    {valor > 0 && (
+                      <div className="flex items-center gap-2.5">
+                        <Scale className="h-4 w-4 text-emerald-400 shrink-0" />
+                        <p className="text-sm text-emerald-400/90">{fmtBRL(valor)} de valor da causa</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Coluna direita: atalhos cadastrais (perfil + Drive) */}
+                  <div className="space-y-2 min-w-0">
                     <ActionRow
                       icon={User}
                       title="Abrir perfil do cliente"
                       subtitle="Dados, demandas e histórico"
-                      onClick={onVerPerfil}
-                      trailing={<ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+                      {...(onVerPerfil
+                        ? { onClick: onVerPerfil, trailing: <ArrowRight className="h-4 w-4 text-primary opacity-70 shrink-0" /> }
+                        : { href: `/clientes/${cliente.id}`, trailing: <ExternalLink className="h-4 w-4 text-primary opacity-70 shrink-0" /> })}
                     />
-                  ) : (
-                    <ActionRow
-                      icon={User}
-                      title={cliente.nome}
-                      subtitle={cliente.cpf_cnpj || "Sem CPF cadastrado"}
-                      tone="muted"
-                      disabled
+                    <DriveFolderButton
+                      clienteId={cliente.id}
+                      clienteNome={cliente.nome}
+                      driveFolderUrl={cliente.drive_folder_url}
+                      variant="row"
                     />
-                  )}
-                  <ActionRow
-                    icon={FolderOpen}
-                    title="Abrir pasta no Drive"
-                    subtitle={cliente.drive_folder_url ? "Documentos do cliente" : "Cliente sem pasta no Drive"}
-                    href={cliente.drive_folder_url || undefined}
-                    external
-                    disabled={!cliente.drive_folder_url}
-                    trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
-                  />
+                  </div>
                 </div>
               </div>
 
-              {/* ── 2) A PEÇA — o arquivo e o que pode travá-lo ────────── */}
+              {/* ── A PEÇA — o arquivo e o que pode travá-lo ─────────────── */}
               <div className="space-y-2.5">
                 <SectionLabel>A peça</SectionLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1668,7 +1681,7 @@ export function EspelhoProtocoloDialog({
                 </div>
               </div>
 
-              {/* ── 3) PROTOCOLO — os dois desfechos possíveis ─────────── */}
+              {/* ── PROTOCOLO — os dois desfechos possíveis ──────────────── */}
               <div className="space-y-2.5">
                 <SectionLabel>Protocolo</SectionLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
