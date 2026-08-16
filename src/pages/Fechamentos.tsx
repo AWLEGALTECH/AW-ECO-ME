@@ -20,6 +20,7 @@ import {
   ClipboardList, ListChecks, PiggyBank, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
+import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 
 /* ─────────────────────────── tipos ─────────────────────────── */
 interface Fechamento {
@@ -1079,6 +1080,11 @@ function NovoFechamentoDialog({
   const [clienteNome, setClienteNome] = useState("");
   const [userId, setUserId] = useState<string>(defaultUserId || "");
   const [rubricas, setRubricas] = useState<Set<string>>(new Set());
+  const [buscaRub, setBuscaRub] = useState("");
+  const rubricasFiltradas = useMemo(
+    () => filtraPorBusca(RUBRICAS_FECHAMENTO, buscaRub, (r) => r.label),
+    [buscaRub],
+  );
   const [pendencia, setPendencia] = useState(false);
   const [pastaDrive, setPastaDrive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1086,7 +1092,7 @@ function NovoFechamentoDialog({
   useEffect(() => { if (open) setUserId(defaultUserId || equipe[0]?.id || ""); }, [open, defaultUserId, equipe]);
 
   const reset = () => {
-    setData(hoje); setClienteNome(""); setRubricas(new Set());
+    setData(hoje); setClienteNome(""); setRubricas(new Set()); setBuscaRub("");
     setPendencia(false); setPastaDrive(true);
   };
   const toggle = (k: string) => setRubricas((prev) => {
@@ -1164,8 +1170,21 @@ function NovoFechamentoDialog({
               <Label>Ações válidas fechadas</Label>
               <span className="text-[11px] text-muted-foreground">{rubricas.size} selecionada(s)</span>
             </div>
+            <div className="mb-1.5">
+              <BuscaRubrica
+                valor={buscaRub}
+                onChange={setBuscaRub}
+                total={RUBRICAS_FECHAMENTO.length}
+                filtrados={rubricasFiltradas.length}
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[40vh] overflow-y-auto pr-1 rounded-lg border border-border p-2">
-              {RUBRICAS_FECHAMENTO.map((r) => {
+              {rubricasFiltradas.length === 0 && (
+                <p className="col-span-full text-[12px] text-muted-foreground text-center py-4">
+                  Nenhuma ação com “{buscaRub.trim()}”.
+                </p>
+              )}
+              {rubricasFiltradas.map((r) => {
                 const on = rubricas.has(r.key);
                 return (
                   <label key={r.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${on ? "bg-primary/10" : "hover:bg-muted/40"}`}>

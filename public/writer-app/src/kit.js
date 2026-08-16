@@ -875,6 +875,11 @@ function renderKitDescontos(view) {
       <section class="kit-section">
         <div class="kit-section-title">Selecione as ações <span class="kit-desc-counter">(<span id="kitDescCount">0</span>)</span></div>
         <p class="kit-desc-hint">Todas as ações abaixo ficam atreladas ao <strong>contrato deste kit</strong> — o instrumento procuratório que nos dá poderes para ajuizá-las.</p>
+        <div class="kit-desc-busca-wrap">
+          <input type="text" id="kitDescBusca" class="kit-desc-busca" placeholder="Buscar ação…"
+                 oninput="filtrarKitDesc(this.value)" autocomplete="off">
+          <span class="kit-desc-busca-conta" id="kitDescBuscaConta"></span>
+        </div>
         <div class="kit-desc-grid" id="kitDescGrid"></div>
       </section>
 
@@ -906,13 +911,32 @@ function renderKitDescontos(view) {
   carregarAcoesAjuizaveis().then(() => renderKitDescChips());
 }
 
+// Termo digitado na busca da grade. O catálogo é global e cresce a cada ação
+// padrão criada — procurar no olho deixa de escalar.
+let _kitDescBusca = '';
+const _normBusca = (t) =>
+  String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+function filtrarKitDesc(v) {
+  _kitDescBusca = v || '';
+  renderKitDescChips();
+}
+
 // Grade de ações do catálogo. Clicar ATRELA uma instância (pode repetir);
 // o chip mostra um badge com a quantidade já atrelada daquele desconto.
 function renderKitDescChips() {
   const box = document.getElementById('kitDescGrid');
   if (!box) return;
   const cont = _kitContagem();
-  box.innerHTML = DESCONTOS_KIT.map((label) => {
+  const termos = _normBusca(_kitDescBusca).split(/\s+/).filter(Boolean);
+  const lista = termos.length
+    ? DESCONTOS_KIT.filter((l) => { const a = _normBusca(l); return termos.every((t) => a.includes(t)); })
+    : DESCONTOS_KIT;
+
+  const conta = document.getElementById('kitDescBuscaConta');
+  if (conta) conta.textContent = termos.length ? `${lista.length}/${DESCONTOS_KIT.length}` : '';
+
+  box.innerHTML = lista.map((label) => {
     const n = cont[label] || 0;
     return `
       <button type="button" class="kit-desc-chip ${n > 0 ? 'sel' : ''}"
@@ -924,7 +948,9 @@ function renderKitDescChips() {
         <span class="kit-desc-label">${escapeHtml(label)}</span>
         ${n > 0 ? `<span class="kit-desc-badge">${n}</span>` : ''}
       </button>`;
-  }).join('') + `
+  }).join('') + (termos.length && !lista.length
+    ? `<p class="kit-desc-vazio">Nenhuma ação com "${escapeHtml(_kitDescBusca.trim())}". Crie como ação padrão →</p>`
+    : '') + `
       <button type="button" class="kit-desc-chip kit-desc-chip-add" onclick="promptAcaoPadrao()"
               title="Cria uma ação padrão que passa a aparecer para todos os usuários">
         <span class="kit-desc-box">+</span>

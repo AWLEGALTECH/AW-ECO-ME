@@ -5,9 +5,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, ListPlus, ClipboardList, ChevronLeft, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy } from "lucide-react";
+import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy, Minus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
+import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 
 type Motivo = "rubrica_invalida" | "ja_ajuizada" | "cliente_nao_quer";
 const MOTIVO_LABEL: Record<Motivo, string> = {
@@ -57,7 +58,8 @@ interface Props {
 export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId, editorNome }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "contrato" | "sem_contrato" | "manual">("chooser");
+  const [stage, setStage] = useState<"chooser" | "contrato" | "sem_contrato" | "manual" | "conferir">("chooser");
+  const [busca, setBusca] = useState("");
   const [abrindoChamado, setAbrindoChamado] = useState(false);
   // Já existe chamado de contrato faltante em aberto pra este cliente?
   const [chamadoAberto, setChamadoAberto] = useState(false);
@@ -80,12 +82,17 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   useEffect(() => { if (open) carregarCatalogo(); }, [open]);
 
   const [sel, setSel] = useState<Sel[]>([]);
+  // Foto de como a análise estava ao abrir — base do diff de conferência.
+  const [selOriginal, setSelOriginal] = useState<Sel[]>([]);
   // Reinicia quando abre / troca de cliente.
   const [chaveInit, setChaveInit] = useState<string>("");
   const chaveAtual = `${cliente?.id || ""}|${open}`;
   if (open && chaveAtual !== chaveInit) {
     setChaveInit(chaveAtual);
-    setSel(rubricasDaAnalise(cliente?.analise_comercial));
+    const inicial = rubricasDaAnalise(cliente?.analise_comercial);
+    setSel(inicial);
+    setSelOriginal(inicial);
+    setBusca("");
     setStage("chooser");
     setContratoSel(null);
     setAddAberto(false);
@@ -138,6 +145,39 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     toast.success("Ação criada — agora aparece para todos.");
   };
 
+  const catalogoFiltrado = useMemo(
+    () => filtraPorBusca(catalogo, busca, (c) => c),
+    [catalogo, busca],
+  );
+
+  // Diff da conferência: o que entra, o que sai e o que fica. Compara pelo par
+  // AÇÃO + REQUERIDO, já que a mesma ação pode repetir para réus diferentes.
+  const chaveAcao = (x: Sel) => `${x.rubrica.toLowerCase()}||${x.requerido.trim().toLowerCase()}`;
+  const diff = useMemo(() => {
+    const antes = new Map<string, Sel>();
+    const contaAntes = new Map<string, number>();
+    selOriginal.forEach((x) => { antes.set(chaveAcao(x), x); contaAntes.set(chaveAcao(x), (contaAntes.get(chaveAcao(x)) || 0) + 1); });
+    const contaDepois = new Map<string, number>();
+    const depois = new Map<string, Sel>();
+    sel.forEach((x) => { depois.set(chaveAcao(x), x); contaDepois.set(chaveAcao(x), (contaDepois.get(chaveAcao(x)) || 0) + 1); });
+
+    const adicionadas: Sel[] = [];
+    const removidas: Sel[] = [];
+    const mantidas: Sel[] = [];
+    for (const [k, n] of contaDepois) {
+      const antesN = contaAntes.get(k) || 0;
+      const item = depois.get(k)!;
+      for (let i = 0; i < n - antesN; i++) adicionadas.push(item);
+      for (let i = 0; i < Math.min(n, antesN); i++) mantidas.push(item);
+    }
+    for (const [k, n] of contaAntes) {
+      const depoisN = contaDepois.get(k) || 0;
+      const item = antes.get(k)!;
+      for (let i = 0; i < n - depoisN; i++) removidas.push(item);
+    }
+    return { adicionadas, removidas, mantidas };
+  }, [sel, selOriginal]);
+
   const ajuizaveis = sel.filter((s2) => !s2.bloqueada).length;
   const ajuizaveisCt = doContrato.filter((s2) => !s2.bloqueada).length;
 
@@ -148,6 +188,21 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     if (!cliente) return;
     onClose();
     navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
+  };
+
+  // Valida aqui e leva pra conferência — o salvamento em si só acontece
+  // depois que a pessoa vê o que entra e o que sai.
+  const irConferir = () => {
+    if (doContrato.length === 0) {
+      toast.error("Selecione ao menos uma ação para este contrato.");
+      return;
+    }
+    const semRequerido = doContrato.filter((s2) => !s2.requerido.trim()).length;
+    if (semRequerido > 0) {
+      toast.error(`Informe o requerido de ${semRequerido === 1 ? "1 ação" : `${semRequerido} ações`} (contra quem será ajuizada).`);
+      return;
+    }
+    setStage("conferir");
   };
 
   const salvarManual = async () => {
@@ -258,7 +313,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             {stage !== "chooser" && (
-              <button onClick={() => setStage(stage === "manual" && contratos.length > 1 ? "contrato" : "chooser")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+              <button onClick={() => setStage(stage === "conferir" ? "manual" : stage === "manual" && contratos.length > 1 ? "contrato" : "chooser")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -270,6 +325,8 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               ? "Adicione ou edite as ações deste cliente. Escolha por onde."
               : stage === "sem_contrato"
               ? "Este cliente ainda não tem contrato cadastrado."
+              : stage === "conferir"
+              ? "Confira o que muda antes de gravar. Isto recalcula o fechamento do cliente."
               : stage === "contrato"
               ? "Cada ação pertence a um contrato do cliente. Escolha qual deles você vai editar."
               : "Atrele as ações, diga contra quem cada uma vai e salve. Cada mudança recalcula o fechamento (mantendo quem captou)."}
@@ -426,8 +483,21 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                 <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
                   Selecione as ações ({doContrato.length})
                 </p>
+                <div className="mb-2">
+                  <BuscaRubrica
+                    valor={busca}
+                    onChange={setBusca}
+                    total={catalogo.length}
+                    filtrados={catalogoFiltrado.length}
+                  />
+                </div>
+                {busca.trim() && catalogoFiltrado.length === 0 && (
+                  <p className="text-[12px] text-muted-foreground text-center py-6">
+                    Nenhuma ação com “{busca.trim()}”. Crie como ação padrão abaixo.
+                  </p>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {catalogo.map((label) => {
+                  {catalogoFiltrado.map((label) => {
                     const n = contagem(label);
                     return (
                       <button
@@ -556,13 +626,108 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
 
             <DialogFooter className="shrink-0 gap-2 pt-2">
               <Button variant="ghost" onClick={() => setStage(contratos.length > 1 ? "contrato" : "chooser")} disabled={salvando}>Voltar</Button>
-              <Button onClick={salvarManual} disabled={salvando}>
-                {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
-                Salvar e recalcular
+              <Button onClick={irConferir} disabled={salvando}>
+                <ChevronRight className="h-4 w-4 mr-1.5" />
+                Conferir e salvar
               </Button>
             </DialogFooter>
           </>
         )}
+        {stage === "conferir" && (
+          <>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-1">
+              <div className="rounded-xl border border-border bg-card/40 p-3.5">
+                <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Como vai ficar</p>
+                <p className="text-sm mt-1">
+                  <strong className="text-foreground text-lg tabular-nums">{sel.length}</strong>{" "}
+                  {sel.length === 1 ? "ação ajuizável" : "ações ajuizáveis"} para {cliente?.nome}
+                  {" · "}
+                  <span className="text-muted-foreground">
+                    {ajuizaveis} {ajuizaveis === 1 ? "conta" : "contam"} no fechamento
+                  </span>
+                </p>
+              </div>
+
+              {diff.adicionadas.length === 0 && diff.removidas.length === 0 ? (
+                <p className="text-[12.5px] text-muted-foreground text-center py-4">
+                  Nada muda na lista de ações — só os detalhes podem ter sido ajustados.
+                </p>
+              ) : null}
+
+              {diff.adicionadas.length > 0 && (
+                <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] overflow-hidden">
+                  <div className="px-3.5 py-2 flex items-center gap-2 border-b border-emerald-500/15">
+                    <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-[11px] uppercase tracking-[0.12em] text-emerald-400 font-semibold">
+                      Entrando ({diff.adicionadas.length})
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-emerald-500/10">
+                    {diff.adicionadas.map((a, i) => (
+                      <li key={`add-${i}`} className="px-3.5 py-2">
+                        <p className="text-[13px] text-foreground">{a.rubrica}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          contra {a.requerido || "—"}{a.detalhe ? ` · ${a.detalhe}` : ""}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {diff.removidas.length > 0 && (
+                <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.05] overflow-hidden">
+                  <div className="px-3.5 py-2 flex items-center gap-2 border-b border-rose-500/15">
+                    <Minus className="h-3.5 w-3.5 text-rose-400" />
+                    <span className="text-[11px] uppercase tracking-[0.12em] text-rose-400 font-semibold">
+                      Saindo ({diff.removidas.length})
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-rose-500/10">
+                    {diff.removidas.map((r, i) => (
+                      <li key={`rem-${i}`} className="px-3.5 py-2">
+                        <p className="text-[13px] text-muted-foreground line-through decoration-rose-400/50">{r.rubrica}</p>
+                        <p className="text-[11px] text-muted-foreground/70">
+                          contra {r.requerido || "—"}{r.detalhe ? ` · ${r.detalhe}` : ""}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {diff.mantidas.length > 0 && (
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+                  <div className="px-3.5 py-2 flex items-center gap-2 border-b border-white/[0.06]">
+                    <Check className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">
+                      Permanecem ({diff.mantidas.length})
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-white/[0.05]">
+                    {diff.mantidas.map((m, i) => (
+                      <li key={`keep-${i}`} className="px-3.5 py-2">
+                        <p className="text-[13px] text-foreground/85">{m.rubrica}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          contra {m.requerido || "—"}{m.detalhe ? ` · ${m.detalhe}` : ""}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="shrink-0 gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setStage("manual")} disabled={salvando}>Voltar e ajustar</Button>
+              <Button onClick={salvarManual} disabled={salvando}>
+                {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                Confirmar e recalcular
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
       </DialogContent>
     </Dialog>
   );
