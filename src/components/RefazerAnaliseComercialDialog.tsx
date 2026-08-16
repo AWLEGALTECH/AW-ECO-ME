@@ -59,6 +59,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   const qc = useQueryClient();
   const [stage, setStage] = useState<"chooser" | "contrato" | "sem_contrato" | "manual">("chooser");
   const [abrindoChamado, setAbrindoChamado] = useState(false);
+  // Já existe chamado de contrato faltante em aberto pra este cliente?
+  const [chamadoAberto, setChamadoAberto] = useState(false);
+  const [checandoChamado, setChecandoChamado] = useState(false);
   // Toda ação nasce presa a um CONTRATO (o instrumento procuratório que nos dá
   // poderes). Editar exige escolher de qual contrato são as ações.
   const [contratoSel, setContratoSel] = useState<string | null>(null);
@@ -197,20 +200,43 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     onClose();
   };
 
+  const tituloChamado = cliente ? `Contrato faltante — ${cliente.nome}` : "";
+
   // Rota manual. Sem contrato NÃO bloqueia: pergunta se segue mesmo assim.
-  const irManual = () => {
-    if (contratos.length === 0) { setStage("sem_contrato"); return; }
+  // Antes de perguntar, verifica se a falta já foi reportada — um chamado por
+  // rubrica seria ruído; um por cliente basta pra ninguém esquecer.
+  const irManual = async () => {
+    if (contratos.length === 0) {
+      setStage("sem_contrato");
+      if (cliente) {
+        setChecandoChamado(true);
+        const { data } = await (supabase.from("chamados" as never) as never as any)
+          .select("id, status")
+          .eq("titulo", tituloChamado)
+          .neq("status", "resolvido")
+          .limit(1);
+        setChamadoAberto(!!(data && data.length));
+        setChecandoChamado(false);
+      }
+      return;
+    }
     if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); return; }
     setStage("contrato");
   };
 
-  // Segue sem contrato e abre um chamado, pra que a falta fique rastreável
-  // pelo título — sem que isso custe a definição das ações.
+  // Segue sem contrato. Abre o chamado só se ainda não existir um em aberto
+  // pra este cliente — nas edições seguintes o aviso já está na fila.
   const seguirSemContratoEAvisar = async () => {
     if (!cliente) return;
+    if (chamadoAberto) {
+      toast.info("Já existe um chamado de contrato faltante pra este cliente");
+      setContratoSel(null);
+      setStage("manual");
+      return;
+    }
     setAbrindoChamado(true);
     const { error } = await (supabase.from("chamados" as never) as never as any).insert({
-      titulo: `Contrato faltante — ${cliente.nome}`,
+      titulo: tituloChamado,
       tipo: "outro",
       sistema: "Clientes",
       observacoes:
@@ -221,7 +247,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     });
     setAbrindoChamado(false);
     if (error) toast.error("Ações liberadas, mas o chamado falhou: " + error.message);
-    else toast.success("Chamado de contrato faltante aberto");
+    else { toast.success("Chamado de contrato faltante aberto"); setChamadoAberto(true); }
     setContratoSel(null);
     setStage("manual");
   };
@@ -296,19 +322,24 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
 
             <button
               onClick={seguirSemContratoEAvisar}
-              disabled={abrindoChamado}
+              disabled={abrindoChamado || checandoChamado}
               className="w-full text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 flex items-center gap-3 transition-colors disabled:opacity-60"
             >
               <span className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center shrink-0">
-                {abrindoChamado ? <Loader2 className="h-5 w-5 animate-spin" /> : <LifeBuoy className="h-5 w-5" />}
+                {abrindoChamado || checandoChamado
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : chamadoAberto ? <Check className="h-5 w-5" /> : <LifeBuoy className="h-5 w-5" />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold">
-                  {abrindoChamado ? "Abrindo chamado…" : "Sim, continuar e abrir chamado"}
+                  {checandoChamado ? "Verificando…"
+                    : abrindoChamado ? "Abrindo chamado…"
+                    : chamadoAberto ? "Sim, continuar" : "Sim, continuar e abrir chamado"}
                 </span>
                 <span className="block text-[11px] text-muted-foreground mt-0.5">
-                  As ações ficam salvas sem contrato e um chamado "Contrato faltante — {cliente?.nome}"
-                  entra na fila, pra ninguém esquecer.
+                  {chamadoAberto
+                    ? "A falta já foi reportada — o chamado deste cliente está em aberto. Não abrimos outro."
+                    : <>As ações ficam salvas sem contrato e um chamado "Contrato faltante — {cliente?.nome}" entra na fila, pra ninguém esquecer.</>}
                 </span>
               </span>
             </button>
