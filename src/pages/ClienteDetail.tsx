@@ -295,7 +295,7 @@ function LinkFormularioSocioBtn({ clienteId, telefone }: { clienteId: string; te
 export default function ClienteDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [processos, setProcessos] = useState<ProcessoLite[]>([]);
@@ -650,6 +650,7 @@ export default function ClienteDetail() {
             contratos={contratos}
             onSaved={load}
             editorId={user?.id ?? null}
+            editorNome={profile?.nome || profile?.email || null}
           />
 
           <section className="space-y-2">

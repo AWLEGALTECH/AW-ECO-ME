@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, Pencil, ClipboardList, ChevronLeft, Loader2, Check, Plus, X, Lock, FileSignature } from "lucide-react";
+import { Building2, ListPlus, ClipboardList, ChevronLeft, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 
@@ -50,12 +50,15 @@ interface Props {
   contratos?: ContratoOpt[];
   onSaved: () => void;
   editorId: string | null;
+  // Nome de quem edita — usado no chamado de contrato faltante.
+  editorNome?: string | null;
 }
 
-export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId }: Props) {
+export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId, editorNome }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "contrato" | "manual">("chooser");
+  const [stage, setStage] = useState<"chooser" | "contrato" | "sem_contrato" | "manual">("chooser");
+  const [abrindoChamado, setAbrindoChamado] = useState(false);
   // Toda ação nasce presa a um CONTRATO (o instrumento procuratório que nos dá
   // poderes). Editar exige escolher de qual contrato são as ações.
   const [contratoSel, setContratoSel] = useState<string | null>(null);
@@ -146,7 +149,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
 
   const salvarManual = async () => {
     if (!cliente) return;
-    if (!contratoSel) { toast.error("Escolha o contrato das ações."); return; }
+    // Sem contrato é permitido: o cliente pode não ter o instrumento ainda, e
+    // isso não pode custar a definição das ações. Elas ficam com contrato_id
+    // nulo e aparecem no bloco "Ações sem contrato" até serem atribuídas.
     if (doContrato.length === 0) {
       toast.error("Selecione ao menos uma ação para este contrato.");
       return;
@@ -192,6 +197,35 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     onClose();
   };
 
+  // Rota manual. Sem contrato NÃO bloqueia: pergunta se segue mesmo assim.
+  const irManual = () => {
+    if (contratos.length === 0) { setStage("sem_contrato"); return; }
+    if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); return; }
+    setStage("contrato");
+  };
+
+  // Segue sem contrato e abre um chamado, pra que a falta fique rastreável
+  // pelo título — sem que isso custe a definição das ações.
+  const seguirSemContratoEAvisar = async () => {
+    if (!cliente) return;
+    setAbrindoChamado(true);
+    const { error } = await (supabase.from("chamados" as never) as never as any).insert({
+      titulo: `Contrato faltante — ${cliente.nome}`,
+      tipo: "outro",
+      sistema: "Clientes",
+      observacoes:
+        `Ações ajuizáveis foram definidas para ${cliente.nome} sem contrato cadastrado. ` +
+        `Cadastrar o instrumento e atrelar as ações a ele.`,
+      created_by: editorId,
+      autor_nome: editorNome || null,
+    });
+    setAbrindoChamado(false);
+    if (error) toast.error("Ações liberadas, mas o chamado falhou: " + error.message);
+    else toast.success("Chamado de contrato faltante aberto");
+    setContratoSel(null);
+    setStage("manual");
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-hidden flex flex-col">
@@ -207,7 +241,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
           </DialogTitle>
           <DialogDescription>
             {stage === "chooser"
-              ? "Edite as ações na hora ou refaça a análise do zero no Finder."
+              ? "Adicione ou edite as ações deste cliente. Escolha por onde."
+              : stage === "sem_contrato"
+              ? "Este cliente ainda não tem contrato cadastrado."
               : stage === "contrato"
               ? "Cada ação pertence a um contrato do cliente. Escolha qual deles você vai editar."
               : "Atrele as ações, diga contra quem cada uma vai e salve. Cada mudança recalcula o fechamento (mantendo quem captou)."}
@@ -217,19 +253,16 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         {stage === "chooser" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <button
-              onClick={() => {
-                if (contratos.length === 0) { toast.error("Este cliente não tem contrato. Cadastre o contrato antes de definir as ações."); return; }
-                if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); }
-                else setStage("contrato");
-              }}
+              onClick={irManual}
               className="text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center mb-3">
-                <Pencil className="h-5 w-5" />
+                <ListPlus className="h-5 w-5" />
               </div>
-              <p className="text-sm font-semibold">Editar ações atuais</p>
+              <p className="text-sm font-semibold">Definir aqui mesmo</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Adicione ou remova ações na hora. Cada mudança reflete direto no quadro de fechamentos.
+                Monte a lista na mão: adicione ações novas, ajuste ou remova as que já existem.
+                Cada mudança reflete direto no quadro de fechamentos.
               </p>
             </button>
             <button
@@ -239,10 +272,61 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               <div className="h-10 w-10 rounded-xl bg-white/[0.05] ring-1 ring-white/10 text-foreground/80 flex items-center justify-center mb-3">
                 <Building2 className="h-5 w-5" />
               </div>
-              <p className="text-sm font-semibold">Refazer no Finder (Bradesco)</p>
+              <p className="text-sm font-semibold">Levantar pelo Finder (Bradesco)</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Abre o Finder na esteira com a pasta do Drive do cliente já no gatilho. Gera uma nova análise pronta pra ele.
+                Abre o Finder na esteira com a pasta do Drive já no gatilho. Ele lê os extratos e
+                devolve a lista pronta, substituindo a atual.
               </p>
+            </button>
+          </div>
+        ) : stage === "sem_contrato" ? (
+          <div className="space-y-3 py-2">
+            <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">
+                  {cliente?.nome} não tem contrato cadastrado
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-1">
+                  A ação é ajuizada com base no instrumento que nos dá poderes. Dá pra definir as
+                  ações agora e atrelar o contrato depois — mas alguém precisa lembrar de cadastrá-lo.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={seguirSemContratoEAvisar}
+              disabled={abrindoChamado}
+              className="w-full text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 flex items-center gap-3 transition-colors disabled:opacity-60"
+            >
+              <span className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center shrink-0">
+                {abrindoChamado ? <Loader2 className="h-5 w-5 animate-spin" /> : <LifeBuoy className="h-5 w-5" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">
+                  {abrindoChamado ? "Abrindo chamado…" : "Sim, continuar e abrir chamado"}
+                </span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                  As ações ficam salvas sem contrato e um chamado "Contrato faltante — {cliente?.nome}"
+                  entra na fila, pra ninguém esquecer.
+                </span>
+              </span>
+            </button>
+
+            <button
+              onClick={() => setStage("chooser")}
+              disabled={abrindoChamado}
+              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] hover:border-white/[0.16] p-4 flex items-center gap-3 transition-colors disabled:opacity-60"
+            >
+              <span className="h-10 w-10 rounded-xl bg-white/[0.05] ring-1 ring-white/10 text-muted-foreground flex items-center justify-center shrink-0">
+                <FileSignature className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Não, vou cadastrar o contrato antes</span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                  Fecha isto e volta pra ficha, onde o contrato é cadastrado.
+                </span>
+              </span>
             </button>
           </div>
         ) : stage === "contrato" ? (
