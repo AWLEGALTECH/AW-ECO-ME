@@ -2429,7 +2429,17 @@ function PrePipeline({
     <EsteiraInicioDialog
       open={inicioOpen}
       onClose={() => setInicioOpen(false)}
-      cliente={{ id: clienteId, nome: cliente.nome, drive_folder_url: cliente.drive_folder_url }}
+      cliente={{
+        id: clienteId,
+        nome: cliente.nome,
+        drive_folder_url: cliente.drive_folder_url,
+        observacoes: cliente.observacoes,
+        requerido: cliente.requerido,
+        cadastrado_por: cliente.cadastrado_por,
+        origem: cliente.origem,
+        // Sem isto o fluxo artesanal não enxerga as rubricas do comercial.
+        analise_comercial: cliente.analise_comercial,
+      }}
       userId={userId}
       onCreated={onChange}
       titulo={inicioTitulo}

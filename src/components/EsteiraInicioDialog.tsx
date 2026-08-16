@@ -1,16 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ScanSearch, AlertTriangle, X, Check, ChevronLeft, ChevronRight, Hammer, Building2, MessageSquare, User, ExternalLink, PenSquare, CheckCircle2,
 } from "lucide-react";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
-import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
+import { DescontosAnaliseComercial, rubricasDaAnalise } from "@/components/DescontosAnaliseComercial";
 import { SectionLabel, ActionRow } from "@/components/AcaoEsteira";
 import { PendenciaPicker } from "@/components/PendenciaPicker";
 import { criarPendencias, type TipoPendencia as TP } from "@/lib/pendencias";
@@ -46,7 +45,7 @@ interface Props {
   permitirFinalizarPrimaria?: boolean;
 }
 
-type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_qtd" | "artesanal_specs";
+type Stage = "actions" | "pendencia" | "pos_pendencia" | "artesanal_rubricas";
 
 export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated, onConfirmar, titulo, permitirFinalizarPrimaria }: Props) {
   const navigate = useNavigate();
@@ -55,19 +54,16 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
   const [tipos, setTipos] = useState<Set<TP>>(new Set());
   const [custom, setCustom] = useState("");
   const [saving, setSaving] = useState(false);
-  // Fluxo artesanal: quantidade de pecas + descricao de cada uma
-  const [artesanalQtd, setArtesanalQtd] = useState<number>(1);
-  const [artesanalSpecs, setArtesanalSpecs] = useState<string[]>([""]);
-  // PAUTA de cada peça: assunto curto que vira "ESPECÍFICA — <pauta>" no
-  // título, no card e no campo matéria do Espelho de Protocolo.
-  const [artesanalPautas, setArtesanalPautas] = useState<string[]>([""]);
+  // Fluxo artesanal: uma peça por RUBRICA da análise comercial. O comercial
+  // já levantou o que o cliente tem de não-Bradesco — reaproveita em vez de
+  // pedir a mesma descrição de novo.
+  const [rubSel, setRubSel] = useState<Set<number>>(new Set());
 
   const reset = () => {
     setStage("actions");
     setTipos(new Set());
     setCustom("");
-    setArtesanalQtd(1);
-    setArtesanalSpecs([""]); setArtesanalPautas([""]);
+    setRubSel(new Set());
   };
 
   const toggleTipo = (key: TP) => {
@@ -108,76 +104,53 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
     }
   };
 
-  // Entra no fluxo de configuracao artesanal: primeiro escolhe quantas
-  // pecas, depois descreve cada uma. So cria as demandas no final.
+  // Entra no fluxo artesanal: escolher a(s) rubrica(s) do comercial que serão
+  // produzidas à mão. Só cria as demandas no final.
   const iniciarArtesanal = () => {
-    setArtesanalQtd(1);
-    setArtesanalSpecs([""]); setArtesanalPautas([""]);
-    setStage("artesanal_qtd");
+    setRubSel(new Set());
+    setStage("artesanal_rubricas");
   };
 
-  const confirmarQtd = () => {
-    const n = Math.max(1, Math.min(20, Math.floor(artesanalQtd || 1)));
-    setArtesanalQtd(n);
-    // Mantem o que ja foi digitado se a qtd diminui, completa com "" se aumenta
-    setArtesanalSpecs(prev => {
-      const next = [...prev];
-      while (next.length < n) next.push("");
-      next.length = n;
-      return next;
-    });
-    setArtesanalPautas((prev) => Array.from({ length: n }, (_, i) => prev[i] || ""));
-    setStage("artesanal_specs");
-  };
+  // Rubricas do comercial disponíveis pra produção artesanal. As bloqueadas
+  // ficam de fora — foram descartadas no comercial e não se reconsideram aqui.
+  const rubricasAptas = useMemo(
+    () => rubricasDaAnalise(cliente?.analise_comercial).filter((r) => !r.bloqueada),
+    [cliente?.analise_comercial],
+  );
 
-  const setSpec = (idx: number, valor: string) => {
-    setArtesanalSpecs(prev => {
-      const next = [...prev];
-      next[idx] = valor;
-      return next;
+  const toggleRub = (i: number) =>
+    setRubSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(i)) n.delete(i); else n.add(i);
+      return n;
     });
-  };
-  // Pauta por peça. Cresce o array se ainda não tiver a posição (o dialog pode
-  // abrir com 1 item e a quantidade mudar depois).
-  const setPauta = (idx: number, valor: string) => {
-    setArtesanalPautas(prev => {
-      const next = [...prev];
-      while (next.length <= idx) next.push("");
-      next[idx] = valor;
-      return next;
-    });
-  };
 
+  // Cria UMA peça artesanal por rubrica marcada. Selecionar N rubricas gera N
+  // demandas de uma vez — antes era preciso abrir e fechar o diálogo por peça.
   const criarPecasArtesanais = async () => {
     if (!cliente) return;
-    const especs = artesanalSpecs.map(s => s.trim());
-    if (especs.some(s => !s)) {
-      toast.error("Descreva cada peça antes de continuar.");
-      return;
-    }
-    const pautas = artesanalSpecs.map((_, i) => (artesanalPautas[i] || "").trim());
-    if (pautas.some(p => !p)) {
-      toast.error("Informe a pauta de cada peça (vai no protocolo).");
-      return;
-    }
+    const escolhidas = rubricasAptas.filter((_, i) => rubSel.has(i));
+    if (!escolhidas.length) { toast.error("Selecione ao menos uma rubrica."); return; }
     setSaving(true);
-    const total = especs.length;
-    const rows = especs.map((spec, i) => {
+    const total = escolhidas.length;
+    const rows = escolhidas.map((r, i) => {
       const sufixo = total > 1 ? ` (${i + 1}/${total})` : "";
-      // A peça artesanal não vem de rubrica do Finder: a PAUTA ocupa o campo
-      // `desconto`, que é o que alimenta título, card, ficha e o campo matéria
-      // do Espelho de Protocolo.
-      const materia = `ESPECÍFICA — ${pautas[i]}`;
+      // A rubrica do comercial É a matéria: alimenta título, card, ficha e o
+      // campo matéria do Espelho de Protocolo.
+      const contexto = [
+        r.requerido ? `Contra ${r.requerido}` : null,
+        r.detalhe || null,
+      ].filter(Boolean).join(" · ");
       return {
         cliente_id: cliente.id,
         tipo: "pre_protocolo",
         etapa: "fluxo_artesanal",
         status: "pendente",
-        // titulo eh o que aparece como hint no card da esteira
-        titulo: `Peça artesanal${sufixo} — ${materia}`,
-        desconto: materia,
-        // descricao guarda a especificacao COMPLETA, exibida no popup
-        descricao: spec,
+        titulo: `Peça artesanal${sufixo} — ${r.rubrica}`,
+        desconto: r.rubrica,
+        descricao: contexto || null,
+        // Preserva a linhagem: a ação nasce do contrato que a originou.
+        contrato_id: r.contrato_id || null,
         created_by: userId,
       };
     });
@@ -217,13 +190,8 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
       <DialogContent className={`${stage === "actions" ? "sm:max-w-2xl" : "sm:max-w-lg"} max-w-[95vw] max-h-[88dvh] overflow-y-auto overflow-x-hidden`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {(stage === "pendencia" || stage === "artesanal_qtd") && (
+            {(stage === "pendencia" || stage === "artesanal_rubricas") && (
               <button onClick={() => setStage("actions")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            )}
-            {stage === "artesanal_specs" && (
-              <button onClick={() => setStage("artesanal_qtd")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -238,8 +206,7 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             {stage === "actions" && "1. Analise a pasta do Drive. Depois escolha o próximo passo."}
             {stage === "pendencia" && "Selecione tudo que está faltando nesse cliente."}
             {stage === "pos_pendencia" && "Apesar da pendência registrada, este cliente segue ou não?"}
-            {stage === "artesanal_qtd" && "Quantas peças serão confeccionadas pra esse cliente?"}
-            {stage === "artesanal_specs" && "Descreva cada peça pra que o advogado saiba o que produzir."}
+            {stage === "artesanal_rubricas" && "Qual rubrica da análise comercial será produzida à mão? Marque quantas quiser — cada uma vira uma peça."}
           </DialogDescription>
         </DialogHeader>
 
@@ -403,82 +370,68 @@ export function EsteiraInicioDialog({ open, onClose, cliente, userId, onCreated,
             </>
           )}
 
-          {stage === "artesanal_qtd" && (
+          {stage === "artesanal_rubricas" && (
             <>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-foreground">
-                  Quantidade de peças
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={artesanalQtd}
-                  onChange={(e) => setArtesanalQtd(Number(e.target.value) || 1)}
-                  className="h-12 text-lg font-semibold text-center"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Cada peça vira um card separado na coluna "Fluxo artesanal".
-                  Mínimo 1, máximo 20.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-2">
-                <Button variant="ghost" onClick={() => setStage("actions")} disabled={saving}>Voltar</Button>
-                <Button onClick={confirmarQtd} disabled={saving || artesanalQtd < 1}>
-                  Próximo: especificar peças
-                </Button>
-              </div>
-            </>
-          )}
-
-          {stage === "artesanal_specs" && (
-            <>
-              <div className="space-y-3 max-h-[52vh] overflow-y-auto pr-1.5 -mr-1.5">
-                {artesanalSpecs.map((spec, i) => (
-                  <div key={i} className="rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold shrink-0">
-                        {i + 1}
-                      </span>
-                      <span className="text-xs font-semibold text-foreground">Peça {i + 1} de {artesanalQtd}</span>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium text-foreground/80">
-                        Pauta <span className="text-muted-foreground font-normal">· vai no protocolo</span>
-                      </label>
-                      <Input
-                        value={artesanalPautas[i] || ""}
-                        onChange={(e) => setPauta(i, e.target.value)}
-                        placeholder="Empréstimo consignado não contratado"
-                        className="h-9 text-sm"
-                      />
-                      <p className="text-[10.5px] text-muted-foreground truncate">
-                        Registrada como <span className="text-foreground/80 font-medium">ESPECÍFICA — {(artesanalPautas[i] || "").trim() || "assunto"}</span>
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-medium text-foreground/80">
-                        Especificação <span className="text-muted-foreground font-normal">· o que o advogado deve produzir</span>
-                      </label>
-                      <Textarea
-                        value={spec}
-                        onChange={(e) => setSpec(i, e.target.value)}
-                        placeholder="Ex.: Ação revisional contra Banco Pan — empréstimo consignado com taxa de 5,2% a.m., questionar abusividade."
-                        className="resize-none min-h-[76px] text-sm"
-                      />
-                    </div>
+              {rubricasAptas.length === 0 ? (
+                <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-4 flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">
+                      Sem rubrica disponível na análise comercial
+                    </p>
+                    <p className="text-[12px] text-muted-foreground mt-1">
+                      Toda peça artesanal nasce de uma rubrica levantada pelo comercial. Defina as
+                      ações ajuizáveis deste cliente na ficha dele e volte aqui.
+                    </p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[12px] text-muted-foreground">
+                    O comercial já levantou o que este cliente tem de não-Bradesco. Marque a rubrica
+                    correspondente — <span className="text-foreground/80">cada marcada vira uma peça
+                    separada</span> na coluna "Fluxo artesanal".
+                  </p>
+                  <div className="rounded-lg border border-border divide-y divide-border/60 max-h-[46dvh] overflow-y-auto">
+                    {rubricasAptas.map((r, i) => {
+                      const checked = rubSel.has(i);
+                      return (
+                        <label
+                          key={`${r.rubrica}-${i}`}
+                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors ${
+                            checked ? "bg-primary/5" : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <Checkbox checked={checked} onCheckedChange={() => toggleRub(i)} className="mt-0.5" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium">{r.rubrica}</span>
+                            {(r.requerido || r.detalhe) && (
+                              <span className="block text-[11px] text-muted-foreground mt-0.5 break-words">
+                                {r.requerido && <span className="text-foreground/70">contra {r.requerido}</span>}
+                                {r.requerido && r.detalhe && " · "}
+                                {r.detalhe}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-between gap-2 pt-2">
-                <Button variant="ghost" onClick={() => setStage("artesanal_qtd")} disabled={saving}>Voltar</Button>
-                <Button onClick={criarPecasArtesanais} disabled={saving}>
-                  {saving ? "Criando…" : <><Check className="h-4 w-4 mr-1" /> Enviar pro fluxo</>}
-                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  {rubSel.size === 0
+                    ? "Nenhuma rubrica marcada"
+                    : rubSel.size === 1 ? "1 peça será criada" : `${rubSel.size} peças serão criadas`}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={() => setStage("actions")} disabled={saving}>Voltar</Button>
+                  <Button onClick={criarPecasArtesanais} disabled={saving || rubSel.size === 0}>
+                    {saving ? "Criando…" : <><Check className="h-4 w-4 mr-1" /> Criar {rubSel.size > 1 ? `${rubSel.size} peças` : "peça"}</>}
+                  </Button>
+                </div>
               </div>
             </>
           )}
