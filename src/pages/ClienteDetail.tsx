@@ -144,7 +144,7 @@ const ORIGEM_META: Record<string, { label: string; color: string }> = {
 };
 
 const ETAPA_META: Record<string, { label: string; ordem: number; Icon: any }> = {
-  analise_documental:    { label: "Análise Documental",          ordem: 1, Icon: ClipboardList },
+  analise_documental:    { label: "Análise de Demandas",          ordem: 1, Icon: ClipboardList },
   analise_vinculada:     { label: "Análise Vinculada Bradesco",  ordem: 2, Icon: GitBranch },
   fluxo_artesanal:       { label: "Fluxo Artesanal",             ordem: 2, Icon: Hammer },
   confeccao_peca:        { label: "Confecção da Peça",           ordem: 3, Icon: FileText },
@@ -1079,7 +1079,7 @@ function AnaliseDocumentalCard({ demanda, filhas, autor }: { demanda: Demanda; f
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <h4 className="text-sm font-medium">Análise Documental</h4>
+            <h4 className="text-sm font-medium">Análise de Demandas</h4>
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {fmtDateTime(demanda.created_at)}
             </span>
@@ -2233,7 +2233,7 @@ function PrePipeline({
   const temArtesanal = demandas.some(d => d.etapa === "fluxo_artesanal" && d.status !== "cancelada");
 
   const grupos: Array<{ key: string; label: string; Icon: any; hint: string }> = [
-    { key: "analise_documental",     label: "1. Análise Documental",                   Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
+    { key: "analise_documental",     label: "1. Análise de Demandas",                  Icon: ScanSearch, hint: "Vincule análises do Finder ao cliente." },
     { key: "analise_vinculada",      label: "2. Análise Vinculada Bradesco",           Icon: GitBranch,  hint: "Cada análise vinculada gera uma peça na etapa seguinte." },
     // Grupo so aparece quando o cliente tem peca artesanal (nao-Bradesco) —
     // alimentado pelo "Seguir fluxo artesanal" da esteira.
@@ -2409,7 +2409,7 @@ function PrePipeline({
       cliente_id: clienteId,
       tipo: "pre_protocolo",
       etapa: "analise_documental",
-      titulo: "Análise documental",
+      titulo: "Análise de demandas",
       descricao: null,
       status: "em_andamento",
       created_by: userId,
@@ -2600,7 +2600,7 @@ function PrePipeline({
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium">Pipeline pré-protocolo ainda não iniciado</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Comece criando a análise documental — ela abre o Finder pra você processar os extratos do cliente.
+              Comece criando a análise de demandas — ela abre o Finder pra você processar os extratos do cliente.
             </p>
           </div>
           <Button

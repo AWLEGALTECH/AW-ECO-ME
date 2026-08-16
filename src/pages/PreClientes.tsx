@@ -252,7 +252,7 @@ type StagesMap = Record<StageKey, StageState>;
 const STAGE_META: Record<StageKey, { label: string; Icon: any }> = {
   cliente:     { label: "Cadastrando cliente",            Icon: User },
   contrato:    { label: "Vinculando contrato",            Icon: FileText },
-  demanda:     { label: "Iniciando análise documental",   Icon: ClipboardList },
+  demanda:     { label: "Iniciando análise de demandas",  Icon: ClipboardList },
   pre_cliente: { label: "Finalizando pré-cadastro",       Icon: CheckCircle2 },
   whatsapp:    { label: "Enviando boas-vindas no WhatsApp", Icon: MessageCircle },
   organize:    { label: "Organizando pasta no Drive",     Icon: FolderCheck },
@@ -647,7 +647,7 @@ export default function PreClientes() {
       }
     }
 
-    // 3. cria análise documental inicial
+    // 3. cria a análise de demandas inicial
     setStage("demanda", { status: "running" });
     const { error: errDem } = await supabase
       .from("demandas" as any)
@@ -656,7 +656,7 @@ export default function PreClientes() {
         contrato_id: (contrato as any)?.id ?? null,
         tipo: "pre_protocolo",
         etapa: "analise_documental",
-        titulo: "Análise documental inicial",
+        titulo: "Análise de demandas inicial",
         descricao: "Identificar quais descontos do cliente são ajuizáveis.",
         status: "pendente",
         created_by: user.id,
