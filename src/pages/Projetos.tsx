@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
-  Plus, ChevronLeft, ChevronUp, ChevronDown, Loader2, Check, X, CalendarDays, User, Trash2,
+  Plus, ChevronLeft, ChevronUp, ChevronDown, Loader2, Check, X, CalendarDays, User, Trash2, Pencil,
   LayoutGrid, Archive, Pause, Play, Search, Flag,
 } from "lucide-react";
 import {
@@ -323,6 +323,237 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   );
 }
 
+/* ───────────────────────── Editar projeto ───────────────────────── */
+function EditarProjetoDialog({ projeto, perfis, envolvidosAtuais, onClose, onSalvo }: {
+  projeto: Projeto | null; perfis: Perfil[]; envolvidosAtuais: string[];
+  onClose: () => void; onSalvo: () => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [cor, setCor] = useState<string>("primary");
+  const [ic, setIc] = useState<string>("Rocket");
+  const [envolvidos, setEnvolvidos] = useState<string[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  useEffect(() => {
+    if (projeto) {
+      setNome(projeto.nome); setDescricao(projeto.descricao || "");
+      setCor(projeto.cor); setIc(projeto.icone);
+      setEnvolvidos(envolvidosAtuais);
+      setSalvando(false); setExcluindo(false);
+    }
+  }, [projeto?.id]);
+
+  if (!projeto) return null;
+  const Icone = icone(ic);
+  const p = paleta(cor);
+
+  const salvar = async () => {
+    if (!nome.trim()) { toast.error("O projeto precisa de um nome."); return; }
+    setSalvando(true);
+    const { error } = await (supabase.from("projetos" as never) as never as any)
+      .update({ nome: nome.trim(), descricao: descricao.trim() || null, cor, icone: ic })
+      .eq("id", projeto.id);
+    if (!error) {
+      // Envolvidos: apaga os que saíram, insere os que entraram.
+      const saiu = envolvidosAtuais.filter((x) => !envolvidos.includes(x));
+      const entrou = envolvidos.filter((x) => !envolvidosAtuais.includes(x));
+      if (saiu.length) {
+        await (supabase.from("projeto_envolvidos" as never) as never as any)
+          .delete().eq("projeto_id", projeto.id).in("user_id", saiu);
+      }
+      if (entrou.length) {
+        await (supabase.from("projeto_envolvidos" as never) as never as any)
+          .insert(entrou.map((u) => ({ projeto_id: projeto.id, user_id: u })));
+      }
+    }
+    setSalvando(false);
+    if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+    toast.success("Projeto atualizado");
+    onSalvo(); onClose();
+  };
+
+  const excluir = async () => {
+    setExcluindo(true);
+    const { error } = await (supabase.from("projetos" as never) as never as any).delete().eq("id", projeto.id);
+    setExcluindo(false);
+    if (error) { toast.error("Erro ao excluir: " + error.message); return; }
+    toast.success("Projeto excluído");
+    onSalvo(); onClose();
+  };
+
+  return (
+    <Dialog open={!!projeto} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-w-[95vw] max-h-[92dvh] flex flex-col overflow-hidden gap-3">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2.5">
+            <span className={cn("h-9 w-9 rounded-xl grid place-items-center ring-1", p.chip)}>
+              <Icone className="h-4 w-4" />
+            </span>
+            Editar projeto
+          </DialogTitle>
+          <DialogDescription>As sprints e os cards continuam onde estão.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-1 py-1">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Nome</Label>
+            <Input value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Descrição</Label>
+            <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} className="resize-none" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Cor</Label>
+              <div className="grid grid-cols-7 gap-1.5">
+                {CORES.map((c) => (
+                  <button key={c} onClick={() => setCor(c)} title={PALETA[c].rotulo}
+                    className={cn("h-8 rounded-lg transition-all duration-200", PALETA[c].barra,
+                      cor === c ? "ring-2 ring-offset-2 ring-offset-background ring-white/70" : "opacity-50 hover:opacity-90")} />
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
+              <div className="grid grid-cols-6 gap-1.5">
+                {ICONES_LISTA.map((n) => {
+                  const I = ICONES[n];
+                  return (
+                    <button key={n} onClick={() => setIc(n)}
+                      className={cn("h-8 rounded-lg grid place-items-center transition-all duration-200",
+                        ic === n ? cn(p.chip, "ring-1") : "text-muted-foreground hover:bg-white/[0.05]")}>
+                      <I className="h-4 w-4" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Envolvidos</Label>
+            <SeletorPessoas pessoas={perfis} selecionados={envolvidos}
+              onToggle={(id) => setEnvolvidos((old) => (old.includes(id) ? old.filter((x) => x !== id) : [...old, id]))} />
+          </div>
+        </div>
+
+        <DialogFooter className="shrink-0 gap-2 pt-3 sm:justify-between">
+          <Button variant="ghost" onClick={excluir} disabled={salvando || excluindo}
+            className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10">
+            {excluindo ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+            Excluir projeto
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={salvando}>Cancelar</Button>
+            <Button onClick={salvar} disabled={salvando || !nome.trim()}>
+              {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+              Salvar
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ───────────────────────── Editar sprint ───────────────────────── */
+function EditarSprintDialog({ sprint, onClose, onSalvo }: {
+  sprint: Sprint | null; onClose: () => void; onSalvo: () => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [prazo, setPrazo] = useState("");
+  const [status, setStatus] = useState<Sprint["status"]>("planejada");
+  const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  useEffect(() => {
+    if (sprint) {
+      setNome(sprint.nome); setPrazo(sprint.prazo || ""); setStatus(sprint.status);
+      setSalvando(false); setExcluindo(false);
+    }
+  }, [sprint?.id]);
+
+  if (!sprint) return null;
+
+  const salvar = async () => {
+    if (!nome.trim()) { toast.error("A sprint precisa de um nome."); return; }
+    setSalvando(true);
+    const { error } = await (supabase.from("projeto_sprints" as never) as never as any)
+      .update({
+        nome: nome.trim(), prazo: prazo || null, status,
+        concluida_at: status === "concluida" ? (sprint.concluida_at || new Date().toISOString()) : null,
+      }).eq("id", sprint.id);
+    setSalvando(false);
+    if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+    toast.success("Sprint atualizada");
+    onSalvo(); onClose();
+  };
+
+  const excluir = async () => {
+    setExcluindo(true);
+    const { error } = await (supabase.from("projeto_sprints" as never) as never as any).delete().eq("id", sprint.id);
+    setExcluindo(false);
+    if (error) { toast.error("Erro ao excluir: " + error.message); return; }
+    toast.success("Sprint excluída");
+    onSalvo(); onClose();
+  };
+
+  const STATUS: { k: Sprint["status"]; rotulo: string }[] = [
+    { k: "planejada", rotulo: "Planejada" },
+    { k: "ativa", rotulo: "Em andamento" },
+    { k: "concluida", rotulo: "Concluída" },
+  ];
+
+  return (
+    <Dialog open={!!sprint} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-md max-w-[95vw] max-h-[92dvh] flex flex-col overflow-hidden gap-3">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>Editar sprint</DialogTitle>
+          <DialogDescription>As colunas se mexem em Refazer colunas, no quadro.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3.5 flex-1 min-h-0 overflow-y-auto px-1 py-1">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Nome</Label>
+            <Input value={nome} onChange={(e) => setNome(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Prazo</Label>
+            <CampoData valor={prazo} onChange={setPrazo} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Situação</Label>
+            <div className="flex items-center gap-1.5">
+              {STATUS.map((st) => (
+                <button key={st.k} onClick={() => setStatus(st.k)}
+                  className={cn("flex-1 text-[11px] py-2 rounded-lg ring-1 transition-colors",
+                    status === st.k ? "bg-primary/15 text-primary ring-primary/40" : "ring-white/[0.08] text-muted-foreground hover:bg-white/[0.04]")}>
+                  {st.rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter className="shrink-0 gap-2 pt-3 sm:justify-between">
+          <Button variant="ghost" onClick={excluir} disabled={salvando || excluindo}
+            className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10">
+            {excluindo ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+            Excluir
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={salvando}>Cancelar</Button>
+            <Button onClick={salvar} disabled={salvando || !nome.trim()}>
+              {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+              Salvar
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ───────────────────────── Iniciar sprint ───────────────────────── */
 function IniciarSprintDialog({ sprint, reabrindo, onClose, onIniciada }: {
   sprint: Sprint | null; reabrindo: boolean; onClose: () => void; onIniciada: () => void;
@@ -550,6 +781,10 @@ export default function Projetos() {
   const [sprintAberta, setSprintAberta] = useState<string | null>(null);
   const [iniciarSprint, setIniciarSprint] = useState<{ sprint: Sprint; reabrindo: boolean } | null>(null);
   const [novaSprintAberta, setNovaSprintAberta] = useState(false);
+  const [editProjeto, setEditProjeto] = useState<Projeto | null>(null);
+  const [editSprint, setEditSprint] = useState<Sprint | null>(null);
+  const [editCol, setEditCol] = useState<string | null>(null);
+  const [nomeCol, setNomeCol] = useState("");
   const [nomeNovaSprint, setNomeNovaSprint] = useState("");
   const [busca, setBusca] = useState("");
   const [verArquivados, setVerArquivados] = useState(false);
@@ -709,6 +944,25 @@ export default function Projetos() {
     qc.invalidateQueries({ queryKey: ["projeto_sprints"] });
   };
 
+  // Renomear coluna não mexe nos cards. Refazer o quadro inteiro é outra
+  // coisa, fica no botão de Refazer colunas.
+  const salvarNomeColuna = async (colId: string) => {
+    const t = nomeCol.trim();
+    setEditCol(null);
+    if (!t) return;
+    const { error } = await (supabase.from("projeto_colunas" as never) as never as any)
+      .update({ nome: t }).eq("id", colId);
+    if (error) { toast.error(error.message); return; }
+    qc.invalidateQueries({ queryKey: ["projeto_colunas"] });
+  };
+
+  const trocarCorColuna = async (colId: string, cor: string) => {
+    const { error } = await (supabase.from("projeto_colunas" as never) as never as any)
+      .update({ cor }).eq("id", colId);
+    if (error) { toast.error(error.message); return; }
+    qc.invalidateQueries({ queryKey: ["projeto_colunas"] });
+  };
+
   const concluirSprint = async (sp: Sprint) => {
     const { error } = await (supabase.from("projeto_sprints" as never) as never as any)
       .update({ status: "concluida", concluida_at: new Date().toISOString() }).eq("id", sp.id);
@@ -751,7 +1005,11 @@ export default function Projetos() {
               {projetoAberto.descricao || "Sem descrição"}
             </p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setEditProjeto(projetoAberto)} title="Editar projeto"
+              className="h-9 w-9 rounded-xl grid place-items-center border border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
             {atrasados > 0 && (
               <span className="text-[11px] px-2 py-1 rounded-full ring-1 bg-rose-500/15 text-rose-400 ring-rose-500/30">
                 {atrasados} atrasado{atrasados > 1 ? "s" : ""}
@@ -826,9 +1084,14 @@ export default function Projetos() {
               Esta sprint ainda não tem quadro. Ao iniciar, você nomeia as etapas por onde os cards
               vão passar; elas valem só para ela.
             </p>
-            <Button className="mt-4" onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: false })}>
-              <Play className="h-4 w-4 mr-1.5" /> Iniciar sprint
-            </Button>
+            <div className="mt-4 flex items-center gap-2">
+              <Button onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: false })}>
+                <Play className="h-4 w-4 mr-1.5" /> Iniciar sprint
+              </Button>
+              <Button variant="ghost" onClick={() => setEditSprint(spSel)}>
+                <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
+              </Button>
+            </div>
           </motion.div>
         ) : spSel ? (
           <>
@@ -847,6 +1110,10 @@ export default function Projetos() {
                 );
               })()}
               <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => setEditSprint(spSel)}
+                  className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
+                  <Pencil className="h-3 w-3" /> Editar sprint
+                </button>
                 <button onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: true })}
                   className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
                   <LayoutGrid className="h-3 w-3" /> Refazer colunas
@@ -883,10 +1150,43 @@ export default function Projetos() {
                       alvo ? cn(cp.borda, cp.suave, "ring-1", cp.anel) : "border-white/[0.07] bg-white/[0.02]",
                     )}
                   >
-                    <div className="flex items-center gap-2 px-1 pb-2.5">
-                      <span className={cn("h-2 w-2 rounded-full shrink-0", cp.ponto)} />
-                      <span className="text-[12px] font-semibold uppercase tracking-wider truncate">{col.nome}</span>
-                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{doCol.length}</span>
+                    <div className="group/col flex items-center gap-2 px-1 pb-2.5">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button title="Cor da coluna"
+                            className={cn("h-2 w-2 rounded-full shrink-0 transition-transform hover:scale-150", cp.ponto)} />
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-2" align="start">
+                          <div className="grid grid-cols-7 gap-1.5">
+                            {CORES.map((k) => (
+                              <button key={k} onClick={() => trocarCorColuna(col.id, k)} title={PALETA[k].rotulo}
+                                className={cn("h-7 w-7 rounded-lg transition-all", PALETA[k].barra,
+                                  col.cor === k ? "ring-2 ring-offset-2 ring-offset-popover ring-white/70" : "opacity-60 hover:opacity-100")} />
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {editCol === col.id ? (
+                        <Input
+                          value={nomeCol} onChange={(e) => setNomeCol(e.target.value)} autoFocus
+                          onBlur={() => salvarNomeColuna(col.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); salvarNomeColuna(col.id); }
+                            if (e.key === "Escape") setEditCol(null);
+                          }}
+                          className="h-7 text-[12px] font-semibold uppercase tracking-wider flex-1 px-2"
+                        />
+                      ) : (
+                        <>
+                          <span className="text-[12px] font-semibold uppercase tracking-wider truncate">{col.nome}</span>
+                          <button onClick={() => { setEditCol(col.id); setNomeCol(col.nome); }} title="Renomear coluna"
+                            className="opacity-0 group-hover/col:opacity-100 h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-all shrink-0">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{doCol.length}</span>
+                        </>
+                      )}
                     </div>
 
                     <div className="space-y-2 min-h-[8px]">
@@ -986,6 +1286,13 @@ export default function Projetos() {
           onClose={() => setIniciarSprint(null)}
           onIniciada={recarregar}
         />
+        <EditarProjetoDialog
+          projeto={editProjeto} perfis={perfis}
+          envolvidosAtuais={envolvidosDe(projetoAberto.id).map((x) => x.id)}
+          onClose={() => setEditProjeto(null)}
+          onSalvo={() => { recarregar(); if (editProjeto) setAberto(editProjeto.id); }}
+        />
+        <EditarSprintDialog sprint={editSprint} onClose={() => setEditSprint(null)} onSalvo={recarregar} />
       </div>
     );
   }
@@ -1110,6 +1417,10 @@ export default function Projetos() {
 
                     <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-1"
                       onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => setEditProjeto(p)}
+                        className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
+                        <Pencil className="h-3 w-3" /> Editar
+                      </button>
                       {p.status === "arquivado" ? (
                         <button onClick={() => mudarStatus(p, "ativo")}
                           className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
@@ -1138,6 +1449,12 @@ export default function Projetos() {
 
       <NovoProjetoDialog open={novoOpen} onClose={() => setNovoOpen(false)}
         onCriado={recarregar} perfis={perfis} userId={user?.id ?? null} />
+
+      <EditarProjetoDialog
+        projeto={editProjeto} perfis={perfis}
+        envolvidosAtuais={editProjeto ? envolvidosDe(editProjeto.id).map((x) => x.id) : []}
+        onClose={() => setEditProjeto(null)} onSalvo={recarregar}
+      />
     </div>
   );
 }
