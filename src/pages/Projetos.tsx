@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -802,6 +802,29 @@ export default function Projetos() {
   const [nomeCol, setNomeCol] = useState("");
   // Painel de documentos: fica aberto entre projetos, como uma preferência.
   const [docsAberto, setDocsAberto] = useState(true);
+  // O painel é sobreposto, mas não pode cobrir o cabeçalho do projeto. Uma
+  // âncora invisível marca onde o quadro começa e o painel se alinha nela.
+  const ancoraRef = useRef<HTMLDivElement>(null);
+  const [topoPainel, setTopoPainel] = useState(0);
+  useEffect(() => {
+    if (!docsAberto) return;
+    const medir = () => {
+      const t = ancoraRef.current?.getBoundingClientRect().top;
+      if (typeof t === "number") setTopoPainel(Math.max(0, Math.round(t)));
+    };
+    medir();
+    const raf = () => requestAnimationFrame(medir);
+    window.addEventListener("resize", raf);
+    // Captura a rolagem de qualquer container, não só a da janela.
+    document.addEventListener("scroll", raf, true);
+    const ro = new ResizeObserver(raf);
+    if (ancoraRef.current?.parentElement) ro.observe(ancoraRef.current.parentElement);
+    return () => {
+      window.removeEventListener("resize", raf);
+      document.removeEventListener("scroll", raf, true);
+      ro.disconnect();
+    };
+  }, [docsAberto, aberto, sprintAberta]);
   const [nomeNovaSprint, setNomeNovaSprint] = useState("");
   const [busca, setBusca] = useState("");
   const [verArquivados, setVerArquivados] = useState(false);
@@ -1092,6 +1115,8 @@ export default function Projetos() {
 
         {/* Sprint sem quadro ainda */}
         {spSel && cols.length === 0 ? (
+          <>
+          <div ref={ancoraRef} aria-hidden className="h-0" />
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
             className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8">
             <div className="flex items-center gap-3">
@@ -1117,6 +1142,7 @@ export default function Projetos() {
               </Button>
             </div>
           </motion.div>
+          </>
         ) : spSel ? (
           <>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1151,6 +1177,7 @@ export default function Projetos() {
               </div>
             </div>
 
+            <div ref={ancoraRef} aria-hidden className="h-0" />
             <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
               {cols.map((col, ci) => {
                 const doCol = cards.filter((c) => c.coluna_id === col.id).sort((a, b) => a.ordem - b.ordem);
@@ -1328,12 +1355,14 @@ export default function Projetos() {
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 onClick={() => setDocsAberto(false)}
-                className="xl:hidden fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px]"
+                style={{ top: topoPainel }}
+                className="xl:hidden fixed inset-x-0 bottom-0 z-30 bg-black/50 backdrop-blur-[2px]"
               />
               <motion.aside
                 initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
                 transition={{ type: "spring", stiffness: 380, damping: 38 }}
-                className="fixed right-0 top-0 bottom-0 z-40 w-[20rem] max-w-[88vw] border-l border-white/[0.08] bg-[hsl(var(--card))] shadow-[-8px_0_32px_rgba(0,0,0,0.45)]"
+                style={{ top: topoPainel }}
+                className="fixed right-0 bottom-0 z-40 w-[20rem] max-w-[88vw] border-l border-t border-white/[0.08] rounded-tl-2xl bg-[hsl(var(--card))] shadow-[-8px_0_32px_rgba(0,0,0,0.45)] overflow-hidden"
               >
                 <ProjetoDrive
                   projetoId={projetoAberto.id}
