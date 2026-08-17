@@ -7,6 +7,7 @@
 // Ações:
 //   listar        { folder_id }                  -> pastas e arquivos daquele nível
 //   criar_subpasta{ parent_id, nome }            -> cria subpasta
+//   upload        multipart: parent_id, arquivo  -> manda arquivo pro Drive
 //   renomear      { file_id, nome }              -> renomeia pasta ou arquivo
 //   mover         { file_ids[], destino_id }     -> move arquivos entre pastas
 //   criar_raiz    { projeto_id }                 -> cria a pasta do projeto e grava nele
@@ -153,7 +154,14 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return j({ error: "Method not allowed" }, 405);
 
   try {
-    const body = await req.json().catch(() => ({} as any));
+    // Upload chega como multipart, o resto como JSON. Ler o corpo errado
+    // consome o stream e não dá segunda chance, então decide pelo content-type.
+    const multipart = (req.headers.get("content-type") || "").includes("multipart/form-data");
+    const form = multipart ? await req.formData() : null;
+    const body: any = form
+      ? { acao: String(form.get("acao") || ""), parent_id: String(form.get("parent_id") || "") }
+      : await req.json().catch(() => ({} as any));
+
     const acao = String(body.acao || "");
     if (!acao) return j({ error: "acao obrigatoria" }, 400);
 
@@ -177,13 +185,19 @@ Deno.serve(async (req: Request) => {
         `${API}?q=${q}&fields=${fields}&${EXTRA}&pageSize=500&orderBy=folder,name`);
 
       const itens = (data.files || []) as any[];
-      // Nome da pasta atual, pro cabeçalho e o caminho de volta.
+      // Nome da pasta atual, pro cabeçalho e o caminho de volta. driveId diz
+      // se estamos numa unidade compartilhada, o que decide se a service
+      // account pode ou não subir arquivo aqui.
       const meta = await drive(token,
-        `${API}/${folderId}?fields=id,name,parents,webViewLink&${EXTRA}`);
+        `${API}/${folderId}?fields=id,name,parents,webViewLink,driveId&${EXTRA}`);
 
       return j({
         ok: true,
-        pasta: { id: meta.id, nome: meta.name, url: meta.webViewLink, pai: (meta.parents || [])[0] || null },
+        pasta: {
+          id: meta.id, nome: meta.name, url: meta.webViewLink,
+          pai: (meta.parents || [])[0] || null,
+          drive_id: meta.driveId || null,
+        },
         pastas: itens.filter((f) => f.mimeType === PASTA),
         arquivos: itens.filter((f) => f.mimeType !== PASTA),
       });
@@ -199,6 +213,56 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ name: nome, mimeType: PASTA, parents: [parentId] }),
       });
       return j({ ok: true, pasta: nova });
+    }
+
+    // ── UPLOAD ───────────────────────────────────────────────────────────
+    // Multipart montado na mão: a API de upload do Drive quer metadados e
+    // bytes no mesmo corpo, e o Blob evita carregar o arquivo em memória
+    // como string.
+    if (acao === "upload") {
+      const parentId = body.parent_id as string;
+      const arquivo = form?.get("arquivo");
+      if (!parentId || !(arquivo instanceof File)) {
+        return j({ error: "parent_id e arquivo obrigatorios" }, 400);
+      }
+
+      const linha = `aw${crypto.randomUUID().replace(/-/g, "")}`;
+      const meta = JSON.stringify({ name: arquivo.name, parents: [parentId] });
+      const corpo = new Blob([
+        `--${linha}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`,
+        `--${linha}\r\nContent-Type: ${arquivo.type || "application/octet-stream"}\r\n\r\n`,
+        arquivo,
+        `\r\n--${linha}--`,
+      ]);
+
+      const r = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+        + "&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": `multipart/related; boundary=${linha}`,
+          },
+          body: corpo,
+        },
+      );
+      if (!r.ok) {
+        const detalhe = await r.text();
+        // Service account não tem cota de armazenamento própria: ela cria
+        // pastas em qualquer lugar, mas só consegue gravar bytes dentro de
+        // uma unidade compartilhada, onde o espaço é da organização.
+        if (detalhe.includes("storage quota")) {
+          return j({
+            error: "O Drive não deixa esta conta guardar arquivos aqui",
+            dica: `A pasta dos projetos precisa estar numa unidade compartilhada com ${sa.client_email} como Gerenciador de conteúdo.`,
+            sem_cota: true,
+            service_account: sa.client_email,
+          }, 403);
+        }
+        return j({ error: `Não consegui enviar ${arquivo.name}`, dica: detalhe.slice(0, 200) }, 502);
+      }
+      return j({ ok: true, arquivo: await r.json() });
     }
 
     // ── RENOMEAR ─────────────────────────────────────────────────────────

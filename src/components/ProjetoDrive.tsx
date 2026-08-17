@@ -8,6 +8,7 @@ import {
   Folder, FolderPlus, FolderOpen, ChevronRight, ChevronLeft, ExternalLink,
   Loader2, Check, X, FileText, FileSpreadsheet, FileImage, FileVideo, File,
   Presentation, FolderSymlink, Link2, RefreshCw, HardDrive, Pencil,
+  Upload, CornerLeftUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +94,15 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
   const [renomeando, setRenomeando] = useState<string | null>(null);
   const [nomeNovo, setNomeNovo] = useState("");
 
+  const [enviando, setEnviando] = useState<{ feito: number; total: number } | null>(null);
+  const [arrastando, setArrastando] = useState(false);
+  const inputArquivo = useRef<HTMLInputElement>(null);
+
+  // Id da unidade compartilhada, quando é uma. Fora dela a service account não
+  // tem cota de armazenamento: cria pasta, mas não grava arquivo. Melhor saber
+  // disso antes de mandar 20 MB pra receber 403 do outro lado.
+  const [unidade, setUnidade] = useState<string | null>(null);
+
   const [linkInput, setLinkInput] = useState("");
   const [vinculando, setVinculando] = useState(false);
 
@@ -110,6 +120,7 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
       const d = await chamar("listar", { folder_id: id });
       setPastas(d.pastas || []);
       setArquivos(d.arquivos || []);
+      setUnidade(d.pasta?.drive_id || null);
       setCaminho((old) => empilhar
         ? [...old, { id, nome: nome || d.pasta?.nome || "Pasta" }]
         : [{ id, nome: nome || d.pasta?.nome || "Documentos" }]);
@@ -295,6 +306,45 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
     } catch (e) { toast.error(String((e as Error)?.message || e)); }
   };
 
+  // Envio um a um, e não tudo de uma vez: o contador vira progresso de
+  // verdade e um arquivo grande não derruba os outros junto.
+  const avisoSemUnidade = () =>
+    toast.error(
+      "Esta pasta está no Meu Drive de alguém, e o sistema não tem espaço próprio lá",
+      { description: "Mova PROJETOS - AW para um Drive compartilhado e o envio passa a funcionar." },
+    );
+
+  const LIMITE_MB = 20;
+  const enviar = async (lista: File[]) => {
+    if (!atual || !lista.length) return;
+    if (!unidade) { avisoSemUnidade(); return; }
+    const grandes = lista.filter((f) => f.size > LIMITE_MB * 1048576);
+    const ok = lista.filter((f) => f.size <= LIMITE_MB * 1048576);
+    if (grandes.length) {
+      toast.error(`${grandes.length === 1 ? "Arquivo acima" : "Arquivos acima"} de ${LIMITE_MB} MB: mande direto pelo Drive`);
+    }
+    if (!ok.length) return;
+
+    setEnviando({ feito: 0, total: ok.length });
+    let enviados = 0;
+    const falhas: string[] = [];
+    for (const f of ok) {
+      const fd = new FormData();
+      fd.append("acao", "upload");
+      fd.append("parent_id", atual.id);
+      fd.append("arquivo", f);
+      const { data, error } = await supabase.functions.invoke("projeto-drive", { body: fd });
+      if (error || data?.error) falhas.push(f.name);
+      else enviados++;
+      setEnviando({ feito: enviados + falhas.length, total: ok.length });
+    }
+    setEnviando(null);
+
+    if (falhas.length) toast.error(`${falhas.length} de ${ok.length} não subiram: ${falhas.join(", ")}`);
+    else toast.success(`${enviados} ${enviados === 1 ? "arquivo enviado" : "arquivos enviados"}`);
+    if (enviados) recarregar();
+  };
+
   const salvarNome = async (id: string) => {
     const n = nomeNovo.trim();
     setRenomeando(null);
@@ -350,8 +400,15 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
           </button>
         </div>
 
-        {/* Caminho */}
+        {/* Caminho, com o voltar colado nele: sair de uma pasta é a ação mais
+            repetida aqui e não devia depender de mirar no nome do pai. */}
         <div className="flex items-center gap-0.5 flex-wrap mt-2 text-[11px]">
+          {paiParaVoltar && (
+            <button onClick={() => voltarPara(caminho.length - 2)} title={`Voltar para ${paiParaVoltar.nome}`}
+              className="h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-white/[0.08] transition-colors shrink-0 mr-1">
+              <CornerLeftUp className="h-3.5 w-3.5" />
+            </button>
+          )}
           {caminho.map((n, i) => (
             <span key={n.id} className="inline-flex items-center gap-0.5 min-w-0">
               {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />}
@@ -408,8 +465,26 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
         )}
       </AnimatePresence>
 
-      {/* Lista */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
+      {/* Lista. Soltar arquivo em cima envia pra pasta aberta, que é o gesto
+          que a pessoa já tenta antes de procurar botão. */}
+      <div
+        className={cn("relative flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5",
+          arrastando && "ring-2 ring-inset ring-primary/50 bg-primary/[0.05]")}
+        onDragOver={(e) => { e.preventDefault(); if (!arrastando) setArrastando(true); }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setArrastando(false); }}
+        onDrop={(e) => {
+          e.preventDefault(); setArrastando(false);
+          const fs = Array.from(e.dataTransfer.files || []);
+          if (fs.length) enviar(fs);
+        }}>
+        {arrastando && (
+          <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
+            <div className="text-center">
+              <Upload className="h-6 w-6 text-primary mx-auto" />
+              <p className="text-[12px] text-primary mt-2">Solte para enviar</p>
+            </div>
+          </div>
+        )}
         {erro ? (
           <div className="p-3 text-[11.5px] text-rose-300 leading-snug">{erro}</div>
         ) : carregando && !pastas.length && !arquivos.length ? (
@@ -530,11 +605,40 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
+        ) : enviando ? (
+          <div className="px-1 py-1">
+            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Enviando {Math.min(enviando.feito + 1, enviando.total)} de {enviando.total}
+            </div>
+            <div className="h-1 mt-1.5 rounded-full bg-white/[0.08] overflow-hidden">
+              <motion.div
+                className="h-full bg-primary"
+                animate={{ width: `${(enviando.feito / enviando.total) * 100}%` }}
+                transition={{ ease: EASE, duration: 0.25 }} />
+            </div>
+          </div>
         ) : (
-          <button onClick={() => setNovaPasta(true)}
-            className="w-full py-1.5 rounded-lg text-[12px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center justify-center gap-1.5">
-            <FolderPlus className="h-3.5 w-3.5" /> Nova subpasta
-          </button>
+          <div className="flex items-center gap-1">
+            <input ref={inputArquivo} type="file" multiple className="hidden"
+              onChange={(e) => {
+                const fs = Array.from(e.target.files || []);
+                e.target.value = "";
+                if (fs.length) enviar(fs);
+              }} />
+            <button onClick={() => unidade ? inputArquivo.current?.click() : avisoSemUnidade()}
+              title={unidade ? "Enviar arquivos" : "Precisa de um Drive compartilhado"}
+              className={cn("flex-1 py-1.5 rounded-lg text-[12px] transition-colors inline-flex items-center justify-center gap-1.5",
+                unidade
+                  ? "text-primary ring-1 ring-primary/25 bg-primary/[0.08] hover:bg-primary/[0.14]"
+                  : "text-muted-foreground ring-1 ring-white/[0.08] hover:bg-white/[0.05]")}>
+              <Upload className="h-3.5 w-3.5" /> Enviar arquivos
+            </button>
+            <button onClick={() => setNovaPasta(true)} title="Nova subpasta"
+              className="h-[30px] w-[30px] grid place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.06] hover:text-foreground transition-colors shrink-0">
+              <FolderPlus className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
     </div>
