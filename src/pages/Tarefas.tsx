@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
-  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -97,6 +97,22 @@ function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
   );
 }
 
+// Situação é um estado da tarefa, e vencida é um deles: não é um pedaço do
+// calendário. Ela morava também na régua de prazo, contando outro critério com
+// o mesmo nome (lá entravam as finalizadas em atraso, aqui não), então o mesmo
+// rótulo mostrava dois números diferentes na mesma tela. Agora mora só aqui.
+//
+// Vencida é subconjunto de Em aberto, então os quatro cartões não somam o
+// total: Total = Em aberto + Finalizadas, e Vencidas é um recorte de Em aberto.
+type Situacao = "todas" | "aberto" | "vencidas" | "finalizada";
+
+function casaSituacao(t: Item, s: Situacao): boolean {
+  if (s === "todas") return true;
+  if (s === "aberto") return !t.desfecho;
+  if (s === "finalizada") return !!t.desfecho;
+  return !t.desfecho && (diasAte(t.prazo) ?? 0) < 0;
+}
+
 // Mesma tarefa, deitada. O card empilha tudo em 188px de altura, o que é bom
 // pra folhear e ruim pra comparar: com dez cards na tela não dá pra correr o
 // olho pelos prazos. Aqui cada informação tem sua coluna, então a leitura é
@@ -176,7 +192,7 @@ export default function Tarefas() {
   const [procs, setProcs] = useState<Proc[]>([]);
   const [loading, setLoading] = useState(true);
   const [tipo, setTipo] = useState<"todos" | TaskTipo>("todos");
-  const [situacao, setSituacao] = useState<"todas" | "aberto" | "finalizada">("todas");
+  const [situacao, setSituacao] = useState<Situacao>("todas");
   const [busca, setBusca] = useState("");
   const [view, setView] = useState<"cards" | "lista" | "linha" | "calendario">("cards");
   const [janela, setJanela] = useState<Janela>("todas");
@@ -211,42 +227,48 @@ export default function Tarefas() {
     return out;
   }, [procs]);
 
-  const stats = useMemo(() => {
-    const total = allTasks.length;
-    const abertas = allTasks.filter((t) => !t.desfecho).length;
-    // Vencida só conta se ainda está aberta: prazo que passou mas foi resolvido
-    // não é dívida, é histórico.
-    const vencidas = allTasks.filter((t) => !t.desfecho && (diasAte(t.prazo) ?? 0) < 0).length;
-    return { total, abertas, finalizadas: total - abertas, vencidas };
-  }, [allTasks]);
-
-  // Filtro sem a janela de prazo: é dele que saem as contagens de cada faixa,
-  // senão a faixa escolhida zeraria as outras e ninguém saberia o que tem lá.
-  const preJanela = useMemo(() => allTasks.filter((t) => {
+  // Base comum: o que não é situação nem janela. Os dois controles que mostram
+  // número partem daqui, e cada um aplica o OUTRO antes de contar. Assim os
+  // números conversam: escolher "Ações" mexe nos quatro cartões e nas faixas de
+  // prazo ao mesmo tempo, e nenhum controle zera a si mesmo, que é o que faria
+  // as outras opções sumirem sem explicação.
+  const base = useMemo(() => allTasks.filter((t) => {
     if (tipo !== "todos" && t.tipo !== tipo) return false;
-    if (situacao === "aberto" && t.desfecho) return false;
-    if (situacao === "finalizada" && !t.desfecho) return false;
     if (busca) {
       const s = busca.toLowerCase();
       if (!t.titulo.toLowerCase().includes(s) && !(t.conteudo ?? "").toLowerCase().includes(s)
         && !t.processoNumero.toLowerCase().includes(s) && !(t.clienteNome ?? "").toLowerCase().includes(s)) return false;
     }
     return true;
-  }), [allTasks, tipo, situacao, busca]);
+  }), [allTasks, tipo, busca]);
+
+  const stats = useMemo(() => {
+    const dentro = base.filter((t) => naJanela(t.prazo, janela));
+    const abertas = dentro.filter((t) => !t.desfecho);
+    return {
+      total: dentro.length,
+      abertas: abertas.length,
+      finalizadas: dentro.length - abertas.length,
+      // Vencida só conta se ainda está aberta: prazo que passou mas foi
+      // resolvido é histórico, não dívida.
+      vencidas: abertas.filter((t) => (diasAte(t.prazo) ?? 0) < 0).length,
+    };
+  }, [base, janela]);
 
   const contagemJanela = useMemo(() => {
+    const dentro = base.filter((t) => casaSituacao(t, situacao));
     const m = {} as Record<Janela, number>;
-    for (const j of JANELAS) m[j.key] = preJanela.filter((t) => naJanela(t.prazo, j.key)).length;
+    for (const j of JANELAS) m[j.key] = dentro.filter((t) => naJanela(t.prazo, j.key)).length;
     return m;
-  }, [preJanela]);
+  }, [base, situacao]);
 
   const filtered = useMemo(() => {
-    const base = preJanela.filter((t) => naJanela(t.prazo, janela));
+    const dentro = base.filter((t) => casaSituacao(t, situacao) && naJanela(t.prazo, janela));
     // Urgência primeiro é o padrão porque é a pergunta que a tela responde;
     // sem ordenar, a lista sai na ordem em que os processos foram lidos, que
     // não quer dizer nada pra quem precisa despachar o dia.
-    return [...base].sort((a, b) => porPrazo(a, b, ordem === "distante"));
-  }, [preJanela, janela, ordem]);
+    return [...dentro].sort((a, b) => porPrazo(a, b, ordem === "distante"));
+  }, [base, situacao, janela, ordem]);
 
   // Agrupa as tasks filtradas por etapa (para a linha do tempo compartilhada).
   const porEtapa = useMemo(() => {
@@ -277,17 +299,19 @@ export default function Tarefas() {
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
         className="grid grid-cols-2 lg:grid-cols-4 gap-3"
       >
-        {[
-          { k: "todas" as const, j: "todas" as const, label: "Total", value: stats.total, alerta: false },
-          { k: "aberto" as const, j: "todas" as const, label: "Em aberto", value: stats.abertas, alerta: false },
-          { k: "aberto" as const, j: "vencidas" as const, label: "Vencidas", value: stats.vencidas, alerta: true },
-          { k: "finalizada" as const, j: "todas" as const, label: "Finalizadas", value: stats.finalizadas, alerta: false },
-        ].map((s) => {
-          const ativo = situacao === s.k && janela === s.j;
+        {([
+          { k: "todas", label: "Total", value: stats.total, alerta: false },
+          { k: "aberto", label: "Em aberto", value: stats.abertas, alerta: false },
+          { k: "vencidas", label: "Vencidas", value: stats.vencidas, alerta: true },
+          { k: "finalizada", label: "Finalizadas", value: stats.finalizadas, alerta: false },
+        ] as { k: Situacao; label: string; value: number; alerta: boolean }[]).map((s) => {
+          const ativo = situacao === s.k;
           return (
             <SpotlightCard
               key={s.label}
-              onClick={() => { setSituacao(s.k); setJanela(s.j); }}
+              // Clicar de novo no cartão ativo volta pra Total: sem isso, sair
+              // de "Vencidas" exigiria adivinhar que "Total" é o neutro.
+              onClick={() => setSituacao(ativo && s.k !== "todas" ? "todas" : s.k)}
               className={cn("cursor-pointer transition-colors",
                 ativo && (s.alerta ? "border-rose-500/50" : "border-primary/40"))}
             >
@@ -375,9 +399,7 @@ export default function Tarefas() {
               <button key={j.key} onClick={() => setJanela(j.key)} title={j.dica}
                 className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] ring-1 transition-colors",
                   ativo
-                    ? j.key === "vencidas"
-                      ? "bg-rose-500/15 text-rose-300 ring-rose-500/35"
-                      : "bg-primary/15 text-primary ring-primary/35"
+                    ? "bg-primary/15 text-primary ring-primary/35"
                     : "text-muted-foreground ring-white/[0.08] hover:bg-white/[0.05] hover:text-foreground",
                   !ativo && n === 0 && "opacity-45")}>
                 {j.label}
@@ -385,6 +407,17 @@ export default function Tarefas() {
               </button>
             );
           })}
+
+          {/* Como os números de cima agora respondem aos filtros, quem estranhar
+              um total menor que o esperado tem aqui a saída, e não só a
+              explicação. */}
+          {(situacao !== "todas" || janela !== "todas" || tipo !== "todos" || busca) && (
+            <button
+              onClick={() => { setSituacao("todas"); setJanela("todas"); setTipo("todos"); setBusca(""); }}
+              className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+              <X className="h-3 w-3" /> Limpar filtros
+            </button>
+          )}
         </div>
       </motion.div>
 

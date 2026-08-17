@@ -9,14 +9,16 @@
 // 1. Toda janela INCLUI o que já venceu. Quem pergunta "o que preciso resolver
 //    esta semana" também precisa ver o que passou do prazo na semana passada e
 //    continua aberto. Esconder o atrasado dentro de um recorte de tempo seria
-//    a pior forma de perder um prazo. Quem quer só o atraso usa a faixa
-//    "Vencidas", que isola.
+//    a pior forma de perder um prazo. Quem quer só o atraso filtra por
+//    SITUAÇÃO: vencida é um estado da tarefa, não um pedaço do calendário, e
+//    ter as duas coisas era contar critérios diferentes com o mesmo nome (a
+//    situação olha só o que está aberto; a janela olhava tudo).
 //
 // 2. "Esta semana" vai até sábado, não são sete dias corridos. Semana é o que
 //    o calendário mostra; próximos 15 e 30 é que são contagem rolante, e o
 //    rótulo diz isso.
 
-export type Janela = "todas" | "vencidas" | "hoje" | "semana" | "q15" | "q30" | "sem";
+export type Janela = "todas" | "hoje" | "semana" | "q15" | "q30" | "sem";
 
 export function ymdParaData(s?: string): Date | null {
   if (!s) return null;
@@ -47,7 +49,6 @@ export function diasAteFimDaSemana(): number {
 
 export const JANELAS: { key: Janela; label: string; dica: string }[] = [
   { key: "todas", label: "Todas", dica: "Sem recorte de prazo" },
-  { key: "vencidas", label: "Vencidas", dica: "Passaram do prazo e seguem abertas" },
   { key: "hoje", label: "Hoje", dica: "Vencem hoje, mais o que já venceu" },
   { key: "semana", label: "Esta semana", dica: "Até sábado, mais o que já venceu" },
   { key: "q15", label: "15 dias", dica: "Próximos 15 dias, mais o que já venceu" },
@@ -60,7 +61,6 @@ export function naJanela(prazo: string | undefined, j: Janela): boolean {
   const dias = diasAte(prazo);
   if (j === "sem") return dias === null;
   if (dias === null) return false;
-  if (j === "vencidas") return dias < 0;
   if (j === "hoje") return dias <= 0;
   if (j === "semana") return dias <= diasAteFimDaSemana();
   if (j === "q15") return dias <= 15;
