@@ -1029,7 +1029,7 @@ export default function Projetos() {
     const pct = cardsSprint.length ? (feitos / cardsSprint.length) * 100 : 0;
 
     return (
-      <div className={cn("space-y-5 transition-[padding] duration-300", docsAberto && "xl:pr-[21rem]")}>
+      <div className="space-y-5">
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
           className="flex items-start gap-3 flex-wrap">
           <button onClick={() => { setAberto(null); setSprintAberta(null); }}
@@ -1118,7 +1118,8 @@ export default function Projetos() {
           <>
           <div ref={ancoraRef} aria-hidden className="h-0" />
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
-            className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8">
+            className={cn("rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 transition-[margin] duration-300",
+              docsAberto && "xl:mr-[21rem]")}>
             <div className="flex items-center gap-3">
               <span className={cn("h-2 w-2 rounded-full shrink-0", "bg-muted-foreground/40")} />
               <h3 className="text-lg font-medium">{spSel.nome}</h3>
@@ -1178,7 +1179,8 @@ export default function Projetos() {
             </div>
 
             <div ref={ancoraRef} aria-hidden className="h-0" />
-            <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
+            <div className={cn("flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 transition-[padding] duration-300",
+              docsAberto && "xl:pr-[21rem]")}>
               {cols.map((col, ci) => {
                 const doCol = cards.filter((c) => c.coluna_id === col.id).sort((a, b) => a.ordem - b.ordem);
                 const cp = paleta(col.cor);
