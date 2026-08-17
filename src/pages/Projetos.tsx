@@ -11,20 +11,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
-  Plus, ChevronLeft, Loader2, Check, X, CalendarDays, User, Trash2,
+  Plus, ChevronLeft, ChevronUp, ChevronDown, Loader2, Check, X, CalendarDays, User, Trash2,
   LayoutGrid, Archive, Pause, Play, Search, Flag,
 } from "lucide-react";
 import {
-  PALETA, CORES, paleta, ICONES, ICONES_LISTA, icone, TEMPLATES,
-  PRIORIDADES, type Prioridade, urgenciaPrazo, fmtDataCurta,
+  PALETA, CORES, CORES_COLUNA, paleta, ICONES, ICONES_LISTA, icone,
+  PRIORIDADES, type Prioridade, type CorKey, urgenciaPrazo, fmtDataCurta,
 } from "@/lib/projetos";
+import { SeletorPessoas, AvataresPessoas } from "@/components/SeletorPessoas";
+import { CampoData } from "@/components/CampoData";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 interface Projeto {
   id: string; nome: string; descricao: string | null; cor: string; icone: string;
-  dono_id: string | null; prazo: string | null; status: string; ordem: number;
+  prazo: string | null; status: string; ordem: number;
   created_at: string; concluido_at: string | null;
 }
 interface Coluna { id: string; projeto_id: string; nome: string; ordem: number; cor: string; e_conclusao: boolean }
@@ -61,6 +65,8 @@ function Anel({ pct, cor, size = 44 }: { pct: number; cor: string; size?: number
 }
 
 /* ───────────────────────── Novo projeto ───────────────────────── */
+interface ColunaDraft { nome: string; cor: CorKey }
+
 function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   open: boolean; onClose: () => void; onCriado: () => void; perfis: Perfil[]; userId: string | null;
 }) {
@@ -68,35 +74,56 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   const [descricao, setDescricao] = useState("");
   const [cor, setCor] = useState<string>("primary");
   const [ic, setIc] = useState<string>("Rocket");
-  const [dono, setDono] = useState<string>("");
+  const [envolvidos, setEnvolvidos] = useState<string[]>([]);
   const [prazo, setPrazo] = useState("");
-  const [template, setTemplate] = useState<string>("simples");
+  const [cols, setCols] = useState<ColunaDraft[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNome(""); setDescricao(""); setCor("primary"); setIc("Rocket");
-      setDono(userId || ""); setPrazo(""); setTemplate("simples"); setSalvando(false);
+      setEnvolvidos(userId ? [userId] : []); setPrazo("");
+      setCols([{ nome: "", cor: "muted" }, { nome: "", cor: "primary" }, { nome: "", cor: "emerald" }]);
+      setSalvando(false);
     }
   }, [open, userId]);
 
   const Icone = icone(ic);
   const p = paleta(cor);
+  const preenchidas = cols.filter((c) => c.nome.trim());
+
+  const setCol = (i: number, patch: Partial<ColunaDraft>) =>
+    setCols((old) => old.map((c, k) => (k === i ? { ...c, ...patch } : c)));
+  const addCol = () =>
+    setCols((old) => [...old, { nome: "", cor: CORES_COLUNA[old.length % CORES_COLUNA.length] }]);
+  const rmCol = (i: number) => setCols((old) => old.filter((_, k) => k !== i));
+  const moverCol = (i: number, dir: -1 | 1) =>
+    setCols((old) => {
+      const j = i + dir;
+      if (j < 0 || j >= old.length) return old;
+      const n = [...old];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+
+  const toggleEnv = (id: string) =>
+    setEnvolvidos((old) => (old.includes(id) ? old.filter((x) => x !== id) : [...old, id]));
 
   const criar = async () => {
     if (!nome.trim()) { toast.error("Dê um nome ao projeto."); return; }
+    if (!preenchidas.length) { toast.error("Crie ao menos uma coluna."); return; }
     setSalvando(true);
     const { error } = await (supabase.rpc as any)("fn_criar_projeto", {
       p_nome: nome.trim(), p_descricao: descricao.trim() || null, p_cor: cor, p_icone: ic,
-      p_dono: dono || null, p_prazo: prazo || null, p_template: template, p_user: userId,
+      p_prazo: prazo || null,
+      p_colunas: preenchidas.map((c) => ({ nome: c.nome.trim(), cor: c.cor })),
+      p_envolvidos: envolvidos, p_user: userId,
     });
     setSalvando(false);
     if (error) { toast.error("Não consegui criar: " + error.message); return; }
     toast.success("Projeto criado");
     onCriado(); onClose();
   };
-
-  const tpl = TEMPLATES.find((t) => t.key === template)!;
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -108,7 +135,7 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
             </span>
             Novo projeto
           </DialogTitle>
-          <DialogDescription>Escolha o funil e ajuste depois; as colunas são editáveis.</DialogDescription>
+          <DialogDescription>Monte o funil do jeito que este projeto pede.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-1 -mx-1 py-1">
@@ -126,40 +153,97 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
               className="resize-none" placeholder="O que este projeto precisa entregar" />
           </div>
 
-          {/* Funil */}
+          {/* Colunas do funil, montadas por quem cria */}
           <div className="space-y-2">
-            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Funil</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {TEMPLATES.map((t) => {
-                const on = template === t.key;
-                return (
-                  <button key={t.key} onClick={() => setTemplate(t.key)}
-                    className={cn(
-                      "text-left rounded-xl border p-3 transition-all duration-200",
-                      on ? cn(p.borda, p.suave) : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.15]",
-                    )}>
-                    <div className="flex items-center gap-2">
-                      <span className={cn("h-4 w-4 rounded-[5px] grid place-items-center shrink-0",
-                        on ? cn(p.barra, "text-background") : "ring-1 ring-white/20")}>
-                        {on && <Check className="h-3 w-3" />}
-                      </span>
-                      <span className="text-[13px] font-semibold">{t.nome}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{t.hint}</p>
-                  </button>
-                );
-              })}
+            <div className="flex items-baseline justify-between gap-2">
+              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Colunas do quadro</Label>
+              <span className="text-[10.5px] text-muted-foreground">
+                a última conclui o card
+              </span>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              {tpl.colunas.map((c, i) => (
-                <motion.span key={c} layout
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04, ease: EASE }}
-                  className="text-[10.5px] px-2 py-1 rounded-full bg-white/[0.04] ring-1 ring-white/[0.08] text-muted-foreground">
-                  {c}
-                </motion.span>
-              ))}
+
+            <div className="space-y-1.5">
+              <AnimatePresence initial={false}>
+                {cols.map((c, i) => {
+                  const cp = paleta(c.cor);
+                  const ultima = i === cols.length - 1;
+                  return (
+                    <motion.div key={i} layout
+                      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
+                      transition={{ ease: EASE, duration: 0.2 }}
+                      className="flex items-center gap-1.5">
+                      <span className="text-[10px] tabular-nums text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
+
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button type="button" title="Cor da coluna"
+                            className={cn("h-9 w-9 rounded-lg grid place-items-center shrink-0 ring-1 transition-colors", cp.chip)}>
+                            <span className={cn("h-3 w-3 rounded-full", cp.ponto)} />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-2" align="start">
+                          <div className="grid grid-cols-7 gap-1.5">
+                            {CORES.map((k) => (
+                              <button key={k} type="button" onClick={() => setCol(i, { cor: k })} title={PALETA[k].rotulo}
+                                className={cn("h-7 w-7 rounded-lg transition-all", PALETA[k].barra,
+                                  c.cor === k ? "ring-2 ring-offset-2 ring-offset-popover ring-white/70" : "opacity-60 hover:opacity-100")} />
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      <Input
+                        value={c.nome}
+                        onChange={(e) => setCol(i, { nome: e.target.value })}
+                        placeholder={ultima ? "Nome da etapa final" : "Nome da etapa"}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCol(); } }}
+                        className="h-9 flex-1"
+                      />
+
+                      <div className="flex items-center shrink-0">
+                        <button type="button" onClick={() => moverCol(i, -1)} disabled={i === 0}
+                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          aria-label="Subir">
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={() => moverCol(i, 1)} disabled={i === cols.length - 1}
+                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          aria-label="Descer">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={() => rmCol(i)} disabled={cols.length <= 1}
+                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          aria-label="Remover">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             </div>
+
+            <button type="button" onClick={addCol}
+              className="w-full py-2 rounded-lg border border-dashed border-white/[0.12] text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-white/[0.02] transition-colors inline-flex items-center justify-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" /> Adicionar coluna
+            </button>
+
+            {preenchidas.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                {preenchidas.map((c, i) => {
+                  const cp = paleta(c.cor);
+                  return (
+                    <motion.span key={`${c.nome}-${i}`} layout
+                      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                      transition={{ ease: EASE }}
+                      className={cn("text-[10.5px] px-2 py-1 rounded-full ring-1 inline-flex items-center gap-1.5", cp.chip)}>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", cp.ponto)} />
+                      {c.nome.trim()}
+                    </motion.span>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Identidade */}
@@ -191,27 +275,24 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Dono</Label>
-              <select value={dono} onChange={(e) => setDono(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-primary/50">
-                <option value="">Sem dono</option>
-                {perfis.map((pf) => <option key={pf.id} value={pf.id}>{pf.nome || pf.email}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                Prazo <span className="normal-case tracking-normal opacity-60">(opcional)</span>
-              </Label>
-              <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
-            </div>
+          <div className="space-y-2">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Envolvidos <span className="normal-case tracking-normal opacity-60">(pode marcar vários)</span>
+            </Label>
+            <SeletorPessoas pessoas={perfis} selecionados={envolvidos} onToggle={toggleEnv} />
+          </div>
+
+          <div className="space-y-1.5 sm:max-w-[15rem]">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Prazo estipulado <span className="normal-case tracking-normal opacity-60">(opcional)</span>
+            </Label>
+            <CampoData valor={prazo} onChange={setPrazo} />
           </div>
         </div>
 
         <DialogFooter className="shrink-0 gap-2 pt-3">
           <Button variant="ghost" onClick={onClose} disabled={salvando}>Cancelar</Button>
-          <Button onClick={criar} disabled={salvando || !nome.trim()}>
+          <Button onClick={criar} disabled={salvando || !nome.trim() || !preenchidas.length}>
             {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Plus className="h-4 w-4 mr-1.5" />}
             Criar projeto
           </Button>
@@ -289,25 +370,36 @@ function CardDialog({ card, colunas, perfis, onClose, onSalvo }: {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Coluna</Label>
-              <select value={colId} onChange={(e) => setColId(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-primary/50">
-                {colunas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
+              <Select value={colId} onValueChange={setColId}>
+                <SelectTrigger><SelectValue placeholder="Escolha a coluna" /></SelectTrigger>
+                <SelectContent>
+                  {colunas.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("h-2 w-2 rounded-full", paleta(c.cor).ponto)} />
+                        {c.nome}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Responsável</Label>
-              <select value={resp} onChange={(e) => setResp(e.target.value)}
-                className="w-full rounded-lg border border-border bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-primary/50">
-                <option value="">Ninguém</option>
-                {perfis.map((pf) => <option key={pf.id} value={pf.id}>{pf.nome || pf.email}</option>)}
-              </select>
+              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Prazo estipulado</Label>
+              <CampoData valor={prazo} onChange={setPrazo} />
             </div>
           </div>
+
+          <div className="space-y-2">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Responsável</Label>
+            <SeletorPessoas
+              pessoas={perfis}
+              selecionados={resp ? [resp] : []}
+              onToggle={(id) => setResp((old) => (old === id ? "" : id))}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Prazo</Label>
-              <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
-            </div>
             <div className="space-y-1.5">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Prioridade</Label>
               <div className="flex items-center gap-1.5">
@@ -385,6 +477,14 @@ export default function Projetos() {
       return (data || []) as Coluna[];
     },
   });
+  const envolvidosQ = useQuery({
+    queryKey: ["projeto_envolvidos"],
+    queryFn: async (): Promise<{ projeto_id: string; user_id: string }[]> => {
+      const { data } = await (supabase.from("projeto_envolvidos" as never) as never as any).select("projeto_id, user_id");
+      return (data || []) as { projeto_id: string; user_id: string }[];
+    },
+  });
+
   const cardsQ = useQuery({
     queryKey: ["projeto_cards"],
     queryFn: async (): Promise<Card[]> => {
@@ -395,11 +495,17 @@ export default function Projetos() {
   });
   const colunas = colunasQ.data || [];
   const cards = cardsQ.data || [];
+  const envolvidos = envolvidosQ.data || [];
+  const envolvidosDe = (projetoId: string) =>
+    envolvidos.filter((e) => e.projeto_id === projetoId)
+      .map((e) => perfis.find((pf) => pf.id === e.user_id))
+      .filter(Boolean) as Perfil[];
 
   const recarregar = () => {
     qc.invalidateQueries({ queryKey: ["projetos"] });
     qc.invalidateQueries({ queryKey: ["projeto_colunas"] });
     qc.invalidateQueries({ queryKey: ["projeto_cards"] });
+    qc.invalidateQueries({ queryKey: ["projeto_envolvidos"] });
   };
 
   // Progresso por projeto = cards concluídos / total.
@@ -676,7 +782,7 @@ export default function Projetos() {
               const s = stats.get(p.id) || { total: 0, feitos: 0, atrasados: 0 };
               const pct = s.total ? (s.feitos / s.total) * 100 : 0;
               const u = urgenciaPrazo(p.status === "concluido" ? null : p.prazo);
-              const dono = nomeDe(p.dono_id);
+              const equipe = envolvidosDe(p.id);
               return (
                 <motion.div key={p.id} layout
                   initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
@@ -720,10 +826,8 @@ export default function Projetos() {
                           <Pause className="h-2.5 w-2.5" /> Pausado
                         </span>
                       )}
-                      {dono && (
-                        <span className="ml-auto text-muted-foreground inline-flex items-center gap-1">
-                          <User className="h-2.5 w-2.5" /> {dono.split(" ")[0]}
-                        </span>
+                      {equipe.length > 0 && (
+                        <span className="ml-auto"><AvataresPessoas pessoas={equipe} max={3} /></span>
                       )}
                     </div>
 

@@ -28,17 +28,9 @@ export const ICONES: Record<string, LucideIcon> = {
 export const ICONES_LISTA = Object.keys(ICONES);
 export const icone = (n?: string | null): LucideIcon => ICONES[n || ""] || Rocket;
 
-// Templates de funil. Precisam bater com o CASE de fn_criar_projeto.
-export const TEMPLATES = [
-  { key: "simples",     nome: "Simples",     colunas: ["A fazer", "Fazendo", "Feito"],
-    hint: "O básico que serve pra quase tudo." },
-  { key: "campanha",    nome: "Campanha",    colunas: ["Ideia", "Produção", "No ar", "Medindo", "Encerrada"],
-    hint: "Anúncio, conteúdo ou lançamento. Nasce como ideia e termina medido." },
-  { key: "captacao",    nome: "Captação",    colunas: ["Lead", "Contato feito", "Reunião", "Proposta", "Fechado"],
-    hint: "Funil comercial, do primeiro contato ao contrato." },
-  { key: "implantacao", nome: "Implantação", colunas: ["Levantamento", "Em construção", "Homologação", "No ar"],
-    hint: "Processo novo, sistema, mudança interna." },
-] as const;
+// Sugestões de cor pras colunas que o usuário cria. A ordem é a que o
+// construtor usa ao adicionar linhas novas: neutro no começo, verde no fim.
+export const CORES_COLUNA: CorKey[] = ["muted", "primary", "sky", "amber", "violet", "rose", "emerald"];
 
 export const PRIORIDADES = {
   alta:   { rotulo: "Alta",   chip: "bg-rose-500/15 text-rose-400 ring-rose-500/30" },
