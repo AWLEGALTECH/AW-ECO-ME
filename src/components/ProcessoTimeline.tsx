@@ -4,12 +4,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
+import { aplicarNaLinha } from "@/lib/tarefas";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -574,18 +576,28 @@ export function ProcessoTimeline({
     setDraft(DRAFT_VAZIO);
   };
 
-  const abrirDesfecho = (t: Task) => {
+  // Endereço da tarefa aberta: etapa + posição. Casar só pelo id marcava as
+  // duas quando o id se repetia, e o id é um contador, não uma chave.
+  const [desfechoAlvo, setDesfechoAlvo] = useState<{ etapaId: string; indice: number; etapaTitulo: string } | null>(null);
+  const [editando, setEditando] = useState<{ etapaId: string; indice: number; etapaTitulo: string; task: Task } | null>(null);
+
+  const abrirDesfecho = (t: Task, etapaId: string, indice: number, etapaTitulo: string) => {
     setDesfechoTask(t);
+    setDesfechoAlvo({ etapaId, indice, etapaTitulo });
     setDesfechoDraft({ desfecho: t.desfecho ?? "", obs: t.desfechoObs ?? "" });
   };
+  const abrirEdicao = () => {
+    if (!desfechoTask || !desfechoAlvo) return;
+    setEditando({ ...desfechoAlvo, task: desfechoTask });
+    setDesfechoTask(null);
+  };
   const salvarDesfecho = () => {
-    if (!desfechoTask || !desfechoDraft.desfecho) return;
+    if (!desfechoAlvo || !desfechoDraft.desfecho) return;
     const info = DESFECHOS[desfechoDraft.desfecho as TaskDesfecho];
-    setEtapas((prev) => prev.map((e) => ({
-      ...e,
-      tasks: (e.tasks ?? []).map((t) =>
-        t.id === desfechoTask.id ? { ...t, desfecho: desfechoDraft.desfecho as TaskDesfecho, desfechoObs: desfechoDraft.obs.trim() } : t),
-    })));
+    setEtapas((prev) => aplicarNaLinha(prev, desfechoAlvo, {
+      desfecho: desfechoDraft.desfecho as TaskDesfecho,
+      desfechoObs: desfechoDraft.obs.trim(),
+    }).linha);
     setDesfechoTask(null);
     dispararPop(info.icon, `Tarefa ${info.label.toLowerCase()}`, info.chip);
   };
@@ -856,8 +868,8 @@ export function ProcessoTimeline({
                     animate={{ height: "auto", opacity: 1 }}
                     transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.35 : 0 }}
                   >
-                    {(e.tasks ?? []).map((t) => (
-                      <TaskCard key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
+                    {(e.tasks ?? []).map((t, ti) => (
+                      <TaskCard key={`${e.id}-${ti}-${t.id}`} task={t} onClick={() => abrirDesfecho(t, e.id, ti, e.titulo)} />
                     ))}
                     <button
                       onClick={() => setTipoDialog(e.id)}
@@ -876,8 +888,8 @@ export function ProcessoTimeline({
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.concluida === e.id ? 0.15 : 0 }}
                   >
-                    {(e.tasks ?? []).map((t) => (
-                      <TaskMini key={t.id} task={t} onClick={() => abrirDesfecho(t)} />
+                    {(e.tasks ?? []).map((t, ti) => (
+                      <TaskMini key={`${e.id}-${ti}-${t.id}`} task={t} onClick={() => abrirDesfecho(t, e.id, ti, e.titulo)} />
                     ))}
                   </motion.div>
                 ) : null}
@@ -1189,12 +1201,40 @@ export function ProcessoTimeline({
             />
           </Field>
 
-          <DialogFooter>
+          {/* Editar mora aqui porque este diálogo já é o detalhe da tarefa: o
+              card é um <button>, e pendurar um lápis dentro dele seria botão
+              dentro de botão. Quem clicou na tarefa querendo corrigir a data
+              acha o caminho no mesmo lugar onde acharia o desfecho. */}
+          <DialogFooter className="sm:justify-between gap-2">
+            <Button variant="ghost" onClick={abrirEdicao} disabled={!desfechoAlvo}
+              className="mr-auto text-muted-foreground hover:text-foreground">
+              <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar tarefa
+            </Button>
             <Button variant="ghost" onClick={() => setDesfechoTask(null)}>Cancelar</Button>
             <Button disabled={!desfechoDraft.desfecho} onClick={salvarDesfecho}>Salvar desfecho</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edição da tarefa. Grava no estado local, que o ProcessoDetail salva
+          sozinho: escrever direto no banco brigaria com esse autosave. */}
+      <EditarTarefaDialog
+        task={editando?.task ?? null}
+        onFechar={() => setEditando(null)}
+        contexto={editando?.etapaTitulo}
+        onSalvar={(patch) => {
+          if (!editando) return;
+          setEtapas((prev) => aplicarNaLinha(prev, editando, patch).linha);
+          setEditando(null);
+          dispararPop(Pencil, "Tarefa atualizada", "bg-primary/15 text-primary ring-primary/30");
+        }}
+        onExcluir={() => {
+          if (!editando) return;
+          setEtapas((prev) => aplicarNaLinha(prev, editando, null).linha);
+          setEditando(null);
+          dispararPop(Pencil, "Tarefa excluída", "bg-white/10 text-muted-foreground ring-white/15");
+        }}
+      />
 
       {/* ── Popup: registrar teor (sentença 1º grau ou julgamento 2º grau) ── */}
       <Dialog open={!!decisaoDialog} onOpenChange={(o) => !o && setDecisaoDialog(null)}>

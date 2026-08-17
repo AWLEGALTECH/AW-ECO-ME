@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,13 +9,16 @@ import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
   CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   ICONE_TIPO, LABEL_TIPO, DESFECHOS, prazoInfo,
   type Task, type Etapa, type TaskTipo,
 } from "@/components/ProcessoTimeline";
 import { TarefasCalendario } from "@/components/TarefasCalendario";
+import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { JANELAS, diasAte, naJanela, porPrazo, type Janela } from "@/lib/prazos";
+import { salvarTarefaNoBanco, type PatchTarefa } from "@/lib/tarefas";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -38,6 +41,9 @@ interface Proc { id: string; numero_processo: string; linha_temporal: unknown; c
 // resolve: é única e não muda quando a lista é reordenada.
 interface Item extends Task {
   chave: string;
+  // Endereço pra edição: a tarefa mora dentro do jsonb do processo, e é etapa
+  // + posição que a localiza lá dentro.
+  etapaId: string; indice: number;
   etapaTitulo: string; processoId: string; processoNumero: string; clienteNome: string | null;
 }
 
@@ -197,16 +203,17 @@ export default function Tarefas() {
   const [view, setView] = useState<"cards" | "lista" | "linha" | "calendario">("cards");
   const [janela, setJanela] = useState<Janela>("todas");
   const [ordem, setOrdem] = useState<"urgente" | "distante">("urgente");
+  const [editando, setEditando] = useState<Item | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("processos")
-        .select("id, numero_processo, linha_temporal, clientes(nome)");
-      if (data) setProcs(data as unknown as Proc[]);
-      setLoading(false);
-    })();
+  const carregar = useCallback(async () => {
+    const { data } = await supabase
+      .from("processos")
+      .select("id, numero_processo, linha_temporal, clientes(nome)");
+    if (data) setProcs(data as unknown as Proc[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
 
   // Achata todas as tasks de todos os processos, com contexto.
   const allTasks = useMemo(() => {
@@ -218,6 +225,7 @@ export default function Tarefas() {
           out.push({
             ...t,
             chave: `${p.id}::${e.id}::${i}::${t.id}`,
+            etapaId: e.id, indice: i,
             etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo,
             clienteNome: p.clientes?.nome ?? null,
           });
@@ -278,6 +286,20 @@ export default function Tarefas() {
   }, [filtered]);
 
   const irProcesso = (id: string) => navigate(`/processos/${id}`);
+
+  // Grava a edição (ou a exclusão, com null) e relê: a lista inteira sai da
+  // linha temporal, então recarregar é mais barato e mais honesto do que
+  // remendar o estado local e torcer pra bater com o banco.
+  const gravar = async (patch: PatchTarefa | null) => {
+    if (!editando) return;
+    const { ok, erro } = await salvarTarefaNoBanco(
+      { processoId: editando.processoId, etapaId: editando.etapaId, indice: editando.indice },
+      patch,
+    );
+    if (!ok) { toast.error(erro ?? "Não consegui salvar"); return; }
+    toast.success(patch === null ? "Tarefa excluída" : "Tarefa atualizada");
+    await carregar();
+  };
 
   const TIPOS: { key: "todos" | TaskTipo; label: string }[] = [
     { key: "todos", label: "Todos" },
@@ -465,7 +487,7 @@ export default function Tarefas() {
             <span className="w-4" />
           </div>
           {filtered.map((it) => (
-            <TarefaLinha key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
+            <TarefaLinha key={it.chave} it={it} onClick={() => setEditando(it)} />
           ))}
         </motion.div>
       ) : view === "calendario" ? (
@@ -491,7 +513,7 @@ export default function Tarefas() {
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
         >
           {filtered.map((it) => (
-            <TarefaCard key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
+            <TarefaCard key={it.chave} it={it} onClick={() => setEditando(it)} />
           ))}
         </motion.div>
       ) : (
@@ -520,7 +542,7 @@ export default function Tarefas() {
                         {temTasks && (
                           <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                             {tasksAqui.map((it) => (
-                              <TarefaCard key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
+                              <TarefaCard key={it.chave} it={it} onClick={() => setEditando(it)} />
                             ))}
                           </div>
                         )}
@@ -533,6 +555,26 @@ export default function Tarefas() {
           </Card>
         </motion.div>
       )}
+
+      {/* Editar daqui é o ponto: quem despacha o dia vê a tarefa nesta tela e
+          precisa corrigir a data ou o texto sem ter que caçar o processo. */}
+      <EditarTarefaDialog
+        task={editando}
+        onFechar={() => setEditando(null)}
+        contexto={editando && (
+          <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+            <span className="font-mono">{editando.processoNumero}</span>
+            {editando.clienteNome && <span>· {editando.clienteNome}</span>}
+            <span className="opacity-50">·</span>
+            <span>{editando.etapaTitulo}</span>
+            <button onClick={() => irProcesso(editando.processoId)} className="text-primary hover:underline">
+              Abrir processo
+            </button>
+          </span>
+        )}
+        onSalvar={async (patch: PatchTarefa) => { await gravar(patch); }}
+        onExcluir={async () => { await gravar(null); }}
+      />
     </div>
   );
 }
