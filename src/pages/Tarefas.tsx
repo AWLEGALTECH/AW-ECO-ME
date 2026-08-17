@@ -17,6 +17,7 @@ import {
 } from "@/components/ProcessoTimeline";
 import { TarefasCalendario } from "@/components/TarefasCalendario";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
+import { TarefaDetalheDialog } from "@/components/TarefaDetalheDialog";
 import { JANELAS, diasAte, naJanela, porPrazo, type Janela } from "@/lib/prazos";
 import { salvarTarefaNoBanco, type PatchTarefa } from "@/lib/tarefas";
 
@@ -203,6 +204,8 @@ export default function Tarefas() {
   const [view, setView] = useState<"cards" | "lista" | "linha" | "calendario">("cards");
   const [janela, setJanela] = useState<Janela>("todas");
   const [ordem, setOrdem] = useState<"urgente" | "distante">("urgente");
+  // Duas etapas: o clique abre o resumo, e o resumo é que leva à edição.
+  const [detalhe, setDetalhe] = useState<Item | null>(null);
   const [editando, setEditando] = useState<Item | null>(null);
 
   const carregar = useCallback(async () => {
@@ -287,17 +290,35 @@ export default function Tarefas() {
 
   const irProcesso = (id: string) => navigate(`/processos/${id}`);
 
-  // Grava a edição (ou a exclusão, com null) e relê: a lista inteira sai da
+  // Linha de contexto compartilhada pelos dois diálogos: de onde a tarefa vem
+  // e como sair daqui pro processo.
+  const contextoDe = (it: Item) => (
+    <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+      <span className="font-mono">{it.processoNumero}</span>
+      {it.clienteNome && <span>· {it.clienteNome}</span>}
+      <span className="opacity-50">·</span>
+      <span>{it.etapaTitulo}</span>
+      <button onClick={() => irProcesso(it.processoId)} className="text-primary hover:underline">
+        Abrir processo
+      </button>
+    </span>
+  );
+
+  // Grava a alteração (ou a exclusão, com null) e relê: a lista inteira sai da
   // linha temporal, então recarregar é mais barato e mais honesto do que
   // remendar o estado local e torcer pra bater com o banco.
-  const gravar = async (patch: PatchTarefa | null) => {
-    if (!editando) return;
+  const gravar = async (patch: PatchTarefa | null, alvo: Item | null) => {
+    if (!alvo) return;
     const { ok, erro } = await salvarTarefaNoBanco(
-      { processoId: editando.processoId, etapaId: editando.etapaId, indice: editando.indice },
+      { processoId: alvo.processoId, etapaId: alvo.etapaId, indice: alvo.indice },
       patch,
     );
     if (!ok) { toast.error(erro ?? "Não consegui salvar"); return; }
-    toast.success(patch === null ? "Tarefa excluída" : "Tarefa atualizada");
+    toast.success(
+      patch === null ? "Tarefa excluída"
+        : patch.desfecho ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}`
+          : "Tarefa atualizada",
+    );
     await carregar();
   };
 
@@ -487,7 +508,7 @@ export default function Tarefas() {
             <span className="w-4" />
           </div>
           {filtered.map((it) => (
-            <TarefaLinha key={it.chave} it={it} onClick={() => setEditando(it)} />
+            <TarefaLinha key={it.chave} it={it} onClick={() => setDetalhe(it)} />
           ))}
         </motion.div>
       ) : view === "calendario" ? (
@@ -513,7 +534,7 @@ export default function Tarefas() {
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
         >
           {filtered.map((it) => (
-            <TarefaCard key={it.chave} it={it} onClick={() => setEditando(it)} />
+            <TarefaCard key={it.chave} it={it} onClick={() => setDetalhe(it)} />
           ))}
         </motion.div>
       ) : (
@@ -542,7 +563,7 @@ export default function Tarefas() {
                         {temTasks && (
                           <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                             {tasksAqui.map((it) => (
-                              <TarefaCard key={it.chave} it={it} onClick={() => setEditando(it)} />
+                              <TarefaCard key={it.chave} it={it} onClick={() => setDetalhe(it)} />
                             ))}
                           </div>
                         )}
@@ -556,24 +577,26 @@ export default function Tarefas() {
         </motion.div>
       )}
 
-      {/* Editar daqui é o ponto: quem despacha o dia vê a tarefa nesta tela e
-          precisa corrigir a data ou o texto sem ter que caçar o processo. */}
+      {/* Clicar na tarefa abre o resumo, não o formulário: quem clica quer
+          saber o que era e, quase sempre, dar uma das três saídas. Editar sai
+          daqui, de canto, que é a frequência real dele. */}
+      {detalhe && (
+        <TarefaDetalheDialog
+          task={detalhe}
+          contexto={contextoDe(detalhe)}
+          onFechar={() => setDetalhe(null)}
+          onDesfecho={(desfecho, obs) => gravar({ desfecho, desfechoObs: obs }, detalhe)}
+          onReagendar={(prazo) => gravar({ prazo }, detalhe)}
+          onEditar={() => { setEditando(detalhe); setDetalhe(null); }}
+        />
+      )}
+
       <EditarTarefaDialog
         task={editando}
         onFechar={() => setEditando(null)}
-        contexto={editando && (
-          <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
-            <span className="font-mono">{editando.processoNumero}</span>
-            {editando.clienteNome && <span>· {editando.clienteNome}</span>}
-            <span className="opacity-50">·</span>
-            <span>{editando.etapaTitulo}</span>
-            <button onClick={() => irProcesso(editando.processoId)} className="text-primary hover:underline">
-              Abrir processo
-            </button>
-          </span>
-        )}
-        onSalvar={async (patch: PatchTarefa) => { await gravar(patch); }}
-        onExcluir={async () => { await gravar(null); }}
+        contexto={editando && contextoDe(editando)}
+        onSalvar={(patch: PatchTarefa) => gravar(patch, editando)}
+        onExcluir={() => gravar(null, editando)}
       />
     </div>
   );

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { aplicarNaLinha } from "@/lib/tarefas";
+import { CampoData } from "@/components/CampoData";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -583,6 +584,7 @@ export function ProcessoTimeline({
 
   const abrirDesfecho = (t: Task, etapaId: string, indice: number, etapaTitulo: string) => {
     setDesfechoTask(t);
+    setReagendarDraft(null);
     setDesfechoAlvo({ etapaId, indice, etapaTitulo });
     setDesfechoDraft({ desfecho: t.desfecho ?? "", obs: t.desfechoObs ?? "" });
   };
@@ -590,6 +592,17 @@ export function ProcessoTimeline({
     if (!desfechoTask || !desfechoAlvo) return;
     setEditando({ ...desfechoAlvo, task: desfechoTask });
     setDesfechoTask(null);
+  };
+
+  // null = campo fechado; string = campo aberto, inclusive vazia (que é uma
+  // escolha válida: tirar o prazo sem fechar a tarefa).
+  const [reagendarDraft, setReagendarDraft] = useState<string | null>(null);
+  const salvarReagendamento = () => {
+    if (!desfechoAlvo || reagendarDraft === null) return;
+    setEtapas((prev) => aplicarNaLinha(prev, desfechoAlvo, { prazo: reagendarDraft }).linha);
+    setDesfechoTask(null);
+    setReagendarDraft(null);
+    dispararPop(CalendarClock, "Prazo reagendado", "bg-primary/15 text-primary ring-primary/30");
   };
   const salvarDesfecho = () => {
     if (!desfechoAlvo || !desfechoDraft.desfecho) return;
@@ -1163,7 +1176,7 @@ export function ProcessoTimeline({
             <DialogDescription>Qual o desfecho dessa tarefa? Registre também o porquê.</DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {(Object.keys(DESFECHOS) as TaskDesfecho[]).map((k) => {
               const info = DESFECHOS[k];
               const DIcon = info.icon;
@@ -1182,7 +1195,34 @@ export function ProcessoTimeline({
                 </button>
               );
             })}
+
+            {/* Reagendar não é desfecho: a tarefa segue aberta, só muda de
+                data. Mas está aqui porque é a quarta resposta possível pra
+                mesma pergunta, e quem olha um prazo estourado ou resolve, ou
+                perde, ou empurra. */}
+            <button
+              onClick={() => setReagendarDraft(desfechoTask?.prazo ?? "")}
+              className={cn(
+                "flex flex-col items-center gap-1.5 rounded-2xl border p-3.5 transition-all hover:-translate-y-0.5",
+                reagendarDraft !== null
+                  ? "ring-1 bg-primary/15 text-primary ring-primary/30 border-transparent"
+                  : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground",
+              )}
+            >
+              <CalendarClock className="h-5 w-5" />
+              <span className="text-xs font-medium">Reagendar</span>
+            </button>
           </div>
+
+          {reagendarDraft !== null && (
+            <Field label="Novo prazo" hint="Vazio tira a tarefa da contagem de prazo, sem fechá-la.">
+              <div className="flex gap-1.5">
+                <div className="flex-1"><CampoData valor={reagendarDraft} onChange={setReagendarDraft} /></div>
+                <Button size="sm" onClick={salvarReagendamento}>Reagendar</Button>
+                <Button size="sm" variant="ghost" onClick={() => setReagendarDraft(null)}>Cancelar</Button>
+              </div>
+            </Field>
+          )}
 
           <Field
             label="Observações"
