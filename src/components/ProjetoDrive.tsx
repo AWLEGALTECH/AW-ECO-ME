@@ -42,21 +42,31 @@ const fmtTam = (b?: string) => {
   return `${(n / 1048576).toFixed(1)} MB`;
 };
 
+// O invoke devolve só "non-2xx status code" quando a função responde com erro.
+// O motivo de verdade está no corpo, então lê de lá antes de desistir.
 const chamar = async (acao: string, payload: Record<string, unknown>) => {
   const { data, error } = await supabase.functions.invoke("projeto-drive", {
     body: { acao, ...payload },
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    let msg = error.message;
+    try {
+      const corpo = await (error as any)?.context?.json?.();
+      if (corpo?.error) msg = corpo.dica ? `${corpo.error}. ${corpo.dica}` : corpo.error;
+    } catch { /* corpo ilegível: fica a mensagem original */ }
+    throw new Error(msg);
+  }
   if (data?.error) throw new Error(data.dica ? `${data.error}. ${data.dica}` : data.error);
   return data;
 };
 
-export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVinculada }: {
+export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVinculada, onFechar }: {
   projetoId: string;
   folderId: string | null;
   folderUrl: string | null;
   corChip: string;
   onVinculada: () => void;
+  onFechar: () => void;
 }) {
   // Caminho navegado. O primeiro nível é sempre a pasta do projeto, então o
   // usuário nunca sobe pra fora dela por engano.
@@ -130,15 +140,19 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
     };
 
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 space-y-3">
+      <div className="h-full flex flex-col p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <span className={cn("h-8 w-8 rounded-lg grid place-items-center ring-1", corChip)}>
+          <span className={cn("h-8 w-8 rounded-lg grid place-items-center ring-1 shrink-0", corChip)}>
             <HardDrive className="h-4 w-4" />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[12px] font-semibold uppercase tracking-wider">Documentos</p>
             <p className="text-[11px] text-muted-foreground">Sem pasta no Drive ainda</p>
           </div>
+          <button onClick={onFechar} title="Fechar"
+            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors shrink-0">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         <Button size="sm" className="w-full" onClick={criar} disabled={vinculando}>
@@ -205,7 +219,7 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
   const paiParaVoltar = caminho.length > 1 ? caminho[caminho.length - 2] : null;
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] flex flex-col max-h-[calc(100dvh-13rem)]">
+    <div className="h-full flex flex-col">
       {/* Cabeçalho */}
       <div className="p-3 border-b border-white/[0.06] shrink-0">
         <div className="flex items-center gap-2">
@@ -225,6 +239,10 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
           )}
+          <button onClick={onFechar} title="Fechar"
+            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Caminho */}

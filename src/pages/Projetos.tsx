@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, ChevronLeft, ChevronUp, ChevronDown, Loader2, Check, X, CalendarDays, User, Trash2, Pencil,
-  LayoutGrid, Archive, Pause, Play, Search, Flag,
+  LayoutGrid, Archive, Pause, Play, Search, Flag, HardDrive,
 } from "lucide-react";
 import {
   PALETA, CORES, CORES_COLUNA, paleta, GRUPOS_ICONES, icone, rotuloIcone,
@@ -800,6 +800,8 @@ export default function Projetos() {
   const [editSprint, setEditSprint] = useState<Sprint | null>(null);
   const [editCol, setEditCol] = useState<string | null>(null);
   const [nomeCol, setNomeCol] = useState("");
+  // Painel de documentos: fica aberto entre projetos, como uma preferência.
+  const [docsAberto, setDocsAberto] = useState(true);
   const [nomeNovaSprint, setNomeNovaSprint] = useState("");
   const [busca, setBusca] = useState("");
   const [verArquivados, setVerArquivados] = useState(false);
@@ -1004,7 +1006,7 @@ export default function Projetos() {
     const pct = cardsSprint.length ? (feitos / cardsSprint.length) * 100 : 0;
 
     return (
-      <div className="space-y-5">
+      <div className={cn("space-y-5 transition-[padding] duration-300", docsAberto && "xl:pr-[21rem]")}>
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
           className="flex items-start gap-3 flex-wrap">
           <button onClick={() => { setAberto(null); setSprintAberta(null); }}
@@ -1021,6 +1023,13 @@ export default function Projetos() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setDocsAberto((v) => !v)} title="Documentos do projeto"
+              className={cn("h-9 w-9 rounded-xl grid place-items-center border transition-colors",
+                docsAberto
+                  ? cn(P.borda, P.suave, P.texto)
+                  : "border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:text-foreground hover:bg-white/[0.06]")}>
+              <HardDrive className="h-3.5 w-3.5" />
+            </button>
             <button onClick={() => setEditProjeto(projetoAberto)} title="Editar projeto"
               className="h-9 w-9 rounded-xl grid place-items-center border border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
               <Pencil className="h-3.5 w-3.5" />
@@ -1081,23 +1090,6 @@ export default function Projetos() {
           )}
         </div>
 
-        {/* Conteúdo: documentação do projeto à esquerda, sprint à direita. A
-            barra do Drive é do PROJETO, então não muda ao trocar de sprint. */}
-        <div className="grid grid-cols-1 xl:grid-cols-[19rem_minmax(0,1fr)] gap-4 items-start">
-          <motion.aside
-            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
-            transition={{ ease: EASE, delay: 0.05 }}
-            className="xl:sticky xl:top-4">
-            <ProjetoDrive
-              projetoId={projetoAberto.id}
-              folderId={projetoAberto.drive_folder_id}
-              folderUrl={projetoAberto.drive_folder_url}
-              corChip={P.chip}
-              onVinculada={() => qc.invalidateQueries({ queryKey: ["projetos"] })}
-            />
-          </motion.aside>
-
-          <div className="min-w-0 space-y-4">
         {/* Sprint sem quadro ainda */}
         {spSel && cols.length === 0 ? (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
@@ -1310,9 +1302,6 @@ export default function Projetos() {
           </p>
         )}
 
-          </div>
-        </div>
-
         <CardDialog card={cardAberto} colunas={cols} perfis={perfis}
           onClose={() => setCardAberto(null)} onSalvo={() => qc.invalidateQueries({ queryKey: ["projeto_cards"] })} />
         <IniciarSprintDialog
@@ -1328,6 +1317,36 @@ export default function Projetos() {
           onSalvo={() => { recarregar(); if (editProjeto) setAberto(editProjeto.id); }}
         />
         <EditarSprintDialog sprint={editSprint} onClose={() => setEditSprint(null)} onSalvo={recarregar} />
+
+        {/* Documentos do projeto: painel encostado na borda direita, altura
+            cheia, como a lateral do app. É do PROJETO, então não muda ao
+            trocar de sprint. */}
+        <AnimatePresence>
+          {docsAberto && (
+            <>
+              {/* Véu só no mobile, onde o painel cobre o quadro */}
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setDocsAberto(false)}
+                className="xl:hidden fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px]"
+              />
+              <motion.aside
+                initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+                transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                className="fixed right-0 top-0 bottom-0 z-40 w-[20rem] max-w-[88vw] border-l border-white/[0.08] bg-[hsl(var(--card))] shadow-[-8px_0_32px_rgba(0,0,0,0.45)]"
+              >
+                <ProjetoDrive
+                  projetoId={projetoAberto.id}
+                  folderId={projetoAberto.drive_folder_id}
+                  folderUrl={projetoAberto.drive_folder_url}
+                  corChip={P.chip}
+                  onVinculada={() => qc.invalidateQueries({ queryKey: ["projetos"] })}
+                  onFechar={() => setDocsAberto(false)}
+                />
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
