@@ -353,12 +353,12 @@ function CardDialog({ card, colunas, perfis, onClose, onSalvo }: {
 
   return (
     <Dialog open={!!card} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-lg max-w-[95vw] max-h-[88dvh] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-lg max-w-[95vw] max-h-[92dvh] flex flex-col overflow-hidden gap-3">
         <DialogHeader className="shrink-0">
           <DialogTitle>Editar card</DialogTitle>
           <DialogDescription>Mover de coluna aqui vale o mesmo que arrastar no quadro.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3.5 pt-1 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+        <div className="space-y-3.5 flex-1 min-h-0 overflow-y-auto px-1 py-1">
           <div className="space-y-1.5">
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Título</Label>
             <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} autoFocus />
@@ -550,11 +550,23 @@ export default function Projetos() {
     const t = rascunho.trim();
     if (!t) { setNovoEmCol(null); return; }
     const ordem = cards.filter((c) => c.coluna_id === colunaId).length;
+    // Entra otimista pra a animação acontecer no clique, não depois do
+    // ida-e-volta com o banco. O id provisório é trocado no refetch.
+    const tmp = `tmp-${Date.now()}`;
+    qc.setQueryData<Card[]>(["projeto_cards"], (old) => [...(old || []), {
+      id: tmp, projeto_id: projetoId, coluna_id: colunaId, titulo: t, descricao: null,
+      responsavel_id: null, prazo: null, prioridade: "normal", ordem,
+      concluido_at: null, cliente_id: null, processo_id: null, chamado_id: null,
+    } as Card]);
+    setRascunho("");
     const { error } = await (supabase.from("projeto_cards" as never) as never as any).insert({
       projeto_id: projetoId, coluna_id: colunaId, titulo: t, ordem, created_by: user?.id ?? null,
     });
-    if (error) { toast.error("Erro: " + error.message); return; }
-    setRascunho("");
+    if (error) {
+      qc.setQueryData<Card[]>(["projeto_cards"], (old) => (old || []).filter((c) => c.id !== tmp));
+      toast.error("Erro: " + error.message);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["projeto_cards"] });
   };
 
@@ -590,7 +602,7 @@ export default function Projetos() {
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="font-display text-2xl font-medium tracking-tight truncate">{projetoAberto.nome}</h2>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-[13px] text-muted-foreground line-clamp-2 leading-snug">
               {projetoAberto.descricao || "Sem descrição"}
             </p>
           </div>
@@ -642,10 +654,10 @@ export default function Projetos() {
                         <motion.button
                           key={c.id}
                           layout
-                          initial={{ opacity: 0, scale: 0.96 }}
-                          animate={{ opacity: arrastando === c.id ? 0.4 : 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.96 }}
-                          transition={{ ease: EASE, duration: 0.22 }}
+                          initial={{ opacity: 0, y: -12, scale: 0.92 }}
+                          animate={{ opacity: arrastando === c.id ? 0.4 : 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, x: 24, scale: 0.9, transition: { duration: 0.16 } }}
+                          transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
                           draggable
                           onDragStart={(e) => { (e as any).dataTransfer?.setData("text/plain", c.id); setArrastando(c.id); }}
                           onDragEnd={() => { setArrastando(null); setSobre(null); }}
@@ -685,7 +697,9 @@ export default function Projetos() {
                 </div>
 
                 {novoEmCol === col.id ? (
-                  <div className="mt-2">
+                  <motion.div className="mt-2"
+                    initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ ease: EASE, duration: 0.18 }}>
                     <Textarea
                       value={rascunho} onChange={(e) => setRascunho(e.target.value)} autoFocus rows={2}
                       placeholder="O que precisa ser feito?"
@@ -702,7 +716,7 @@ export default function Projetos() {
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  </div>
+                  </motion.div>
                 ) : (
                   <button onClick={() => { setNovoEmCol(col.id); setRascunho(""); }}
                     className="w-full mt-2 py-2 rounded-lg text-[12px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground transition-colors inline-flex items-center justify-center gap-1.5">
