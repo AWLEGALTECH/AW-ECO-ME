@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
-  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, FolderTree,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -107,7 +107,7 @@ export default function Tarefas() {
   const [busca, setBusca] = useState("");
   const [view, setView] = useState<"cards" | "linha" | "calendario">("cards");
   const [janela, setJanela] = useState<Janela>("todas");
-  const [ordem, setOrdem] = useState<"urgente" | "distante" | "processo">("urgente");
+  const [ordem, setOrdem] = useState<"urgente" | "distante">("urgente");
 
   useEffect(() => {
     (async () => {
@@ -172,10 +172,6 @@ export default function Tarefas() {
     // Urgência primeiro é o padrão porque é a pergunta que a tela responde;
     // sem ordenar, a lista sai na ordem em que os processos foram lidos, que
     // não quer dizer nada pra quem precisa despachar o dia.
-    if (ordem === "processo") {
-      return [...base].sort((a, b) =>
-        a.processoNumero.localeCompare(b.processoNumero) || porPrazo(a, b));
-    }
     return [...base].sort((a, b) => porPrazo(a, b, ordem === "distante"));
   }, [preJanela, janela, ordem]);
 
@@ -281,7 +277,6 @@ export default function Tarefas() {
               {([
                 { k: "urgente" as const, label: "Mais urgentes", Icon: ArrowUpWideNarrow },
                 { k: "distante" as const, label: "Mais distantes", Icon: ArrowDownWideNarrow },
-                { k: "processo" as const, label: "Por processo", Icon: FolderTree },
               ]).map((o) => (
                 <button key={o.k} onClick={() => setOrdem(o.k)} title={o.label}
                   className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
