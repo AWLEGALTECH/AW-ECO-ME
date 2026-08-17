@@ -252,6 +252,41 @@ html, body, #root {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     letter-spacing: -0.015em;
   }
+
+  /* Barra de rolagem do tema escuro. A nativa do Chrome vem branca e sólida,
+     e num fundo quase preto ela vira o elemento mais claro da tela. Aqui ela
+     some no fundo e só ganha contraste quando o ponteiro chega perto. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.14) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--foreground) / 0.12);
+    border-radius: 9999px;
+    /* A borda transparente afina o polegar sem estreitar a área de clique. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--foreground) / 0.28);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--primary) / 0.65);
+  }
+  /* Sem setas nas pontas: elas são o que mais destoa do resto da interface. */
+  ::-webkit-scrollbar-button {
+    display: none;
+    height: 0;
+    width: 0;
+  }
 }
 
 @layer utilities {

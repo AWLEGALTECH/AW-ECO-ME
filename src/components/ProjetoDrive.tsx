@@ -42,6 +42,19 @@ const fmtTam = (b?: string) => {
   return `${(n / 1048576).toFixed(1)} MB`;
 };
 
+// Erro da função com o corpo preservado: além da mensagem, a função diz se o
+// que falta é a raiz dos projetos e qual conta precisa de acesso.
+interface ErroDrive extends Error { precisaRaiz?: boolean; serviceAccount?: string }
+
+const monta = (corpo: any, fallback: string): ErroDrive => {
+  const e = new Error(
+    corpo?.error ? (corpo.dica ? `${corpo.error}. ${corpo.dica}` : corpo.error) : fallback,
+  ) as ErroDrive;
+  e.precisaRaiz = !!corpo?.precisa_raiz;
+  e.serviceAccount = corpo?.service_account;
+  return e;
+};
+
 // O invoke devolve só "non-2xx status code" quando a função responde com erro.
 // O motivo de verdade está no corpo, então lê de lá antes de desistir.
 const chamar = async (acao: string, payload: Record<string, unknown>) => {
@@ -49,14 +62,11 @@ const chamar = async (acao: string, payload: Record<string, unknown>) => {
     body: { acao, ...payload },
   });
   if (error) {
-    let msg = error.message;
-    try {
-      const corpo = await (error as any)?.context?.json?.();
-      if (corpo?.error) msg = corpo.dica ? `${corpo.error}. ${corpo.dica}` : corpo.error;
-    } catch { /* corpo ilegível: fica a mensagem original */ }
-    throw new Error(msg);
+    let corpo: any = null;
+    try { corpo = await (error as any)?.context?.json?.(); } catch { /* corpo ilegível */ }
+    throw monta(corpo, error.message);
   }
-  if (data?.error) throw new Error(data.dica ? `${data.error}. ${data.dica}` : data.error);
+  if (data?.error) throw monta(data, "Falha no Drive");
   return data;
 };
 
@@ -85,6 +95,11 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
 
   const [linkInput, setLinkInput] = useState("");
   const [vinculando, setVinculando] = useState(false);
+
+  // Onde ficam todas as pastas de projeto. Só aparece quando a função avisa
+  // que ainda não sabe, e some pra sempre depois de respondida.
+  const [pedeRaiz, setPedeRaiz] = useState<{ conta?: string } | null>(null);
+  const [linkRaiz, setLinkRaiz] = useState("");
 
   const atual = caminho[caminho.length - 1] || null;
 
@@ -124,6 +139,24 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
         await chamar("criar_raiz", { projeto_id: projetoId });
         toast.success("Pasta criada no Drive");
         onVinculada();
+      } catch (e) {
+        const err = e as ErroDrive;
+        if (err.precisaRaiz) setPedeRaiz({ conta: err.serviceAccount });
+        else toast.error(String(err?.message || e));
+      } finally { setVinculando(false); }
+    };
+
+    // Define a raiz e já emenda a criação da pasta: quem clicou em criar
+    // continua querendo criar, não configurar.
+    const salvarRaiz = async () => {
+      if (!linkRaiz.trim()) { toast.error("Cole o link da pasta."); return; }
+      setVinculando(true);
+      try {
+        const d = await chamar("definir_raiz", { folder_url: linkRaiz.trim() });
+        toast.success(`Projetos vão para "${d.nome}"`);
+        setPedeRaiz(null); setLinkRaiz("");
+        await chamar("criar_raiz", { projeto_id: projetoId });
+        onVinculada();
       } catch (e) { toast.error(String((e as Error)?.message || e)); }
       finally { setVinculando(false); }
     };
@@ -155,26 +188,60 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
           </button>
         </div>
 
-        <Button size="sm" className="w-full" onClick={criar} disabled={vinculando}>
-          {vinculando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderPlus className="h-3.5 w-3.5 mr-1.5" />}
-          Criar pasta do projeto
-        </Button>
+        {pedeRaiz ? (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ ease: EASE, duration: 0.22 }}
+            className="space-y-2 rounded-xl ring-1 ring-primary/25 bg-primary/[0.06] p-3">
+            <p className="text-[12px] font-semibold">Onde ficam os projetos?</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Cole o link da pasta do Drive que guarda todos os projetos. Cada projeto
+              vira uma subpasta dela. Perguntamos isso uma vez só.
+            </p>
+            <Input value={linkRaiz} onChange={(e) => setLinkRaiz(e.target.value)} autoFocus
+              placeholder="https://drive.google.com/drive/folders/..."
+              className="h-8 text-[12px]"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarRaiz(); } }} />
+            <div className="flex gap-1.5">
+              <Button size="sm" className="flex-1" onClick={salvarRaiz} disabled={vinculando || !linkRaiz.trim()}>
+                {vinculando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+                Salvar e criar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPedeRaiz(null)} disabled={vinculando}>
+                Cancelar
+              </Button>
+            </div>
+            {pedeRaiz.conta && (
+              <p className="text-[10.5px] text-muted-foreground/80 leading-snug break-all">
+                A pasta precisa estar compartilhada como Editor com{" "}
+                <span className="text-foreground/90">{pedeRaiz.conta}</span>
+              </p>
+            )}
+          </motion.div>
+        ) : (
+          <>
+            <Button size="sm" className="w-full" onClick={criar} disabled={vinculando}>
+              {vinculando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderPlus className="h-3.5 w-3.5 mr-1.5" />}
+              Criar pasta do projeto
+            </Button>
 
-        <div className="flex items-center gap-2">
-          <span className="h-px flex-1 bg-border/60" />
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">ou</span>
-          <span className="h-px flex-1 bg-border/60" />
-        </div>
+            <div className="flex items-center gap-2">
+              <span className="h-px flex-1 bg-border/60" />
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">ou</span>
+              <span className="h-px flex-1 bg-border/60" />
+            </div>
 
-        <div className="space-y-1.5">
-          <Input value={linkInput} onChange={(e) => setLinkInput(e.target.value)}
-            placeholder="Cole o link de uma pasta do Drive"
-            className="h-8 text-[12px]"
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); vincular(); } }} />
-          <Button size="sm" variant="outline" className="w-full" onClick={vincular} disabled={vinculando || !linkInput.trim()}>
-            <Link2 className="h-3.5 w-3.5 mr-1.5" /> Vincular pasta existente
-          </Button>
-        </div>
+            <div className="space-y-1.5">
+              <Input value={linkInput} onChange={(e) => setLinkInput(e.target.value)}
+                placeholder="Cole o link de uma pasta do Drive"
+                className="h-8 text-[12px]"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); vincular(); } }} />
+              <Button size="sm" variant="outline" className="w-full" onClick={vincular} disabled={vinculando || !linkInput.trim()}>
+                <Link2 className="h-3.5 w-3.5 mr-1.5" /> Vincular pasta existente
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     );
   }

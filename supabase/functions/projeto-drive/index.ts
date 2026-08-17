@@ -11,9 +11,13 @@
 //   mover         { file_ids[], destino_id }     -> move arquivos entre pastas
 //   criar_raiz    { projeto_id }                 -> cria a pasta do projeto e grava nele
 //   vincular      { projeto_id, folder_url }     -> aponta pra uma pasta que já existe
+//   definir_raiz  { folder_url }                 -> guarda onde ficam todos os projetos
+//   raiz          {}                             -> lê a raiz configurada
 //
-// Secrets: GOOGLE_SA_JSON (mesmo das demais), DRIVE_PROJETOS_FOLDER_ID (só
-// necessário pra criar_raiz; vincular funciona sem ele).
+// Secrets: GOOGLE_SA_JSON (mesmo das demais). A raiz dos projetos mora em
+// app_config.drive_projetos_folder_id, definida pela própria tela; o secret
+// DRIVE_PROJETOS_FOLDER_ID ainda é aceito e tem precedência, pra não quebrar
+// quem já o configurou.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
@@ -76,6 +80,16 @@ function extrairFolderId(v: string): string | null {
   if (m) return m[1];
   if (/^[A-Za-z0-9_-]{10,}$/.test(s)) return s;
   return null;
+}
+
+const CHAVE_RAIZ = "drive_projetos_folder_id";
+
+// O secret vence, se existir; senão vale o que foi definido pela tela.
+async function lerRaiz(sb: any): Promise<string | null> {
+  const env = Deno.env.get("DRIVE_PROJETOS_FOLDER_ID");
+  if (env) return env;
+  const { data } = await sb.from("app_config").select("valor").eq("chave", CHAVE_RAIZ).maybeSingle();
+  return data?.valor || null;
 }
 
 async function drive(token: string, url: string, init?: RequestInit) {
@@ -188,18 +202,30 @@ Deno.serve(async (req: Request) => {
         return j({ ok: true, ja_existia: true, folder_id: proj.drive_folder_id, folder_url: proj.drive_folder_url });
       }
 
-      const raiz = Deno.env.get("DRIVE_PROJETOS_FOLDER_ID");
+      const raiz = await lerRaiz(sb);
       if (!raiz) {
         return j({
-          error: "DRIVE_PROJETOS_FOLDER_ID nao configurado",
-          dica: "Configure a raiz dos projetos ou use Vincular pasta existente, colando o link.",
+          error: "Falta dizer onde ficam as pastas dos projetos",
+          dica: "Cole o link da pasta do Drive que guarda todos os projetos. Isso é pedido uma vez só.",
+          precisa_raiz: true,
+          service_account: sa.client_email,
         }, 400);
       }
 
-      const nova = await drive(token, `${API}?${EXTRA}&fields=id,name,webViewLink`, {
-        method: "POST",
-        body: JSON.stringify({ name: proj.nome || "Projeto", mimeType: PASTA, parents: [raiz] }),
-      });
+      let nova: any;
+      try {
+        nova = await drive(token, `${API}?${EXTRA}&fields=id,name,webViewLink`, {
+          method: "POST",
+          body: JSON.stringify({ name: proj.nome || "Projeto", mimeType: PASTA, parents: [raiz] }),
+        });
+      } catch {
+        return j({
+          error: "Não consegui criar a pasta dentro da raiz dos projetos",
+          dica: `Compartilhe a pasta raiz com ${sa.client_email} como Editor, ou defina outra raiz.`,
+          precisa_raiz: true,
+          service_account: sa.client_email,
+        }, 403);
+      }
       await sb.from("projetos")
         .update({ drive_folder_id: nova.id, drive_folder_url: nova.webViewLink })
         .eq("id", projetoId);
@@ -229,6 +255,41 @@ Deno.serve(async (req: Request) => {
         .update({ drive_folder_id: meta.id, drive_folder_url: meta.webViewLink })
         .eq("id", projetoId);
       return j({ ok: true, folder_id: meta.id, folder_url: meta.webViewLink, nome: meta.name });
+    }
+
+    // ── ONDE FICAM TODOS OS PROJETOS ─────────────────────────────────────
+    // Definida uma vez, pela tela. Confere o acesso antes de gravar, porque
+    // uma raiz que a service account não enxerga só falharia no projeto
+    // seguinte, longe de onde o erro foi cometido.
+    if (acao === "definir_raiz") {
+      const id = extrairFolderId(String(body.folder_url || ""));
+      if (!id) return j({ error: "Cole um link válido de pasta do Drive" }, 400);
+
+      let meta: any;
+      try {
+        meta = await drive(token, `${API}/${id}?fields=id,name,mimeType,webViewLink&${EXTRA}`);
+      } catch {
+        return j({
+          error: "Não consegui abrir essa pasta",
+          dica: `Compartilhe a pasta com ${sa.client_email} como Editor e tente de novo.`,
+          service_account: sa.client_email,
+        }, 403);
+      }
+      if (meta.mimeType !== PASTA) return j({ error: "O link precisa ser de uma pasta, não de um arquivo" }, 400);
+
+      await sb.from("app_config").upsert({
+        chave: CHAVE_RAIZ,
+        valor: meta.id,
+        rotulo: meta.name,
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: "chave" });
+
+      return j({ ok: true, folder_id: meta.id, nome: meta.name, url: meta.webViewLink });
+    }
+
+    if (acao === "raiz") {
+      const raiz = await lerRaiz(sb);
+      return j({ ok: true, folder_id: raiz, service_account: sa.client_email });
     }
 
     return j({ error: `acao desconhecida: ${acao}` }, 400);
