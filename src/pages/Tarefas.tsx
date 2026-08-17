@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
-  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -97,6 +97,79 @@ function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
   );
 }
 
+// Mesma tarefa, deitada. O card empilha tudo em 188px de altura, o que é bom
+// pra folhear e ruim pra comparar: com dez cards na tela não dá pra correr o
+// olho pelos prazos. Aqui cada informação tem sua coluna, então a leitura é
+// vertical dentro de cada uma.
+//
+// As colunas do meio somem no estreito em vez de espremer: sobram título e uma
+// segunda linha com prazo e processo, que é o mínimo pra decidir se abre.
+const COLS_LISTA = "grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-cols-[auto_minmax(0,1fr)_6.5rem_8.5rem_10rem_13rem_auto]";
+
+function TarefaLinha({ it, onClick }: { it: Item; onClick: () => void }) {
+  const Icon = ICONE_TIPO[it.tipo];
+  const d = it.desfecho ? DESFECHOS[it.desfecho] : null;
+  const DIcon = d?.icon;
+  const prazo = it.tipo !== "pendencia" && !d ? prazoInfo(it.prazo) : null;
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full grid items-center gap-x-3 text-left rounded-xl border border-white/[0.06] bg-white/[0.02]",
+        "px-3 py-2 transition-colors hover:border-primary/30 hover:bg-white/[0.045]",
+        COLS_LISTA, d && "opacity-70",
+      )}
+    >
+      <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0">
+        <Icon className="h-3.5 w-3.5 text-primary" />
+      </span>
+
+      <span className="min-w-0">
+        <span className={cn("block text-[13px] font-medium truncate", d && "line-through")}>{it.titulo}</span>
+        {it.conteudo && (
+          <span className="hidden lg:block text-[11px] text-muted-foreground truncate">{it.conteudo}</span>
+        )}
+        {/* No estreito, o essencial das colunas escondidas vem pra cá */}
+        <span className="lg:hidden flex items-center gap-1.5 text-[10.5px] text-muted-foreground truncate">
+          {prazo && <span className={prazo.cls}>{prazo.label}</span>}
+          {prazo && <span className="opacity-40">·</span>}
+          <span className="font-mono truncate">{it.processoNumero}</span>
+        </span>
+      </span>
+
+      <span className="hidden lg:block text-[10.5px] uppercase tracking-wide text-muted-foreground truncate">
+        {LABEL_TIPO[it.tipo]}
+      </span>
+
+      <span className="hidden lg:flex min-w-0">
+        {d && DIcon ? (
+          <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 truncate", d.chip)}>
+            <DIcon className="h-3 w-3 shrink-0" /> {d.label}
+          </span>
+        ) : (
+          <StatusChip label={it.tipo === "pendencia" ? "Pendente" : it.status} />
+        )}
+      </span>
+
+      <span className={cn("hidden lg:flex items-center gap-1.5 text-[11px] min-w-0", prazo ? prazo.cls : "text-muted-foreground/50")}>
+        {prazo ? (
+          <>
+            <CalendarDays className="h-3 w-3 shrink-0" />
+            <span className="truncate">{prazo.label}</span>
+          </>
+        ) : "—"}
+      </span>
+
+      <span className="hidden lg:block min-w-0 text-[10.5px] text-muted-foreground">
+        <span className="block font-mono truncate">{it.processoNumero}</span>
+        {it.clienteNome && <span className="block truncate">{it.clienteNome}</span>}
+      </span>
+
+      <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+    </button>
+  );
+}
+
 export default function Tarefas() {
   useEffect(() => { document.title = "Tarefas · AW ECO ME"; }, []);
   const navigate = useNavigate();
@@ -105,7 +178,7 @@ export default function Tarefas() {
   const [tipo, setTipo] = useState<"todos" | TaskTipo>("todos");
   const [situacao, setSituacao] = useState<"todas" | "aberto" | "finalizada">("todas");
   const [busca, setBusca] = useState("");
-  const [view, setView] = useState<"cards" | "linha" | "calendario">("cards");
+  const [view, setView] = useState<"cards" | "lista" | "linha" | "calendario">("cards");
   const [janela, setJanela] = useState<Janela>("todas");
   const [ordem, setOrdem] = useState<"urgente" | "distante">("urgente");
 
@@ -262,6 +335,9 @@ export default function Tarefas() {
             <button onClick={() => setView("cards")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "cards" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
               <LayoutGrid className="h-3.5 w-3.5" /> Cards
             </button>
+            <button onClick={() => setView("lista")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "lista" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+              <Rows3 className="h-3.5 w-3.5" /> Lista
+            </button>
             <button onClick={() => setView("calendario")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "calendario" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
               <CalendarDays className="h-3.5 w-3.5" /> Calendário
             </button>
@@ -272,7 +348,7 @@ export default function Tarefas() {
 
           {/* Ordenação só faz sentido onde a lista é uma lista: na linha do
               tempo quem manda é a etapa, e no calendário, o dia. */}
-          {view === "cards" && (
+          {(view === "cards" || view === "lista") && (
             <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
               {([
                 { k: "urgente" as const, label: "Mais urgentes", Icon: ArrowUpWideNarrow },
@@ -338,6 +414,27 @@ export default function Tarefas() {
             )}
           </div>
         </Card>
+      ) : view === "lista" ? (
+        /* Lista: a mesma informação do card, deitada e alinhada em colunas */
+        <motion.div
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}
+          className="space-y-1"
+        >
+          {/* Cabeçalho só onde as colunas existem; no estreito seria legenda
+              de coluna que não está na tela. */}
+          <div className={cn("hidden lg:grid items-center gap-x-3 px-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70", COLS_LISTA)}>
+            <span className="w-7" />
+            <span>Tarefa</span>
+            <span>Tipo</span>
+            <span>Situação</span>
+            <span>Prazo</span>
+            <span>Processo</span>
+            <span className="w-4" />
+          </div>
+          {filtered.map((it) => (
+            <TarefaLinha key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
+          ))}
+        </motion.div>
       ) : view === "calendario" ? (
         /* Calendário: os mesmos itens filtrados, distribuídos pelo dia do prazo */
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}>
