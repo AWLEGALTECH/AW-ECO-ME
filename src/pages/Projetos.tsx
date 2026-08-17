@@ -1118,8 +1118,7 @@ export default function Projetos() {
           <>
           <div ref={ancoraRef} aria-hidden className="h-0" />
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
-            className={cn("rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 transition-[margin] duration-300",
-              docsAberto && "xl:mr-[21rem]")}>
+            className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8">
             <div className="flex items-center gap-3">
               <span className={cn("h-2 w-2 rounded-full shrink-0", "bg-muted-foreground/40")} />
               <h3 className="text-lg font-medium">{spSel.nome}</h3>
@@ -1179,8 +1178,9 @@ export default function Projetos() {
             </div>
 
             <div ref={ancoraRef} aria-hidden className="h-0" />
-            <div className={cn("flex gap-3 overflow-x-auto pb-4 -mx-1 px-1 transition-[padding] duration-300",
-              docsAberto && "xl:pr-[21rem]")}>
+            {/* O quadro não recua quando o painel abre: o painel fica por cima
+                e a coluna que ele cobrir se alcança rolando pro lado. */}
+            <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
               {cols.map((col, ci) => {
                 const doCol = cards.filter((c) => c.coluna_id === col.id).sort((a, b) => a.ordem - b.ordem);
                 const cp = paleta(col.cor);
@@ -1349,33 +1349,25 @@ export default function Projetos() {
 
         {/* Documentos do projeto: painel encostado na borda direita, altura
             cheia, como a lateral do app. É do PROJETO, então não muda ao
-            trocar de sprint. */}
+            trocar de sprint. Fica por cima e pronto: sem véu, sem desfoque e
+            sem empurrar o quadro, que continua inteiro embaixo. */}
         <AnimatePresence>
           {docsAberto && (
-            <>
-              {/* Véu só no mobile, onde o painel cobre o quadro */}
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                onClick={() => setDocsAberto(false)}
-                style={{ top: topoPainel }}
-                className="xl:hidden fixed inset-x-0 bottom-0 z-30 bg-black/50 backdrop-blur-[2px]"
+            <motion.aside
+              initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 38 }}
+              style={{ top: topoPainel }}
+              className="fixed right-0 bottom-0 z-40 w-[20rem] max-w-[88vw] border-l border-t border-white/[0.08] rounded-tl-2xl bg-[hsl(var(--card))] overflow-hidden"
+            >
+              <ProjetoDrive
+                projetoId={projetoAberto.id}
+                folderId={projetoAberto.drive_folder_id}
+                folderUrl={projetoAberto.drive_folder_url}
+                corChip={P.chip}
+                onVinculada={() => qc.invalidateQueries({ queryKey: ["projetos"] })}
+                onFechar={() => setDocsAberto(false)}
               />
-              <motion.aside
-                initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
-                transition={{ type: "spring", stiffness: 380, damping: 38 }}
-                style={{ top: topoPainel }}
-                className="fixed right-0 bottom-0 z-40 w-[20rem] max-w-[88vw] border-l border-t border-white/[0.08] rounded-tl-2xl bg-[hsl(var(--card))] shadow-[-8px_0_32px_rgba(0,0,0,0.45)] overflow-hidden"
-              >
-                <ProjetoDrive
-                  projetoId={projetoAberto.id}
-                  folderId={projetoAberto.drive_folder_id}
-                  folderUrl={projetoAberto.drive_folder_url}
-                  corChip={P.chip}
-                  onVinculada={() => qc.invalidateQueries({ queryKey: ["projetos"] })}
-                  onFechar={() => setDocsAberto(false)}
-                />
-              </motion.aside>
-            </>
+            </motion.aside>
           )}
         </AnimatePresence>
       </div>
