@@ -5,12 +5,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
-import { Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2 } from "lucide-react";
+import {
+  Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, FolderTree,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   ICONE_TIPO, LABEL_TIPO, DESFECHOS, prazoInfo,
   type Task, type Etapa, type TaskTipo,
 } from "@/components/ProcessoTimeline";
+import { TarefasCalendario } from "@/components/TarefasCalendario";
+import { JANELAS, diasAte, naJanela, porPrazo, type Janela } from "@/lib/prazos";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -91,7 +96,9 @@ export default function Tarefas() {
   const [tipo, setTipo] = useState<"todos" | TaskTipo>("todos");
   const [situacao, setSituacao] = useState<"todas" | "aberto" | "finalizada">("todas");
   const [busca, setBusca] = useState("");
-  const [view, setView] = useState<"cards" | "linha">("cards");
+  const [view, setView] = useState<"cards" | "linha" | "calendario">("cards");
+  const [janela, setJanela] = useState<Janela>("todas");
+  const [ordem, setOrdem] = useState<"urgente" | "distante" | "processo">("urgente");
 
   useEffect(() => {
     (async () => {
@@ -120,12 +127,15 @@ export default function Tarefas() {
   const stats = useMemo(() => {
     const total = allTasks.length;
     const abertas = allTasks.filter((t) => !t.desfecho).length;
-    const porTipo = { acao: 0, monitoramento: 0, pendencia: 0 } as Record<TaskTipo, number>;
-    allTasks.forEach((t) => { porTipo[t.tipo] += 1; });
-    return { total, abertas, finalizadas: total - abertas, porTipo };
+    // Vencida só conta se ainda está aberta: prazo que passou mas foi resolvido
+    // não é dívida, é histórico.
+    const vencidas = allTasks.filter((t) => !t.desfecho && (diasAte(t.prazo) ?? 0) < 0).length;
+    return { total, abertas, finalizadas: total - abertas, vencidas };
   }, [allTasks]);
 
-  const filtered = useMemo(() => allTasks.filter((t) => {
+  // Filtro sem a janela de prazo: é dele que saem as contagens de cada faixa,
+  // senão a faixa escolhida zeraria as outras e ninguém saberia o que tem lá.
+  const preJanela = useMemo(() => allTasks.filter((t) => {
     if (tipo !== "todos" && t.tipo !== tipo) return false;
     if (situacao === "aberto" && t.desfecho) return false;
     if (situacao === "finalizada" && !t.desfecho) return false;
@@ -136,6 +146,24 @@ export default function Tarefas() {
     }
     return true;
   }), [allTasks, tipo, situacao, busca]);
+
+  const contagemJanela = useMemo(() => {
+    const m = {} as Record<Janela, number>;
+    for (const j of JANELAS) m[j.key] = preJanela.filter((t) => naJanela(t.prazo, j.key)).length;
+    return m;
+  }, [preJanela]);
+
+  const filtered = useMemo(() => {
+    const base = preJanela.filter((t) => naJanela(t.prazo, janela));
+    // Urgência primeiro é o padrão porque é a pergunta que a tela responde;
+    // sem ordenar, a lista sai na ordem em que os processos foram lidos, que
+    // não quer dizer nada pra quem precisa despachar o dia.
+    if (ordem === "processo") {
+      return [...base].sort((a, b) =>
+        a.processoNumero.localeCompare(b.processoNumero) || porPrazo(a, b));
+    }
+    return [...base].sort((a, b) => porPrazo(a, b, ordem === "distante"));
+  }, [preJanela, janela, ordem]);
 
   // Agrupa as tasks filtradas por etapa (para a linha do tempo compartilhada).
   const porEtapa = useMemo(() => {
@@ -164,22 +192,55 @@ export default function Tarefas() {
       {/* ── Dashzinho: total / em aberto / finalizadas ── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
-        className="grid grid-cols-3 gap-3"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
       >
         {[
-          { k: "todas" as const, label: "Total", value: stats.total },
-          { k: "aberto" as const, label: "Em aberto", value: stats.abertas },
-          { k: "finalizada" as const, label: "Finalizadas", value: stats.finalizadas },
-        ].map((s) => (
-          <SpotlightCard
-            key={s.k}
-            onClick={() => setSituacao(s.k)}
-            className={cn("cursor-pointer transition-colors", situacao === s.k && "border-primary/40")}
-          >
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>
-            <p className="text-3xl sm:text-4xl font-semibold font-display mt-1 tabular-nums">{s.value}</p>
-          </SpotlightCard>
-        ))}
+          { k: "todas" as const, j: "todas" as const, label: "Total", value: stats.total, alerta: false },
+          { k: "aberto" as const, j: "todas" as const, label: "Em aberto", value: stats.abertas, alerta: false },
+          { k: "aberto" as const, j: "vencidas" as const, label: "Vencidas", value: stats.vencidas, alerta: true },
+          { k: "finalizada" as const, j: "todas" as const, label: "Finalizadas", value: stats.finalizadas, alerta: false },
+        ].map((s) => {
+          const ativo = situacao === s.k && janela === s.j;
+          return (
+            <SpotlightCard
+              key={s.label}
+              onClick={() => { setSituacao(s.k); setJanela(s.j); }}
+              className={cn("cursor-pointer transition-colors",
+                ativo && (s.alerta ? "border-rose-500/50" : "border-primary/40"))}
+            >
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className={cn("text-3xl sm:text-4xl font-semibold font-display mt-1 tabular-nums",
+                s.alerta && s.value > 0 && "text-rose-400")}>
+                {s.value}
+              </p>
+            </SpotlightCard>
+          );
+        })}
+      </motion.div>
+
+      {/* ── Janela de prazo: o recorte que responde "o que vence quando" ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.08 }}
+        className="flex items-center gap-1.5 flex-wrap"
+      >
+        <CalendarRange className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        {JANELAS.map((j) => {
+          const n = contagemJanela[j.key] ?? 0;
+          const ativo = janela === j.key;
+          return (
+            <button key={j.key} onClick={() => setJanela(j.key)} title={j.dica}
+              className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] ring-1 transition-colors",
+                ativo
+                  ? j.key === "vencidas"
+                    ? "bg-rose-500/15 text-rose-300 ring-rose-500/35"
+                    : "bg-primary/15 text-primary ring-primary/35"
+                  : "text-muted-foreground ring-white/[0.08] hover:bg-white/[0.05] hover:text-foreground",
+                !ativo && n === 0 && "opacity-45")}>
+              {j.label}
+              <span className="tabular-nums text-[10.5px] opacity-70">{n}</span>
+            </button>
+          );
+        })}
       </motion.div>
 
       {/* ── Filtros + alternância de visão ── */}
@@ -205,9 +266,31 @@ export default function Tarefas() {
           ))}
         </div>
 
+        {/* Ordenação: só faz sentido onde a lista é uma lista. Na linha do
+            tempo quem manda é a etapa, e no calendário, o dia. */}
+        {view === "cards" && (
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+            {([
+              { k: "urgente" as const, label: "Mais urgentes", Icon: ArrowUpWideNarrow },
+              { k: "distante" as const, label: "Mais distantes", Icon: ArrowDownWideNarrow },
+              { k: "processo" as const, label: "Por processo", Icon: FolderTree },
+            ]).map((o) => (
+              <button key={o.k} onClick={() => setOrdem(o.k)} title={o.label}
+                className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  ordem === o.k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+                <o.Icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{o.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
           <button onClick={() => setView("cards")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "cards" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
             <LayoutGrid className="h-3.5 w-3.5" /> Cards
+          </button>
+          <button onClick={() => setView("calendario")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "calendario" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+            <CalendarDays className="h-3.5 w-3.5" /> Calendário
           </button>
           <button onClick={() => setView("linha")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "linha" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
             <GitBranchPlus className="h-3.5 w-3.5" /> Linha do tempo
@@ -231,7 +314,32 @@ export default function Tarefas() {
           </div>
         </Card>
       ) : filtered.length === 0 ? (
-        <Card className="border-dashed"><div className="py-16 text-center text-muted-foreground text-sm">Nenhuma tarefa com esses filtros.</div></Card>
+        <Card className="border-dashed">
+          <div className="py-16 text-center text-muted-foreground text-sm">
+            Nenhuma tarefa com esses filtros.
+            {janela !== "todas" && (
+              <button onClick={() => setJanela("todas")} className="block mx-auto mt-2 text-xs text-primary hover:underline">
+                Ver sem recorte de prazo
+              </button>
+            )}
+          </div>
+        </Card>
+      ) : view === "calendario" ? (
+        /* Calendário: os mesmos itens filtrados, distribuídos pelo dia do prazo */
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}>
+          <TarefasCalendario
+            itens={filtered.map((it) => ({
+              id: `${it.processoId}-${it.id}`,
+              titulo: it.titulo,
+              prazo: it.prazo,
+              processoId: it.processoId,
+              processoNumero: it.processoNumero,
+              clienteNome: it.clienteNome,
+              desfecho: it.desfecho,
+            }))}
+            onAbrir={irProcesso}
+          />
+        </motion.div>
       ) : view === "cards" ? (
         /* Grade de cards */
         <motion.div
