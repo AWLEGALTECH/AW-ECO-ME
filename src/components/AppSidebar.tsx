@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Target, Trophy, Bell, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Bell, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -32,9 +32,9 @@ const navItems: NavItem[] = [
   { title: "Tarefas",       url: "/tarefas",       icon: ListTodo,        module: "processos" },
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
-  { title: "Prospecção",    url: "/prospeccao",    icon: Target,          module: "prospeccao",   badgeKey: "prospeccao", beta: true },
   { title: "Fechamentos",   url: "/fechamentos",   icon: Trophy,          module: "fechamentos",  beta: true },
   { title: "Tracker",       url: "/tracker",       icon: BarChart3,       module: "tracker",      beta: true },
+  { title: "Projetos",      url: "/projetos",      icon: KanbanSquare,    module: "projetos",     beta: true },
   { title: "Chamados",      url: "/chamados",      icon: Ticket,          module: "chamados" },
   { title: "Spy",           url: "/spy",           icon: Eye,             module: "spy",          beta: true },
   { title: "Sheets",        url: "/sheets",        icon: FileSpreadsheet, module: "sheets",       beta: true },
@@ -131,22 +131,6 @@ export function AppSidebar() {
     refetchInterval: 60_000,
   });
 
-  // Leads aguardando primeiro contato — primeiro estagio do funil de
-  // prospeccao. Outras etapas (em_cadencia, etc) tambem sao trabalho
-  // pendente mas o sinal mais util pra um badge eh "voces tem N que
-  // ninguem ainda mexeu".
-  const { data: prospeccaoCount } = useQuery({
-    queryKey: ["prospeccao_aguardando_count"],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("prospects" as any)
-        .select("*", { count: "exact", head: true })
-        .eq("estagio", "aguardando_contato")
-        .eq("status", "ativo");
-      return count || 0;
-    },
-    refetchInterval: 60_000,
-  });
 
   return (
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
@@ -217,11 +201,6 @@ export function AppSidebar() {
                             {item.badgeKey === "publicacoes" && (publicacoesCount ?? 0) > 0 && (
                               <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium">
                                 {publicacoesCount}
-                              </span>
-                            )}
-                            {item.badgeKey === "prospeccao" && (prospeccaoCount ?? 0) > 0 && (
-                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
-                                {prospeccaoCount}
                               </span>
                             )}
                           </span>

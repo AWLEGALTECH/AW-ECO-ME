@@ -23,10 +23,10 @@ import Finder from "./pages/Finder";
 import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import Publicacoes from "./pages/Publicacoes";
-import Prospeccao from "./pages/Prospeccao";
 import Fechamentos from "./pages/Fechamentos";
 import Tracker from "./pages/Tracker";
 import Chamados from "./pages/Chamados";
+import Projetos from "./pages/Projetos";
 import Spy from "./pages/Spy";
 import Sheets from "./pages/Sheets";
 import AdminUsuarios from "./pages/AdminUsuarios";
@@ -94,14 +94,14 @@ const App = () => (
                 <Route element={<RequireModule module="publicacoes" />}>
                   <Route path="/publicacoes" element={<PageErrorBoundary pageName="Publicações"><Publicacoes /></PageErrorBoundary>} />
                 </Route>
-                <Route element={<RequireModule module="prospeccao" />}>
-                  <Route path="/prospeccao" element={<PageErrorBoundary pageName="Prospecção"><Prospeccao /></PageErrorBoundary>} />
-                </Route>
                 <Route element={<RequireModule module="fechamentos" />}>
                   <Route path="/fechamentos" element={<PageErrorBoundary pageName="Fechamentos"><Fechamentos /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule module="tracker" />}>
                   <Route path="/tracker" element={<PageErrorBoundary pageName="Tracker"><Tracker /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="projetos" />}>
+                  <Route path="/projetos" element={<PageErrorBoundary pageName="Projetos"><Projetos /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule module="chamados" />}>
                   <Route path="/chamados" element={<PageErrorBoundary pageName="Chamados"><Chamados /></PageErrorBoundary>} />
