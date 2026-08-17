@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
-  Plus, ChevronLeft, Loader2, Check, X, CalendarDays, User, Trash2, Pencil,
-  LayoutGrid, Archive, Pause, Play, GripVertical, Search, Flag,
+  Plus, ChevronLeft, Loader2, Check, X, CalendarDays, User, Trash2,
+  LayoutGrid, Archive, Pause, Play, Search, Flag,
 } from "lucide-react";
 import {
   PALETA, CORES, paleta, ICONES, ICONES_LISTA, icone, TEMPLATES,
@@ -100,22 +100,22 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl max-w-[95vw] max-h-[88dvh] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-2xl max-w-[95vw] max-h-[92dvh] flex flex-col overflow-hidden gap-3">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2.5">
             <span className={cn("h-9 w-9 rounded-xl grid place-items-center ring-1", p.chip)}>
-              <Icone className="h-4.5 w-4.5" />
+              <Icone className="h-4 w-4" />
             </span>
             Novo projeto
           </DialogTitle>
-          <DialogDescription>Escolha o funil e ajuste depois — as colunas são editáveis.</DialogDescription>
+          <DialogDescription>Escolha o funil e ajuste depois; as colunas são editáveis.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 pt-2 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+        <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-1 -mx-1 py-1">
           <div className="space-y-1.5">
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Nome</Label>
             <Input value={nome} onChange={(e) => setNome(e.target.value)} autoFocus
-              placeholder="Ex: Campanha Meta Ads — Bradesco" />
+              placeholder="Ex: Campanha Meta Ads do Bradesco" />
           </div>
 
           <div className="space-y-1.5">
@@ -166,24 +166,24 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Cor</Label>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="grid grid-cols-7 gap-1.5">
                 {CORES.map((c) => (
                   <button key={c} onClick={() => setCor(c)} title={PALETA[c].rotulo}
-                    className={cn("h-7 w-7 rounded-lg transition-all duration-200", PALETA[c].barra,
-                      cor === c ? "ring-2 ring-offset-2 ring-offset-background ring-white/60 scale-110" : "opacity-60 hover:opacity-100")} />
+                    className={cn("h-8 rounded-lg transition-all duration-200", PALETA[c].barra,
+                      cor === c ? "ring-2 ring-offset-2 ring-offset-background ring-white/70" : "opacity-50 hover:opacity-90")} />
                 ))}
               </div>
             </div>
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="grid grid-cols-6 gap-1.5">
                 {ICONES_LISTA.map((n) => {
                   const I = ICONES[n];
                   return (
                     <button key={n} onClick={() => setIc(n)}
-                      className={cn("h-7 w-7 rounded-lg grid place-items-center transition-all duration-200",
-                        ic === n ? cn(p.chip, "ring-1 scale-110") : "text-muted-foreground hover:bg-white/[0.05]")}>
-                      <I className="h-3.5 w-3.5" />
+                      className={cn("h-8 rounded-lg grid place-items-center transition-all duration-200",
+                        ic === n ? cn(p.chip, "ring-1") : "text-muted-foreground hover:bg-white/[0.05]")}>
+                      <I className="h-4 w-4" />
                     </button>
                   );
                 })}
@@ -658,7 +658,7 @@ export default function Projetos() {
           {!verArquivados && !busca && (
             <>
               <p className="text-[12.5px] text-muted-foreground mt-1 max-w-sm mx-auto">
-                Campanhas, mudanças internas, metas do trimestre — o que tem começo, meio e fim
+                Campanhas, mudanças internas, metas do trimestre: o que tem começo, meio e fim
                 mas não vira processo.
               </p>
               <Button className="mt-4" onClick={() => setNovoOpen(true)}>

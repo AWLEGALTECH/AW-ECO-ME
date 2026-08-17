@@ -1,4 +1,4 @@
--- PROJETOS — gestão do trabalho do escritório que não é processo nem peça
+-- PROJETOS: gestão do trabalho do escritório que não é processo nem peça
 --
 -- A Esteira cuida da produção (colunas fixas, ligada a cliente/demanda), as
 -- Tarefas vêm do andamento processual e os Chamados são do software. Nada
@@ -6,9 +6,9 @@
 -- execuções". É esse o vazio que esta tabela preenche.
 --
 -- Duas ideias sustentam o desenho:
---   1. COLUNAS POR PROJETO — cada projeto define o próprio funil. Campanha usa
+--   1. COLUNAS POR PROJETO: cada projeto define o próprio funil. Campanha usa
 --      Ideia→Produção→No ar; captação usa Lead→Contato→Contrato.
---   2. VÍNCULOS OPCIONAIS — um card pode apontar pra um cliente, um processo ou
+--   2. VÍNCULOS OPCIONAIS: um card pode apontar pra um cliente, um processo ou
 --      um chamado do próprio AW. É o que uma ferramenta genérica não faz.
 
 create table if not exists public.projetos (

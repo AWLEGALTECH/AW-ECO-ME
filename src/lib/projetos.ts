@@ -3,7 +3,7 @@ import {
   Building2, FileSpreadsheet, Globe, Brain, type LucideIcon,
 } from "lucide-react";
 
-// Paleta dos projetos. Chaves, não hex — o Tailwind precisa das classes
+// Paleta dos projetos. Chaves, não hex: o Tailwind precisa das classes
 // escritas por extenso pra não perdê-las no purge.
 export const PALETA = {
   primary: { rotulo: "Tema",   chip: "bg-primary/15 text-primary ring-primary/30",             barra: "bg-primary",       ponto: "bg-primary",       texto: "text-primary",       anel: "ring-primary/30",       borda: "border-primary/30",       suave: "bg-primary/[0.07]" },
@@ -19,7 +19,7 @@ export type CorKey = keyof typeof PALETA;
 export const CORES = Object.keys(PALETA) as CorKey[];
 export const paleta = (c?: string | null) => PALETA[(c as CorKey) in PALETA ? (c as CorKey) : "primary"];
 
-// Ícones oferecidos na criação. Poucos e reconhecíveis — lista longa vira
+// Ícones oferecidos na criação. Poucos e reconhecíveis, porque lista longa vira
 // indecisão, e o ícone só precisa distinguir um projeto do outro na grade.
 export const ICONES: Record<string, LucideIcon> = {
   Rocket, Target, Megaphone, Scale, Users, Wrench, TrendingUp, Sparkles,
@@ -33,7 +33,7 @@ export const TEMPLATES = [
   { key: "simples",     nome: "Simples",     colunas: ["A fazer", "Fazendo", "Feito"],
     hint: "O básico que serve pra quase tudo." },
   { key: "campanha",    nome: "Campanha",    colunas: ["Ideia", "Produção", "No ar", "Medindo", "Encerrada"],
-    hint: "Anúncio, conteúdo, lançamento — nasce como ideia e termina medido." },
+    hint: "Anúncio, conteúdo ou lançamento. Nasce como ideia e termina medido." },
   { key: "captacao",    nome: "Captação",    colunas: ["Lead", "Contato feito", "Reunião", "Proposta", "Fechado"],
     hint: "Funil comercial, do primeiro contato ao contrato." },
   { key: "implantacao", nome: "Implantação", colunas: ["Levantamento", "Em construção", "Homologação", "No ar"],
