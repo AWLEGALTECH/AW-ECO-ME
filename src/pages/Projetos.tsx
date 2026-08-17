@@ -15,7 +15,7 @@ import {
   LayoutGrid, Archive, Pause, Play, Search, Flag,
 } from "lucide-react";
 import {
-  PALETA, CORES, CORES_COLUNA, paleta, ICONES, ICONES_LISTA, icone,
+  PALETA, CORES, CORES_COLUNA, paleta, GRUPOS_ICONES, icone, rotuloIcone,
   PRIORIDADES, type Prioridade, type CorKey, urgenciaPrazo, fmtDataCurta,
 } from "@/lib/projetos";
 import { SeletorPessoas, AvataresPessoas } from "@/components/SeletorPessoas";
@@ -66,6 +66,35 @@ function Anel({ pct, cor, size = 44 }: { pct: number; cor: string; size?: number
       <span className="absolute inset-0 grid place-items-center text-[10px] font-medium tabular-nums">
         {Math.round(pct)}%
       </span>
+    </div>
+  );
+}
+
+/* ───────────────────────── Seletor de ícone ───────────────────────── */
+// Agrupado por assunto e com o nome de cada um: procurar "o funil" ou "o
+// dinheiro" é como se pensa na hora de ilustrar um projeto.
+function SeletorIcone({ valor, onChange, cor }: {
+  valor: string; onChange: (k: string) => void; cor: string;
+}) {
+  const p = paleta(cor);
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-2.5 space-y-2.5 max-h-56 overflow-y-auto">
+      {GRUPOS_ICONES.map((g) => (
+        <div key={g.grupo}>
+          <p className="text-[9.5px] uppercase tracking-[0.15em] text-muted-foreground/70 mb-1.5 px-0.5">
+            {g.grupo}
+          </p>
+          <div className="grid grid-cols-6 gap-1.5">
+            {g.itens.map(({ key, Icon, rotulo }) => (
+              <button key={key} type="button" onClick={() => onChange(key)} title={rotulo}
+                className={cn("h-9 rounded-lg grid place-items-center transition-all duration-200",
+                  valor === key ? cn(p.chip, "ring-1") : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground")}>
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -274,7 +303,7 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
           </div>
 
           {/* Identidade */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Cor</Label>
               <div className="grid grid-cols-7 gap-1.5">
@@ -286,19 +315,11 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
-              <div className="grid grid-cols-6 gap-1.5">
-                {ICONES_LISTA.map((n) => {
-                  const I = ICONES[n];
-                  return (
-                    <button key={n} onClick={() => setIc(n)}
-                      className={cn("h-8 rounded-lg grid place-items-center transition-all duration-200",
-                        ic === n ? cn(p.chip, "ring-1") : "text-muted-foreground hover:bg-white/[0.05]")}>
-                      <I className="h-4 w-4" />
-                    </button>
-                  );
-                })}
+              <div className="flex items-baseline justify-between gap-2">
+                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
+                <span className={cn("text-[10.5px]", p.texto)}>{rotuloIcone(ic)}</span>
               </div>
+              <SeletorIcone valor={ic} onChange={setIc} cor={cor} />
             </div>
           </div>
 
@@ -405,7 +426,7 @@ function EditarProjetoDialog({ projeto, perfis, envolvidosAtuais, onClose, onSal
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Descrição</Label>
             <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} className="resize-none" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Cor</Label>
               <div className="grid grid-cols-7 gap-1.5">
@@ -417,19 +438,11 @@ function EditarProjetoDialog({ projeto, perfis, envolvidosAtuais, onClose, onSal
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
-              <div className="grid grid-cols-6 gap-1.5">
-                {ICONES_LISTA.map((n) => {
-                  const I = ICONES[n];
-                  return (
-                    <button key={n} onClick={() => setIc(n)}
-                      className={cn("h-8 rounded-lg grid place-items-center transition-all duration-200",
-                        ic === n ? cn(p.chip, "ring-1") : "text-muted-foreground hover:bg-white/[0.05]")}>
-                      <I className="h-4 w-4" />
-                    </button>
-                  );
-                })}
+              <div className="flex items-baseline justify-between gap-2">
+                <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Ícone</Label>
+                <span className={cn("text-[10.5px]", p.texto)}>{rotuloIcone(ic)}</span>
               </div>
+              <SeletorIcone valor={ic} onChange={setIc} cor={cor} />
             </div>
           </div>
           <div className="space-y-2">

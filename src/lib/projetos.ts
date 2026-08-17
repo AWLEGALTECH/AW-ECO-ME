@@ -1,6 +1,10 @@
 import {
-  Rocket, Target, Megaphone, Scale, Users, Wrench, TrendingUp, Sparkles,
-  Building2, FileSpreadsheet, Globe, Brain, type LucideIcon,
+  Filter, Megaphone, Target, UserPlus, Handshake, Instagram,
+  DollarSign, Banknote, Receipt, PiggyBank, CreditCard, TrendingUp,
+  Scale, Gavel, FileSignature, FileText, Landmark, ShieldCheck,
+  Users, GraduationCap, Workflow, Wrench, Building2, Phone,
+  Rocket, Video, Palette, Bot, Brain, Globe, BarChart3, Lightbulb,
+  type LucideIcon,
 } from "lucide-react";
 
 // Paleta dos projetos. Chaves, não hex: o Tailwind precisa das classes
@@ -19,14 +23,79 @@ export type CorKey = keyof typeof PALETA;
 export const CORES = Object.keys(PALETA) as CorKey[];
 export const paleta = (c?: string | null) => PALETA[(c as CorKey) in PALETA ? (c as CorKey) : "primary"];
 
-// Ícones oferecidos na criação. Poucos e reconhecíveis, porque lista longa vira
-// indecisão, e o ícone só precisa distinguir um projeto do outro na grade.
-export const ICONES: Record<string, LucideIcon> = {
-  Rocket, Target, Megaphone, Scale, Users, Wrench, TrendingUp, Sparkles,
-  Building2, FileSpreadsheet, Globe, Brain,
-};
+// Ícones dos projetos, agrupados por assunto e com nome. Um ícone genérico não
+// diz nada na grade: o que se procura é o funil, o dinheiro, a equipe. Cada um
+// carrega o rótulo que aparece no hover e embaixo do seletor.
+export interface IconeOpt { key: string; Icon: LucideIcon; rotulo: string }
+
+export const GRUPOS_ICONES: { grupo: string; itens: IconeOpt[] }[] = [
+  {
+    grupo: "Comercial",
+    itens: [
+      { key: "Filter",     Icon: Filter,     rotulo: "Funil" },
+      { key: "Megaphone",  Icon: Megaphone,  rotulo: "Campanha" },
+      { key: "Target",     Icon: Target,     rotulo: "Meta" },
+      { key: "UserPlus",   Icon: UserPlus,   rotulo: "Captação" },
+      { key: "Handshake",  Icon: Handshake,  rotulo: "Parceria" },
+      { key: "Instagram",  Icon: Instagram,  rotulo: "Redes sociais" },
+    ],
+  },
+  {
+    grupo: "Dinheiro",
+    itens: [
+      { key: "DollarSign", Icon: DollarSign, rotulo: "Dinheiro" },
+      { key: "Banknote",   Icon: Banknote,   rotulo: "Faturamento" },
+      { key: "Receipt",    Icon: Receipt,    rotulo: "Cobrança" },
+      { key: "PiggyBank",  Icon: PiggyBank,  rotulo: "Economia" },
+      { key: "CreditCard", Icon: CreditCard, rotulo: "Pagamento" },
+      { key: "TrendingUp", Icon: TrendingUp, rotulo: "Crescimento" },
+    ],
+  },
+  {
+    grupo: "Jurídico",
+    itens: [
+      { key: "Scale",         Icon: Scale,         rotulo: "Jurídico" },
+      { key: "Gavel",         Icon: Gavel,         rotulo: "Audiência" },
+      { key: "FileSignature", Icon: FileSignature, rotulo: "Contrato" },
+      { key: "FileText",      Icon: FileText,      rotulo: "Peça" },
+      { key: "Landmark",      Icon: Landmark,      rotulo: "Tribunal" },
+      { key: "ShieldCheck",   Icon: ShieldCheck,   rotulo: "Compliance" },
+    ],
+  },
+  {
+    grupo: "Time e operação",
+    itens: [
+      { key: "Users",         Icon: Users,         rotulo: "Equipe" },
+      { key: "GraduationCap", Icon: GraduationCap, rotulo: "Treinamento" },
+      { key: "Workflow",      Icon: Workflow,      rotulo: "Processo interno" },
+      { key: "Wrench",        Icon: Wrench,        rotulo: "Manutenção" },
+      { key: "Building2",     Icon: Building2,     rotulo: "Escritório" },
+      { key: "Phone",         Icon: Phone,         rotulo: "Atendimento" },
+    ],
+  },
+  {
+    grupo: "Produto e conteúdo",
+    itens: [
+      { key: "Rocket",    Icon: Rocket,    rotulo: "Lançamento" },
+      { key: "Video",     Icon: Video,     rotulo: "Vídeo" },
+      { key: "Palette",   Icon: Palette,   rotulo: "Design" },
+      { key: "Bot",       Icon: Bot,       rotulo: "Automação" },
+      { key: "Brain",     Icon: Brain,     rotulo: "Inteligência" },
+      { key: "Globe",     Icon: Globe,     rotulo: "Site" },
+      { key: "BarChart3", Icon: BarChart3, rotulo: "Dados" },
+      { key: "Lightbulb", Icon: Lightbulb, rotulo: "Ideia" },
+    ],
+  },
+];
+
+// Mapa achatado pra resolver o ícone salvo no banco.
+export const ICONES: Record<string, LucideIcon> = Object.fromEntries(
+  GRUPOS_ICONES.flatMap((g) => g.itens.map((i) => [i.key, i.Icon])),
+);
 export const ICONES_LISTA = Object.keys(ICONES);
 export const icone = (n?: string | null): LucideIcon => ICONES[n || ""] || Rocket;
+export const rotuloIcone = (n?: string | null): string =>
+  GRUPOS_ICONES.flatMap((g) => g.itens).find((i) => i.key === n)?.rotulo || "Ícone";
 
 // Sugestões de cor pras colunas que o usuário cria. A ordem é a que o
 // construtor usa ao adicionar linhas novas: neutro no começo, verde no fim.
