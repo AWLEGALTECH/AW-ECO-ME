@@ -30,7 +30,16 @@ const ETAPAS_ORDEM = [
 const ordemEtapa = (t: string) => { const i = ETAPAS_ORDEM.indexOf(t); return i === -1 ? 99 : i; };
 
 interface Proc { id: string; numero_processo: string; linha_temporal: unknown; clientes?: { nome: string } | null }
-interface Item extends Task { etapaTitulo: string; processoId: string; processoNumero: string; clienteNome: string | null }
+// `chave` existe porque o id da tarefa não é confiável como chave de lista:
+// ele é um contador por processo e, em linhas temporais gravadas antes da
+// correção do contador, o mesmo "t1" aparece duas vezes no mesmo processo.
+// Chave repetida faz o React reaproveitar o nó errado, e a grade fica
+// congelada numa ordem por mais que se troque a ordenação. Posição na etapa
+// resolve: é única e não muda quando a lista é reordenada.
+interface Item extends Task {
+  chave: string;
+  etapaTitulo: string; processoId: string; processoNumero: string; clienteNome: string | null;
+}
 
 // Chip de status na cor do tema (mesmo do card de tarefa no processo).
 function StatusChip({ label }: { label: string }) {
@@ -116,9 +125,14 @@ export default function Tarefas() {
     for (const p of procs) {
       const lt = Array.isArray(p.linha_temporal) ? (p.linha_temporal as Etapa[]) : [];
       for (const e of lt) {
-        for (const t of e.tasks ?? []) {
-          out.push({ ...t, etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo, clienteNome: p.clientes?.nome ?? null });
-        }
+        (e.tasks ?? []).forEach((t, i) => {
+          out.push({
+            ...t,
+            chave: `${p.id}::${e.id}::${i}::${t.id}`,
+            etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo,
+            clienteNome: p.clientes?.nome ?? null,
+          });
+        });
       }
     }
     return out;
@@ -218,83 +232,88 @@ export default function Tarefas() {
         })}
       </motion.div>
 
-      {/* ── Janela de prazo: o recorte que responde "o que vence quando" ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.08 }}
-        className="flex items-center gap-1.5 flex-wrap"
-      >
-        <CalendarRange className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        {JANELAS.map((j) => {
-          const n = contagemJanela[j.key] ?? 0;
-          const ativo = janela === j.key;
-          return (
-            <button key={j.key} onClick={() => setJanela(j.key)} title={j.dica}
-              className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] ring-1 transition-colors",
-                ativo
-                  ? j.key === "vencidas"
-                    ? "bg-rose-500/15 text-rose-300 ring-rose-500/35"
-                    : "bg-primary/15 text-primary ring-primary/35"
-                  : "text-muted-foreground ring-white/[0.08] hover:bg-white/[0.05] hover:text-foreground",
-                !ativo && n === 0 && "opacity-45")}>
-              {j.label}
-              <span className="tabular-nums text-[10.5px] opacity-70">{n}</span>
-            </button>
-          );
-        })}
-      </motion.div>
-
-      {/* ── Filtros + alternância de visão ── */}
+      {/* ── Controles, em três degraus: o QUE procurar, COMO olhar, QUANDO vence.
+             Antes vinham todos na mesma linha, disputando espaço, e a régua de
+             tempo aparecia acima da busca, longe do que ela recorta. ── */}
       <motion.div
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE, delay: 0.1 }}
-        className="flex items-center gap-3 flex-wrap"
+        className="space-y-2.5"
       >
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar por título, processo ou cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} className="pl-10" />
-        </div>
+        {/* 1. O que procurar */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Buscar por título, processo ou cliente..." value={busca} onChange={(e) => setBusca(e.target.value)} className="pl-10" />
+          </div>
 
-        <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
-          {TIPOS.map((tp) => (
-            <button
-              key={tp.key}
-              onClick={() => setTipo(tp.key)}
-              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                tipo === tp.key ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}
-            >
-              {tp.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Ordenação: só faz sentido onde a lista é uma lista. Na linha do
-            tempo quem manda é a etapa, e no calendário, o dia. */}
-        {view === "cards" && (
           <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
-            {([
-              { k: "urgente" as const, label: "Mais urgentes", Icon: ArrowUpWideNarrow },
-              { k: "distante" as const, label: "Mais distantes", Icon: ArrowDownWideNarrow },
-              { k: "processo" as const, label: "Por processo", Icon: FolderTree },
-            ]).map((o) => (
-              <button key={o.k} onClick={() => setOrdem(o.k)} title={o.label}
-                className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                  ordem === o.k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
-                <o.Icon className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{o.label}</span>
+            {TIPOS.map((tp) => (
+              <button
+                key={tp.key}
+                onClick={() => setTipo(tp.key)}
+                className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  tipo === tp.key ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}
+              >
+                {tp.label}
               </button>
             ))}
           </div>
-        )}
+        </div>
 
-        <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
-          <button onClick={() => setView("cards")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "cards" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
-            <LayoutGrid className="h-3.5 w-3.5" /> Cards
-          </button>
-          <button onClick={() => setView("calendario")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "calendario" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
-            <CalendarDays className="h-3.5 w-3.5" /> Calendário
-          </button>
-          <button onClick={() => setView("linha")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "linha" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
-            <GitBranchPlus className="h-3.5 w-3.5" /> Linha do tempo
-          </button>
+        {/* 2. Como olhar */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+            <button onClick={() => setView("cards")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "cards" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+              <LayoutGrid className="h-3.5 w-3.5" /> Cards
+            </button>
+            <button onClick={() => setView("calendario")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "calendario" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+              <CalendarDays className="h-3.5 w-3.5" /> Calendário
+            </button>
+            <button onClick={() => setView("linha")} className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors", view === "linha" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+              <GitBranchPlus className="h-3.5 w-3.5" /> Linha do tempo
+            </button>
+          </div>
+
+          {/* Ordenação só faz sentido onde a lista é uma lista: na linha do
+              tempo quem manda é a etapa, e no calendário, o dia. */}
+          {view === "cards" && (
+            <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+              {([
+                { k: "urgente" as const, label: "Mais urgentes", Icon: ArrowUpWideNarrow },
+                { k: "distante" as const, label: "Mais distantes", Icon: ArrowDownWideNarrow },
+                { k: "processo" as const, label: "Por processo", Icon: FolderTree },
+              ]).map((o) => (
+                <button key={o.k} onClick={() => setOrdem(o.k)} title={o.label}
+                  className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                    ordem === o.k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground")}>
+                  <o.Icon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{o.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 3. Quando vence */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+          <CalendarRange className="h-3.5 w-3.5 text-muted-foreground shrink-0 mr-0.5" />
+          {JANELAS.map((j) => {
+            const n = contagemJanela[j.key] ?? 0;
+            const ativo = janela === j.key;
+            return (
+              <button key={j.key} onClick={() => setJanela(j.key)} title={j.dica}
+                className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] ring-1 transition-colors",
+                  ativo
+                    ? j.key === "vencidas"
+                      ? "bg-rose-500/15 text-rose-300 ring-rose-500/35"
+                      : "bg-primary/15 text-primary ring-primary/35"
+                    : "text-muted-foreground ring-white/[0.08] hover:bg-white/[0.05] hover:text-foreground",
+                  !ativo && n === 0 && "opacity-45")}>
+                {j.label}
+                <span className="tabular-nums text-[10.5px] opacity-70">{n}</span>
+              </button>
+            );
+          })}
         </div>
       </motion.div>
 
@@ -329,7 +348,7 @@ export default function Tarefas() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: EASE, delay: 0.15 }}>
           <TarefasCalendario
             itens={filtered.map((it) => ({
-              id: `${it.processoId}-${it.id}`,
+              id: it.chave,
               titulo: it.titulo,
               prazo: it.prazo,
               processoId: it.processoId,
@@ -347,7 +366,7 @@ export default function Tarefas() {
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
         >
           {filtered.map((it) => (
-            <TarefaCard key={`${it.processoId}-${it.id}`} it={it} onClick={() => irProcesso(it.processoId)} />
+            <TarefaCard key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
           ))}
         </motion.div>
       ) : (
@@ -376,7 +395,7 @@ export default function Tarefas() {
                         {temTasks && (
                           <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                             {tasksAqui.map((it) => (
-                              <TarefaCard key={`${it.processoId}-${it.id}`} it={it} onClick={() => irProcesso(it.processoId)} />
+                              <TarefaCard key={it.chave} it={it} onClick={() => irProcesso(it.processoId)} />
                             ))}
                           </div>
                         )}

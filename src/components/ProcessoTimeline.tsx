@@ -409,7 +409,34 @@ export function ProcessoTimeline({
   badge?: string;
   onRegistrarSentenca?: (s: SentencaEtapa) => void;
 }) {
-  const [ordem, setOrdem] = useState(1);
+  // Contador de tarefas do processo. Precisa começar depois da última que já
+  // existe: começando sempre em 1, reabrir um processo e criar uma tarefa
+  // gerava um segundo "t1", e id repetido vira chave repetida em toda lista
+  // que junta tarefas de vários processos.
+  const [ordem, setOrdem] = useState(() => {
+    let maior = 0;
+    for (const e of etapas) {
+      for (const t of e.tasks ?? []) {
+        const n = Number(String(t.id ?? "").replace(/^t/, ""));
+        maior = Math.max(maior, t.ordem ?? 0, Number.isFinite(n) ? n : 0);
+      }
+    }
+    return maior + 1;
+  });
+
+  // A linha temporal costuma chegar depois da montagem, e aí o valor inicial
+  // acima foi calculado sobre uma lista vazia. O contador se ajusta pra cima
+  // quando os dados chegam, e nunca pra baixo: só sobe, nunca reaproveita id.
+  useEffect(() => {
+    let maior = 0;
+    for (const e of etapas) {
+      for (const t of e.tasks ?? []) {
+        const n = Number(String(t.id ?? "").replace(/^t/, ""));
+        maior = Math.max(maior, t.ordem ?? 0, Number.isFinite(n) ? n : 0);
+      }
+    }
+    setOrdem((o) => Math.max(o, maior + 1));
+  }, [etapas]);
   // Registro de teor/valor: serve tanto para a Sentença (1º grau) quanto para o
   // Julgamento em 2º grau (decisão monocrática ou acórdão).
   const [decisaoDialog, setDecisaoDialog] = useState<{ etapaId: string; kind: "sentenca" | "julgamento" } | null>(null);
