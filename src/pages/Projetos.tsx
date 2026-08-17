@@ -31,9 +31,15 @@ interface Projeto {
   prazo: string | null; status: string; ordem: number;
   created_at: string; concluido_at: string | null;
 }
-interface Coluna { id: string; projeto_id: string; nome: string; ordem: number; cor: string; e_conclusao: boolean }
+interface Sprint {
+  id: string; projeto_id: string; nome: string; ordem: number;
+  status: "planejada" | "ativa" | "concluida";
+  prazo: string | null; iniciada_at: string | null; concluida_at: string | null;
+}
+interface Coluna { id: string; projeto_id: string; sprint_id: string | null; nome: string; ordem: number; cor: string; e_conclusao: boolean }
 interface Card {
   id: string; projeto_id: string; coluna_id: string; titulo: string; descricao: string | null;
+  sprint_id: string | null;
   responsavel_id: string | null; prazo: string | null; prioridade: Prioridade; ordem: number;
   concluido_at: string | null; cliente_id: string | null; processo_id: string | null; chamado_id: string | null;
 }
@@ -64,8 +70,127 @@ function Anel({ pct, cor, size = 44 }: { pct: number; cor: string; size?: number
   );
 }
 
-/* ───────────────────────── Novo projeto ───────────────────────── */
+/* ──────────────────── Construtor de linhas nomeadas ──────────────────── */
 interface ColunaDraft { nome: string; cor: CorKey }
+
+// Lista editável usada em dois lugares: as SPRINTS na criação do projeto e as
+// COLUNAS ao iniciar uma sprint. Mesma mecânica de nomear, reordenar e remover.
+function ConstrutorLinhas({
+  linhas, setLinhas, comCor, placeholder, placeholderUltima, rodape,
+}: {
+  linhas: ColunaDraft[];
+  setLinhas: React.Dispatch<React.SetStateAction<ColunaDraft[]>>;
+  comCor: boolean;
+  placeholder: string;
+  placeholderUltima?: string;
+  rodape: string;
+}) {
+  const set = (i: number, patch: Partial<ColunaDraft>) =>
+    setLinhas((old) => old.map((c, k) => (k === i ? { ...c, ...patch } : c)));
+  const add = () =>
+    setLinhas((old) => [...old, { nome: "", cor: CORES_COLUNA[old.length % CORES_COLUNA.length] }]);
+  const rm = (i: number) => setLinhas((old) => old.filter((_, k) => k !== i));
+  const mover = (i: number, dir: -1 | 1) =>
+    setLinhas((old) => {
+      const j = i + dir;
+      if (j < 0 || j >= old.length) return old;
+      const n = [...old];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+  const preenchidas = linhas.filter((c) => c.nome.trim());
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1.5">
+        <AnimatePresence initial={false}>
+          {linhas.map((c, i) => {
+            const cp = paleta(c.cor);
+            const ultima = i === linhas.length - 1;
+            return (
+              <motion.div key={i} layout
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
+                transition={{ ease: EASE, duration: 0.2 }}
+                className="flex items-center gap-1.5">
+                <span className="text-[10px] tabular-nums text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
+
+                {comCor && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button type="button" title="Cor da coluna"
+                        className={cn("h-9 w-9 rounded-lg grid place-items-center shrink-0 ring-1 transition-colors", cp.chip)}>
+                        <span className={cn("h-3 w-3 rounded-full", cp.ponto)} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-2" align="start">
+                      <div className="grid grid-cols-7 gap-1.5">
+                        {CORES.map((k) => (
+                          <button key={k} type="button" onClick={() => set(i, { cor: k })} title={PALETA[k].rotulo}
+                            className={cn("h-7 w-7 rounded-lg transition-all", PALETA[k].barra,
+                              c.cor === k ? "ring-2 ring-offset-2 ring-offset-popover ring-white/70" : "opacity-60 hover:opacity-100")} />
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
+
+                <Input
+                  value={c.nome}
+                  onChange={(e) => set(i, { nome: e.target.value })}
+                  placeholder={ultima && placeholderUltima ? placeholderUltima : placeholder}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+                  className="h-9 flex-1"
+                />
+
+                <div className="flex items-center shrink-0">
+                  <button type="button" onClick={() => mover(i, -1)} disabled={i === 0}
+                    className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                    aria-label="Subir">
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => mover(i, 1)} disabled={i === linhas.length - 1}
+                    className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                    aria-label="Descer">
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => rm(i)} disabled={linhas.length <= 1}
+                    className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                    aria-label="Remover">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+
+      <button type="button" onClick={add}
+        className="w-full py-2 rounded-lg border border-dashed border-white/[0.12] text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-white/[0.02] transition-colors inline-flex items-center justify-center gap-1.5">
+        <Plus className="h-3.5 w-3.5" /> {rodape}
+      </button>
+
+      {preenchidas.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+          {preenchidas.map((c, i) => {
+            const cp = comCor ? paleta(c.cor) : paleta("primary");
+            return (
+              <motion.span key={`${c.nome}-${i}`} layout
+                initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                transition={{ ease: EASE }}
+                className={cn("text-[10.5px] px-2 py-1 rounded-full ring-1 inline-flex items-center gap-1.5", cp.chip)}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", cp.ponto)} />
+                {c.nome.trim()}
+              </motion.span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Novo projeto ───────────────────────── */
 
 function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   open: boolean; onClose: () => void; onCriado: () => void; perfis: Perfil[]; userId: string | null;
@@ -76,47 +201,33 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   const [ic, setIc] = useState<string>("Rocket");
   const [envolvidos, setEnvolvidos] = useState<string[]>([]);
   const [prazo, setPrazo] = useState("");
-  const [cols, setCols] = useState<ColunaDraft[]>([]);
+  const [sprints, setSprints] = useState<ColunaDraft[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNome(""); setDescricao(""); setCor("primary"); setIc("Rocket");
       setEnvolvidos(userId ? [userId] : []); setPrazo("");
-      setCols([{ nome: "", cor: "muted" }, { nome: "", cor: "primary" }, { nome: "", cor: "emerald" }]);
+      setSprints([{ nome: "", cor: "primary" }]);
       setSalvando(false);
     }
   }, [open, userId]);
 
   const Icone = icone(ic);
   const p = paleta(cor);
-  const preenchidas = cols.filter((c) => c.nome.trim());
-
-  const setCol = (i: number, patch: Partial<ColunaDraft>) =>
-    setCols((old) => old.map((c, k) => (k === i ? { ...c, ...patch } : c)));
-  const addCol = () =>
-    setCols((old) => [...old, { nome: "", cor: CORES_COLUNA[old.length % CORES_COLUNA.length] }]);
-  const rmCol = (i: number) => setCols((old) => old.filter((_, k) => k !== i));
-  const moverCol = (i: number, dir: -1 | 1) =>
-    setCols((old) => {
-      const j = i + dir;
-      if (j < 0 || j >= old.length) return old;
-      const n = [...old];
-      [n[i], n[j]] = [n[j], n[i]];
-      return n;
-    });
+  const preenchidas = sprints.filter((c) => c.nome.trim());
 
   const toggleEnv = (id: string) =>
     setEnvolvidos((old) => (old.includes(id) ? old.filter((x) => x !== id) : [...old, id]));
 
   const criar = async () => {
     if (!nome.trim()) { toast.error("Dê um nome ao projeto."); return; }
-    if (!preenchidas.length) { toast.error("Crie ao menos uma coluna."); return; }
+    if (!preenchidas.length) { toast.error("Nomeie ao menos uma sprint."); return; }
     setSalvando(true);
     const { error } = await (supabase.rpc as any)("fn_criar_projeto", {
       p_nome: nome.trim(), p_descricao: descricao.trim() || null, p_cor: cor, p_icone: ic,
       p_prazo: prazo || null,
-      p_colunas: preenchidas.map((c) => ({ nome: c.nome.trim(), cor: c.cor })),
+      p_sprints: preenchidas.map((c) => c.nome.trim()),
       p_envolvidos: envolvidos, p_user: userId,
     });
     setSalvando(false);
@@ -135,7 +246,7 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
             </span>
             Novo projeto
           </DialogTitle>
-          <DialogDescription>Monte o funil do jeito que este projeto pede.</DialogDescription>
+          <DialogDescription>Nomeie os ciclos de trabalho. O quadro de cada um nasce quando a sprint for iniciada.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 flex-1 min-h-0 overflow-y-auto px-1 -mx-1 py-1">
@@ -153,97 +264,15 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
               className="resize-none" placeholder="O que este projeto precisa entregar" />
           </div>
 
-          {/* Colunas do funil, montadas por quem cria */}
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Colunas do quadro</Label>
-              <span className="text-[10.5px] text-muted-foreground">
-                a última conclui o card
-              </span>
+              <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Sprints</Label>
+              <span className="text-[10.5px] text-muted-foreground">as colunas vêm depois</span>
             </div>
-
-            <div className="space-y-1.5">
-              <AnimatePresence initial={false}>
-                {cols.map((c, i) => {
-                  const cp = paleta(c.cor);
-                  const ultima = i === cols.length - 1;
-                  return (
-                    <motion.div key={i} layout
-                      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
-                      transition={{ ease: EASE, duration: 0.2 }}
-                      className="flex items-center gap-1.5">
-                      <span className="text-[10px] tabular-nums text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
-
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <button type="button" title="Cor da coluna"
-                            className={cn("h-9 w-9 rounded-lg grid place-items-center shrink-0 ring-1 transition-colors", cp.chip)}>
-                            <span className={cn("h-3 w-3 rounded-full", cp.ponto)} />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-2" align="start">
-                          <div className="grid grid-cols-7 gap-1.5">
-                            {CORES.map((k) => (
-                              <button key={k} type="button" onClick={() => setCol(i, { cor: k })} title={PALETA[k].rotulo}
-                                className={cn("h-7 w-7 rounded-lg transition-all", PALETA[k].barra,
-                                  c.cor === k ? "ring-2 ring-offset-2 ring-offset-popover ring-white/70" : "opacity-60 hover:opacity-100")} />
-                            ))}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-
-                      <Input
-                        value={c.nome}
-                        onChange={(e) => setCol(i, { nome: e.target.value })}
-                        placeholder={ultima ? "Nome da etapa final" : "Nome da etapa"}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCol(); } }}
-                        className="h-9 flex-1"
-                      />
-
-                      <div className="flex items-center shrink-0">
-                        <button type="button" onClick={() => moverCol(i, -1)} disabled={i === 0}
-                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
-                          aria-label="Subir">
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" onClick={() => moverCol(i, 1)} disabled={i === cols.length - 1}
-                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground disabled:opacity-25 disabled:pointer-events-none transition-colors"
-                          aria-label="Descer">
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" onClick={() => rmCol(i)} disabled={cols.length <= 1}
-                          className="h-8 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-25 disabled:pointer-events-none transition-colors"
-                          aria-label="Remover">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-
-            <button type="button" onClick={addCol}
-              className="w-full py-2 rounded-lg border border-dashed border-white/[0.12] text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-white/[0.02] transition-colors inline-flex items-center justify-center gap-1.5">
-              <Plus className="h-3.5 w-3.5" /> Adicionar coluna
-            </button>
-
-            {preenchidas.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                {preenchidas.map((c, i) => {
-                  const cp = paleta(c.cor);
-                  return (
-                    <motion.span key={`${c.nome}-${i}`} layout
-                      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                      transition={{ ease: EASE }}
-                      className={cn("text-[10.5px] px-2 py-1 rounded-full ring-1 inline-flex items-center gap-1.5", cp.chip)}>
-                      <span className={cn("h-1.5 w-1.5 rounded-full", cp.ponto)} />
-                      {c.nome.trim()}
-                    </motion.span>
-                  );
-                })}
-              </div>
-            )}
+            <ConstrutorLinhas
+              linhas={sprints} setLinhas={setSprints} comCor={false}
+              placeholder="Nome da sprint" rodape="Adicionar sprint"
+            />
           </div>
 
           {/* Identidade */}
@@ -295,6 +324,77 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
           <Button onClick={criar} disabled={salvando || !nome.trim() || !preenchidas.length}>
             {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Plus className="h-4 w-4 mr-1.5" />}
             Criar projeto
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ───────────────────────── Iniciar sprint ───────────────────────── */
+function IniciarSprintDialog({ sprint, reabrindo, onClose, onIniciada }: {
+  sprint: Sprint | null; reabrindo: boolean; onClose: () => void; onIniciada: () => void;
+}) {
+  const [cols, setCols] = useState<ColunaDraft[]>([]);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (sprint) {
+      setCols([{ nome: "", cor: "muted" }, { nome: "", cor: "primary" }, { nome: "", cor: "emerald" }]);
+      setSalvando(false);
+    }
+  }, [sprint?.id]);
+
+  if (!sprint) return null;
+  const preenchidas = cols.filter((c) => c.nome.trim());
+
+  const iniciar = async () => {
+    if (!preenchidas.length) { toast.error("Crie ao menos uma coluna."); return; }
+    setSalvando(true);
+    const { error } = await (supabase.rpc as any)("fn_iniciar_sprint", {
+      p_sprint: sprint.id,
+      p_colunas: preenchidas.map((c) => ({ nome: c.nome.trim(), cor: c.cor })),
+    });
+    setSalvando(false);
+    if (error) { toast.error("Não consegui iniciar: " + error.message); return; }
+    toast.success(`${sprint.nome} em andamento`);
+    onIniciada(); onClose();
+  };
+
+  return (
+    <Dialog open={!!sprint} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-w-[95vw] max-h-[92dvh] flex flex-col overflow-hidden gap-3">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-2.5">
+            <span className="h-9 w-9 rounded-xl grid place-items-center ring-1 bg-primary/15 text-primary ring-primary/30">
+              <Play className="h-4 w-4" />
+            </span>
+            {reabrindo ? "Refazer o quadro" : "Iniciar"} {sprint.nome}
+          </DialogTitle>
+          <DialogDescription>
+            {reabrindo
+              ? "Redefinir as colunas apaga o quadro atual desta sprint, e os cards dela vão junto."
+              : "Agora que o escopo do ciclo está claro, nomeie as etapas por onde os cards vão passar."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2 flex-1 min-h-0 overflow-y-auto px-1 py-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Colunas do quadro</Label>
+            <span className="text-[10.5px] text-muted-foreground">a última conclui o card</span>
+          </div>
+          <ConstrutorLinhas
+            linhas={cols} setLinhas={setCols} comCor
+            placeholder="Nome da etapa" placeholderUltima="Nome da etapa final"
+            rodape="Adicionar coluna"
+          />
+        </div>
+
+        <DialogFooter className="shrink-0 gap-2 pt-3">
+          <Button variant="ghost" onClick={onClose} disabled={salvando}>Cancelar</Button>
+          <Button onClick={iniciar} disabled={salvando || !preenchidas.length}>
+            {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
+            {reabrindo ? "Refazer quadro" : "Iniciar sprint"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -445,6 +545,10 @@ export default function Projetos() {
   const [rascunho, setRascunho] = useState("");
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
+  const [sprintAberta, setSprintAberta] = useState<string | null>(null);
+  const [iniciarSprint, setIniciarSprint] = useState<{ sprint: Sprint; reabrindo: boolean } | null>(null);
+  const [novaSprintAberta, setNovaSprintAberta] = useState(false);
+  const [nomeNovaSprint, setNomeNovaSprint] = useState("");
   const [busca, setBusca] = useState("");
   const [verArquivados, setVerArquivados] = useState(false);
 
@@ -468,6 +572,15 @@ export default function Projetos() {
     },
   });
   const projetos = projetosQ.data || [];
+
+  const sprintsQ = useQuery({
+    queryKey: ["projeto_sprints"],
+    queryFn: async (): Promise<Sprint[]> => {
+      const { data } = await (supabase.from("projeto_sprints" as never) as never as any)
+        .select("*").order("ordem");
+      return (data || []) as Sprint[];
+    },
+  });
 
   const colunasQ = useQuery({
     queryKey: ["projeto_colunas"],
@@ -495,7 +608,9 @@ export default function Projetos() {
   });
   const colunas = colunasQ.data || [];
   const cards = cardsQ.data || [];
+  const sprints = sprintsQ.data || [];
   const envolvidos = envolvidosQ.data || [];
+  const sprintsDe = (projetoId: string) => sprints.filter((x) => x.projeto_id === projetoId);
   const envolvidosDe = (projetoId: string) =>
     envolvidos.filter((e) => e.projeto_id === projetoId)
       .map((e) => perfis.find((pf) => pf.id === e.user_id))
@@ -506,6 +621,7 @@ export default function Projetos() {
     qc.invalidateQueries({ queryKey: ["projeto_colunas"] });
     qc.invalidateQueries({ queryKey: ["projeto_cards"] });
     qc.invalidateQueries({ queryKey: ["projeto_envolvidos"] });
+    qc.invalidateQueries({ queryKey: ["projeto_sprints"] });
   };
 
   // Progresso por projeto = cards concluídos / total.
@@ -546,7 +662,7 @@ export default function Projetos() {
     else qc.invalidateQueries({ queryKey: ["projeto_cards"] });
   };
 
-  const criarCard = async (projetoId: string, colunaId: string) => {
+  const criarCard = async (projetoId: string, sprintId: string, colunaId: string) => {
     const t = rascunho.trim();
     if (!t) { setNovoEmCol(null); return; }
     const ordem = cards.filter((c) => c.coluna_id === colunaId).length;
@@ -554,13 +670,14 @@ export default function Projetos() {
     // ida-e-volta com o banco. O id provisório é trocado no refetch.
     const tmp = `tmp-${Date.now()}`;
     qc.setQueryData<Card[]>(["projeto_cards"], (old) => [...(old || []), {
-      id: tmp, projeto_id: projetoId, coluna_id: colunaId, titulo: t, descricao: null,
+      id: tmp, projeto_id: projetoId, sprint_id: sprintId, coluna_id: colunaId, titulo: t, descricao: null,
       responsavel_id: null, prazo: null, prioridade: "normal", ordem,
       concluido_at: null, cliente_id: null, processo_id: null, chamado_id: null,
     } as Card]);
     setRascunho("");
     const { error } = await (supabase.from("projeto_cards" as never) as never as any).insert({
-      projeto_id: projetoId, coluna_id: colunaId, titulo: t, ordem, created_by: user?.id ?? null,
+      projeto_id: projetoId, sprint_id: sprintId, coluna_id: colunaId, titulo: t, ordem,
+      created_by: user?.id ?? null,
     });
     if (error) {
       qc.setQueryData<Card[]>(["projeto_cards"], (old) => (old || []).filter((c) => c.id !== tmp));
@@ -579,21 +696,47 @@ export default function Projetos() {
     qc.invalidateQueries({ queryKey: ["projetos"] });
   };
 
+  const criarSprint = async (projetoId: string) => {
+    const t = nomeNovaSprint.trim();
+    if (!t) { setNovaSprintAberta(false); return; }
+    const ordem = sprints.filter((x) => x.projeto_id === projetoId).length;
+    const { error } = await (supabase.from("projeto_sprints" as never) as never as any)
+      .insert({ projeto_id: projetoId, nome: t, ordem, created_by: user?.id ?? null });
+    if (error) { toast.error("Erro: " + error.message); return; }
+    setNomeNovaSprint(""); setNovaSprintAberta(false);
+    qc.invalidateQueries({ queryKey: ["projeto_sprints"] });
+  };
+
+  const concluirSprint = async (sp: Sprint) => {
+    const { error } = await (supabase.from("projeto_sprints" as never) as never as any)
+      .update({ status: "concluida", concluida_at: new Date().toISOString() }).eq("id", sp.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${sp.nome} concluída`);
+    qc.invalidateQueries({ queryKey: ["projeto_sprints"] });
+  };
+
   const projetoAberto = projetos.find((p) => p.id === aberto) || null;
 
   /* ══════════════ QUADRO ══════════════ */
   if (projetoAberto) {
-    const cols = colunas.filter((c) => c.projeto_id === projetoAberto.id).sort((a, b) => a.ordem - b.ordem);
     const P = paleta(projetoAberto.cor);
     const Icone = icone(projetoAberto.icone);
-    const s = stats.get(projetoAberto.id) || { total: 0, feitos: 0, atrasados: 0 };
-    const pct = s.total ? (s.feitos / s.total) * 100 : 0;
+    const doProjeto = sprints.filter((x) => x.projeto_id === projetoAberto.id).sort((a, b) => a.ordem - b.ordem);
+    // Abre na sprint ativa; se não houver, na primeira.
+    const spSel = doProjeto.find((x) => x.id === sprintAberta)
+      || doProjeto.find((x) => x.status === "ativa")
+      || doProjeto[0] || null;
+    const cols = spSel ? colunas.filter((c) => c.sprint_id === spSel.id).sort((a, b) => a.ordem - b.ordem) : [];
+    const cardsSprint = spSel ? cards.filter((c) => c.sprint_id === spSel.id) : [];
+    const feitos = cardsSprint.filter((c) => c.concluido_at).length;
+    const atrasados = cardsSprint.filter((c) => !c.concluido_at && c.prazo && c.prazo < new Date().toISOString().slice(0, 10)).length;
+    const pct = cardsSprint.length ? (feitos / cardsSprint.length) * 100 : 0;
 
     return (
       <div className="space-y-5">
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
           className="flex items-start gap-3 flex-wrap">
-          <button onClick={() => setAberto(null)}
+          <button onClick={() => { setAberto(null); setSprintAberta(null); }}
             className="h-9 w-9 rounded-xl grid place-items-center border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] transition-colors shrink-0">
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -601,135 +744,228 @@ export default function Projetos() {
             <Icone className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="font-display text-2xl font-medium tracking-tight truncate">{projetoAberto.nome}</h2>
+            <h2 className="font-display text-2xl font-medium tracking-tight">{projetoAberto.nome}</h2>
             <p className="text-[13px] text-muted-foreground line-clamp-2 leading-snug">
               {projetoAberto.descricao || "Sem descrição"}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {s.atrasados > 0 && (
+            {atrasados > 0 && (
               <span className="text-[11px] px-2 py-1 rounded-full ring-1 bg-rose-500/15 text-rose-400 ring-rose-500/30">
-                {s.atrasados} atrasado{s.atrasados > 1 ? "s" : ""}
+                {atrasados} atrasado{atrasados > 1 ? "s" : ""}
               </span>
             )}
-            <Anel pct={pct} cor={projetoAberto.cor} />
+            {spSel?.status === "ativa" && <Anel pct={pct} cor={projetoAberto.cor} />}
           </div>
         </motion.div>
 
-        <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
-          {cols.map((col, ci) => {
-            const doCol = cards.filter((c) => c.coluna_id === col.id).sort((a, b) => a.ordem - b.ordem);
-            const cp = paleta(col.cor);
-            const alvo = sobre === col.id;
+        {/* Faixa de sprints */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {doProjeto.map((sp) => {
+            const on = spSel?.id === sp.id;
+            const nCards = cards.filter((c) => c.sprint_id === sp.id).length;
             return (
-              <motion.div
-                key={col.id}
-                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: ci * 0.06, ease: EASE }}
-                onDragOver={(e) => { e.preventDefault(); setSobre(col.id); }}
-                onDragLeave={() => setSobre((s2) => (s2 === col.id ? null : s2))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const id = e.dataTransfer.getData("text/plain") || arrastando;
-                  if (id) moverCard(id, col.id);
-                  setSobre(null); setArrastando(null);
-                }}
+              <button key={sp.id} onClick={() => setSprintAberta(sp.id)}
                 className={cn(
-                  "w-[290px] shrink-0 rounded-2xl border p-3 transition-all duration-200",
-                  alvo ? cn(cp.borda, cp.suave, "ring-1", cp.anel) : "border-white/[0.07] bg-white/[0.02]",
-                )}
-              >
-                <div className="flex items-center gap-2 px-1 pb-2.5">
-                  <span className={cn("h-2 w-2 rounded-full shrink-0", cp.ponto)} />
-                  <span className="text-[12px] font-semibold uppercase tracking-wider truncate">{col.nome}</span>
-                  <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{doCol.length}</span>
-                </div>
-
-                <div className="space-y-2 min-h-[8px]">
-                  <AnimatePresence initial={false}>
-                    {doCol.map((c) => {
-                      const u = urgenciaPrazo(c.concluido_at ? null : c.prazo);
-                      const resp = nomeDe(c.responsavel_id);
-                      return (
-                        <motion.button
-                          key={c.id}
-                          layout
-                          initial={{ opacity: 0, y: -12, scale: 0.92 }}
-                          animate={{ opacity: arrastando === c.id ? 0.4 : 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, x: 24, scale: 0.9, transition: { duration: 0.16 } }}
-                          transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
-                          draggable
-                          onDragStart={(e) => { (e as any).dataTransfer?.setData("text/plain", c.id); setArrastando(c.id); }}
-                          onDragEnd={() => { setArrastando(null); setSobre(null); }}
-                          onClick={() => setCardAberto(c)}
-                          className={cn(
-                            "w-full text-left rounded-xl border border-white/[0.07] bg-white/[0.03] p-3",
-                            "hover:border-white/[0.18] hover:bg-white/[0.05] transition-colors cursor-grab active:cursor-grabbing",
-                            c.concluido_at && "opacity-60",
-                          )}
-                        >
-                          <p className={cn("text-[13px] leading-snug", c.concluido_at && "line-through decoration-white/30")}>
-                            {c.titulo}
-                          </p>
-                          {(u || resp || c.prioridade !== "normal") && (
-                            <div className="flex items-center gap-1.5 flex-wrap mt-2">
-                              {c.prioridade !== "normal" && (
-                                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full ring-1 inline-flex items-center gap-1", PRIORIDADES[c.prioridade].chip)}>
-                                  <Flag className="h-2.5 w-2.5" /> {PRIORIDADES[c.prioridade].rotulo}
-                                </span>
-                              )}
-                              {u && (
-                                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full ring-1 inline-flex items-center gap-1", u.chip)}>
-                                  <CalendarDays className="h-2.5 w-2.5" /> {u.label}
-                                </span>
-                              )}
-                              {resp && (
-                                <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 ml-auto">
-                                  <User className="h-2.5 w-2.5" /> {resp.split(" ")[0]}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </motion.button>
-                      );
-                    })}
-                  </AnimatePresence>
-                </div>
-
-                {novoEmCol === col.id ? (
-                  <motion.div className="mt-2"
-                    initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ ease: EASE, duration: 0.18 }}>
-                    <Textarea
-                      value={rascunho} onChange={(e) => setRascunho(e.target.value)} autoFocus rows={2}
-                      placeholder="O que precisa ser feito?"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); criarCard(projetoAberto.id, col.id); }
-                        if (e.key === "Escape") { setNovoEmCol(null); setRascunho(""); }
-                      }}
-                      className="resize-none text-[13px] bg-white/[0.03]"
-                    />
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <Button size="sm" className="h-7 text-[11px]" onClick={() => criarCard(projetoAberto.id, col.id)}>Adicionar</Button>
-                      <button onClick={() => { setNovoEmCol(null); setRascunho(""); }}
-                        className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05]">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <button onClick={() => { setNovoEmCol(col.id); setRascunho(""); }}
-                    className="w-full mt-2 py-2 rounded-lg text-[12px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground transition-colors inline-flex items-center justify-center gap-1.5">
-                    <Plus className="h-3.5 w-3.5" /> Adicionar card
-                  </button>
-                )}
-              </motion.div>
+                  "px-3 py-1.5 rounded-lg ring-1 text-[12px] transition-all duration-200 inline-flex items-center gap-2",
+                  on ? cn(P.chip, "ring-1") : "ring-white/[0.08] text-muted-foreground hover:bg-white/[0.04]",
+                )}>
+                <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
+                  sp.status === "ativa" ? P.ponto : sp.status === "concluida" ? "bg-emerald-400" : "bg-muted-foreground/40")} />
+                {sp.nome}
+                {sp.status === "planejada" && <span className="text-[10px] opacity-60">planejada</span>}
+                {sp.status === "concluida" && <span className="text-[10px] opacity-60">concluída</span>}
+                {sp.status === "ativa" && nCards > 0 && <span className="text-[10px] tabular-nums opacity-70">{nCards}</span>}
+              </button>
             );
           })}
+
+          {novaSprintAberta ? (
+            <div className="inline-flex items-center gap-1.5">
+              <Input value={nomeNovaSprint} onChange={(e) => setNomeNovaSprint(e.target.value)} autoFocus
+                placeholder="Nome da sprint" className="h-8 w-44 text-[12px]"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); criarSprint(projetoAberto.id); }
+                  if (e.key === "Escape") { setNovaSprintAberta(false); setNomeNovaSprint(""); }
+                }} />
+              <Button size="sm" className="h-8 text-[11px]" onClick={() => criarSprint(projetoAberto.id)}>Criar</Button>
+              <button onClick={() => { setNovaSprintAberta(false); setNomeNovaSprint(""); }}
+                className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05]">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setNovaSprintAberta(true)}
+              className="px-3 py-1.5 rounded-lg border border-dashed border-white/[0.12] text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors inline-flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5" /> Nova sprint
+            </button>
+          )}
         </div>
+
+        {/* Sprint sem quadro ainda */}
+        {spSel && cols.length === 0 ? (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
+            className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8">
+            <div className="flex items-center gap-3">
+              <span className={cn("h-2 w-2 rounded-full shrink-0", "bg-muted-foreground/40")} />
+              <h3 className="text-lg font-medium">{spSel.nome}</h3>
+              <span className="text-[11px] px-2 py-0.5 rounded-full ring-1 ring-white/10 text-muted-foreground">planejada</span>
+            </div>
+            <p className="text-[13px] text-muted-foreground mt-2 max-w-md">
+              Esta sprint ainda não tem quadro. Ao iniciar, você nomeia as etapas por onde os cards
+              vão passar; elas valem só para ela.
+            </p>
+            <Button className="mt-4" onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: false })}>
+              <Play className="h-4 w-4 mr-1.5" /> Iniciar sprint
+            </Button>
+          </motion.div>
+        ) : spSel ? (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">{spSel.nome}</span>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {feitos}/{cardsSprint.length} {cardsSprint.length === 1 ? "card" : "cards"}
+              </span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: true })}
+                  className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
+                  <LayoutGrid className="h-3 w-3" /> Refazer colunas
+                </button>
+                {spSel.status === "ativa" && (
+                  <button onClick={() => concluirSprint(spSel)}
+                    className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-400 transition-colors inline-flex items-center gap-1">
+                    <Check className="h-3 w-3" /> Concluir sprint
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 overflow-x-auto pb-4 -mx-1 px-1">
+              {cols.map((col, ci) => {
+                const doCol = cards.filter((c) => c.coluna_id === col.id).sort((a, b) => a.ordem - b.ordem);
+                const cp = paleta(col.cor);
+                const alvo = sobre === col.id;
+                return (
+                  <motion.div
+                    key={col.id}
+                    initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: ci * 0.06, ease: EASE }}
+                    onDragOver={(e) => { e.preventDefault(); setSobre(col.id); }}
+                    onDragLeave={() => setSobre((s2) => (s2 === col.id ? null : s2))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const id = e.dataTransfer.getData("text/plain") || arrastando;
+                      if (id) moverCard(id, col.id);
+                      setSobre(null); setArrastando(null);
+                    }}
+                    className={cn(
+                      "w-[290px] shrink-0 rounded-2xl border p-3 transition-all duration-200",
+                      alvo ? cn(cp.borda, cp.suave, "ring-1", cp.anel) : "border-white/[0.07] bg-white/[0.02]",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 px-1 pb-2.5">
+                      <span className={cn("h-2 w-2 rounded-full shrink-0", cp.ponto)} />
+                      <span className="text-[12px] font-semibold uppercase tracking-wider truncate">{col.nome}</span>
+                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{doCol.length}</span>
+                    </div>
+
+                    <div className="space-y-2 min-h-[8px]">
+                      <AnimatePresence initial={false}>
+                        {doCol.map((c) => {
+                          const u = urgenciaPrazo(c.concluido_at ? null : c.prazo);
+                          const resp = nomeDe(c.responsavel_id);
+                          return (
+                            <motion.button
+                              key={c.id}
+                              layout
+                              initial={{ opacity: 0, y: -12, scale: 0.92 }}
+                              animate={{ opacity: arrastando === c.id ? 0.4 : 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, x: 24, scale: 0.9, transition: { duration: 0.16 } }}
+                              transition={{ type: "spring", stiffness: 420, damping: 30, mass: 0.7 }}
+                              draggable
+                              onDragStart={(e) => { (e as any).dataTransfer?.setData("text/plain", c.id); setArrastando(c.id); }}
+                              onDragEnd={() => { setArrastando(null); setSobre(null); }}
+                              onClick={() => setCardAberto(c)}
+                              className={cn(
+                                "w-full text-left rounded-xl border border-white/[0.07] bg-white/[0.03] p-3",
+                                "hover:border-white/[0.18] hover:bg-white/[0.05] transition-colors cursor-grab active:cursor-grabbing",
+                                c.concluido_at && "opacity-60",
+                              )}
+                            >
+                              <p className={cn("text-[13px] leading-snug", c.concluido_at && "line-through decoration-white/30")}>
+                                {c.titulo}
+                              </p>
+                              {(u || resp || c.prioridade !== "normal") && (
+                                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                                  {c.prioridade !== "normal" && (
+                                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full ring-1 inline-flex items-center gap-1", PRIORIDADES[c.prioridade].chip)}>
+                                      <Flag className="h-2.5 w-2.5" /> {PRIORIDADES[c.prioridade].rotulo}
+                                    </span>
+                                  )}
+                                  {u && (
+                                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full ring-1 inline-flex items-center gap-1", u.chip)}>
+                                      <CalendarDays className="h-2.5 w-2.5" /> {u.label}
+                                    </span>
+                                  )}
+                                  {resp && (
+                                    <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 ml-auto">
+                                      <User className="h-2.5 w-2.5" /> {resp.split(" ")[0]}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </motion.button>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+
+                    {novoEmCol === col.id ? (
+                      <motion.div className="mt-2"
+                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+                        transition={{ ease: EASE, duration: 0.18 }}>
+                        <Textarea
+                          value={rascunho} onChange={(e) => setRascunho(e.target.value)} autoFocus rows={2}
+                          placeholder="O que precisa ser feito?"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); criarCard(projetoAberto.id, spSel.id, col.id); }
+                            if (e.key === "Escape") { setNovoEmCol(null); setRascunho(""); }
+                          }}
+                          className="resize-none text-[13px] bg-white/[0.03]"
+                        />
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <Button size="sm" className="h-7 text-[11px]" onClick={() => criarCard(projetoAberto.id, spSel.id, col.id)}>Adicionar</Button>
+                          <button onClick={() => { setNovoEmCol(null); setRascunho(""); }}
+                            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05]">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <button onClick={() => { setNovoEmCol(col.id); setRascunho(""); }}
+                        className="w-full mt-2 py-2 rounded-lg text-[12px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground transition-colors inline-flex items-center justify-center gap-1.5">
+                        <Plus className="h-3.5 w-3.5" /> Adicionar card
+                      </button>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-10">
+            Este projeto ainda não tem sprint. Crie a primeira acima.
+          </p>
+        )}
 
         <CardDialog card={cardAberto} colunas={cols} perfis={perfis}
           onClose={() => setCardAberto(null)} onSalvo={() => qc.invalidateQueries({ queryKey: ["projeto_cards"] })} />
+        <IniciarSprintDialog
+          sprint={iniciarSprint?.sprint ?? null}
+          reabrindo={!!iniciarSprint?.reabrindo}
+          onClose={() => setIniciarSprint(null)}
+          onIniciada={recarregar}
+        />
       </div>
     );
   }
@@ -822,6 +1058,9 @@ export default function Projetos() {
                     </div>
 
                     <div className="mt-3 flex items-center gap-2 flex-wrap text-[11px]">
+                      <span className="text-muted-foreground tabular-nums">
+                        {sprintsDe(p.id).length} sprint{sprintsDe(p.id).length === 1 ? "" : "s"}
+                      </span>
                       <span className="text-muted-foreground tabular-nums">
                         {s.feitos}/{s.total} {s.total === 1 ? "card" : "cards"}
                       </span>
