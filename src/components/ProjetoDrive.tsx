@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -96,10 +96,11 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
   const [linkInput, setLinkInput] = useState("");
   const [vinculando, setVinculando] = useState(false);
 
-  // Onde ficam todas as pastas de projeto. Só aparece quando a função avisa
-  // que ainda não sabe, e some pra sempre depois de respondida.
+  // Onde ficam todas as pastas de projeto. Só aparece quando nem a criação
+  // automática deu certo, e some pra sempre depois de respondida.
   const [pedeRaiz, setPedeRaiz] = useState<{ conta?: string } | null>(null);
   const [linkRaiz, setLinkRaiz] = useState("");
+  const [criandoAuto, setCriandoAuto] = useState(false);
 
   const atual = caminho[caminho.length - 1] || null;
 
@@ -123,6 +124,30 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
   useEffect(() => {
     if (folderId) { setCaminho([]); listar(folderId); }
   }, [folderId, listar]);
+
+  // A pasta do projeto se cria sozinha na primeira abertura, como a do
+  // pré-cliente. Abrir "Documentos" já é o pedido; um botão a mais seria só
+  // uma pergunta cuja resposta é sempre sim.
+  const criarAuto = useCallback(async () => {
+    setCriandoAuto(true);
+    try {
+      await chamar("criar_raiz", { projeto_id: projetoId });
+      onVinculada();
+    } catch (e) {
+      const err = e as ErroDrive;
+      if (err.precisaRaiz) setPedeRaiz({ conta: err.serviceAccount });
+      else toast.error(String(err?.message || e));
+    } finally { setCriandoAuto(false); }
+  }, [projetoId, onVinculada]);
+
+  // Uma tentativa por projeto: falhando, a tela oferece o caminho manual em
+  // vez de insistir em laço.
+  const tentado = useRef<string | null>(null);
+  useEffect(() => {
+    if (folderId || tentado.current === projetoId) return;
+    tentado.current = projetoId;
+    criarAuto();
+  }, [folderId, projetoId, criarAuto]);
 
   const recarregar = () => { if (atual) listar(atual.id, atual.nome, false); };
   const voltarPara = (i: number) => {
@@ -180,7 +205,9 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-semibold uppercase tracking-wider">Documentos</p>
-            <p className="text-[11px] text-muted-foreground">Sem pasta no Drive ainda</p>
+            <p className="text-[11px] text-muted-foreground">
+              {criandoAuto ? "Preparando a pasta no Drive" : "Sem pasta no Drive ainda"}
+            </p>
           </div>
           <button onClick={onFechar} title="Fechar"
             className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors shrink-0">
@@ -188,7 +215,18 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
           </button>
         </div>
 
-        {pedeRaiz ? (
+        {criandoAuto ? (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            transition={{ ease: EASE, duration: 0.2 }}
+            className="flex-1 grid place-items-center text-center px-2">
+            <div>
+              <FolderPlus className="h-6 w-6 text-primary/70 mx-auto animate-pulse" />
+              <p className="text-[12px] mt-2.5">Criando a pasta do projeto</p>
+              <p className="text-[11px] text-muted-foreground mt-1">Vai ficar dentro de PROJETOS - AW</p>
+            </div>
+          </motion.div>
+        ) : pedeRaiz ? (
           <motion.div
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
             transition={{ ease: EASE, duration: 0.22 }}

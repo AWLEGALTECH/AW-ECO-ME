@@ -11,13 +11,13 @@
 //   mover         { file_ids[], destino_id }     -> move arquivos entre pastas
 //   criar_raiz    { projeto_id }                 -> cria a pasta do projeto e grava nele
 //   vincular      { projeto_id, folder_url }     -> aponta pra uma pasta que já existe
-//   definir_raiz  { folder_url }                 -> guarda onde ficam todos os projetos
+//   definir_raiz  { folder_url }                 -> troca onde ficam todos os projetos
 //   raiz          {}                             -> lê a raiz configurada
 //
-// Secrets: GOOGLE_SA_JSON (mesmo das demais). A raiz dos projetos mora em
-// app_config.drive_projetos_folder_id, definida pela própria tela; o secret
-// DRIVE_PROJETOS_FOLDER_ID ainda é aceito e tem precedência, pra não quebrar
-// quem já o configurou.
+// Secrets: GOOGLE_SA_JSON (mesmo das demais). A raiz dos projetos se cria
+// sozinha (PROJETOS - AW, ao lado das pastas de cliente) e fica guardada em
+// app_config.drive_projetos_folder_id; o secret DRIVE_PROJETOS_FOLDER_ID
+// ainda é aceito e tem precedência.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
@@ -83,8 +83,9 @@ function extrairFolderId(v: string): string | null {
 }
 
 const CHAVE_RAIZ = "drive_projetos_folder_id";
+const NOME_RAIZ = "PROJETOS - AW";
 
-// O secret vence, se existir; senão vale o que foi definido pela tela.
+// O secret vence, se existir; senão vale o que já foi guardado.
 async function lerRaiz(sb: any): Promise<string | null> {
   const env = Deno.env.get("DRIVE_PROJETOS_FOLDER_ID");
   if (env) return env;
@@ -99,6 +100,52 @@ async function drive(token: string, url: string, init?: RequestInit) {
   });
   if (!r.ok) throw new Error(`Drive ${r.status}: ${await r.text()}`);
   return await r.json();
+}
+
+// A raiz se cria sozinha, como as pastas de pré-cliente. Ninguém devia ter que
+// colar link nenhum pra começar a usar o módulo.
+//
+// Onde criar: ao lado das pastas de cliente, que é a parte do Drive que a
+// service account comprovadamente administra. Se ela não puder escrever no
+// nível de cima, cria dentro da própria pasta de clientes: pior lugar, mas
+// funcionando. Procura antes de criar, senão duas chamadas simultâneas
+// deixariam duas pastas com o mesmo nome.
+async function garantirRaiz(sb: any, token: string): Promise<string> {
+  const jaTem = await lerRaiz(sb);
+  if (jaTem) return jaTem;
+
+  const clientes = Deno.env.get("DRIVE_CLIENTES_FOLDER_ID")
+    || Deno.env.get("DRIVE_PRE_CLIENTES_FOLDER_ID")
+    || Deno.env.get("DRIVE_CLIENTES_EFETIVOS_FOLDER_ID");
+  if (!clientes) throw new Error("sem_referencia");
+
+  const candidatos: string[] = [];
+  try {
+    const meta = await drive(token, `${API}/${clientes}?fields=id,parents&${EXTRA}`);
+    for (const p of (meta.parents || [])) candidatos.push(p);
+  } catch { /* sem acesso ao nível de cima: sobra a própria pasta */ }
+  candidatos.push(clientes);
+
+  for (const pai of candidatos) {
+    try {
+      const q = encodeURIComponent(
+        `'${pai}' in parents and name = '${NOME_RAIZ}' and mimeType = '${PASTA}' and trashed = false`);
+      const achou = await drive(token, `${API}?q=${q}&fields=files(id,name)&${EXTRA}&pageSize=1`);
+      let id: string | undefined = achou.files?.[0]?.id;
+      if (!id) {
+        const nova = await drive(token, `${API}?${EXTRA}&fields=id,name,webViewLink`, {
+          method: "POST",
+          body: JSON.stringify({ name: NOME_RAIZ, mimeType: PASTA, parents: [pai] }),
+        });
+        id = nova.id;
+      }
+      await sb.from("app_config").upsert({
+        chave: CHAVE_RAIZ, valor: id, rotulo: NOME_RAIZ, atualizado_em: new Date().toISOString(),
+      }, { onConflict: "chave" });
+      return id!;
+    } catch { /* esse pai não aceita: tenta o próximo */ }
+  }
+  throw new Error("sem_permissao");
 }
 
 Deno.serve(async (req: Request) => {
@@ -202,11 +249,14 @@ Deno.serve(async (req: Request) => {
         return j({ ok: true, ja_existia: true, folder_id: proj.drive_folder_id, folder_url: proj.drive_folder_url });
       }
 
-      const raiz = await lerRaiz(sb);
-      if (!raiz) {
+      // Só cai no pedido manual se nem a criação automática der certo.
+      let raiz: string;
+      try {
+        raiz = await garantirRaiz(sb, token);
+      } catch {
         return j({
-          error: "Falta dizer onde ficam as pastas dos projetos",
-          dica: "Cole o link da pasta do Drive que guarda todos os projetos. Isso é pedido uma vez só.",
+          error: `Não consegui criar a pasta ${NOME_RAIZ} sozinho`,
+          dica: "Cole o link da pasta do Drive que vai guardar os projetos.",
           precisa_raiz: true,
           service_account: sa.client_email,
         }, 400);
@@ -258,9 +308,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── ONDE FICAM TODOS OS PROJETOS ─────────────────────────────────────
-    // Definida uma vez, pela tela. Confere o acesso antes de gravar, porque
-    // uma raiz que a service account não enxerga só falharia no projeto
-    // seguinte, longe de onde o erro foi cometido.
+    // Normalmente automática. Isso aqui é pra trocar de lugar, ou pro caso
+    // raro de a service account não poder criar sozinha. Confere o acesso
+    // antes de gravar, porque uma raiz que ela não enxerga só falharia no
+    // projeto seguinte, longe de onde o erro foi cometido.
     if (acao === "definir_raiz") {
       const id = extrairFolderId(String(body.folder_url || ""));
       if (!id) return j({ error: "Cole um link válido de pasta do Drive" }, 400);
