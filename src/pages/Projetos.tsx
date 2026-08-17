@@ -28,7 +28,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 interface Projeto {
   id: string; nome: string; descricao: string | null; cor: string; icone: string;
-  prazo: string | null; status: string; ordem: number;
+  status: string; ordem: number;
   created_at: string; concluido_at: string | null;
 }
 interface Sprint {
@@ -200,14 +200,13 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
   const [cor, setCor] = useState<string>("primary");
   const [ic, setIc] = useState<string>("Rocket");
   const [envolvidos, setEnvolvidos] = useState<string[]>([]);
-  const [prazo, setPrazo] = useState("");
   const [sprints, setSprints] = useState<ColunaDraft[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNome(""); setDescricao(""); setCor("primary"); setIc("Rocket");
-      setEnvolvidos(userId ? [userId] : []); setPrazo("");
+      setEnvolvidos(userId ? [userId] : []);
       setSprints([{ nome: "", cor: "primary" }]);
       setSalvando(false);
     }
@@ -226,7 +225,6 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
     setSalvando(true);
     const { error } = await (supabase.rpc as any)("fn_criar_projeto", {
       p_nome: nome.trim(), p_descricao: descricao.trim() || null, p_cor: cor, p_icone: ic,
-      p_prazo: prazo || null,
       p_sprints: preenchidas.map((c) => c.nome.trim()),
       p_envolvidos: envolvidos, p_user: userId,
     });
@@ -311,12 +309,6 @@ function NovoProjetoDialog({ open, onClose, onCriado, perfis, userId }: {
             <SeletorPessoas pessoas={perfis} selecionados={envolvidos} onToggle={toggleEnv} />
           </div>
 
-          <div className="space-y-1.5 sm:max-w-[15rem]">
-            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Prazo estipulado <span className="normal-case tracking-normal opacity-60">(opcional)</span>
-            </Label>
-            <CampoData valor={prazo} onChange={setPrazo} />
-          </div>
         </div>
 
         <DialogFooter className="shrink-0 gap-2 pt-3">
@@ -336,11 +328,13 @@ function IniciarSprintDialog({ sprint, reabrindo, onClose, onIniciada }: {
   sprint: Sprint | null; reabrindo: boolean; onClose: () => void; onIniciada: () => void;
 }) {
   const [cols, setCols] = useState<ColunaDraft[]>([]);
+  const [prazo, setPrazo] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     if (sprint) {
       setCols([{ nome: "", cor: "muted" }, { nome: "", cor: "primary" }, { nome: "", cor: "emerald" }]);
+      setPrazo(sprint.prazo || "");
       setSalvando(false);
     }
   }, [sprint?.id]);
@@ -354,6 +348,7 @@ function IniciarSprintDialog({ sprint, reabrindo, onClose, onIniciada }: {
     const { error } = await (supabase.rpc as any)("fn_iniciar_sprint", {
       p_sprint: sprint.id,
       p_colunas: preenchidas.map((c) => ({ nome: c.nome.trim(), cor: c.cor })),
+      p_prazo: prazo || null,
     });
     setSalvando(false);
     if (error) { toast.error("Não consegui iniciar: " + error.message); return; }
@@ -388,6 +383,13 @@ function IniciarSprintDialog({ sprint, reabrindo, onClose, onIniciada }: {
             placeholder="Nome da etapa" placeholderUltima="Nome da etapa final"
             rodape="Adicionar coluna"
           />
+
+          <div className="space-y-1.5 pt-2 sm:max-w-[15rem]">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Prazo da sprint <span className="normal-case tracking-normal opacity-60">(opcional)</span>
+            </Label>
+            <CampoData valor={prazo} onChange={setPrazo} />
+          </div>
         </div>
 
         <DialogFooter className="shrink-0 gap-2 pt-3">
@@ -776,6 +778,10 @@ export default function Projetos() {
                 {sp.status === "planejada" && <span className="text-[10px] opacity-60">planejada</span>}
                 {sp.status === "concluida" && <span className="text-[10px] opacity-60">concluída</span>}
                 {sp.status === "ativa" && nCards > 0 && <span className="text-[10px] tabular-nums opacity-70">{nCards}</span>}
+                {sp.status !== "concluida" && sp.prazo && (() => {
+                  const su = urgenciaPrazo(sp.prazo);
+                  return su ? <span className={cn("text-[10px] px-1.5 rounded-full ring-1", su.chip)}>{su.label}</span> : null;
+                })()}
               </button>
             );
           })}
@@ -810,6 +816,11 @@ export default function Projetos() {
               <span className={cn("h-2 w-2 rounded-full shrink-0", "bg-muted-foreground/40")} />
               <h3 className="text-lg font-medium">{spSel.nome}</h3>
               <span className="text-[11px] px-2 py-0.5 rounded-full ring-1 ring-white/10 text-muted-foreground">planejada</span>
+              {spSel.prazo && (
+                <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" /> {fmtDataCurta(spSel.prazo)}
+                </span>
+              )}
             </div>
             <p className="text-[13px] text-muted-foreground mt-2 max-w-md">
               Esta sprint ainda não tem quadro. Ao iniciar, você nomeia as etapas por onde os cards
@@ -826,6 +837,15 @@ export default function Projetos() {
               <span className="text-[11px] text-muted-foreground tabular-nums">
                 {feitos}/{cardsSprint.length} {cardsSprint.length === 1 ? "card" : "cards"}
               </span>
+              {spSel.prazo && (() => {
+                const su = urgenciaPrazo(spSel.status === "concluida" ? null : spSel.prazo);
+                return (
+                  <span className={cn("text-[11px] px-2 py-0.5 rounded-full ring-1 inline-flex items-center gap-1",
+                    su ? su.chip : "ring-white/10 text-muted-foreground")}>
+                    <CalendarDays className="h-3 w-3" /> {fmtDataCurta(spSel.prazo)}{su ? ` · ${su.label}` : ""}
+                  </span>
+                );
+              })()}
               <div className="ml-auto flex items-center gap-1">
                 <button onClick={() => setIniciarSprint({ sprint: spSel, reabrindo: true })}
                   className="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center gap-1">
@@ -1031,7 +1051,11 @@ export default function Projetos() {
               const Icone = icone(p.icone);
               const s = stats.get(p.id) || { total: 0, feitos: 0, atrasados: 0 };
               const pct = s.total ? (s.feitos / s.total) * 100 : 0;
-              const u = urgenciaPrazo(p.status === "concluido" ? null : p.prazo);
+              // Projeto não tem prazo; o sinal é a sprint aberta que vence antes.
+              const spPrazo = sprintsDe(p.id)
+                .filter((x) => x.status !== "concluida" && x.prazo)
+                .sort((a, b) => (a.prazo || "").localeCompare(b.prazo || ""))[0] || null;
+              const u = urgenciaPrazo(spPrazo?.prazo || null);
               const equipe = envolvidosDe(p.id);
               return (
                 <motion.div key={p.id} layout
@@ -1071,7 +1095,7 @@ export default function Projetos() {
                       )}
                       {u && (
                         <span className={cn("px-1.5 py-0.5 rounded-full ring-1 inline-flex items-center gap-1", u.chip)}>
-                          <CalendarDays className="h-2.5 w-2.5" /> {fmtDataCurta(p.prazo)}
+                          <CalendarDays className="h-2.5 w-2.5" /> {spPrazo?.nome}: {fmtDataCurta(spPrazo?.prazo)}
                         </span>
                       )}
                       {p.status === "pausado" && (
