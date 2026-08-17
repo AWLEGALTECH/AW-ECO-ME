@@ -1,19 +1,23 @@
 // projeto-drive
 //
-// Explorador de arquivos do projeto sobre o Google Drive. Uma função só, com
-// ações, porque todas compartilham o mesmo custo caro: montar o JWT da service
-// account e trocar por access token.
+// Leitor do Drive do projeto. Uma função só, com ações, porque todas
+// compartilham o mesmo custo caro: montar o JWT da service account e trocar
+// por access token.
+//
+// SÓ LÊ o conteúdo das pastas. Enviar arquivo, criar subpasta, renomear e
+// mover existiram e saíram: quem organiza a pasta é o Drive, que faz melhor e
+// é onde as pessoas já estão. Como esta função roda sem verify_jwt, cada ação
+// de escrita aqui era também uma porta aberta pra quem descobrisse a URL.
 //
 // Ações:
 //   listar        { folder_id }                  -> pastas e arquivos daquele nível
-//   criar_subpasta{ parent_id, nome }            -> cria subpasta
-//   upload        multipart: parent_id, arquivo  -> manda arquivo pro Drive
-//   renomear      { file_id, nome }              -> renomeia pasta ou arquivo
-//   mover         { file_ids[], destino_id }     -> move arquivos entre pastas
 //   criar_raiz    { projeto_id }                 -> cria a pasta do projeto e grava nele
 //   vincular      { projeto_id, folder_url }     -> aponta pra uma pasta que já existe
 //   definir_raiz  { folder_url }                 -> troca onde ficam todos os projetos
 //   raiz          {}                             -> lê a raiz configurada
+//
+// As quatro últimas escrevem, mas escrevem no VÍNCULO (qual pasta é de qual
+// projeto), nunca no conteúdo dela.
 //
 // Secrets: GOOGLE_SA_JSON (mesmo das demais). A raiz dos projetos se cria
 // sozinha (PROJETOS - AW, ao lado das pastas de cliente) e fica guardada em
@@ -39,8 +43,8 @@ async function importKey(pem: string): Promise<CryptoKey> {
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
 }
 
-// Escopo completo: mover e renomear arquivo que a service account não criou
-// exige mais que drive.file. Vale pro que estiver compartilhado com ela.
+// Escopo completo: ler pasta que a service account não criou exige mais que
+// drive.file. Vale pro que estiver compartilhado com ela.
 async function getToken(sa: ServiceAccount): Promise<string> {
   const key = await importKey(sa.private_key);
   const header: Header = { alg: "RS256", typ: "JWT" };
@@ -154,14 +158,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return j({ error: "Method not allowed" }, 405);
 
   try {
-    // Upload chega como multipart, o resto como JSON. Ler o corpo errado
-    // consome o stream e não dá segunda chance, então decide pelo content-type.
-    const multipart = (req.headers.get("content-type") || "").includes("multipart/form-data");
-    const form = multipart ? await req.formData() : null;
-    const body: any = form
-      ? { acao: String(form.get("acao") || ""), parent_id: String(form.get("parent_id") || "") }
-      : await req.json().catch(() => ({} as any));
-
+    const body: any = await req.json().catch(() => ({} as any));
     const acao = String(body.acao || "");
     if (!acao) return j({ error: "acao obrigatoria" }, 400);
 
@@ -185,120 +182,19 @@ Deno.serve(async (req: Request) => {
         `${API}?q=${q}&fields=${fields}&${EXTRA}&pageSize=500&orderBy=folder,name`);
 
       const itens = (data.files || []) as any[];
-      // Nome da pasta atual, pro cabeçalho e o caminho de volta. driveId diz
-      // se estamos numa unidade compartilhada, o que decide se a service
-      // account pode ou não subir arquivo aqui.
+      // Nome da pasta atual, pro cabeçalho e o caminho de volta.
       const meta = await drive(token,
-        `${API}/${folderId}?fields=id,name,parents,webViewLink,driveId&${EXTRA}`);
+        `${API}/${folderId}?fields=id,name,parents,webViewLink&${EXTRA}`);
 
       return j({
         ok: true,
         pasta: {
           id: meta.id, nome: meta.name, url: meta.webViewLink,
           pai: (meta.parents || [])[0] || null,
-          drive_id: meta.driveId || null,
         },
         pastas: itens.filter((f) => f.mimeType === PASTA),
         arquivos: itens.filter((f) => f.mimeType !== PASTA),
       });
-    }
-
-    // ── CRIAR SUBPASTA ───────────────────────────────────────────────────
-    if (acao === "criar_subpasta") {
-      const parentId = body.parent_id as string;
-      const nome = String(body.nome || "").trim();
-      if (!parentId || !nome) return j({ error: "parent_id e nome obrigatorios" }, 400);
-      const nova = await drive(token, `${API}?${EXTRA}&fields=id,name,webViewLink`, {
-        method: "POST",
-        body: JSON.stringify({ name: nome, mimeType: PASTA, parents: [parentId] }),
-      });
-      return j({ ok: true, pasta: nova });
-    }
-
-    // ── UPLOAD ───────────────────────────────────────────────────────────
-    // Multipart montado na mão: a API de upload do Drive quer metadados e
-    // bytes no mesmo corpo, e o Blob evita carregar o arquivo em memória
-    // como string.
-    if (acao === "upload") {
-      const parentId = body.parent_id as string;
-      const arquivo = form?.get("arquivo");
-      if (!parentId || !(arquivo instanceof File)) {
-        return j({ error: "parent_id e arquivo obrigatorios" }, 400);
-      }
-
-      const linha = `aw${crypto.randomUUID().replace(/-/g, "")}`;
-      const meta = JSON.stringify({ name: arquivo.name, parents: [parentId] });
-      const corpo = new Blob([
-        `--${linha}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`,
-        `--${linha}\r\nContent-Type: ${arquivo.type || "application/octet-stream"}\r\n\r\n`,
-        arquivo,
-        `\r\n--${linha}--`,
-      ]);
-
-      const r = await fetch(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
-        + "&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": `multipart/related; boundary=${linha}`,
-          },
-          body: corpo,
-        },
-      );
-      if (!r.ok) {
-        const detalhe = await r.text();
-        // Service account não tem cota de armazenamento própria: ela cria
-        // pastas em qualquer lugar, mas só consegue gravar bytes dentro de
-        // uma unidade compartilhada, onde o espaço é da organização.
-        if (detalhe.includes("storage quota")) {
-          return j({
-            error: "O Drive não deixa esta conta guardar arquivos aqui",
-            dica: `A pasta dos projetos precisa estar numa unidade compartilhada com ${sa.client_email} como Gerenciador de conteúdo.`,
-            sem_cota: true,
-            service_account: sa.client_email,
-          }, 403);
-        }
-        return j({ error: `Não consegui enviar ${arquivo.name}`, dica: detalhe.slice(0, 200) }, 502);
-      }
-      return j({ ok: true, arquivo: await r.json() });
-    }
-
-    // ── RENOMEAR ─────────────────────────────────────────────────────────
-    if (acao === "renomear") {
-      const fileId = body.file_id as string;
-      const nome = String(body.nome || "").trim();
-      if (!fileId || !nome) return j({ error: "file_id e nome obrigatorios" }, 400);
-      const upd = await drive(token, `${API}/${fileId}?${EXTRA}&fields=id,name`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: nome }),
-      });
-      return j({ ok: true, item: upd });
-    }
-
-    // ── MOVER ────────────────────────────────────────────────────────────
-    // O Drive move trocando `parents`: precisa saber de onde sai pra remover.
-    if (acao === "mover") {
-      const ids = (body.file_ids || []) as string[];
-      const destino = body.destino_id as string;
-      if (!ids.length || !destino) return j({ error: "file_ids e destino_id obrigatorios" }, 400);
-
-      let movidos = 0;
-      const erros: string[] = [];
-      for (const id of ids) {
-        try {
-          const meta = await drive(token, `${API}/${id}?fields=id,parents&${EXTRA}`);
-          const antigos = (meta.parents || []).join(",");
-          await drive(token,
-            `${API}/${id}?addParents=${destino}&removeParents=${encodeURIComponent(antigos)}&${EXTRA}&fields=id,parents`,
-            { method: "PATCH", body: JSON.stringify({}) });
-          movidos++;
-        } catch (e) {
-          erros.push(`${id}: ${String((e as Error)?.message || e)}`);
-        }
-      }
-      return j({ ok: erros.length === 0, movidos, erros });
     }
 
     // ── CRIAR A PASTA RAIZ DO PROJETO ────────────────────────────────────

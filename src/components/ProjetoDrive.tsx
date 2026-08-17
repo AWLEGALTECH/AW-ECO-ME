@@ -5,10 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Folder, FolderPlus, FolderOpen, ChevronRight, ChevronLeft, ExternalLink,
-  Loader2, Check, X, FileText, FileSpreadsheet, FileImage, FileVideo, File,
-  Presentation, FolderSymlink, Link2, RefreshCw, HardDrive, Pencil,
-  Upload, CornerLeftUp,
+  Folder, FolderOpen, ChevronRight, ExternalLink, Loader2, X,
+  FileText, FileSpreadsheet, FileImage, FileVideo, File, Presentation,
+  Link2, RefreshCw, HardDrive, CornerLeftUp, FolderPlus, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +70,18 @@ const chamar = async (acao: string, payload: Record<string, unknown>) => {
   return data;
 };
 
+/**
+ * Janela de leitura do Drive do projeto.
+ *
+ * Só navega e abre. Enviar arquivo, criar subpasta, renomear e mover saíram:
+ * quem organiza a pasta é o Drive, que faz isso melhor e é onde as pessoas já
+ * estão. Duplicar essas ações aqui só criava duas formas de fazer a mesma
+ * coisa, uma delas pior. O que o painel dá é o atalho: ver o que tem na pasta
+ * do projeto sem sair do quadro, e abrir o documento certo em um clique.
+ *
+ * A pasta do projeto continua nascendo sozinha, porque isso não é manipular
+ * conteúdo: é o vínculo entre o projeto e o lugar onde ele mora.
+ */
 export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVinculada, onFechar }: {
   projetoId: string;
   folderId: string | null;
@@ -87,30 +98,14 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const [novaPasta, setNovaPasta] = useState(false);
-  const [nomePasta, setNomePasta] = useState("");
-  const [sel, setSel] = useState<Set<string>>(new Set());
-  const [movendo, setMovendo] = useState(false);
-  const [renomeando, setRenomeando] = useState<string | null>(null);
-  const [nomeNovo, setNomeNovo] = useState("");
-
-  const [enviando, setEnviando] = useState<{ feito: number; total: number } | null>(null);
-  const [arrastando, setArrastando] = useState(false);
-  const inputArquivo = useRef<HTMLInputElement>(null);
-
-  // Id da unidade compartilhada, quando é uma. Fora dela a service account não
-  // tem cota de armazenamento: cria pasta, mas não grava arquivo. Melhor saber
-  // disso antes de mandar 20 MB pra receber 403 do outro lado.
-  const [unidade, setUnidade] = useState<string | null>(null);
-
   const [linkInput, setLinkInput] = useState("");
   const [vinculando, setVinculando] = useState(false);
+  const [criandoAuto, setCriandoAuto] = useState(false);
 
   // Onde ficam todas as pastas de projeto. Só aparece quando nem a criação
   // automática deu certo, e some pra sempre depois de respondida.
   const [pedeRaiz, setPedeRaiz] = useState<{ conta?: string } | null>(null);
   const [linkRaiz, setLinkRaiz] = useState("");
-  const [criandoAuto, setCriandoAuto] = useState(false);
 
   const atual = caminho[caminho.length - 1] || null;
 
@@ -120,11 +115,9 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
       const d = await chamar("listar", { folder_id: id });
       setPastas(d.pastas || []);
       setArquivos(d.arquivos || []);
-      setUnidade(d.pasta?.drive_id || null);
       setCaminho((old) => empilhar
         ? [...old, { id, nome: nome || d.pasta?.nome || "Pasta" }]
         : [{ id, nome: nome || d.pasta?.nome || "Documentos" }]);
-      setSel(new Set());
     } catch (e) {
       setErro(String((e as Error)?.message || e));
     } finally {
@@ -169,21 +162,19 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
 
   /* ── Sem pasta ainda ── */
   if (!folderId) {
-    const criar = async () => {
+    const vincular = async () => {
+      if (!linkInput.trim()) { toast.error("Cole o link da pasta."); return; }
       setVinculando(true);
       try {
-        await chamar("criar_raiz", { projeto_id: projetoId });
-        toast.success("Pasta criada no Drive");
+        const d = await chamar("vincular", { projeto_id: projetoId, folder_url: linkInput.trim() });
+        toast.success(`Pasta "${d.nome}" vinculada`);
+        setLinkInput("");
         onVinculada();
-      } catch (e) {
-        const err = e as ErroDrive;
-        if (err.precisaRaiz) setPedeRaiz({ conta: err.serviceAccount });
-        else toast.error(String(err?.message || e));
-      } finally { setVinculando(false); }
+      } catch (e) { toast.error(String((e as Error)?.message || e)); }
+      finally { setVinculando(false); }
     };
 
-    // Define a raiz e já emenda a criação da pasta: quem clicou em criar
-    // continua querendo criar, não configurar.
+    // Define a raiz e já emenda a criação da pasta do projeto.
     const salvarRaiz = async () => {
       if (!linkRaiz.trim()) { toast.error("Cole o link da pasta."); return; }
       setVinculando(true);
@@ -192,17 +183,6 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
         toast.success(`Projetos vão para "${d.nome}"`);
         setPedeRaiz(null); setLinkRaiz("");
         await chamar("criar_raiz", { projeto_id: projetoId });
-        onVinculada();
-      } catch (e) { toast.error(String((e as Error)?.message || e)); }
-      finally { setVinculando(false); }
-    };
-    const vincular = async () => {
-      if (!linkInput.trim()) { toast.error("Cole o link da pasta."); return; }
-      setVinculando(true);
-      try {
-        const d = await chamar("vincular", { projeto_id: projetoId, folder_url: linkInput.trim() });
-        toast.success(`Pasta "${d.nome}" vinculada`);
-        setLinkInput("");
         onVinculada();
       } catch (e) { toast.error(String((e as Error)?.message || e)); }
       finally { setVinculando(false); }
@@ -254,7 +234,7 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
             <div className="flex gap-1.5">
               <Button size="sm" className="flex-1" onClick={salvarRaiz} disabled={vinculando || !linkRaiz.trim()}>
                 {vinculando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
-                Salvar e criar
+                Salvar
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setPedeRaiz(null)} disabled={vinculando}>
                 Cancelar
@@ -262,115 +242,27 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
             </div>
             {pedeRaiz.conta && (
               <p className="text-[10.5px] text-muted-foreground/80 leading-snug break-all">
-                A pasta precisa estar compartilhada como Editor com{" "}
+                A pasta precisa estar compartilhada com{" "}
                 <span className="text-foreground/90">{pedeRaiz.conta}</span>
               </p>
             )}
           </motion.div>
         ) : (
-          <>
-            <Button size="sm" className="w-full" onClick={criar} disabled={vinculando}>
-              {vinculando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderPlus className="h-3.5 w-3.5 mr-1.5" />}
-              Criar pasta do projeto
+          <div className="space-y-1.5">
+            <Input value={linkInput} onChange={(e) => setLinkInput(e.target.value)}
+              placeholder="Cole o link de uma pasta do Drive"
+              className="h-8 text-[12px]"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); vincular(); } }} />
+            <Button size="sm" variant="outline" className="w-full" onClick={vincular} disabled={vinculando || !linkInput.trim()}>
+              <Link2 className="h-3.5 w-3.5 mr-1.5" /> Vincular pasta existente
             </Button>
-
-            <div className="flex items-center gap-2">
-              <span className="h-px flex-1 bg-border/60" />
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">ou</span>
-              <span className="h-px flex-1 bg-border/60" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Input value={linkInput} onChange={(e) => setLinkInput(e.target.value)}
-                placeholder="Cole o link de uma pasta do Drive"
-                className="h-8 text-[12px]"
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); vincular(); } }} />
-              <Button size="sm" variant="outline" className="w-full" onClick={vincular} disabled={vinculando || !linkInput.trim()}>
-                <Link2 className="h-3.5 w-3.5 mr-1.5" /> Vincular pasta existente
-              </Button>
-            </div>
-          </>
+          </div>
         )}
       </div>
     );
   }
 
   /* ── Explorador ── */
-  const criarSubpasta = async () => {
-    const n = nomePasta.trim();
-    if (!n || !atual) { setNovaPasta(false); return; }
-    try {
-      await chamar("criar_subpasta", { parent_id: atual.id, nome: n });
-      setNomePasta(""); setNovaPasta(false);
-      recarregar();
-    } catch (e) { toast.error(String((e as Error)?.message || e)); }
-  };
-
-  // Envio um a um, e não tudo de uma vez: o contador vira progresso de
-  // verdade e um arquivo grande não derruba os outros junto.
-  const avisoSemUnidade = () =>
-    toast.error(
-      "Esta pasta está no Meu Drive de alguém, e o sistema não tem espaço próprio lá",
-      { description: "Mova PROJETOS - AW para um Drive compartilhado e o envio passa a funcionar." },
-    );
-
-  const LIMITE_MB = 20;
-  const enviar = async (lista: File[]) => {
-    if (!atual || !lista.length) return;
-    if (!unidade) { avisoSemUnidade(); return; }
-    const grandes = lista.filter((f) => f.size > LIMITE_MB * 1048576);
-    const ok = lista.filter((f) => f.size <= LIMITE_MB * 1048576);
-    if (grandes.length) {
-      toast.error(`${grandes.length === 1 ? "Arquivo acima" : "Arquivos acima"} de ${LIMITE_MB} MB: mande direto pelo Drive`);
-    }
-    if (!ok.length) return;
-
-    setEnviando({ feito: 0, total: ok.length });
-    let enviados = 0;
-    const falhas: string[] = [];
-    for (const f of ok) {
-      const fd = new FormData();
-      fd.append("acao", "upload");
-      fd.append("parent_id", atual.id);
-      fd.append("arquivo", f);
-      const { data, error } = await supabase.functions.invoke("projeto-drive", { body: fd });
-      if (error || data?.error) falhas.push(f.name);
-      else enviados++;
-      setEnviando({ feito: enviados + falhas.length, total: ok.length });
-    }
-    setEnviando(null);
-
-    if (falhas.length) toast.error(`${falhas.length} de ${ok.length} não subiram: ${falhas.join(", ")}`);
-    else toast.success(`${enviados} ${enviados === 1 ? "arquivo enviado" : "arquivos enviados"}`);
-    if (enviados) recarregar();
-  };
-
-  const salvarNome = async (id: string) => {
-    const n = nomeNovo.trim();
-    setRenomeando(null);
-    if (!n) return;
-    try {
-      await chamar("renomear", { file_id: id, nome: n });
-      recarregar();
-    } catch (e) { toast.error(String((e as Error)?.message || e)); }
-  };
-
-  const moverPara = async (destinoId: string, destinoNome: string) => {
-    if (!sel.size) return;
-    setMovendo(true);
-    try {
-      const d = await chamar("mover", { file_ids: Array.from(sel), destino_id: destinoId });
-      if (d.erros?.length) toast.error(`${d.movidos} movidos, ${d.erros.length} falharam`);
-      else toast.success(`${d.movidos} ${d.movidos === 1 ? "arquivo movido" : "arquivos movidos"} para ${destinoNome}`);
-      setSel(new Set());
-      recarregar();
-    } catch (e) { toast.error(String((e as Error)?.message || e)); }
-    finally { setMovendo(false); }
-  };
-
-  const toggleSel = (id: string) =>
-    setSel((old) => { const n = new Set(old); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-
   const paiParaVoltar = caminho.length > 1 ? caminho[caminho.length - 2] : null;
 
   return (
@@ -389,7 +281,7 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
             <RefreshCw className={cn("h-3.5 w-3.5", carregando && "animate-spin")} />
           </button>
           {folderUrl && (
-            <a href={folderUrl} target="_blank" rel="noopener noreferrer" title="Abrir no Drive"
+            <a href={folderUrl} target="_blank" rel="noopener noreferrer" title="Abrir a pasta no Drive"
               className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -426,65 +318,8 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
         </div>
       </div>
 
-      {/* Barra de seleção */}
-      <AnimatePresence>
-        {sel.size > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-            transition={{ ease: EASE, duration: 0.18 }}
-            className="px-3 py-2 border-b border-primary/20 bg-primary/[0.06] shrink-0 overflow-hidden">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-primary font-medium">
-                {sel.size} {sel.size === 1 ? "selecionado" : "selecionados"}
-              </span>
-              <button onClick={() => setSel(new Set())}
-                className="text-[11px] text-muted-foreground hover:text-foreground ml-auto">
-                Limpar
-              </button>
-            </div>
-            <p className="text-[10.5px] text-muted-foreground mt-1.5">Mover para:</p>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {paiParaVoltar && (
-                <button onClick={() => moverPara(paiParaVoltar.id, paiParaVoltar.nome)} disabled={movendo}
-                  className="text-[10.5px] px-2 py-1 rounded-md ring-1 ring-white/[0.1] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground transition-colors inline-flex items-center gap-1">
-                  <ChevronLeft className="h-3 w-3" /> {paiParaVoltar.nome}
-                </button>
-              )}
-              {pastas.map((p) => (
-                <button key={p.id} onClick={() => moverPara(p.id, p.name)} disabled={movendo}
-                  className="text-[10.5px] px-2 py-1 rounded-md ring-1 ring-primary/25 bg-primary/10 text-primary hover:bg-primary/20 transition-colors inline-flex items-center gap-1 max-w-full">
-                  {movendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderSymlink className="h-3 w-3 shrink-0" />}
-                  <span className="truncate">{p.name}</span>
-                </button>
-              ))}
-              {!pastas.length && !paiParaVoltar && (
-                <span className="text-[10.5px] text-muted-foreground/70">Crie uma subpasta primeiro.</span>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Lista. Soltar arquivo em cima envia pra pasta aberta, que é o gesto
-          que a pessoa já tenta antes de procurar botão. */}
-      <div
-        className={cn("relative flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5",
-          arrastando && "ring-2 ring-inset ring-primary/50 bg-primary/[0.05]")}
-        onDragOver={(e) => { e.preventDefault(); if (!arrastando) setArrastando(true); }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setArrastando(false); }}
-        onDrop={(e) => {
-          e.preventDefault(); setArrastando(false);
-          const fs = Array.from(e.dataTransfer.files || []);
-          if (fs.length) enviar(fs);
-        }}>
-        {arrastando && (
-          <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
-            <div className="text-center">
-              <Upload className="h-6 w-6 text-primary mx-auto" />
-              <p className="text-[12px] text-primary mt-2">Solte para enviar</p>
-            </div>
-          </div>
-        )}
+      {/* Lista */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
         {erro ? (
           <div className="p-3 text-[11.5px] text-rose-300 leading-snug">{erro}</div>
         ) : carregando && !pastas.length && !arquivos.length ? (
@@ -495,84 +330,34 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
           <AnimatePresence initial={false}>
             {/* Pastas primeiro, como em qualquer explorador */}
             {pastas.map((p) => (
-              <motion.div key={p.id} layout
+              <motion.button key={p.id} layout
                 initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 transition={{ ease: EASE, duration: 0.16 }}
-                className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.05] transition-colors">
-                {renomeando === p.id ? (
-                  <>
-                    <Folder className="h-4 w-4 text-amber-400 shrink-0" />
-                    <Input value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} autoFocus
-                      onBlur={() => salvarNome(p.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); salvarNome(p.id); }
-                        if (e.key === "Escape") setRenomeando(null);
-                      }}
-                      className="h-6 text-[12px] px-1.5 flex-1" />
-                  </>
-                ) : (
-                  <>
-                    <button onClick={() => listar(p.id, p.name, true)}
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                      <Folder className="h-4 w-4 text-amber-400 shrink-0" />
-                      <span className="text-[12.5px] truncate">{p.name}</span>
-                    </button>
-                    <button onClick={() => { setRenomeando(p.id); setNomeNovo(p.name); }} title="Renomear"
-                      className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-white/[0.08] transition-all shrink-0">
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                  </>
-                )}
-              </motion.div>
+                onClick={() => listar(p.id, p.name, true)}
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/[0.05] transition-colors">
+                <Folder className="h-4 w-4 text-amber-400 shrink-0" />
+                <span className="text-[12.5px] truncate flex-1">{p.name}</span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+              </motion.button>
             ))}
 
-            {/* Arquivos */}
+            {/* Arquivos: clique abre no Drive, que é onde eles se editam */}
             {arquivos.map((f) => {
               const { Icon, cor } = iconeDe(f.mimeType);
-              const marcado = sel.has(f.id);
               const tam = fmtTam(f.size);
               return (
-                <motion.div key={f.id} layout
+                <motion.a key={f.id} layout
                   initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                   transition={{ ease: EASE, duration: 0.16 }}
-                  className={cn("group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors",
-                    marcado ? "bg-primary/10 ring-1 ring-primary/25" : "hover:bg-white/[0.05]")}>
-                  <button onClick={() => toggleSel(f.id)} title="Selecionar"
-                    className={cn("h-4 w-4 rounded-[4px] grid place-items-center shrink-0 transition-all",
-                      marcado ? "bg-primary text-primary-foreground" : "ring-1 ring-white/20 opacity-0 group-hover:opacity-100")}>
-                    {marcado && <Check className="h-2.5 w-2.5" />}
-                  </button>
-
-                  {renomeando === f.id ? (
-                    <>
-                      <Icon className={cn("h-4 w-4 shrink-0", cor)} />
-                      <Input value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} autoFocus
-                        onBlur={() => salvarNome(f.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); salvarNome(f.id); }
-                          if (e.key === "Escape") setRenomeando(null);
-                        }}
-                        className="h-6 text-[12px] px-1.5 flex-1" />
-                    </>
-                  ) : (
-                    <>
-                      <a href={f.webViewLink} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 flex-1 min-w-0">
-                        <Icon className={cn("h-4 w-4 shrink-0", cor)} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] truncate">{f.name}</span>
-                          {tam && <span className="block text-[10px] text-muted-foreground">{tam}</span>}
-                        </span>
-                      </a>
-                      <button onClick={() => { setRenomeando(f.id); setNomeNovo(f.name); }} title="Renomear"
-                        className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-white/[0.08] transition-all shrink-0">
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <ExternalLink className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                    </>
-                  )}
-                </motion.div>
+                  href={f.webViewLink} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.05] transition-colors">
+                  <Icon className={cn("h-4 w-4 shrink-0", cor)} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12.5px] truncate">{f.name}</span>
+                    {tam && <span className="block text-[10px] text-muted-foreground">{tam}</span>}
+                  </span>
+                  <ExternalLink className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                </motion.a>
               );
             })}
 
@@ -586,61 +371,15 @@ export function ProjetoDrive({ projetoId, folderId, folderUrl, corChip, onVincul
         )}
       </div>
 
-      {/* Rodapé */}
-      <div className="p-2 border-t border-white/[0.06] shrink-0">
-        {novaPasta ? (
-          <div className="flex items-center gap-1.5">
-            <Input value={nomePasta} onChange={(e) => setNomePasta(e.target.value)} autoFocus
-              placeholder="Nome da subpasta" className="h-7 text-[12px]"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); criarSubpasta(); }
-                if (e.key === "Escape") { setNovaPasta(false); setNomePasta(""); }
-              }} />
-            <button onClick={criarSubpasta}
-              className="h-7 w-7 grid place-items-center rounded-md bg-primary text-primary-foreground shrink-0">
-              <Check className="h-3.5 w-3.5" />
-            </button>
-            <button onClick={() => { setNovaPasta(false); setNomePasta(""); }}
-              className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-white/[0.06] shrink-0">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : enviando ? (
-          <div className="px-1 py-1">
-            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              Enviando {Math.min(enviando.feito + 1, enviando.total)} de {enviando.total}
-            </div>
-            <div className="h-1 mt-1.5 rounded-full bg-white/[0.08] overflow-hidden">
-              <motion.div
-                className="h-full bg-primary"
-                animate={{ width: `${(enviando.feito / enviando.total) * 100}%` }}
-                transition={{ ease: EASE, duration: 0.25 }} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1">
-            <input ref={inputArquivo} type="file" multiple className="hidden"
-              onChange={(e) => {
-                const fs = Array.from(e.target.files || []);
-                e.target.value = "";
-                if (fs.length) enviar(fs);
-              }} />
-            <button onClick={() => unidade ? inputArquivo.current?.click() : avisoSemUnidade()}
-              title={unidade ? "Enviar arquivos" : "Precisa de um Drive compartilhado"}
-              className={cn("flex-1 py-1.5 rounded-lg text-[12px] transition-colors inline-flex items-center justify-center gap-1.5",
-                unidade
-                  ? "text-primary ring-1 ring-primary/25 bg-primary/[0.08] hover:bg-primary/[0.14]"
-                  : "text-muted-foreground ring-1 ring-white/[0.08] hover:bg-white/[0.05]")}>
-              <Upload className="h-3.5 w-3.5" /> Enviar arquivos
-            </button>
-            <button onClick={() => setNovaPasta(true)} title="Nova subpasta"
-              className="h-[30px] w-[30px] grid place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.06] hover:text-foreground transition-colors shrink-0">
-              <FolderPlus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Rodapé: o painel só lê, e o Drive é onde se mexe */}
+      {folderUrl && (
+        <div className="p-2 border-t border-white/[0.06] shrink-0">
+          <a href={folderUrl} target="_blank" rel="noopener noreferrer"
+            className="w-full py-1.5 rounded-lg text-[12px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors inline-flex items-center justify-center gap-1.5">
+            <ExternalLink className="h-3.5 w-3.5" /> Gerenciar no Drive
+          </a>
+        </div>
+      )}
     </div>
   );
 }
