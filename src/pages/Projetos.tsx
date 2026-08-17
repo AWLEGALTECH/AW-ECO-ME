@@ -22,6 +22,7 @@ import { SeletorPessoas, AvataresPessoas } from "@/components/SeletorPessoas";
 import { CampoData } from "@/components/CampoData";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProjetoDrive } from "@/components/ProjetoDrive";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -29,6 +30,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 interface Projeto {
   id: string; nome: string; descricao: string | null; cor: string; icone: string;
   status: string; ordem: number;
+  drive_folder_id: string | null; drive_folder_url: string | null;
   created_at: string; concluido_at: string | null;
 }
 interface Sprint {
@@ -1079,6 +1081,23 @@ export default function Projetos() {
           )}
         </div>
 
+        {/* Conteúdo: documentação do projeto à esquerda, sprint à direita. A
+            barra do Drive é do PROJETO, então não muda ao trocar de sprint. */}
+        <div className="grid grid-cols-1 xl:grid-cols-[19rem_minmax(0,1fr)] gap-4 items-start">
+          <motion.aside
+            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
+            transition={{ ease: EASE, delay: 0.05 }}
+            className="xl:sticky xl:top-4">
+            <ProjetoDrive
+              projetoId={projetoAberto.id}
+              folderId={projetoAberto.drive_folder_id}
+              folderUrl={projetoAberto.drive_folder_url}
+              corChip={P.chip}
+              onVinculada={() => qc.invalidateQueries({ queryKey: ["projetos"] })}
+            />
+          </motion.aside>
+
+          <div className="min-w-0 space-y-4">
         {/* Sprint sem quadro ainda */}
         {spSel && cols.length === 0 ? (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}
@@ -1290,6 +1309,9 @@ export default function Projetos() {
             Este projeto ainda não tem sprint. Crie a primeira acima.
           </p>
         )}
+
+          </div>
+        </div>
 
         <CardDialog card={cardAberto} colunas={cols} perfis={perfis}
           onClose={() => setCardAberto(null)} onSalvo={() => qc.invalidateQueries({ queryKey: ["projeto_cards"] })} />
