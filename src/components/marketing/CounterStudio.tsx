@@ -7,8 +7,9 @@ import { Play, Download, Film, Images, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { zipStore, type ArquivoZip } from "@/lib/zipStore";
 import {
-  CONFIG_PADRAO, FPS, desenharQuadro, formatarValor, totalDeQuadros, valorEm,
-  type ConfigCounter, type FormatoNumero,
+  CONFIG_PADRAO, FPS, FONTES, desenharQuadro, formatarValor, tDoQuadro, tamanhoDaFonte,
+  totalDeQuadros, valorEm,
+  type ConfigCounter, type FonteKey, type FormatoNumero,
 } from "@/lib/animacoes/counter";
 
 const FORMATOS: { k: FormatoNumero; label: string; exemplo: string }[] = [
@@ -85,18 +86,31 @@ export function CounterStudio() {
   // Parado, mostra o quadro final: é o número que interessa conferir.
   useEffect(() => { if (!tocando) pintar(1); }, [pintar, tocando]);
 
+  // Tamanho realmente aplicado, pra tela poder dizer quando ele foi reduzido.
+  const [medidas, setMedidas] = useState<{ px: number; reduzida: boolean } | null>(null);
+  useEffect(() => {
+    const ctx = canvasRef.current?.getContext("2d", { alpha: true });
+    if (!ctx) return;
+    const px = tamanhoDaFonte(ctx, cfg);
+    setMedidas({ px: Math.round(px), reduzida: px < cfg.altura * cfg.tamanhoFonte - 0.5 });
+  }, [cfg]);
+
+  // A prévia inclui o tempo parado no fim, senão ela mostraria uma animação
+  // mais curta do que o arquivo que vai ser baixado.
   useEffect(() => {
     if (!tocando) return;
     inicioRef.current = performance.now();
+    const msContagem = cfg.duracao * 1000;
+    const msTotal = msContagem + cfg.segurarFim * 1000;
     const passo = (agora: number) => {
-      const t = (agora - inicioRef.current) / (cfg.duracao * 1000);
-      pintar(Math.min(t, 1));
-      if (t < 1) rafRef.current = requestAnimationFrame(passo);
+      const decorrido = agora - inicioRef.current;
+      pintar(Math.min(decorrido / msContagem, 1));
+      if (decorrido < msTotal) rafRef.current = requestAnimationFrame(passo);
       else setTocando(false);
     };
     rafRef.current = requestAnimationFrame(passo);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [tocando, cfg.duracao, pintar]);
+  }, [tocando, cfg.duracao, cfg.segurarFim, pintar]);
 
   const baixar = (blob: Blob, nome: string) => {
     const url = URL.createObjectURL(blob);
@@ -119,10 +133,17 @@ export function CounterStudio() {
 
     const ctx = cv.getContext("2d", { alpha: true });
     if (!ctx) return;
-    setExportando({ feito: 0, total: totalDeQuadros(cfg) });
+    const total = totalDeQuadros(cfg);
+    setExportando({ feito: 0, total });
+
+    // Bitrate alto de propósito: o codificador do MediaRecorder trabalha em
+    // tempo real e, com folga curta, come as bordas do número e mancha o fundo
+    // chapado. Escala com a área, senão 1920x1080 receberia a mesma verba de um
+    // quadrado bem menor.
+    const taxa = Math.min(80_000_000, Math.round((cfg.largura * cfg.altura) / (1080 * 1080) * 40_000_000));
 
     const stream = cv.captureStream(FPS);
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: taxa });
     const pedacos: Blob[] = [];
     rec.ondataavailable = (e) => { if (e.data.size) pedacos.push(e.data); };
     const fim = new Promise<void>((r) => { rec.onstop = () => r(); });
@@ -130,20 +151,25 @@ export function CounterStudio() {
 
     // Toca em tempo real: o captureStream puxa o que estiver pintado, então a
     // gravação precisa acompanhar o relógio, não um laço apertado.
+    //
+    // O trecho parado no fim REDESENHA o mesmo quadro a cada volta, em vez de
+    // esperar com o canvas quieto. Canvas parado não emite quadro novo, então a
+    // gravação terminava alguns quadros antes do valor assentar e o vídeo
+    // fechava em 998.666 no lugar de 1.000.000.
+    const msContagem = cfg.duracao * 1000;
+    const msTotal = msContagem + cfg.segurarFim * 1000;
     const t0 = performance.now();
     await new Promise<void>((resolve) => {
       const passo = (agora: number) => {
-        const t = (agora - t0) / (cfg.duracao * 1000);
-        desenharQuadro(ctx, cfg, Math.min(t, 1));
-        setExportando({ feito: Math.round(Math.min(t, 1) * totalDeQuadros(cfg)), total: totalDeQuadros(cfg) });
-        if (t < 1) requestAnimationFrame(passo);
+        const decorrido = agora - t0;
+        const t = Math.min(decorrido / msContagem, 1);
+        desenharQuadro(ctx, cfg, t);
+        setExportando({ feito: Math.min(total, Math.round((decorrido / msTotal) * total)), total });
+        if (decorrido < msTotal) requestAnimationFrame(passo);
         else resolve();
       };
       requestAnimationFrame(passo);
     });
-    // Meio segundo a mais segurando o valor final: sem isso o vídeo corta no
-    // instante em que o número assenta, que é justamente o quadro que se usa.
-    await new Promise((r) => setTimeout(r, 500));
 
     rec.stop();
     await fim;
@@ -165,7 +191,7 @@ export function CounterStudio() {
     const arquivos: ArquivoZip[] = [];
     try {
       for (let i = 0; i < total; i++) {
-        desenharQuadro(ctx, cfg, total === 1 ? 1 : i / (total - 1));
+        desenharQuadro(ctx, cfg, tDoQuadro(i, cfg));
         const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, "image/png"));
         if (!blob) throw new Error("quadro vazio");
         arquivos.push({
@@ -268,6 +294,23 @@ export function CounterStudio() {
           </div>
         </Campo>
 
+        <Campo label="Fonte" dica="Impact e Georgia dependem do sistema; se faltar, cai na alternativa da lista.">
+          <div className="flex flex-wrap gap-1.5">
+            {FONTES.map((f) => (
+              <Pastilha key={f.k} ativo={cfg.fonte === f.k} onClick={() => mudar("fonte", f.k as FonteKey)}>
+                <span style={{ fontFamily: f.css }}>{f.nome}</span>
+              </Pastilha>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1.5 pt-1.5">
+            {[400, 700, 900].map((p) => (
+              <Pastilha key={p} ativo={cfg.peso === p} onClick={() => mudar("peso", p)}>
+                {p === 400 ? "Normal" : p === 700 ? "Negrito" : "Extra"}
+              </Pastilha>
+            ))}
+          </div>
+        </Campo>
+
         <Campo label="Cor do número">
           <div className="flex flex-wrap gap-1.5">
             {CORES_NUMERO.map((c) => (
@@ -315,15 +358,33 @@ export function CounterStudio() {
             onValueChange={([v]) => mudar("duracao", v)} />
         </Campo>
 
+        <Campo label={`Segurar no fim · ${cfg.segurarFim.toFixed(1)}s`}
+          dica="Tempo parado no valor final, pra dar onde cortar na edição.">
+          <Slider value={[cfg.segurarFim]} min={0} max={3} step={0.1} disabled={ocupado}
+            onValueChange={([v]) => mudar("segurarFim", v)} />
+        </Campo>
+
         <Campo label={`Tamanho do número · ${Math.round(cfg.tamanhoFonte * 100)}%`}
-          dica="Número muito largo encolhe sozinho pra não encostar na borda.">
+          dica="O tamanho é medido pelo valor final, então o número não encolhe ao ganhar dígitos.">
           <Slider value={[cfg.tamanhoFonte]} min={0.1} max={0.5} step={0.01} disabled={ocupado}
             onValueChange={([v]) => mudar("tamanhoFonte", v)} />
         </Campo>
 
-        <div className="text-[10.5px] text-muted-foreground pt-1 border-t border-white/[0.06]">
-          {totalDeQuadros(cfg)} quadros a {FPS} fps · valor no meio da animação:{" "}
-          <span className="text-foreground/80">{formatarValor(valorEm(0.5, cfg), cfg)}</span>
+        <div className="text-[10.5px] text-muted-foreground pt-1 border-t border-white/[0.06] space-y-1">
+          <p>
+            {totalDeQuadros(cfg)} quadros a {FPS} fps ·{" "}
+            {(cfg.duracao + cfg.segurarFim).toFixed(1)}s no total · valor na metade da contagem:{" "}
+            <span className="text-foreground/80">{formatarValor(valorEm(0.5, cfg), cfg)}</span>
+          </p>
+          {/* O tamanho pedido nem sempre é o entregue, e esconder isso faria
+              duas peças com o mesmo ajuste saírem com números de tamanhos
+              diferentes sem explicação. */}
+          {medidas && (
+            <p className={cn(medidas.reduzida && "text-amber-300/80")}>
+              Fonte final: {medidas.px}px
+              {medidas.reduzida && " · reduzida para caber. Baixe o tamanho até sumir este aviso se precisar que várias peças fiquem iguais."}
+            </p>
+          )}
         </div>
       </div>
     </div>
