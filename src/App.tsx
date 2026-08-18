@@ -29,6 +29,7 @@ import Chamados from "./pages/Chamados";
 import Projetos from "./pages/Projetos";
 import Spy from "./pages/Spy";
 import Sheets from "./pages/Sheets";
+import Marketing from "./pages/Marketing";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
 import AdminNotificacoes from "./pages/AdminNotificacoes";
@@ -111,6 +112,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="sheets" />}>
                   <Route path="/sheets" element={<PageErrorBoundary pageName="Sheets"><Sheets /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="marketing" />}>
+                  <Route path="/marketing" element={<PageErrorBoundary pageName="Marketing"><Marketing /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
