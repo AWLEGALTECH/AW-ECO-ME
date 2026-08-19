@@ -10,46 +10,18 @@ import { DonutChart } from "@/components/DonutChart";
 import {
   Trophy, Scale, Hammer, Coins, Search, Gavel, Milestone,
   CalendarDays, Loader2, Hash, ExternalLink, Layers, MapPin, BarChart3, CalendarRange,
+  Handshake, CalendarClock,
 } from "lucide-react";
 
 /* ─────────────────────────── tipos ───────────────────────────
    O Tracker é um REFLEXO do System: tudo vem da linha_temporal dos
    processos. Não há registro manual (trânsito/cumprimento) nem status
-   editável só aqui — a fase é lida de onde o processo realmente está. */
-type ResultadoSentenca = "procedente" | "parcial" | "improcedente";
-interface Decisao { resultado?: ResultadoSentenca; valor?: number; data?: string; honorarios?: number; tipoDecisao?: string }
-interface Execucao { valor?: number; data?: string }
-interface EtapaLT {
-  titulo?: string; status?: string;
-  sentenca?: Decisao; julgamento?: Decisao; execucao?: Execucao;
-}
-interface ProcRow {
-  id: string;
-  numero_processo: string | null;
-  materia: string | null;
-  comarca_uf: string | null;
-  fase_processual: string | null;
-  linha_temporal: EtapaLT[] | null;
-  cliente: { id: string; nome: string | null } | null;
-}
-
-/* Vitória derivada do System (processo com sentença procedente/parcial). */
-interface Vitoria {
-  id: string;
-  numero_processo: string | null;
-  materia: string | null;
-  comarca_uf: string | null;
-  cliente_nome: string | null;
-  valor: number;             // valor da condenação (1º grau)
-  data: string | null;       // data da sentença
-  faseAtual: string;         // etapa em que o processo se encontra hoje
-  emCumprimento: boolean;    // chegou ao cumprimento (valor quase certo)
-  valorCumprimento: number;  // valor executado (ou o mais recente conhecido)
-}
-
-const ETAPA_SENTENCA = "Sentença";
-const ETAPA_JULGAMENTO = "Julgamento em 2º grau";
-const ETAPA_CUMPRIMENTO = "Cumprimento de sentença";
+   editável só aqui — a fase é lida de onde o processo realmente está.
+   A conta de quanto cada processo vale vive em @/lib/tracker, testada à parte. */
+import {
+  derivarVitorias, ETAPA_SENTENCA, ETAPA_JULGAMENTO, ETAPA_CUMPRIMENTO, ETAPA_ACORDO,
+  type ProcRow, type Vitoria,
+} from "@/lib/tracker";
 
 /* ─── fases pós-vitória (só leitura, na ordem processual) ─── */
 const FASES_POS: { key: string; label: string; short: string; icon: any; dot: string; text: string; chip: string }[] = [
@@ -58,6 +30,7 @@ const FASES_POS: { key: string; label: string; short: string; icon: any; dot: st
   { key: ETAPA_JULGAMENTO,  label: "Julgamento em 2º grau",  short: "2º grau",     icon: Gavel,     dot: "bg-sky-400",     text: "text-sky-300",     chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
   { key: "Trânsito em julgado", label: "Trânsito em julgado", short: "Trânsito",   icon: Milestone, dot: "bg-fuchsia-400", text: "text-fuchsia-300", chip: "bg-fuchsia-400/10 text-fuchsia-300 border-fuchsia-400/25" },
   { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Trophy,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
+  { key: ETAPA_ACORDO,      label: "Acordo",                 short: "Acordo",      icon: Handshake, dot: "bg-amber-400",   text: "text-amber-300",   chip: "bg-amber-400/10 text-amber-300 border-amber-400/25" },
 ];
 const FASE_BY = Object.fromEntries(FASES_POS.map((f) => [f.key, f])) as Record<string, typeof FASES_POS[number]>;
 const faseInfo = (k: string) => FASE_BY[k] ?? FASES_POS[0];
@@ -71,6 +44,21 @@ const fmtData = (iso: string | null | undefined) => {
   if (!y || !m || !d) return "pré-sistema";
   return `${d}/${m}/${y}`;
 };
+
+/** Dias entre hoje e uma data ISO (negativo = já passou). */
+const diasAte = (iso: string | null | undefined): number | null => {
+  if (!iso) return null;
+  const [y, mo, d] = iso.split("-").map(Number);
+  if (!y || !mo || !d) return null;
+  const alvo = new Date(y, mo - 1, d); alvo.setHours(0, 0, 0, 0);
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  return Math.round((alvo.getTime() - hoje.getTime()) / 86400000);
+};
+const rotuloPrazo = (dias: number) =>
+  dias < 0 ? `atrasado há ${Math.abs(dias)} ${Math.abs(dias) === 1 ? "dia" : "dias"}`
+    : dias === 0 ? "é hoje"
+      : dias === 1 ? "amanhã"
+        : `em ${dias} dias`;
 
 /** Agrupa a cauda longa: mantém os `n` maiores e soma o resto em "Outras". */
 function topSlices(items: { name: string; value: number }[], n: number) {
@@ -88,10 +76,6 @@ function CountUp({ value, format, className }: { value: number; format?: (n: num
   }, [value]);
   return <span className={className}>{format ? format(disp) : intBR(disp)}</span>;
 }
-
-/* Extrai a etapa por título da linha temporal. */
-const acharEtapa = (lt: EtapaLT[] | null, titulo: string) => (lt ?? []).find((e) => e.titulo === titulo);
-const etapaAtual = (lt: EtapaLT[] | null) => (lt ?? []).find((e) => e.status === "atual")?.titulo ?? "";
 
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Tracker() {
@@ -116,42 +100,8 @@ export default function Tracker() {
 
   const processos = Array.isArray(procRes.data) ? procRes.data : [];
 
-  /* ── deriva as vitórias (sentença procedente/parcial) do System ── */
-  const vitorias = useMemo<Vitoria[]>(() => {
-    const out: Vitoria[] = [];
-    for (const p of processos) {
-      const lt = Array.isArray(p.linha_temporal) ? p.linha_temporal : null;
-      const sent = acharEtapa(lt, ETAPA_SENTENCA)?.sentenca;
-      if (!sent || sent.resultado === "improcedente") continue;
-      const valor = Number(sent.valor || 0);
-      if (valor <= 0) continue;
-
-      const fase = etapaAtual(lt) || ETAPA_SENTENCA;
-      const emCumprimento = fase === ETAPA_CUMPRIMENTO;
-      const exec = acharEtapa(lt, ETAPA_CUMPRIMENTO)?.execucao;
-      const julg = acharEtapa(lt, ETAPA_JULGAMENTO)?.julgamento;
-      // valor quase certo em cumprimento: executado > 2º grau procedente > sentença
-      const valorCumprimento = Number(
-        exec?.valor ||
-        (julg && julg.resultado !== "improcedente" ? julg.valor : 0) ||
-        valor
-      );
-
-      out.push({
-        id: p.id,
-        numero_processo: p.numero_processo,
-        materia: p.materia,
-        comarca_uf: p.comarca_uf,
-        cliente_nome: p.cliente?.nome ?? null,
-        valor,
-        data: sent.data ?? null,
-        faseAtual: fase,
-        emCumprimento,
-        valorCumprimento,
-      });
-    }
-    return out.sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
-  }, [processos]);
+  /* ── deriva as vitórias (sentença procedente/parcial ou acordo) do System ── */
+  const vitorias = useMemo<Vitoria[]>(() => derivarVitorias(processos), [processos]);
 
   /* ── cross-filtro: cada gráfico exclui a PRÓPRIA dimensão (pra mostrar todas
        as opções) e é filtrado pelas outras. Lista/KPIs aplicam o filtro cheio. */
@@ -183,14 +133,29 @@ export default function Tracker() {
 
   /* ── métricas principais (refletem busca + filtro) ── */
   const m = useMemo(() => {
-    const totalGanho = vBase.reduce((a, v) => a + v.valor, 0);
+    // Duas lentes que não se confundem: "ganho em 1º grau" é resultado de
+    // julgamento e conta TODA sentença procedente, inclusive as que depois
+    // viraram acordo; "fechado em acordo" conta o que foi negociado. Somar as
+    // duas não faz sentido, e é por isso que cada uma tem seu próprio card.
+    const comSentenca = vBase.filter((v) => v.valorSentenca > 0);
+    const totalGanho = comSentenca.reduce((a, v) => a + v.valorSentenca, 0);
+    const comAcordo = vBase.filter((v) => v.acordo);
+    const totalAcordo = comAcordo.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0);
     const emCumprimento = vBase.filter((v) => v.emCumprimento);
     const valorCumprimento = emCumprimento.reduce((a, v) => a + v.valorCumprimento, 0);
-    const ticket = vBase.length ? totalGanho / vBase.length : 0;
+    const ticket = vBase.length ? vBase.reduce((a, v) => a + v.valor, 0) / vBase.length : 0;
     const porFase: Record<string, { n: number; valor: number }> = {};
     for (const f of FASES_POS) porFase[f.key] = { n: 0, valor: 0 };
     for (const v of vBase) { const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
-    return { totalGanho, valorCumprimento, nCumprimento: emCumprimento.length, ticket, porFase, emCumprimento };
+    return {
+      totalGanho, nSentencas: comSentenca.length,
+      totalAcordo, nAcordos: comAcordo.length,
+      // Primeiro os que têm previsão, do mais próximo ao mais distante; os sem
+      // data caem no fim, que é onde uma cobrança sem prazo pertence.
+      acordos: [...comAcordo].sort((a, b) =>
+        (a.acordo?.previsao ?? "9999").localeCompare(b.acordo?.previsao ?? "9999")),
+      valorCumprimento, nCumprimento: emCumprimento.length, ticket, porFase, emCumprimento,
+    };
   }, [vBase]);
 
   // Distribuição por fase (card) — exclui o próprio filtro de fase.
@@ -231,7 +196,7 @@ export default function Tracker() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-medium tracking-tight">Tracker</h2>
-          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que já foi ganho e o valor quase certo em cumprimento.</p>
+          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que já foi ganho — em sentença ou em acordo — e o valor quase certo em cumprimento.</p>
         </div>
       </div>
 
@@ -253,14 +218,17 @@ export default function Tracker() {
           {/* ── KPIs: ganho em 1º grau + cumprimento voluntário (mesmo protagonismo) ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Kpi icon={Hammer} label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
-              sub={`${vitorias.length} ${vitorias.length === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
+              sub={`${m.nSentencas} ${m.nSentencas === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
             <Kpi icon={Trophy} label="Em cumprimento voluntário" value={m.valorCumprimento} accent="text-emerald-400" big
               border="ring-1 ring-emerald-500/25"
               sub={`${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo`} />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Kpi icon={Handshake} label="Fechado em acordo" value={m.totalAcordo} accent="text-amber-300"
+              border="ring-1 ring-amber-400/25"
+              sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado" : "acordos fechados"}`} />
             <Kpi icon={Coins} label="Ticket médio" value={m.ticket} accent="text-foreground"
-              sub="por sentença procedente" />
+              sub="por vitória (sentença ou acordo)" />
             <Kpi icon={Scale} label="Já transitou / em execução" value={m.porFase[ETAPA_CUMPRIMENTO].valor + (m.porFase["Trânsito em julgado"]?.valor || 0)} accent="text-foreground"
               sub="condenações rumo ao recebimento" />
           </div>
@@ -292,6 +260,46 @@ export default function Tracker() {
                       <span className="text-base font-semibold font-display tabular-nums text-emerald-400 shrink-0">{brl(v.valorCumprimento)}</span>
                     </a>
                   ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Acordos fechados: o que precisa ser cobrado, por data de previsão ── */}
+          {m.acordos.length > 0 && (
+            <Card className="ring-1 ring-amber-400/25">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Handshake className="h-4 w-4 text-amber-300" /> Acordos fechados
+                  <span className="ml-auto text-sm font-semibold text-amber-300 tabular-nums">{brl(m.totalAcordo)}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {m.acordos.map((v) => {
+                    const dias = diasAte(v.acordo?.previsao ?? null);
+                    return (
+                      <a
+                        key={v.id}
+                        href={`/processos/${v.id}`}
+                        className="group flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-3 hover:bg-amber-400/[0.09] transition-colors"
+                      >
+                        <span className="h-9 w-9 rounded-lg bg-amber-400/15 ring-1 ring-amber-400/30 grid place-items-center shrink-0">
+                          <Handshake className="h-4 w-4 text-amber-300" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
+                          <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                            <CalendarClock className="h-3 w-3 shrink-0" />
+                            {v.acordo?.previsao
+                              ? <>pagamento previsto para {fmtData(v.acordo.previsao)}{dias !== null && <span className={dias < 0 ? "text-red-400" : dias <= 7 ? "text-amber-300" : ""}>{" · "}{rotuloPrazo(dias)}</span>}</>
+                              : "previsão de pagamento a definir"}
+                          </p>
+                        </div>
+                        <span className="text-base font-semibold font-display tabular-nums text-amber-300 shrink-0">{brl(v.acordo?.valor ?? 0)}</span>
+                      </a>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -369,7 +377,7 @@ export default function Tracker() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                 {FASES_POS.map((f) => {
                   const b = porFaseCard[f.key] || { n: 0, valor: 0 };
                   const ativo = filtro?.campo === "fase" && filtro.valor === f.key;
@@ -414,7 +422,7 @@ export default function Tracker() {
               {lista.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   {vitorias.length === 0
-                    ? <>Nenhuma vitória ainda. Registre a sentença dentro do processo, no System.</>
+                    ? <>Nenhuma vitória ainda. Registre a sentença ou o acordo dentro do processo, no System.</>
                     : "Nenhuma vitória com esse filtro."}
                 </p>
               ) : (
@@ -435,6 +443,9 @@ export default function Tracker() {
                                 {v.emCumprimento && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-400/10 text-emerald-300 border-emerald-400/25">valor quase certo</span>
                                 )}
+                                {v.acordo && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-400/10 text-amber-300 border-amber-400/25">acordo</span>
+                                )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
                                 {v.numero_processo && (
@@ -452,6 +463,11 @@ export default function Tracker() {
                           </div>
                           <div className="text-right shrink-0">
                             <span className="block text-base font-semibold font-display tabular-nums">{brl(v.valor)}</span>
+                            {/* Fechou por menos (ou por mais) do que a condenação:
+                                mostra o de onde veio, senão o número parece errado. */}
+                            {v.acordo && v.valorSentenca > 0 && v.valorSentenca !== v.valor && (
+                              <span className="block text-[11px] text-muted-foreground tabular-nums">sentença {brl(v.valorSentenca)}</span>
+                            )}
                             {v.emCumprimento && v.valorCumprimento !== v.valor && (
                               <span className="block text-[11px] text-emerald-400 tabular-nums">exec. {brl(v.valorCumprimento)}</span>
                             )}

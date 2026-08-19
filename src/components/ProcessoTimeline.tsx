@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock, Handshake } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,11 +29,23 @@ export const STATUS_PROCESSUAIS: string[] = [
   "AG. APELAÇÃO", "AG. CONTRARRAZÕES", "AG. REMESSA AO 2º GRAU", "AG. DISTRIBUIÇÃO 2º GRAU",
   "AG. DESPACHO INICIAL 2º GRAU", "AG. MOV CONCLUSO DECISÃO", "AG. RECURSO INOMINADO",
   "AG. TJ SENTENÇA", "AG. TJ ACÓRDÃO", "AG. ACÓRDÃO", "JULGADO ACÓRDÃO", "AG. EMBARGOS",
-  "AG. CUMPRIMENTO SENTENÇA", "AG. PAGAMENTO VOLUNTÁRIO", "AG. PAGAMENTO ACORDO",
+  "AG. CUMPRIMENTO SENTENÇA", "AG. PAGAMENTO VOLUNTÁRIO",
+  "EM TRATATIVA DE ACORDO", "AG. PAGAMENTO ACORDO", "ARQUIVADO ACORDO",
   "AG. DECISÃO PENHORA",
   "AG. DECISÃO CS", "AG. EXPEDIÇÃO ALVARÁ", "ALVARÁ EXPEDIDO", "AG. MANIFESTAÇÃO",
   "AG. MANDADO SEGURANÇA",
   "COMPARECER AO FÓRUM", "AG. REAJUIZAMENTO", "REAJUIZAR", "SUSPENSO", "ARQUIVADO",
+];
+
+// Os três estados possíveis de um processo que virou acordo. Continuam na lista
+// geral acima (a planilha os usa), mas DENTRO da milestone Acordo são os únicos
+// oferecidos: acordo fechado não volta a aguardar contestação nem sentença, e
+// deixar a lista inteira à mão só convidaria a marcar um status que não existe
+// mais para aquele processo.
+export const STATUS_ACORDO: string[] = [
+  "EM TRATATIVA DE ACORDO",
+  "AG. PAGAMENTO ACORDO",
+  "ARQUIVADO ACORDO",
 ];
 
 export type TaskTipo = "acao" | "monitoramento" | "pendencia";
@@ -84,6 +96,14 @@ export interface ExecucaoEtapa {
   data: string;        // yyyy-mm-dd
   obs?: string;
 }
+// Acordo fechado com a parte. Registro da milestone "Acordo": é o que encerra o
+// caminho normal do processo e o valor que passa a valer no Tracker.
+export interface AcordoEtapa {
+  valor: number;              // valor do acordo
+  dataFechamento: string;     // yyyy-mm-dd
+  previsaoPagamento?: string; // yyyy-mm-dd — pode não existir ainda em tratativa
+  obs?: string;
+}
 
 export interface Etapa {
   id: string;
@@ -98,28 +118,36 @@ export interface Etapa {
   sentenca?: SentencaEtapa;   // preenchido na milestone "Sentença"
   julgamento?: SentencaEtapa; // preenchido na milestone "Julgamento em 2º grau"
   execucao?: ExecucaoEtapa;   // preenchido na milestone "Cumprimento de sentença"
+  acordo?: AcordoEtapa;       // preenchido na milestone "Acordo"
 }
 
 // Milestones com registro obrigatório de teor/valor antes de avançar.
 export const ETAPA_SENTENCA = "Sentença";
 export const ETAPA_JULGAMENTO = "Julgamento em 2º grau";
 export const ETAPA_CUMPRIMENTO = "Cumprimento de sentença";
+export const ETAPA_ACORDO = "Acordo";
 
 // ── Espinha canônica do processo ─────────────────────────────────────────────
 // Mesma ordem usada na geração da linha temporal. Serve para montar uma linha
 // padrão quando o processo ainda não tem uma, garantindo que TODO processo
 // mostre "Movimentações & demandas".
+//
+// "Acordo" fica no fim de propósito. Não é a etapa seguinte de nada: é o desvio
+// que encerra o caminho. Fechado o acordo em qualquer ponto — antes da
+// contestação ou já no cumprimento — o processo salta para cá e as etapas no
+// meio ficam marcadas como puladas, que é exatamente o que aconteceu com elas.
 export const ETAPAS_TITULOS = [
   "Distribuição da ação", "Decisão inicial (recebimento)", "Citação do réu",
   "Contestação", "Réplica", "Audiência de conciliação", "Instrução e provas",
   "Sentença", "Recurso", "Julgamento em 2º grau", "Trânsito em julgado",
-  "Cumprimento de sentença",
+  "Cumprimento de sentença", "Acordo",
 ] as const;
 
 const SECAO_ETAPA: Record<string, string> = {
   "Recurso": "Fase recursal",
   "Julgamento em 2º grau": "Fase recursal",
   "Cumprimento de sentença": "Cumprimento",
+  "Acordo": "Acordo",
 };
 
 // Deduz em qual etapa o processo se encontra a partir do status processual.
@@ -138,9 +166,12 @@ const IDX_POR_STATUS: Record<string, number> = {
   "AG. DISTRIBUIÇÃO 2º GRAU": 8, "AG. DESPACHO INICIAL 2º GRAU": 8, "AG. RECURSO INOMINADO": 8,
   "AG. MANDADO SEGURANÇA": 8,
   "AG. TJ ACÓRDÃO": 9, "AG. ACÓRDÃO": 9, "JULGADO ACÓRDÃO": 9, "AG. EMBARGOS": 9,
-  "AG. CUMPRIMENTO SENTENÇA": 11, "AG. PAGAMENTO VOLUNTÁRIO": 11, "AG. PAGAMENTO ACORDO": 11,
+  "AG. CUMPRIMENTO SENTENÇA": 11, "AG. PAGAMENTO VOLUNTÁRIO": 11,
   "AG. DECISÃO PENHORA": 11,
   "AG. DECISÃO CS": 11, "ALVARÁ EXPEDIDO": 11,
+  // Os três status de acordo apontam para a milestone Acordo, e não para o
+  // cumprimento: o processo que virou acordo está no acordo.
+  "EM TRATATIVA DE ACORDO": 12, "AG. PAGAMENTO ACORDO": 12, "ARQUIVADO ACORDO": 12,
 };
 
 // Monta uma linha temporal padrão (12 etapas) a partir do status atual do
@@ -397,9 +428,44 @@ function ExecucaoCard({ ex, onEdit }: { ex: ExecucaoEtapa; onEdit?: () => void }
   );
 }
 
+// Card do acordo. Mesma peça do valor executado — mesma moldura, mesmo peso de
+// valor — porque para quem lê é a mesma informação: quanto o processo vale
+// agora. Só o ícone muda, que é o que diz de onde o número veio.
+function AcordoCard({ ac, onEdit }: { ac: AcordoEtapa; onEdit?: () => void }) {
+  return (
+    <div className="mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4 shadow-[0_4px_24px_rgba(16,185,129,0.12)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 bg-emerald-500/15 text-emerald-400 ring-emerald-500/30">
+          <Handshake className="h-3.5 w-3.5" /> Acordo fechado
+        </span>
+        {onEdit && <button onClick={onEdit} className="text-[11px] text-muted-foreground hover:text-primary transition-colors">editar</button>}
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor do acordo</p>
+          <p className="text-2xl font-semibold text-emerald-400 tabular-nums mt-0.5">{brlFmt(ac.valor)}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Fechado em</p>
+          <p className="text-sm font-medium tabular-nums mt-0.5">{fmtPrazo(ac.dataFechamento)}</p>
+        </div>
+      </div>
+      <div className="mt-2.5 pt-2.5 border-t border-emerald-500/20 flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-[11px] text-muted-foreground">Previsão de pagamento:</span>
+        <span className={cn("text-[11px] font-medium tabular-nums", ac.previsaoPagamento ? "text-foreground" : "text-muted-foreground")}>
+          {ac.previsaoPagamento ? fmtPrazo(ac.previsaoPagamento) : "a definir"}
+        </span>
+      </div>
+      {ac.obs && <p className="text-[11px] text-muted-foreground mt-2 leading-snug">{ac.obs}</p>}
+    </div>
+  );
+}
+
 const DRAFT_VAZIO = { titulo: "", conteudo: "", prazo: "", status: "" };
 const SENT_VAZIA = { resultado: "procedente" as ResultadoSentenca, valor: "", data: "", honorarios: "", obs: "", tipoDecisao: "" as TipoDecisao2Grau | "" };
 const EXEC_VAZIA = { valor: "", data: "", obs: "" };
+const ACORDO_VAZIO = { valor: "", dataFechamento: "", previsaoPagamento: "", obs: "" };
 
 export function ProcessoTimeline({
   etapas,
@@ -502,6 +568,49 @@ export function ProcessoTimeline({
     dispararPop(Coins, "Valor executado registrado", "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30");
   };
 
+  // Registro do acordo (milestone Acordo). Mesmo desenho do valor executado: o
+  // valor é o que importa e é ele que chega ao Tracker.
+  const [acordoDialog, setAcordoDialog] = useState<string | null>(null);
+  const [acordoDraft, setAcordoDraft] = useState<{ valor: string; dataFechamento: string; previsaoPagamento: string; obs: string }>(ACORDO_VAZIO);
+  const abrirAcordo = (etapaId: string, existente?: AcordoEtapa) => {
+    setAcordoDialog(etapaId);
+    setAcordoDraft(existente
+      ? {
+          valor: existente.valor ? String(existente.valor).replace(".", ",") : "",
+          dataFechamento: existente.dataFechamento,
+          previsaoPagamento: existente.previsaoPagamento ?? "",
+          obs: existente.obs ?? "",
+        }
+      : { ...ACORDO_VAZIO });
+  };
+  const salvarAcordo = () => {
+    if (!acordoDialog) return;
+    const valorNum = parseMoney(acordoDraft.valor);
+    if (valorNum <= 0) { toast.error("Informe o valor do acordo."); return; }
+    if (!acordoDraft.dataFechamento) { toast.error("Informe a data do fechamento."); return; }
+    // Pagamento previsto para antes de o acordo existir é erro de digitação, e
+    // passaria batido virando "atrasado há 20 dias" no Tracker.
+    if (acordoDraft.previsaoPagamento && acordoDraft.previsaoPagamento < acordoDraft.dataFechamento) {
+      toast.error("A previsão de pagamento não pode ser anterior ao fechamento.");
+      return;
+    }
+    const ac: AcordoEtapa = {
+      valor: valorNum,
+      dataFechamento: acordoDraft.dataFechamento,
+      previsaoPagamento: acordoDraft.previsaoPagamento || undefined,
+      obs: acordoDraft.obs.trim() || undefined,
+    };
+    setEtapas((prev) => prev.map((e) => (
+      // Registrar o acordo já coloca o processo em tratativa, se ainda não há
+      // status: a milestone nunca fica sem um dos três.
+      e.id === acordoDialog
+        ? { ...e, acordo: ac, statusProcessual: e.statusProcessual && STATUS_ACORDO.includes(e.statusProcessual) ? e.statusProcessual : STATUS_ACORDO[0] }
+        : e
+    )));
+    setAcordoDialog(null);
+    dispararPop(Handshake, "Acordo registrado", "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30");
+  };
+
   const [tipoDialog, setTipoDialog] = useState<string | null>(null);
   const [detalhe, setDetalhe] = useState<{ etapaId: string; tipo: TaskTipo } | null>(null);
   const [draft, setDraft] = useState(DRAFT_VAZIO);
@@ -514,6 +623,9 @@ export function ProcessoTimeline({
   const [desfechoDraft, setDesfechoDraft] = useState<{ desfecho: TaskDesfecho | ""; obs: string }>({ desfecho: "", obs: "" });
 
   const concluidas = etapas.filter((e) => e.status === "concluida").length;
+  // Processos antigos, salvos antes da milestone existir, não têm etapa de
+  // acordo: aí o atalho simplesmente não aparece.
+  const etapaAcordo = etapas.find((e) => e.titulo === ETAPA_ACORDO);
 
   const setStatusEtapa = (id: string, v: string) =>
     setEtapas((prev) => prev.map((e) => (e.id === id ? { ...e, statusProcessual: v } : e)));
@@ -641,6 +753,8 @@ export function ProcessoTimeline({
   const opcoesAvanco = idxAvancar >= 0 ? etapas.slice(idxAvancar + 1) : [];
   const nomeEtapaAvancar = etapaAvancar?.titulo ?? "";
   const nomeAlvo = etapas.find((e) => e.id === avancoAlvo)?.titulo ?? "";
+  // Avançar PARA o acordo só pode terminar num dos três status do acordo.
+  const statusDoAlvo = nomeAlvo === ETAPA_ACORDO ? STATUS_ACORDO : STATUS_PROCESSUAIS;
   const tasksAbertas = (etapaAvancar?.tasks ?? []).filter((t) => !t.desfecho);
   const todasTratadas = tasksAbertas.every((t) => migrar.includes(t.id));
   const nPuladas = (() => {
@@ -649,12 +763,15 @@ export function ProcessoTimeline({
   })();
   const avancoDataDate = ymdToDate(avancoData);
 
-  const abrirAvanco = (etapaId: string) => {
+  // `alvoId` pré-seleciona um destino que não é o natural — é o que o botão
+  // "Fechamos acordo" usa para mandar o processo direto pro fim sem obrigar
+  // ninguém a caçar "Acordo" numa lista de doze etapas.
+  const abrirAvanco = (etapaId: string, alvoId?: string) => {
     const idx = etapas.findIndex((e) => e.id === etapaId);
     setAvancar(etapaId);
     setAvancoPasso("data");
     setAvancoData(dateToYmd(new Date()));
-    setAvancoAlvo(etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
+    setAvancoAlvo(alvoId ?? etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
     setAvancoStatus("");                         // status é obrigatório a cada avanço
     setMigrar([]);
   };
@@ -686,7 +803,7 @@ export function ProcessoTimeline({
   // Enquanto qualquer popup estiver aberto, forçamos o body clicável; ao fechar
   // tudo, devolvemos o controle ao Radix.
   useEffect(() => {
-    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog || !!decisaoDialog || !!execDialog;
+    const algumAberto = !!avancar || !!desfechoTask || !!detalhe || !!tipoDialog || !!decisaoDialog || !!execDialog || !!acordoDialog;
     if (!algumAberto) {
       document.body.style.pointerEvents = "";
       return;
@@ -695,7 +812,7 @@ export function ProcessoTimeline({
     soltar();
     const id = window.setInterval(soltar, 120);
     return () => window.clearInterval(id);
-  }, [avancar, desfechoTask, detalhe, tipoDialog, decisaoDialog, execDialog]);
+  }, [avancar, desfechoTask, detalhe, tipoDialog, decisaoDialog, execDialog, acordoDialog]);
 
   const aplicarAvanco = () => {
     if (!avancar || !avancoAlvo || !avancoData) { toast.error("Avanço: faltam dados (data/destino)."); return; }
@@ -922,6 +1039,28 @@ export function ProcessoTimeline({
                   <ExecucaoCard ex={e.execucao} onEdit={e.status === "atual" ? () => abrirExec(e.id, e.execucao) : undefined} />
                 )}
 
+                {/* Acordo registrado — card na milestone "Acordo" */}
+                {e.titulo === ETAPA_ACORDO && e.acordo && (
+                  <AcordoCard ac={e.acordo} onEdit={e.status === "atual" ? () => abrirAcordo(e.id, e.acordo) : undefined} />
+                )}
+
+                {/* Acordo sem valor ainda: convite reforçado a registrar */}
+                {e.titulo === ETAPA_ACORDO && e.status === "atual" && !e.acordo && (
+                  <button
+                    onClick={() => abrirAcordo(e.id)}
+                    className="mt-3 w-full flex items-center gap-3 rounded-2xl border border-dashed border-emerald-500/40 bg-emerald-500/[0.05] p-4 text-left hover:bg-emerald-500/[0.09] transition-colors"
+                  >
+                    <span className="h-10 w-10 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
+                      <Handshake className="h-5 w-5 text-emerald-400" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">Registrar acordo</span>
+                      <span className="block text-[11px] text-muted-foreground leading-snug">Valor fechado, data do fechamento e previsão de pagamento. É esse valor que vai para o Tracker.</span>
+                    </span>
+                    <Plus className="h-4 w-4 text-emerald-400 ml-auto shrink-0" />
+                  </button>
+                )}
+
                 {/* Cumprimento sem valor executado ainda: convite reforçado a registrar */}
                 {e.titulo === ETAPA_CUMPRIMENTO && e.status === "atual" && !e.execucao && (
                   <button
@@ -957,17 +1096,21 @@ export function ProcessoTimeline({
                         <span className="text-muted-foreground text-xs">Aguardando</span>
                         <SelectValue placeholder="definir status" />
                       </SelectTrigger>
+                      {/* No acordo, os três — e só os três. */}
                       <SelectContent>
-                        {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                        {(e.titulo === ETAPA_ACORDO ? STATUS_ACORDO : STATUS_PROCESSUAIS)
+                          .map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </motion.div>
                 )}
 
-                {/* Avançar etapa — Sentença e Julgamento 2º grau exigem o teor antes */}
-                {e.status === "atual" && (
+                {/* Avançar etapa — Sentença e Julgamento 2º grau exigem o teor antes.
+                    Na última etapa não há para onde avançar: o botão sairia e
+                    abriria um popup com a lista de destinos vazia. */}
+                {e.status === "atual" && !last && (
                   <motion.div
-                    className="mt-8 flex justify-center"
+                    className="mt-8 flex flex-wrap justify-center gap-2"
                     initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.65 : 0 }}
@@ -987,9 +1130,22 @@ export function ProcessoTimeline({
                         <p className="text-[11px] text-muted-foreground">Registre a decisão (monocrática ou acórdão) para poder avançar.</p>
                       </div>
                     ) : (
-                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
-                        <ArrowRight className="h-4 w-4" /> Avançar etapa
-                      </Button>
+                      <>
+                        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
+                          <ArrowRight className="h-4 w-4" /> Avançar etapa
+                        </Button>
+                        {/* Atalho do acordo: um clique manda o processo pro fim,
+                            de onde quer que ele esteja. */}
+                        {etapaAcordo && etapaAcordo.id !== e.id && (
+                          <Button
+                            variant="outline" size="sm"
+                            className="gap-1.5 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                            onClick={() => abrirAvanco(e.id, etapaAcordo.id)}
+                          >
+                            <Handshake className="h-4 w-4" /> Fechamos acordo
+                          </Button>
+                        )}
+                      </>
                     )}
                   </motion.div>
                 )}
@@ -1427,6 +1583,80 @@ export function ProcessoTimeline({
         </DialogContent>
       </Dialog>
 
+      {/* ── Popup: registrar acordo (milestone Acordo) ── */}
+      <Dialog open={!!acordoDialog} onOpenChange={(o) => !o && setAcordoDialog(null)}>
+        <DialogContent className={PREMIUM_DIALOG}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="h-7 w-7 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center">
+                <Handshake className="h-4 w-4 text-emerald-400" />
+              </span>
+              Acordo
+            </DialogTitle>
+            <DialogDescription>O que foi fechado com a parte. Esse valor passa a ser o valor do processo no Tracker.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Field label="Valor do acordo" hint="Total combinado com a parte.">
+              <Input inputMode="decimal" value={acordoDraft.valor} onChange={(e) => setAcordoDraft((d) => ({ ...d, valor: e.target.value }))} placeholder="0,00" />
+            </Field>
+
+            <Field label="Data do fechamento" hint="Quando o acordo foi fechado.">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn("w-full justify-start font-normal gap-2", !acordoDraft.dataFechamento && "text-muted-foreground")}>
+                    <CalendarDays className="h-4 w-4" />
+                    {ymdToDate(acordoDraft.dataFechamento) ? format(ymdToDate(acordoDraft.dataFechamento)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "Escolher data"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" locale={ptBR} selected={ymdToDate(acordoDraft.dataFechamento)} onSelect={(d) => setAcordoDraft((dr) => ({ ...dr, dataFechamento: d ? dateToYmd(d) : "" }))} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </Field>
+
+            <Field label="Previsão de pagamento (opcional)" hint="Quando o dinheiro deve entrar. Pode ficar em branco enquanto o acordo ainda está em tratativa.">
+              <div className="flex gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("flex-1 justify-start font-normal gap-2", !acordoDraft.previsaoPagamento && "text-muted-foreground")}>
+                      <CalendarClock className="h-4 w-4" />
+                      {ymdToDate(acordoDraft.previsaoPagamento) ? format(ymdToDate(acordoDraft.previsaoPagamento)!, "dd 'de' MMM 'de' yyyy", { locale: ptBR }) : "A definir"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    {/* Abre no mês do fechamento: a previsão quase sempre está
+                        perto dele, e não no mês em que se está digitando. */}
+                    <Calendar
+                      mode="single" locale={ptBR}
+                      selected={ymdToDate(acordoDraft.previsaoPagamento)}
+                      defaultMonth={ymdToDate(acordoDraft.previsaoPagamento) ?? ymdToDate(acordoDraft.dataFechamento)}
+                      disabled={ymdToDate(acordoDraft.dataFechamento) ? { before: ymdToDate(acordoDraft.dataFechamento)! } : undefined}
+                      onSelect={(d) => setAcordoDraft((dr) => ({ ...dr, previsaoPagamento: d ? dateToYmd(d) : "" }))}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                {acordoDraft.previsaoPagamento && (
+                  <Button variant="ghost" size="icon" title="Limpar previsão" onClick={() => setAcordoDraft((d) => ({ ...d, previsaoPagamento: "" }))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </Field>
+
+            <Field label="Observações (opcional)" hint="Parcelamento, condições, quem representou a parte, etc.">
+              <Textarea value={acordoDraft.obs} onChange={(e) => setAcordoDraft((d) => ({ ...d, obs: e.target.value }))} rows={3} placeholder="Sobre o acordo…" />
+            </Field>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAcordoDialog(null)}>Cancelar</Button>
+            <Button onClick={salvarAcordo}>Registrar acordo</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Popup: avançar etapa (modal próprio, no portal do body) ── */}
       {createPortal(avancar && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ pointerEvents: "auto" }}>
@@ -1618,7 +1848,7 @@ export function ProcessoTimeline({
                 <Select value={avancoStatus} onValueChange={setAvancoStatus}>
                   <SelectTrigger className="text-xs"><SelectValue placeholder="Obrigatório: escolha o novo status" /></SelectTrigger>
                   <SelectContent className="z-[130]">
-                    {STATUS_PROCESSUAIS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                    {statusDoAlvo.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </Field>
