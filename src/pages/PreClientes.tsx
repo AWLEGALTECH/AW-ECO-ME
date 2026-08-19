@@ -595,6 +595,9 @@ export default function PreClientes() {
       drive_folder_url: driveFolderUrl,
       origem: "writer",
       cadastrado_por: (pre as any).dados_completos?.cadastrado_por || "Adria Mota",
+      // Parceria marcada no kit — vira o parceiro do cliente e, daí, dos
+      // processos dele.
+      parceiro: (pre as any).dados_completos?.parceiro || null,
       // Réu(s) vindos do kit (causa_reus) ficam em pre.rubricas — grava
       // tambem em clientes.requerido pra aparecer no card da esteira.
       requerido: pre.rubricas && pre.rubricas.length ? pre.rubricas.join(", ") : null,
@@ -626,6 +629,9 @@ export default function PreClientes() {
           comarca: clientePayloadBase.comarca,
           uf: clientePayloadBase.uf,
           precisa_analise_extratos: true,
+          // Só sobrescreve o parceiro se este contrato trouxe um: contrato sem
+          // parceria não apaga a parceria que o cliente já tinha.
+          ...(clientePayloadBase.parceiro ? { parceiro: clientePayloadBase.parceiro } : {}),
         } as any)
         .eq("id", pre.cliente_id!)
         .select()
@@ -981,20 +987,21 @@ export default function PreClientes() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {pre.cpf_cnpj || "Sem CPF"} · {dataLabel}
             </p>
-            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-              {vol && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
-                  <User className="h-2.5 w-2.5" /> {vol}
-                </span>
-              )}
-              {/* Contrato novo de quem já é cliente: quem confirma precisa saber
-                  antes de clicar que ninguém será cadastrado de novo. */}
-              {pre.cliente_id && pre.status === "aguardando_assinatura" && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-cyan-300 bg-cyan-400/10 border border-cyan-400/25 rounded-full px-2 py-0.5">
+            {vol && (
+              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
+                <User className="h-2.5 w-2.5" /> {vol}
+              </span>
+            )}
+            {/* Contrato novo de quem já é cliente: quem confirma precisa saber
+                antes de clicar que ninguém será cadastrado de novo. Fica na
+                própria linha porque é sobre o contrato, não sobre quem fechou. */}
+            {pre.cliente_id && pre.status === "aguardando_assinatura" && (
+              <div className="mt-1.5">
+                <span className="inline-flex items-center gap-1 text-[10px] text-primary bg-primary/10 border border-primary/25 rounded-full px-2 py-0.5">
                   <Repeat2 className="h-2.5 w-2.5" /> cliente da base
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
           <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
             <meta.Icon className="h-3 w-3" />

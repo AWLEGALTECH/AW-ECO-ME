@@ -105,6 +105,31 @@ async function fetchAnaliseVinculadaMeta(demandaId) {
   }
 }
 
+// Parceiros já usados na base, pra sugerir no campo do kit. Vem de processos e
+// de clientes porque o mesmo parceiro pode ter sido gravado só num dos dois.
+// Deduplica ignorando caixa e acentos, mas devolve a grafia como está na base —
+// é ela que se quer repetir.
+async function fetchParceirosAW() {
+  const chave = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+  const vistos = new Map();
+  const urls = [
+    `${AW_SB_URL}/rest/v1/processos?select=parceiro&parceiro=not.is.null`,
+    `${AW_SB_URL}/rest/v1/clientes?select=parceiro&parceiro=not.is.null`,
+  ];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, { headers: _awHeaders() });
+      if (!resp.ok) { console.warn('[parceiros] fetch', resp.status); continue; }
+      for (const row of await resp.json()) {
+        const nome = (row && row.parceiro || '').trim();
+        if (!nome) continue;
+        if (!vistos.has(chave(nome))) vistos.set(chave(nome), nome);
+      }
+    } catch (e) { console.warn('[parceiros] erro', e); }
+  }
+  return [...vistos.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
 // A linha do banco como ela é, sem passar pelo formato do writer — que só
 // carrega os campos do formulário e descarta o resto, inclusive a pasta do
 // Drive de que o pré-cliente de cliente repetido precisa.

@@ -3401,3 +3401,29 @@ select:has(option[value=""]:checked) {
   text-align: center;
   margin: 0.75rem 0;
 }
+
+/* ── Parceria: caixa marcável + nome do parceiro com sugestão da base ──
+   Fica dentro do bloco Causa, ocupando a linha inteira, porque é sobre a
+   ORIGEM do caso — não é um dado do cliente nem dos honorários. */
+.kit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 0;
+}
+.kit-check input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--brand, #7c3aed);
+  cursor: pointer;
+  flex: none;
+}
+.kit-check > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text, #e6e6ee);
+}
+.kit-parceiro { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+.kit-parceiro small { font-size: 11px; color: var(--text-mute); }

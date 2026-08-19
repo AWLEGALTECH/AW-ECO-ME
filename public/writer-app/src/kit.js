@@ -298,6 +298,11 @@ function inicializarDadosKit() {
     causa_numero_processo: '',
     causa_motivo: '',
     causa_motivo_outro: '',
+    // Parceria: o caso veio de um parceiro. O nome é escrito à mão, mas com
+    // sugestão dos que já existem na base — parceiro grafado de dois jeitos
+    // vira dois parceiros no relatório, e aí ninguém sabe quanto cada um trouxe.
+    parceria: false,
+    parceiro_nome: '',
     // Honorários — campos dependem da modalidade
     honorarios_percentual_exito: '50',
     honorarios_valor_inicial: '',
@@ -583,6 +588,28 @@ function renderKitForm(view) {
                        placeholder="texto livre">
               </label>
             ` : ''}
+
+            <div class="kit-field span-3">
+              <label class="kit-check">
+                <input type="checkbox" ${d.parceria ? 'checked' : ''}
+                       onchange="onKitParceriaToggle(this.checked)">
+                <span>Caso de parceria</span>
+              </label>
+              ${d.parceria ? `
+                <div class="kit-parceiro">
+                  <input type="text" list="kit-parceiros-lista" value="${escapeAttr(d.parceiro_nome)}"
+                         oninput="onKitChange('parceiro_nome', this.value)"
+                         onchange="onKitChange('parceiro_nome', this.value)"
+                         placeholder="Nome do parceiro — comece a digitar">
+                  <datalist id="kit-parceiros-lista">
+                    ${(state.parceirosBase || []).map(p => `<option value="${escapeAttr(p)}"></option>`).join('')}
+                  </datalist>
+                  <small>${(state.parceirosBase || []).length
+                    ? 'Escolha um da lista pra não criar um parceiro novo por diferença de grafia.'
+                    : 'Nenhum parceiro cadastrado ainda — este será o primeiro.'}</small>
+                </div>
+              ` : ''}
+            </div>
           </div>
         </section>
 
@@ -738,6 +765,32 @@ function onKitCausaTipoChange(value) {
 function onKitMotivoChange(value) {
   state.dadosKit.causa_motivo = value;
   render();
+}
+
+function onKitParceriaToggle(marcado) {
+  state.dadosKit.parceria = !!marcado;
+  // Desmarcar limpa o nome: parceria desligada com nome preenchido gravaria um
+  // parceiro que a pessoa acabou de dizer que não existe.
+  if (!marcado) state.dadosKit.parceiro_nome = '';
+  else carregarParceirosBase();
+  render();
+}
+
+// Nomes de parceiro que já existem, pra sugerir no campo. Vem de processos e
+// clientes juntos porque o mesmo parceiro pode aparecer só num dos dois.
+async function carregarParceirosBase() {
+  if (state.parceirosBase) return;               // já carregado nesta sessão
+  state.parceirosBase = [];
+  try {
+    const nomes = typeof fetchParceirosAW === 'function' ? await fetchParceirosAW() : [];
+    state.parceirosBase = nomes;
+    // A busca é assíncrona e o formulário já foi desenhado com a lista vazia:
+    // sem este re-render, a sugestão só apareceria na próxima vez que algo
+    // redesenhasse a tela. A tela do formulário do kit chama-se 'pacoteKit'.
+    if (state.tela === 'pacoteKit' && typeof render === 'function') render();
+  } catch (e) {
+    console.warn('[kit] nao consegui listar parceiros:', e);
+  }
 }
 
 function onKitReuChange(idx, value) {

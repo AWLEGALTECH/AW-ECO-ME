@@ -65,6 +65,9 @@ function _montarPayloadPreCliente() {
         modalidade: { id: modalidade.id, nome: modalidade.nome },
         gerado_em: new Date().toISOString(),
         cadastrado_por: _autor || 'Adria Mota',
+        // Sobe pro topo do dados_completos porque quem confirma lê daqui, sem
+        // ter que saber a forma interna do kit.
+        parceiro: d.parceria && (d.parceiro_nome || '').trim() ? d.parceiro_nome.trim() : null,
       },
       status: 'aguardando_assinatura',
       origem: 'writer',
