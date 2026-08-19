@@ -204,6 +204,14 @@ const brlFmt = (n: number) => n.toLocaleString("pt-BR", { style: "currency", cur
 const parseMoney = (s: string) => parseFloat(String(s).replace(/\./g, "").replace(",", ".")) || 0;
 
 const EASE = [0.22, 1, 0.36, 1] as const;
+
+// Cascata do salto de etapas. Fechado um acordo lá na contestação, o processo
+// atropela oito etapas de uma vez — e oito X aparecendo juntos não contam
+// história nenhuma. Acendendo uma de cada vez, de cima pra baixo, o que se vê é
+// o fluxo da ação correndo até o acordo e abrindo lá.
+const PASSO_PULADA = 0.13;    // segundos entre uma etapa pulada e a seguinte
+const INICIO_CASCATA = 0.15;  // respiro depois do check da etapa concluída
+const fimDaCascata = (n: number) => (n ? INICIO_CASCATA + n * PASSO_PULADA : 0);
 const PREMIUM_DIALOG =
   "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] pointer-events-auto";
 
@@ -736,7 +744,14 @@ export function ProcessoTimeline({
   const [avancoStatus, setAvancoStatus] = useState("");          // novo status do processo (obrigatório)
   const [migrar, setMigrar] = useState<string[]>([]);           // tasks a levar p/ próxima
   const [resolverId, setResolverId] = useState<string | null>(null); // task resolvida inline
-  const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string } | null>(null);
+  // `puladas` guarda, de cima pra baixo, as etapas que o salto atropelou. É o
+  // que permite acender uma de cada vez em vez de estampar oito X de uma só
+  // vez, que é o que acontecia num salto grande (acordo, tipicamente) e não
+  // lia como movimento nenhum.
+  const [recemAvancado, setRecemAvancado] = useState<{ concluida: string; nova: string; puladas: string[] } | null>(null);
+  // A nova etapa só abre depois que a cascata termina de descer até ela — é o
+  // que amarra "a ação fecha" com "o acordo abre" num movimento só.
+  const cascata = fimDaCascata(recemAvancado?.puladas.length ?? 0);
   // Fase "fita": a linha longa (etapa ainda atual, com as tasks grandes) se
   // preenche por inteiro ANTES de recolher/trocar o estado.
   const [avancando, setAvancando] = useState<{ concluida: string; nova: string } | null>(null);
@@ -827,6 +842,9 @@ export function ProcessoTimeline({
     const statusSnap = avancoStatus;
     const idConcluida = avancar;
     const idNova = avancoAlvo;
+    // Na ordem da linha: é assim que a cascata vai acender.
+    const idsPulados = etapas.slice(idxAtual + 1, idxAlvo).map((e) => e.id);
+    const cascata = fimDaCascata(idsPulados.length);
 
     // 1) Fecha o modal e mostra o POP do check (com o fundo escuro/blur).
     setAvancar(null);
@@ -846,8 +864,10 @@ export function ProcessoTimeline({
           if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, statusProcessual: statusSnap || e.statusProcessual, tasks: [...(e.tasks ?? []), ...migradas] };
           return e;
         }));
-        setRecemAvancado({ concluida: idConcluida, nova: idNova });
-        window.setTimeout(() => setRecemAvancado(null), 1600);
+        setRecemAvancado({ concluida: idConcluida, nova: idNova, puladas: idsPulados });
+        // A limpeza espera a cascata: cortada no meio, as últimas etapas
+        // perderiam a animação e o X apareceria seco.
+        window.setTimeout(() => setRecemAvancado(null), 1600 + cascata * 1000);
       }, 1150);
     }, 1750);
   };
@@ -875,6 +895,9 @@ export function ProcessoTimeline({
           const last = i === etapas.length - 1;
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
           const temTasks = (e.tasks?.length ?? 0) > 0;
+          // Posição desta etapa na cascata do salto (-1 = não faz parte dele).
+          const iPulada = recemAvancado?.puladas.indexOf(e.id) ?? -1;
+          const acendeEm = INICIO_CASCATA + iPulada * PASSO_PULADA;
           // Datas anteriores ao sistema não têm data real: exibimos "pré-sistema"
           // sem inventar duração.
           const inicioValido = !!parseBR(e.inicio);
@@ -928,7 +951,23 @@ export function ProcessoTimeline({
                     )
                   ) : (
                     // concluída/pulada: linha estática (a fita já preencheu na fase 1)
-                    <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
+                    <>
+                      <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", lineCls)} />
+                      {/* No salto, um pulso desce por este trecho e some: o
+                          caminho foi percorrido, mas não foi cumprido — por
+                          isso acende e apaga, em vez de ficar aceso. */}
+                      {iPulada >= 0 && (
+                        <motion.div
+                          className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary origin-top"
+                          initial={{ scaleY: 0, opacity: 1 }}
+                          animate={{ scaleY: 1, opacity: 0 }}
+                          transition={{
+                            scaleY: { duration: PASSO_PULADA, ease: "linear", delay: acendeEm },
+                            opacity: { duration: 0.45, delay: acendeEm + PASSO_PULADA + 0.2 },
+                          }}
+                        />
+                      )}
+                    </>
                   )
                 )}
                 {e.status === "concluida" ? (
@@ -947,14 +986,30 @@ export function ProcessoTimeline({
                   <motion.span
                     initial={recemAvancado?.nova === e.id ? { scale: 0, opacity: 0 } : false}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.2 : 0 }}
+                    transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? cascata + 0.2 : 0 }}
                     className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-primary bg-card ring-4 ring-card"
                   >
                     <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
                   </motion.span>
                 ) : e.status === "pulada" ? (
                   <span title="Etapa pulada" className="relative z-10 mt-1 h-4 w-4 rounded-full bg-muted grid place-items-center ring-4 ring-card">
-                    <X className="h-2.5 w-2.5 text-muted-foreground" strokeWidth={3} />
+                    {/* Ondinha do pulso passando por aqui — some junto com ele. */}
+                    {iPulada >= 0 && (
+                      <motion.span
+                        className="absolute inset-0 rounded-full ring-2 ring-primary"
+                        initial={{ scale: 1, opacity: 0.85 }}
+                        animate={{ scale: 2.3, opacity: 0 }}
+                        transition={{ duration: 0.5, ease: "easeOut", delay: acendeEm + PASSO_PULADA }}
+                      />
+                    )}
+                    {/* O X carimba quando o pulso chega, não antes. */}
+                    <motion.span
+                      initial={iPulada >= 0 ? { scale: 0, opacity: 0, rotate: -120 } : false}
+                      animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                      transition={{ duration: 0.3, ease: EASE, delay: iPulada >= 0 ? acendeEm + PASSO_PULADA : 0 }}
+                    >
+                      <X className="h-2.5 w-2.5 text-muted-foreground" strokeWidth={3} />
+                    </motion.span>
                   </span>
                 ) : (
                   <span className="relative z-10 mt-1 h-4 w-4 rounded-full border-2 border-muted-foreground/30 bg-card ring-4 ring-card" />
@@ -996,7 +1051,7 @@ export function ProcessoTimeline({
                     className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5 overflow-hidden"
                     initial={recemAvancado?.nova === e.id ? { height: 0, opacity: 0 } : false}
                     animate={{ height: "auto", opacity: 1 }}
-                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? 0.35 : 0 }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: recemAvancado?.nova === e.id ? cascata + 0.35 : 0 }}
                   >
                     {(e.tasks ?? []).map((t, ti) => (
                       <TaskCard key={`${e.id}-${ti}-${t.id}`} task={t} onClick={() => abrirDesfecho(t, e.id, ti, e.titulo)} />
@@ -1084,7 +1139,7 @@ export function ProcessoTimeline({
                     className="mt-4 flex justify-center"
                     initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.55 : 0 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? cascata + 0.55 : 0 }}
                   >
                     <Select value={e.statusProcessual ?? ""} onValueChange={(v) => setStatusEtapa(e.id, v)}>
                       <SelectTrigger
@@ -1113,7 +1168,7 @@ export function ProcessoTimeline({
                     className="mt-8 flex flex-wrap justify-center gap-2"
                     initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? 0.65 : 0 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? cascata + 0.65 : 0 }}
                   >
                     {e.titulo === ETAPA_SENTENCA && !e.sentenca ? (
                       <div className="flex flex-col items-center gap-1.5">
