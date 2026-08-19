@@ -633,7 +633,6 @@ export function ProcessoTimeline({
   const concluidas = etapas.filter((e) => e.status === "concluida").length;
   // Processos antigos, salvos antes da milestone existir, não têm etapa de
   // acordo: aí o atalho simplesmente não aparece.
-  const etapaAcordo = etapas.find((e) => e.titulo === ETAPA_ACORDO);
 
   const setStatusEtapa = (id: string, v: string) =>
     setEtapas((prev) => prev.map((e) => (e.id === id ? { ...e, statusProcessual: v } : e)));
@@ -778,15 +777,12 @@ export function ProcessoTimeline({
   })();
   const avancoDataDate = ymdToDate(avancoData);
 
-  // `alvoId` pré-seleciona um destino que não é o natural — é o que o botão
-  // "Fechamos acordo" usa para mandar o processo direto pro fim sem obrigar
-  // ninguém a caçar "Acordo" numa lista de doze etapas.
-  const abrirAvanco = (etapaId: string, alvoId?: string) => {
+  const abrirAvanco = (etapaId: string) => {
     const idx = etapas.findIndex((e) => e.id === etapaId);
     setAvancar(etapaId);
     setAvancoPasso("data");
     setAvancoData(dateToYmd(new Date()));
-    setAvancoAlvo(alvoId ?? etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
+    setAvancoAlvo(etapas[idx + 1]?.id ?? "");   // pré-seleciona a natural
     setAvancoStatus("");                         // status é obrigatório a cada avanço
     setMigrar([]);
   };
@@ -1185,22 +1181,9 @@ export function ProcessoTimeline({
                         <p className="text-[11px] text-muted-foreground">Registre a decisão (monocrática ou acórdão) para poder avançar.</p>
                       </div>
                     ) : (
-                      <>
-                        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
-                          <ArrowRight className="h-4 w-4" /> Avançar etapa
-                        </Button>
-                        {/* Atalho do acordo: um clique manda o processo pro fim,
-                            de onde quer que ele esteja. */}
-                        {etapaAcordo && etapaAcordo.id !== e.id && (
-                          <Button
-                            variant="outline" size="sm"
-                            className="gap-1.5 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                            onClick={() => abrirAvanco(e.id, etapaAcordo.id)}
-                          >
-                            <Handshake className="h-4 w-4" /> Fechamos acordo
-                          </Button>
-                        )}
-                      </>
+                      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => abrirAvanco(e.id)}>
+                        <ArrowRight className="h-4 w-4" /> Avançar etapa
+                      </Button>
                     )}
                   </motion.div>
                 )}
