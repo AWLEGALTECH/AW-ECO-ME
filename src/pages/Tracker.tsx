@@ -10,7 +10,7 @@ import { DonutChart } from "@/components/DonutChart";
 import {
   Trophy, Scale, Hammer, Coins, Search, Gavel, Milestone,
   CalendarDays, Loader2, Hash, ExternalLink, Layers, MapPin, BarChart3, CalendarRange,
-  Handshake, CalendarClock,
+  Handshake, CalendarClock, CheckCircle2,
 } from "lucide-react";
 
 /* ─────────────────────────── tipos ───────────────────────────
@@ -20,6 +20,7 @@ import {
    A conta de quanto cada processo vale vive em @/lib/tracker, testada à parte. */
 import {
   derivarVitorias, ETAPA_SENTENCA, ETAPA_JULGAMENTO, ETAPA_CUMPRIMENTO, ETAPA_ACORDO,
+  ACORDO_TRATATIVA,
   type ProcRow, type Vitoria,
 } from "@/lib/tracker";
 
@@ -30,7 +31,7 @@ const FASES_POS: { key: string; label: string; short: string; icon: any; dot: st
   { key: ETAPA_JULGAMENTO,  label: "Julgamento em 2º grau",  short: "2º grau",     icon: Gavel,     dot: "bg-sky-400",     text: "text-sky-300",     chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
   { key: "Trânsito em julgado", label: "Trânsito em julgado", short: "Trânsito",   icon: Milestone, dot: "bg-fuchsia-400", text: "text-fuchsia-300", chip: "bg-fuchsia-400/10 text-fuchsia-300 border-fuchsia-400/25" },
   { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Trophy,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
-  { key: ETAPA_ACORDO,      label: "Acordo",                 short: "Acordo",      icon: Handshake, dot: "bg-amber-400",   text: "text-amber-300",   chip: "bg-amber-400/10 text-amber-300 border-amber-400/25" },
+  { key: ETAPA_ACORDO,      label: "Acordo",                 short: "Acordo",      icon: Handshake, dot: "bg-cyan-400",    text: "text-cyan-300",    chip: "bg-cyan-400/10 text-cyan-300 border-cyan-400/25" },
 ];
 const FASE_BY = Object.fromEntries(FASES_POS.map((f) => [f.key, f])) as Record<string, typeof FASES_POS[number]>;
 const faseInfo = (k: string) => FASE_BY[k] ?? FASES_POS[0];
@@ -147,12 +148,26 @@ export default function Tracker() {
     const porFase: Record<string, { n: number; valor: number }> = {};
     for (const f of FASES_POS) porFase[f.key] = { n: 0, valor: 0 };
     for (const v of vBase) { const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
+    // Dentro dos acordos, o que separa é se o dinheiro entrou. "Em tratativa"
+    // e "aguardando pagamento" são os dois lados de uma promessa que ainda não
+    // virou dinheiro; arquivado é a que virou.
+    const aReceber = comAcordo.filter((v) => !v.acordo?.pago);
+    const recebidos = comAcordo.filter((v) => v.acordo?.pago);
+    const emTratativa = aReceber.filter((v) => v.acordo?.status === ACORDO_TRATATIVA).length;
+
     return {
       totalGanho, nSentencas: comSentenca.length,
       totalAcordo, nAcordos: comAcordo.length,
-      // Primeiro os que têm previsão, do mais próximo ao mais distante; os sem
-      // data caem no fim, que é onde uma cobrança sem prazo pertence.
-      acordos: [...comAcordo].sort((a, b) =>
+      aReceberValor: aReceber.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0),
+      nAReceber: aReceber.length,
+      emTratativa,
+      recebidoValor: recebidos.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0),
+      nRecebidos: recebidos.length,
+      transitou: (porFase[ETAPA_CUMPRIMENTO]?.valor ?? 0) + (porFase["Trânsito em julgado"]?.valor ?? 0),
+      // Fila de cobrança: primeiro os que têm previsão, do mais próximo ao mais
+      // distante; os sem data caem no fim, que é onde uma cobrança sem prazo
+      // pertence.
+      aReceber: [...aReceber].sort((a, b) =>
         (a.acordo?.previsao ?? "9999").localeCompare(b.acordo?.previsao ?? "9999")),
       valorCumprimento, nCumprimento: emCumprimento.length, ticket, porFase, emCumprimento,
     };
@@ -216,21 +231,47 @@ export default function Tracker() {
           )}
 
           {/* ── KPIs: ganho em 1º grau + cumprimento voluntário (mesmo protagonismo) ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Kpi icon={Hammer} label="Total ganho em 1º grau" value={m.totalGanho} accent="text-primary" big
-              sub={`${m.nSentencas} ${m.nSentencas === 1 ? "sentença procedente" : "sentenças procedentes"}`} />
-            <Kpi icon={Trophy} label="Em cumprimento voluntário" value={m.valorCumprimento} accent="text-emerald-400" big
-              border="ring-1 ring-emerald-500/25"
-              sub={`${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo`} />
+          {/* ── Dois caminhos para o mesmo dinheiro, um de cada lado ──
+              Ganhar no julgamento e fechar um acordo são coisas diferentes, com
+              números que não se somam, e misturá-los numa fileira só fazia o
+              olho tentar comparar o que não é comparável. Cada grupo tem sua
+              cor: roxo é sentença, ciano é acordo. Verde não é grupo, é ESTADO
+              — vale nos dois lados e quer dizer a mesma coisa: dinheiro
+              praticamente garantido. */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Grupo
+              icone={Hammer} titulo="Sentenças" anel="ring-primary/25" tom="text-primary"
+              rotulo="Total ganho em 1º grau" valor={m.totalGanho}
+              sub={`${m.nSentencas} ${m.nSentencas === 1 ? "sentença procedente" : "sentenças procedentes"}`}
+              detalhes={[
+                { icone: Trophy, rotulo: "Em cumprimento voluntário", valor: m.valorCumprimento, tom: "text-emerald-400",
+                  sub: `${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo` },
+                { icone: Scale, rotulo: "Transitou / em execução", valor: m.transitou, tom: "text-foreground",
+                  sub: "condenações rumo ao recebimento" },
+              ]}
+            />
+            <Grupo
+              icone={Handshake} titulo="Acordos" anel="ring-cyan-400/25" tom="text-cyan-300"
+              rotulo="Total fechado em acordo" valor={m.totalAcordo}
+              sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado" : "acordos fechados"}`}
+              detalhes={[
+                { icone: CalendarClock, rotulo: "Aguardando pagamento", valor: m.aReceberValor, tom: "text-cyan-300",
+                  sub: m.emTratativa > 0
+                    ? `${m.nAReceber} ${m.nAReceber === 1 ? "acordo" : "acordos"} · ${m.emTratativa} ainda em tratativa`
+                    : `${m.nAReceber} ${m.nAReceber === 1 ? "acordo" : "acordos"} · valor a receber` },
+                { icone: CheckCircle2, rotulo: "Pago · arquivado", valor: m.recebidoValor, tom: "text-emerald-400",
+                  sub: `${m.nRecebidos} ${m.nRecebidos === 1 ? "acordo quitado" : "acordos quitados"}` },
+              ]}
+            />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Kpi icon={Handshake} label="Fechado em acordo" value={m.totalAcordo} accent="text-amber-300"
-              border="ring-1 ring-amber-400/25"
-              sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado" : "acordos fechados"}`} />
-            <Kpi icon={Coins} label="Ticket médio" value={m.ticket} accent="text-foreground"
-              sub="por vitória (sentença ou acordo)" />
-            <Kpi icon={Scale} label="Já transitou / em execução" value={m.porFase[ETAPA_CUMPRIMENTO].valor + (m.porFase["Trânsito em julgado"]?.valor || 0)} accent="text-foreground"
-              sub="condenações rumo ao recebimento" />
+
+          {/* Ticket médio atravessa os dois grupos, então fica fora dos dois —
+              numa faixa fina, porque é contexto, não manchete. */}
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-4 py-2.5 flex-wrap">
+            <Coins className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Ticket médio</span>
+            <span className="text-lg font-semibold font-display tabular-nums">{brl(m.ticket)}</span>
+            <span className="text-[11px] text-muted-foreground ml-auto">por vitória registrada, venha de sentença ou de acordo</span>
           </div>
 
           {/* ── Cumprimento voluntário em destaque (valor quase certo) ── */}
@@ -265,27 +306,30 @@ export default function Tracker() {
             </Card>
           )}
 
-          {/* ── Acordos fechados: o que precisa ser cobrado, por data de previsão ── */}
-          {m.acordos.length > 0 && (
-            <Card className="ring-1 ring-amber-400/25">
+          {/* ── Acordos a receber: a fila de cobrança, por data de previsão ──
+              Só os que ainda não foram pagos. Acordo arquivado não se cobra, e
+              deixá-lo aqui fazia a tela avisar "atrasado há 35 dias" sobre um
+              dinheiro que já tinha entrado. O total dos pagos está no painel. */}
+          {m.aReceber.length > 0 && (
+            <Card className="ring-1 ring-cyan-400/25">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Handshake className="h-4 w-4 text-amber-300" /> Acordos fechados
-                  <span className="ml-auto text-sm font-semibold text-amber-300 tabular-nums">{brl(m.totalAcordo)}</span>
+                  <Handshake className="h-4 w-4 text-cyan-300" /> Acordos a receber
+                  <span className="ml-auto text-sm font-semibold text-cyan-300 tabular-nums">{brl(m.aReceberValor)}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {m.acordos.map((v) => {
+                  {m.aReceber.map((v) => {
                     const dias = diasAte(v.acordo?.previsao ?? null);
                     return (
                       <a
                         key={v.id}
                         href={`/processos/${v.id}`}
-                        className="group flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-3 hover:bg-amber-400/[0.09] transition-colors"
+                        className="group flex items-center gap-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.05] p-3 hover:bg-cyan-400/[0.09] transition-colors"
                       >
-                        <span className="h-9 w-9 rounded-lg bg-amber-400/15 ring-1 ring-amber-400/30 grid place-items-center shrink-0">
-                          <Handshake className="h-4 w-4 text-amber-300" />
+                        <span className="h-9 w-9 rounded-lg bg-cyan-400/15 ring-1 ring-cyan-400/30 grid place-items-center shrink-0">
+                          <Handshake className="h-4 w-4 text-cyan-300" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
@@ -293,10 +337,12 @@ export default function Tracker() {
                             <CalendarClock className="h-3 w-3 shrink-0" />
                             {v.acordo?.previsao
                               ? <>pagamento previsto para {fmtData(v.acordo.previsao)}{dias !== null && <span className={dias < 0 ? "text-red-400" : dias <= 7 ? "text-amber-300" : ""}>{" · "}{rotuloPrazo(dias)}</span>}</>
-                              : "previsão de pagamento a definir"}
+                              : v.acordo?.status === ACORDO_TRATATIVA
+                                ? "em tratativa · sem previsão de pagamento"
+                                : "previsão de pagamento a definir"}
                           </p>
                         </div>
-                        <span className="text-base font-semibold font-display tabular-nums text-amber-300 shrink-0">{brl(v.acordo?.valor ?? 0)}</span>
+                        <span className="text-base font-semibold font-display tabular-nums text-cyan-300 shrink-0">{brl(v.acordo?.valor ?? 0)}</span>
                       </a>
                     );
                   })}
@@ -317,7 +363,7 @@ export default function Tracker() {
               <CardContent>
                 <DonutChart
                   data={topSlices(analytics.materias.map((x) => ({ name: x.name, value: x.n })), 6)}
-                  emptyMessage="Sem sentenças ainda"
+                  emptyMessage="Sem vitórias ainda"
                   onSliceClick={(name) => toggleFiltro("materia", name)}
                 />
               </CardContent>
@@ -333,7 +379,7 @@ export default function Tracker() {
               <CardContent>
                 <DonutChart
                   data={topSlices(analytics.comarcas.map((x) => ({ name: x.name, value: x.n })), 6)}
-                  emptyMessage="Sem sentenças ainda"
+                  emptyMessage="Sem vitórias ainda"
                   onSliceClick={(name) => toggleFiltro("comarca", name)}
                 />
               </CardContent>
@@ -360,7 +406,7 @@ export default function Tracker() {
               </CardHeader>
               <CardContent>
                 <BarList
-                  data={analytics.materiasValor.map((x) => ({ label: x.name, value: x.valor, hint: `${x.n} ${x.n === 1 ? "sentença" : "sentenças"}` }))}
+                  data={analytics.materiasValor.map((x) => ({ label: x.name, value: x.valor, hint: `${x.n} ${x.n === 1 ? "vitória" : "vitórias"}` }))}
                   format={brl}
                   onItemClick={(label) => toggleFiltro("materia", label)}
                 />
@@ -443,8 +489,12 @@ export default function Tracker() {
                                 {v.emCumprimento && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-400/10 text-emerald-300 border-emerald-400/25">valor quase certo</span>
                                 )}
+                                {/* A fase já diz "Acordo"; o que falta saber é
+                                    se o dinheiro entrou. */}
                                 {v.acordo && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-400/10 text-amber-300 border-amber-400/25">acordo</span>
+                                  v.acordo.pago
+                                    ? <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-400/10 text-emerald-300 border-emerald-400/25">acordo pago</span>
+                                    : <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-cyan-400/10 text-cyan-300 border-cyan-400/25">acordo a receber</span>
                                 )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
@@ -486,6 +536,44 @@ export default function Tracker() {
   );
 }
 
+/* ─────────────────────── Grupo (sentenças / acordos) ───────────────────────
+   Um painel por origem do dinheiro: o número grande é o total do grupo, e
+   embaixo os dois recortes que importam dentro dele. A cor do grupo vive no
+   cabeçalho e no anel; dentro, cada recorte usa a cor do seu ESTADO, e é por
+   isso que o verde aparece nos dois painéis. */
+function Grupo({ icone: Icone, titulo, anel, tom, rotulo, valor, sub, detalhes }: {
+  icone: any; titulo: string; anel: string; tom: string;
+  rotulo: string; valor: number; sub: string;
+  detalhes: { icone: any; rotulo: string; valor: number; tom: string; sub: string }[];
+}) {
+  return (
+    <SpotlightCard className={`ring-1 ${anel} flex flex-col`}>
+      <div className="flex items-center gap-2">
+        <span className={`h-7 w-7 rounded-lg bg-white/[0.05] grid place-items-center ${tom}`}>
+          <Icone className="h-4 w-4" />
+        </span>
+        <p className={`text-[11px] font-medium uppercase tracking-[0.16em] ${tom}`}>{titulo}</p>
+      </div>
+
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground mt-4">{rotulo}</p>
+      <CountUp value={valor} format={brl} className={`block text-3xl md:text-4xl font-semibold font-display tabular-nums leading-none mt-1.5 ${tom}`} />
+      <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-4 pt-4 border-t border-white/[0.07]">
+        {detalhes.map((d) => (
+          <div key={d.rotulo} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <d.icone className="h-3 w-3 shrink-0" /> <span className="truncate">{d.rotulo}</span>
+            </p>
+            <CountUp value={d.valor} format={brl} className={`block text-lg font-semibold font-display tabular-nums mt-1 ${d.tom}`} />
+            <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{d.sub}</p>
+          </div>
+        ))}
+      </div>
+    </SpotlightCard>
+  );
+}
+
 /* ─────────────────────── KPI card ─────────────────────── */
 function Kpi({ icon: Icon, label, value, accent, sub, border, big }: {
   icon: any; label: string; value: number; accent: string; sub?: string; border?: string; big?: boolean;
@@ -508,7 +596,7 @@ function rotuloMes(mes: string) {
   return `${MES_ABREV[m - 1]}/${String(y).slice(2)}`;
 }
 function MesesBars({ data, onBarClick, ativo }: { data: { mes: string; valor: number }[]; onBarClick?: (mes: string) => void; ativo?: string | null }) {
-  if (!data.length) return <p className="text-sm text-muted-foreground text-center py-8">Sem sentenças ainda.</p>;
+  if (!data.length) return <p className="text-sm text-muted-foreground text-center py-8">Sem vitórias ainda.</p>;
   const peak = Math.max(...data.map((d) => d.valor), 1);
   return (
     <div className="space-y-2">

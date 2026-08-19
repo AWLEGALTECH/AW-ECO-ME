@@ -15,8 +15,11 @@ function proc(id: string, etapas: EtapaLT[]): ProcRow {
 }
 const sentenca = (valor: number, data = "2026-05-10", status = "pendente"): EtapaLT =>
   ({ titulo: "Sentença", status, sentenca: { resultado: "procedente", valor, data } });
-const acordo = (valor: number, fechamento = "2026-08-01", previsao?: string, status = "atual"): EtapaLT =>
-  ({ titulo: "Acordo", status, acordo: { valor, dataFechamento: fechamento, previsaoPagamento: previsao } });
+const acordo = (
+  valor: number, fechamento = "2026-08-01", previsao?: string,
+  status = "atual", statusProcessual = "AG. PAGAMENTO ACORDO",
+): EtapaLT =>
+  ({ titulo: "Acordo", status, statusProcessual, acordo: { valor, dataFechamento: fechamento, previsaoPagamento: previsao } });
 
 describe("derivarVitorias — acordo", () => {
   it("acordo sem sentença já é vitória, com o valor do acordo", () => {
@@ -28,7 +31,10 @@ describe("derivarVitorias — acordo", () => {
     expect(v.valor).toBe(6000);
     expect(v.valorSentenca).toBe(0);
     expect(v.faseAtual).toBe("Acordo");
-    expect(v.acordo).toEqual({ valor: 6000, fechamento: "2026-08-01", previsao: "2026-09-15" });
+    expect(v.acordo).toEqual({
+      valor: 6000, fechamento: "2026-08-01", previsao: "2026-09-15",
+      status: "AG. PAGAMENTO ACORDO", pago: false,
+    });
     // A data que posiciona a vitória no gráfico por mês é a do fechamento.
     expect(v.data).toBe("2026-08-01");
   });
@@ -105,5 +111,27 @@ describe("derivarVitorias — acordo", () => {
   it("linha temporal ausente não derruba a derivação", () => {
     const sem = { ...proc("k", []), linha_temporal: null };
     expect(derivarVitorias([sem])).toEqual([]);
+  });
+});
+
+// O Tracker separa os acordos por "o dinheiro entrou ou não". Quem decide isso
+// é o status da milestone, e errar aqui é contar como recebido o que ainda vai
+// ser cobrado — ou o contrário.
+describe("derivarVitorias — pago x a receber", () => {
+  const comStatus = (s?: string) => derivarVitorias([proc("x", [
+    { titulo: "Acordo", status: "atual", ...(s ? { statusProcessual: s } : {}),
+      acordo: { valor: 1000, dataFechamento: "2026-07-01" } },
+  ])])[0];
+
+  it("arquivado é o único que conta como pago", () => {
+    expect(comStatus("ARQUIVADO ACORDO").acordo?.pago).toBe(true);
+    expect(comStatus("AG. PAGAMENTO ACORDO").acordo?.pago).toBe(false);
+    expect(comStatus("EM TRATATIVA DE ACORDO").acordo?.pago).toBe(false);
+  });
+
+  it("sem status gravado, o dinheiro NÃO é dado por recebido", () => {
+    const v = comStatus(undefined);
+    expect(v.acordo?.pago).toBe(false);
+    expect(v.acordo?.status).toBe("EM TRATATIVA DE ACORDO");
   });
 });

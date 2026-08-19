@@ -11,7 +11,7 @@ export interface Execucao { valor?: number; data?: string }
 export interface Acordo { valor?: number; dataFechamento?: string; previsaoPagamento?: string }
 
 export interface EtapaLT {
-  titulo?: string; status?: string;
+  titulo?: string; status?: string; statusProcessual?: string;
   sentenca?: Decisao; julgamento?: Decisao; execucao?: Execucao; acordo?: Acordo;
 }
 
@@ -42,8 +42,20 @@ export interface Vitoria {
   faseAtual: string;
   emCumprimento: boolean;
   valorCumprimento: number;
-  acordo: { valor: number; fechamento: string | null; previsao: string | null } | null;
+  acordo: {
+    valor: number;
+    fechamento: string | null;
+    previsao: string | null;
+    /** Um dos três status da milestone Acordo. */
+    status: string;
+    /** O dinheiro já entrou (acordo arquivado). */
+    pago: boolean;
+  } | null;
 }
+
+export const ACORDO_TRATATIVA = "EM TRATATIVA DE ACORDO";
+export const ACORDO_AG_PAGAMENTO = "AG. PAGAMENTO ACORDO";
+export const ACORDO_ARQUIVADO = "ARQUIVADO ACORDO";
 
 export const ETAPA_SENTENCA = "Sentença";
 export const ETAPA_JULGAMENTO = "Julgamento em 2º grau";
@@ -61,7 +73,8 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
     const sent = acharEtapa(lt, ETAPA_SENTENCA)?.sentenca;
     const valorSentenca = sent && sent.resultado !== "improcedente" ? Number(sent.valor || 0) : 0;
 
-    const ac = acharEtapa(lt, ETAPA_ACORDO)?.acordo;
+    const etapaAcordo = acharEtapa(lt, ETAPA_ACORDO);
+    const ac = etapaAcordo?.acordo;
     const valorAcordo = Number(ac?.valor || 0);
 
     // Sem condenação e sem acordo não há o que rastrear.
@@ -100,7 +113,15 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
       emCumprimento,
       valorCumprimento,
       acordo: valorAcordo > 0
-        ? { valor: valorAcordo, fechamento: ac?.dataFechamento ?? null, previsao: ac?.previsaoPagamento ?? null }
+        ? {
+            valor: valorAcordo,
+            fechamento: ac?.dataFechamento ?? null,
+            previsao: ac?.previsaoPagamento ?? null,
+            // Sem status gravado, o acordo conta como não pago. Dinheiro só é
+            // dado por recebido quando alguém disse que foi.
+            status: etapaAcordo?.statusProcessual ?? ACORDO_TRATATIVA,
+            pago: etapaAcordo?.statusProcessual === ACORDO_ARQUIVADO,
+          }
         : null,
     });
   }
