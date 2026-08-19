@@ -28,6 +28,56 @@ export type PatchTarefa = Partial<Pick<Task,
   "titulo" | "conteudo" | "prazo" | "status" | "tipo" | "desfecho" | "desfechoObs">>;
 
 /**
+ * Tarefa fora do processo: carrega de onde veio.
+ *
+ * `chave` existe porque o id da tarefa não serve de chave de lista: é um
+ * contador por processo, e em linhas gravadas antes da correção do contador o
+ * mesmo "t1" aparece duas vezes. Chave repetida faz o React reaproveitar o nó
+ * errado e a lista congela numa ordem. Processo + etapa + posição é único.
+ */
+export interface ItemTarefa extends Task {
+  chave: string;
+  etapaId: string;
+  indice: number;
+  etapaTitulo: string;
+  processoId: string;
+  processoNumero: string;
+  clienteNome: string | null;
+}
+
+/** Processo do jeito mínimo que o achatamento precisa. */
+export interface ProcessoComTarefas {
+  id: string;
+  numero_processo: string;
+  linha_temporal: unknown;
+  clientes?: { nome: string } | null;
+}
+
+/**
+ * Achata as tarefas de vários processos numa lista só, cada uma sabendo de onde
+ * saiu. É o que a tela de Tarefas e a ficha do cliente consomem — nas duas, a
+ * tarefa aparece fora da linha temporal e precisa carregar seu contexto junto.
+ */
+export function achatarTarefas(procs: ProcessoComTarefas[]): ItemTarefa[] {
+  const out: ItemTarefa[] = [];
+  for (const p of procs) {
+    const lt = Array.isArray(p.linha_temporal) ? (p.linha_temporal as Etapa[]) : [];
+    for (const e of lt) {
+      (e.tasks ?? []).forEach((t, i) => {
+        out.push({
+          ...t,
+          chave: `${p.id}::${e.id}::${i}::${t.id}`,
+          etapaId: e.id, indice: i,
+          etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo,
+          clienteNome: p.clientes?.nome ?? null,
+        });
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Aplica um patch (ou remove, com `null`) na tarefa endereçada. Função pura:
  * devolve uma linha temporal nova e não toca na recebida.
  *

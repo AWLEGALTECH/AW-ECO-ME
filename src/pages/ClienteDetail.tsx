@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { DescontosAnaliseComercial } from "@/components/DescontosAnaliseComercial";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -30,6 +29,13 @@ import { SpotlightCard } from "@/components/SpotlightCard";
 import { SectionLabel, ActionRow } from "@/components/AcaoEsteira";
 import { PendenciaPicker } from "@/components/PendenciaPicker";
 import { criarPendencias, type TipoPendencia as TP } from "@/lib/pendencias";
+import { ProcessosLista, usePins, type ProcessoDaLista } from "@/components/ProcessosLista";
+import { TarefaLinha } from "@/components/TarefaLinha";
+import { TarefaDetalheDialog } from "@/components/TarefaDetalheDialog";
+import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
+import { DESFECHOS } from "@/components/ProcessoTimeline";
+import { achatarTarefas, salvarTarefaNoBanco, type ItemTarefa, type PatchTarefa } from "@/lib/tarefas";
+import { porPrazo } from "@/lib/prazos";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
@@ -67,12 +73,11 @@ export interface Cliente {
   created_at: string;
 }
 
-interface ProcessoLite {
-  id: string;
-  numero_processo: string;
-  materia: string | null;
-  fase_processual: string | null;
-  valor_causa: number | null;
+// A ficha usa a MESMA lista da tela de Processos, então precisa das mesmas
+// colunas. `linha_temporal` vem junto porque as demandas processuais do cliente
+// saem de dentro dela.
+interface ProcessoLite extends ProcessoDaLista {
+  linha_temporal: unknown;
 }
 
 interface Contrato {
@@ -307,6 +312,12 @@ export default function ClienteDetail() {
     return p === "demandas" || p === "processos" ? p : "resumo";
   });
   const [subDem, setSubDem] = useState<"pre" | "proc">("pre");
+  const [colFiltros, setColFiltros] = useState<Record<string, string[]>>({});
+  const { meusPins, carregarPins, togglePinPessoal } = usePins(user?.id ?? null);
+  // Duas etapas, igual à tela de Tarefas: o clique abre o resumo, e o resumo é
+  // que leva à edição.
+  const [detalheTarefa, setDetalheTarefa] = useState<ItemTarefa | null>(null);
+  const [editandoTarefa, setEditandoTarefa] = useState<ItemTarefa | null>(null);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Cliente | null>(null);
@@ -317,7 +328,8 @@ export default function ClienteDetail() {
     if (!id) return;
     const [cliRes, procRes, contRes, demRes] = await Promise.all([
       supabase.from("clientes").select("*").eq("id", id).single(),
-      supabase.from("processos").select("id, numero_processo, materia, fase_processual, valor_causa")
+      supabase.from("processos")
+        .select("id, numero_processo, materia, fase_processual, valor_causa, comarca_uf, data_ultimo_andamento, fixado_geral, linha_temporal")
         .eq("cliente_id", id).order("data_ultimo_andamento", { ascending: false, nullsFirst: false }),
       supabase.from("contratos" as any).select("*").eq("cliente_id", id).order("created_at", { ascending: false }),
       supabase.from("demandas" as any).select("*").eq("cliente_id", id).order("ordem", { ascending: true }).order("created_at", { ascending: true }),
@@ -332,6 +344,47 @@ export default function ClienteDetail() {
     document.title = "Cliente · AW ECO ME";
     load();
   }, [load]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { carregarPins(); }, []);
+
+  const togglePinGeral = async (pid: string, atual: boolean) => {
+    setProcessos(prev => prev.map(p => (p.id === pid ? { ...p, fixado_geral: !atual } : p)));
+    const { error } = await supabase.from("processos").update({ fixado_geral: !atual }).eq("id", pid);
+    if (error) {
+      toast.error("Não foi possível fixar");
+      setProcessos(prev => prev.map(p => (p.id === pid ? { ...p, fixado_geral: atual } : p)));
+    }
+  };
+
+  // Grava a alteração (ou a exclusão, com null) e relê. A lista sai da linha
+  // temporal, então recarregar é mais barato e mais honesto do que remendar o
+  // estado local e torcer pra bater com o banco.
+  const gravarTarefa = async (patch: PatchTarefa | null, alvo: ItemTarefa | null) => {
+    if (!alvo) return;
+    const { ok, erro } = await salvarTarefaNoBanco(
+      { processoId: alvo.processoId, etapaId: alvo.etapaId, indice: alvo.indice },
+      patch,
+    );
+    if (!ok) { toast.error(erro ?? "Não consegui salvar"); return; }
+    toast.success(
+      patch === null ? "Tarefa excluída"
+        : patch.desfecho ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}`
+          : "Tarefa atualizada",
+    );
+    await load();
+  };
+
+  const contextoTarefa = (it: ItemTarefa) => (
+    <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+      <span className="font-mono">{it.processoNumero}</span>
+      <span className="opacity-50">·</span>
+      <span>{it.etapaTitulo}</span>
+      <button onClick={() => navigate(`/processos/${it.processoId}`)} className="text-primary hover:underline">
+        Abrir processo
+      </button>
+    </span>
+  );
 
   // Revalida a ficha quando o advogado volta pra aba e a cada 20s, pra que
   // respostas enviadas pelo cliente no formulario externo aparecam sem
@@ -418,7 +471,33 @@ export default function ClienteDetail() {
 
   const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
   const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
-  const demandasProc = demandas.filter(d => d.tipo === "processual");
+
+  // Demanda processual do cliente é a tarefa que vive dentro do processo dele.
+  // Antes esta aba lia a tabela `demandas` procurando tipo "processual", que
+  // nunca é gravado em lugar nenhum: a aba estava permanentemente vazia
+  // enquanto o trabalho processual de verdade só existia dentro da linha
+  // temporal. Agora sai de lá, agrupado por processo — que é como se pensa
+  // nele: "o que falta neste processo", não "o que falta no cliente".
+  const tarefasPorProcesso = useMemo(() => {
+    const todas = achatarTarefas(processos.map(p => ({
+      id: p.id, numero_processo: p.numero_processo,
+      linha_temporal: p.linha_temporal, clientes: { nome: cliente?.nome ?? "" },
+    })));
+    const grupos = processos
+      .map(p => ({
+        processo: p,
+        tarefas: todas.filter(t => t.processoId === p.id)
+          // Aberta primeiro e por urgência: numa lista de pendências, o que já
+          // foi resolvido é histórico e não disputa a atenção.
+          .sort((a, b) => (!!a.desfecho === !!b.desfecho ? porPrazo(a, b) : a.desfecho ? 1 : -1)),
+      }))
+      .filter(g => g.tarefas.length > 0);
+    return {
+      grupos,
+      total: todas.length,
+      abertas: todas.filter(t => !t.desfecho).length,
+    };
+  }, [processos, cliente?.nome]);
   // Conta como "demanda em aberto" apenas analise_vinculada que ainda nao
   // virou peca pronta (sem filho pronta_para_protocolo) e nao foi cancelada.
   // Reflete a fila real de trabalho do user.
@@ -705,57 +784,99 @@ export default function ClienteDetail() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2 max-w-md">
             <SubTab active={subDem === "pre"}  onClick={() => setSubDem("pre")}  label="Pré-protocolo" count={demandasPre.length} />
-            <SubTab active={subDem === "proc"} onClick={() => setSubDem("proc")} label="Processuais"    count={demandasProc.length} />
+            <SubTab active={subDem === "proc"} onClick={() => setSubDem("proc")} label="Processuais"    count={tarefasPorProcesso.abertas} />
           </div>
 
           {subDem === "pre" ? (
             <PrePipeline demandas={demandasPre} cliente={cliente} userId={user?.id ?? null} onChange={load} />
-          ) : demandasProc.length === 0 ? (
+          ) : tarefasPorProcesso.grupos.length === 0 ? (
             <EmptyState
               icon={Briefcase}
               title="Nenhuma demanda processual"
-              hint="Demandas processuais aparecem aqui quando uma peça é protocolada e o processo é criado."
+              hint="As tarefas criadas dentro dos processos deste cliente aparecem aqui, separadas por processo."
             />
           ) : (
-            <div className="space-y-3">
-              {demandasProc.map(d => <DemandaCard key={d.id} demanda={d} />)}
+            <div className="space-y-4">
+              {tarefasPorProcesso.grupos.map(({ processo: p, tarefas }) => {
+                const abertas = tarefas.filter(t => !t.desfecho).length;
+                return (
+                  <Card key={p.id} className="bg-card/40 border-border">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="h-9 w-9 shrink-0 rounded-full bg-primary/15 ring-1 ring-primary/30 grid place-items-center">
+                            <FileText className="h-4 w-4 text-primary" />
+                          </span>
+                          <div className="min-w-0">
+                            <Link to={`/processos/${p.id}`} className="font-mono text-sm font-medium hover:underline">
+                              {p.numero_processo}
+                            </Link>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {p.materia || "Matéria não informada"}
+                              {p.fase_processual ? ` · ${p.fase_processual}` : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground shrink-0">
+                          {abertas > 0
+                            ? `${abertas} em aberto de ${tarefas.length}`
+                            : `${tarefas.length} ${tarefas.length === 1 ? "tarefa concluída" : "tarefas concluídas"}`}
+                        </span>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      {tarefas.map(t => (
+                        <TarefaLinha key={t.chave} it={t} mostrarProcesso={false} onClick={() => setDetalheTarefa(t)} />
+                      ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
+      {/* A mesma lista da tela de Processos, recortada neste cliente: busca,
+          filtro por coluna, fixar, abrir e excluir. A coluna Cliente sai —
+          aqui todos os processos são da mesma pessoa. */}
       {aba === "processos" && (
-        <Card className="bg-card/40 border-border">
-          <CardHeader><CardTitle className="text-base">Processos ({processos.length})</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nº Processo</TableHead>
-                  <TableHead>Matéria</TableHead>
-                  <TableHead>Fase</TableHead>
-                  <TableHead className="text-right">Valor da Causa</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {processos.map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">
-                      <Link to={`/processos/${p.id}`} className="hover:underline">{p.numero_processo}</Link>
-                    </TableCell>
-                    <TableCell>{p.materia || "—"}</TableCell>
-                    <TableCell>{p.fase_processual ? <Badge variant="secondary">{p.fase_processual}</Badge> : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtBRL(p.valor_causa)}</TableCell>
-                  </TableRow>
-                ))}
-                {processos.length === 0 && (
-                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum processo.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <ProcessosLista
+            processos={processos}
+            meusPins={meusPins}
+            onTogglePin={togglePinPessoal}
+            onTogglePinGeral={togglePinGeral}
+            onExcluido={load}
+            mostrarCliente={false}
+            colFiltros={colFiltros}
+            setColFiltros={setColFiltros}
+            vazio="Nenhum processo para este cliente."
+          />
+        </div>
       )}
+
+      {/* Tarefa do processo: resumo com as saídas, e editar no canto — o mesmo
+          par de diálogos da tela de Tarefas, pra que a tarefa se comporte
+          igual em qualquer lugar de onde for aberta. */}
+      {detalheTarefa && (
+        <TarefaDetalheDialog
+          task={detalheTarefa}
+          contexto={contextoTarefa(detalheTarefa)}
+          onFechar={() => setDetalheTarefa(null)}
+          onDesfecho={(desfecho, obs) => gravarTarefa({ desfecho, desfechoObs: obs }, detalheTarefa)}
+          onReagendar={(prazo) => gravarTarefa({ prazo }, detalheTarefa)}
+          onEditar={() => { setEditandoTarefa(detalheTarefa); setDetalheTarefa(null); }}
+        />
+      )}
+
+      <EditarTarefaDialog
+        task={editandoTarefa}
+        onFechar={() => setEditandoTarefa(null)}
+        contexto={editandoTarefa && contextoTarefa(editandoTarefa)}
+        onSalvar={(patch: PatchTarefa) => gravarTarefa(patch, editandoTarefa)}
+        onExcluir={() => gravarTarefa(null, editandoTarefa)}
+      />
 
       {/* DIÁLOGO DE EDIÇÃO ================================================= */}
       <Dialog open={editing} onOpenChange={(v) => { if (!v) setEditing(false); }}>

@@ -18,8 +18,12 @@ import {
 import { TarefasCalendario } from "@/components/TarefasCalendario";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { TarefaDetalheDialog } from "@/components/TarefaDetalheDialog";
+import { TarefaLinha, StatusChip, COLS_LISTA } from "@/components/TarefaLinha";
 import { JANELAS, diasAte, naJanela, porPrazo, type Janela } from "@/lib/prazos";
-import { salvarTarefaNoBanco, type PatchTarefa } from "@/lib/tarefas";
+import {
+  achatarTarefas, salvarTarefaNoBanco,
+  type ItemTarefa as Item, type PatchTarefa, type ProcessoComTarefas as Proc,
+} from "@/lib/tarefas";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -29,33 +33,9 @@ const ETAPAS_ORDEM = [
   "Distribuição da ação", "Decisão inicial (recebimento)", "Citação do réu",
   "Contestação", "Réplica", "Audiência de conciliação", "Instrução e provas",
   "Sentença", "Recurso", "Julgamento em 2º grau", "Trânsito em julgado",
-  "Cumprimento de sentença",
+  "Cumprimento de sentença", "Acordo",
 ];
 const ordemEtapa = (t: string) => { const i = ETAPAS_ORDEM.indexOf(t); return i === -1 ? 99 : i; };
-
-interface Proc { id: string; numero_processo: string; linha_temporal: unknown; clientes?: { nome: string } | null }
-// `chave` existe porque o id da tarefa não é confiável como chave de lista:
-// ele é um contador por processo e, em linhas temporais gravadas antes da
-// correção do contador, o mesmo "t1" aparece duas vezes no mesmo processo.
-// Chave repetida faz o React reaproveitar o nó errado, e a grade fica
-// congelada numa ordem por mais que se troque a ordenação. Posição na etapa
-// resolve: é única e não muda quando a lista é reordenada.
-interface Item extends Task {
-  chave: string;
-  // Endereço pra edição: a tarefa mora dentro do jsonb do processo, e é etapa
-  // + posição que a localiza lá dentro.
-  etapaId: string; indice: number;
-  etapaTitulo: string; processoId: string; processoNumero: string; clienteNome: string | null;
-}
-
-// Chip de status na cor do tema (mesmo do card de tarefa no processo).
-function StatusChip({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 bg-primary/15 text-primary ring-primary/30 whitespace-nowrap max-w-full truncate">
-      {label}
-    </span>
-  );
-}
 
 // Card de tarefa agregada: mesma estética do processo + referência do processo.
 function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
@@ -120,79 +100,6 @@ function casaSituacao(t: Item, s: Situacao): boolean {
   return !t.desfecho && (diasAte(t.prazo) ?? 0) < 0;
 }
 
-// Mesma tarefa, deitada. O card empilha tudo em 188px de altura, o que é bom
-// pra folhear e ruim pra comparar: com dez cards na tela não dá pra correr o
-// olho pelos prazos. Aqui cada informação tem sua coluna, então a leitura é
-// vertical dentro de cada uma.
-//
-// As colunas do meio somem no estreito em vez de espremer: sobram título e uma
-// segunda linha com prazo e processo, que é o mínimo pra decidir se abre.
-const COLS_LISTA = "grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-cols-[auto_minmax(0,1fr)_6.5rem_8.5rem_10rem_13rem_auto]";
-
-function TarefaLinha({ it, onClick }: { it: Item; onClick: () => void }) {
-  const Icon = ICONE_TIPO[it.tipo];
-  const d = it.desfecho ? DESFECHOS[it.desfecho] : null;
-  const DIcon = d?.icon;
-  const prazo = it.tipo !== "pendencia" && !d ? prazoInfo(it.prazo) : null;
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full grid items-center gap-x-3 text-left rounded-xl border border-white/[0.06] bg-white/[0.02]",
-        "px-3 py-2 transition-colors hover:border-primary/30 hover:bg-white/[0.045]",
-        COLS_LISTA, d && "opacity-70",
-      )}
-    >
-      <span className="h-7 w-7 rounded-lg bg-primary/12 ring-1 ring-primary/25 grid place-items-center shrink-0">
-        <Icon className="h-3.5 w-3.5 text-primary" />
-      </span>
-
-      <span className="min-w-0">
-        <span className={cn("block text-[13px] font-medium truncate", d && "line-through")}>{it.titulo}</span>
-        {it.conteudo && (
-          <span className="hidden lg:block text-[11px] text-muted-foreground truncate">{it.conteudo}</span>
-        )}
-        {/* No estreito, o essencial das colunas escondidas vem pra cá */}
-        <span className="lg:hidden flex items-center gap-1.5 text-[10.5px] text-muted-foreground truncate">
-          {prazo && <span className={prazo.cls}>{prazo.label}</span>}
-          {prazo && <span className="opacity-40">·</span>}
-          <span className="font-mono truncate">{it.processoNumero}</span>
-        </span>
-      </span>
-
-      <span className="hidden lg:block text-[10.5px] uppercase tracking-wide text-muted-foreground truncate">
-        {LABEL_TIPO[it.tipo]}
-      </span>
-
-      <span className="hidden lg:flex min-w-0">
-        {d && DIcon ? (
-          <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 truncate", d.chip)}>
-            <DIcon className="h-3 w-3 shrink-0" /> {d.label}
-          </span>
-        ) : (
-          <StatusChip label={it.tipo === "pendencia" ? "Pendente" : it.status} />
-        )}
-      </span>
-
-      <span className={cn("hidden lg:flex items-center gap-1.5 text-[11px] min-w-0", prazo ? prazo.cls : "text-muted-foreground/50")}>
-        {prazo ? (
-          <>
-            <CalendarDays className="h-3 w-3 shrink-0" />
-            <span className="truncate">{prazo.label}</span>
-          </>
-        ) : "—"}
-      </span>
-
-      <span className="hidden lg:block min-w-0 text-[10.5px] text-muted-foreground">
-        <span className="block font-mono truncate">{it.processoNumero}</span>
-        {it.clienteNome && <span className="block truncate">{it.clienteNome}</span>}
-      </span>
-
-      <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
-    </button>
-  );
-}
-
 export default function Tarefas() {
   useEffect(() => { document.title = "Tarefas · AW ECO ME"; }, []);
   const navigate = useNavigate();
@@ -219,24 +126,7 @@ export default function Tarefas() {
   useEffect(() => { carregar(); }, [carregar]);
 
   // Achata todas as tasks de todos os processos, com contexto.
-  const allTasks = useMemo(() => {
-    const out: Item[] = [];
-    for (const p of procs) {
-      const lt = Array.isArray(p.linha_temporal) ? (p.linha_temporal as Etapa[]) : [];
-      for (const e of lt) {
-        (e.tasks ?? []).forEach((t, i) => {
-          out.push({
-            ...t,
-            chave: `${p.id}::${e.id}::${i}::${t.id}`,
-            etapaId: e.id, indice: i,
-            etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo,
-            clienteNome: p.clientes?.nome ?? null,
-          });
-        });
-      }
-    }
-    return out;
-  }, [procs]);
+  const allTasks = useMemo(() => achatarTarefas(procs), [procs]);
 
   // Base comum: o que não é situação nem janela. Os dois controles que mostram
   // número partem daqui, e cada um aplica o OUTRO antes de contar. Assim os
