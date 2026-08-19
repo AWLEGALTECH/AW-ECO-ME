@@ -131,24 +131,37 @@ async function salvarPreCliente() {
       driveStatus: 'pending',
     };
 
-    // GUARD: cliente puxado da base oficial (dropdown 'Puxar da base de
-    // clientes') ja existe em `clientes` e ja tem pasta no Drive. Nao cria
-    // pre_cliente nem pasta nova — isso duplicaria. Mas SINCRONIZA de volta
-    // os dados editados no kit (nome/cpf/rg/profissao/endereco/etc).
-    // So fluxo de cliente novo (digitado manual, sem aw_id) gera pre_cliente.
-    if (state.dadosKit.cliente_aw_id) {
-      console.log('[pre-cliente] cliente ja existe na base (aw_id=' + state.dadosKit.cliente_aw_id + '), atualiza dados e nao cria pre-cliente/pasta');
-      state.preClienteInfo.status = 'cliente_existente';
-      _refreshPreClienteTela();
-      if (typeof salvarDadosClienteDoKit === 'function') {
-        salvarDadosClienteDoKit(state.dadosKit.cliente_aw_id, state.dadosKit)
-          .then(r => console.log('[pre-cliente] sync cliente existente:', r))
-          .catch(e => console.warn('[pre-cliente] sync falhou:', e));
-      }
-      return { ok: true, skipped: 'cliente_existente' };
+    // Cliente puxado da base oficial (dropdown 'Puxar da base de clientes'):
+    // é um contrato NOVO pra quem já é cliente. Antes isso não gerava
+    // pre_cliente nenhum, pra não duplicar a pessoa em `clientes` — mas o
+    // efeito era pior do que o problema: a gestão de assinatura mora em
+    // Pré-clientes, então o contrato sumia do fluxo e a ação não era
+    // contabilizada.
+    //
+    // Agora o pre_cliente é criado carregando o `cliente_id`. Quem cuida de
+    // não duplicar é a confirmação, do outro lado: vendo o cliente_id, ela
+    // vincula ao cliente que já existe em vez de cadastrar outro.
+    const clienteExistenteId = state.dadosKit.cliente_aw_id || null;
+    if (clienteExistenteId && typeof salvarDadosClienteDoKit === 'function') {
+      // Os dados editados no kit continuam voltando pra ficha do cliente.
+      salvarDadosClienteDoKit(clienteExistenteId, state.dadosKit)
+        .then(r => console.log('[pre-cliente] sync cliente existente:', r))
+        .catch(e => console.warn('[pre-cliente] sync falhou:', e));
     }
 
     const payload = _montarPayloadPreCliente();
+    if (clienteExistenteId) {
+      payload.cliente_id = clienteExistenteId;
+      // A pasta do Drive já existe: aproveita a do cliente em vez de criar
+      // outra, e é ela que a confirmação vai propor.
+      try {
+        const c = typeof fetchClienteAWRaw === 'function' ? await fetchClienteAWRaw(clienteExistenteId) : null;
+        if (c && c.drive_folder_url) {
+          payload.drive_folder_url = c.drive_folder_url;
+          payload.drive_folder_id = c.drive_folder_id || null;
+        }
+      } catch (e) { console.warn('[pre-cliente] nao consegui ler a pasta do cliente:', e); }
+    }
     console.log('[pre-cliente] payload montado:', payload);
 
     // dedup: nao envia 2x o mesmo cliente+produto na mesma sessao
@@ -201,6 +214,17 @@ async function salvarPreCliente() {
     console.log('[pre-cliente] criado com sucesso (status ' + resp.status + ') id=' + preClienteId);
     if (state.preClienteInfo) { state.preClienteInfo.status = 'created'; state.preClienteInfo.id = preClienteId; }
     _refreshPreClienteTela();
+
+    // Cliente da base já tem pasta: criar outra duplicaria o acervo dele.
+    if (clienteExistenteId) {
+      if (state.preClienteInfo) {
+        state.preClienteInfo.driveStatus = payload.drive_folder_url ? 'ok' : 'fail';
+        state.preClienteInfo.driveUrl = payload.drive_folder_url || null;
+        state.preClienteInfo.clienteExistente = true;
+      }
+      _refreshPreClienteTela();
+      return { ok: true, id: preClienteId, clienteExistente: true };
+    }
 
     // Dispara criacao da pasta no Drive em background (fire-and-forget).
     // Se a edge function falhar (sem secrets, sem permissao), o pre_cliente

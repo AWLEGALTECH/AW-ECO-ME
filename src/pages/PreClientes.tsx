@@ -11,7 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, FileSignature, User, Briefcase, Scale, Search, FolderOpen, Loader2, Sparkles, ExternalLink, FileText, ClipboardList, FolderCheck, AlertCircle, MessageCircle, CalendarDays, Users, Repeat2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BOAS_VINDAS_PADRAO, renderMensagem } from "@/lib/mensagensProntas";
 import { nomeSobrenome } from "@/lib/audit";
@@ -149,9 +149,13 @@ function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Confirmar cadastro de {pre.nome}?</DialogTitle>
+          <DialogTitle>
+            {pre.cliente_id ? `Confirmar novo contrato de ${pre.nome}?` : `Confirmar cadastro de ${pre.nome}?`}
+          </DialogTitle>
           <DialogDescription>
-            Vai criar um cliente em Clientes com os dados do pré-cadastro e organizar a pasta do Drive automaticamente.
+            {pre.cliente_id
+              ? "Já é cliente da base: nenhum cadastro novo será criado. O contrato entra na ficha que ele já tem, junto com a análise de demandas e o lançamento no fechamento."
+              : "Vai criar um cliente em Clientes com os dados do pré-cadastro e organizar a pasta do Drive automaticamente."}
           </DialogDescription>
         </DialogHeader>
 
@@ -338,7 +342,9 @@ function ProgressoModal({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm ${stage.status === "done" ? "text-foreground" : stage.status === "pending" ? "text-muted-foreground" : "text-foreground font-medium"}`}>
-                      {meta.label}
+                      {/* Cliente da base não é cadastrado de novo, e a etapa
+                          não pode dizer que é. */}
+                      {key === "cliente" && pre?.cliente_id ? "Vinculando ao cliente da base" : meta.label}
                     </p>
                     {stage.detail && (
                       <p className={`text-[11px] ${stage.status === "error" ? "text-destructive" : "text-muted-foreground"} truncate`}>
@@ -560,6 +566,12 @@ export default function PreClientes() {
     const dkInicial: any = (pre as any).dados_completos?.dadosKit ?? null;
     const dk: any = (pre as any).dados_completos?.dadosKit ?? null;
 
+    // Cliente que já é da base fechando contrato novo: o pré-cliente chega do
+    // writer já apontando pro cliente_id. Nesse caso NÃO se cadastra ninguém —
+    // atualiza-se a ficha que já existe e segue o resto do fluxo (contrato,
+    // demanda, fechamento) pendurado nela.
+    const repetido = !!pre.cliente_id;
+
     // 1. cria cliente — com desambiguação de homônimos.
     // A tabela clientes tem índice único em UPPER(TRIM(nome)). Homônimos
     // legítimos (ex.: dois "Bruno da Costa Paz" com CPFs diferentes) quebrariam
@@ -594,25 +606,58 @@ export default function PreClientes() {
     let novoCliente: any = null;
     let errCli: any = null;
     let nomeFinal = pre.nome;
-    for (let tentativa = 0; tentativa < 6; tentativa++) {
-      nomeFinal = tentativa === 0 ? pre.nome : `${pre.nome} (${tentativa + 1})`;
-      const res = await supabase
+
+    if (repetido) {
+      // Atualiza só o que o novo contrato traz de novo. Nome fica de fora de
+      // propósito: renomear um cliente ativo pelo que foi digitado no kit
+      // mexeria em processos, pastas e histórico que já apontam pro nome atual.
+      const { data: atual, error: errUpd } = await supabase
         .from("clientes")
-        .insert({ ...clientePayloadBase, nome: nomeFinal } as any)
+        .update({
+          cpf_cnpj: pre.cpf_cnpj,
+          telefone: pre.telefone,
+          email: pre.email,
+          endereco: pre.endereco_completo,
+          rg: pre.rg,
+          profissao: pre.profissao,
+          estado_civil: clientePayloadBase.estado_civil,
+          nacionalidade: clientePayloadBase.nacionalidade,
+          orgao_expedidor: clientePayloadBase.orgao_expedidor,
+          comarca: clientePayloadBase.comarca,
+          uf: clientePayloadBase.uf,
+          precisa_analise_extratos: true,
+        } as any)
+        .eq("id", pre.cliente_id!)
         .select()
         .single();
-      if (!res.error) { novoCliente = res.data; errCli = null; break; }
-      errCli = res.error;
-      const homonimo = /duplicate key|clientes_nome_unique_idx|23505/i.test(res.error.message || "");
-      if (!homonimo) break;
+      if (errUpd || !atual) {
+        setStage("cliente", { status: "error", detail: errUpd?.message || "Não encontrei o cliente vinculado" });
+        return;
+      }
+      novoCliente = atual;
+      nomeFinal = (atual as any).nome ?? pre.nome;
+      setStage("cliente", { status: "done", detail: `Contrato novo vinculado a ${nomeFinal} — nenhum cadastro duplicado` });
+    } else {
+      for (let tentativa = 0; tentativa < 6; tentativa++) {
+        nomeFinal = tentativa === 0 ? pre.nome : `${pre.nome} (${tentativa + 1})`;
+        const res = await supabase
+          .from("clientes")
+          .insert({ ...clientePayloadBase, nome: nomeFinal } as any)
+          .select()
+          .single();
+        if (!res.error) { novoCliente = res.data; errCli = null; break; }
+        errCli = res.error;
+        const homonimo = /duplicate key|clientes_nome_unique_idx|23505/i.test(res.error.message || "");
+        if (!homonimo) break;
+      }
+      if (errCli || !novoCliente) {
+        setStage("cliente", { status: "error", detail: errCli?.message || "Falha ao cadastrar cliente" });
+        return;
+      }
+      setStage("cliente", nomeFinal !== pre.nome
+        ? { status: "done", detail: `Homônimo — cadastrado como "${nomeFinal}"` }
+        : { status: "done" });
     }
-    if (errCli || !novoCliente) {
-      setStage("cliente", { status: "error", detail: errCli?.message || "Falha ao cadastrar cliente" });
-      return;
-    }
-    setStage("cliente", nomeFinal !== pre.nome
-      ? { status: "done", detail: `Homônimo — cadastrado como "${nomeFinal}"` }
-      : { status: "done" });
 
     // 2. cria contrato
     setStage("contrato", { status: "running" });
@@ -638,11 +683,26 @@ export default function PreClientes() {
       setStage("contrato", { status: "done" });
       // Cada desconto passa a apontar pro CONTRATO que o originou (este kit),
       // pra ficha do cliente agrupar por contrato em vez de listar solto.
+      //
+      // Num contrato novo de cliente antigo, os descontos deste kit se SOMAM
+      // aos que já estavam na ficha. Sobrescrever apagaria a análise do
+      // contrato anterior, e com ela o histórico do que já foi ajuizado.
       const ctId = (contrato as any)?.id;
       const rubs = dk?._analise_comercial?.rubricas;
       if (ctId && Array.isArray(rubs) && rubs.length) {
+        const novas = rubs.map((r: any) => ({ ...r, contrato_id: ctId }));
+        let payloadAnalise: any = { ...(dk._analise_comercial as any), rubricas: novas };
+        if (repetido) {
+          const anterior = (novoCliente as any)?.analise_comercial as any;
+          const antigas = Array.isArray(anterior?.rubricas) ? anterior.rubricas : [];
+          payloadAnalise = {
+            ...(anterior || {}),
+            ...(dk._analise_comercial as any),
+            rubricas: [...antigas, ...novas],
+          };
+        }
         await supabase.from("clientes")
-          .update({ analise_comercial: { ...(dk._analise_comercial as any), rubricas: rubs.map((r: any) => ({ ...r, contrato_id: ctId })) } } as any)
+          .update({ analise_comercial: payloadAnalise } as any)
           .eq("id", novoCliente.id);
       }
     }
@@ -720,7 +780,10 @@ export default function PreClientes() {
     // Evolution API). Falha aqui nao bloqueia a organizacao da pasta —
     // marca a etapa com erro e segue.
     setStage("whatsapp", { status: "running" });
-    if (!pre.telefone) {
+    if (repetido) {
+      // Mandar "seja bem-vindo" pra quem já é cliente há meses é constrangedor.
+      setStage("whatsapp", { status: "done", detail: "Cliente já da base — boas-vindas não se repetem" });
+    } else if (!pre.telefone) {
       setStage("whatsapp", { status: "error", detail: "Pré-cliente sem telefone — mensagem não enviada" });
     } else {
       const { data: tpl } = await supabase
@@ -750,6 +813,16 @@ export default function PreClientes() {
     }
 
     // 6. organize-client-folder (await pra mostrar progresso)
+    if (repetido) {
+      // A pasta é a do cliente, que já mora em CLIENTES e já foi organizada
+      // quando ele entrou. Rodar de novo moveria uma pasta que não precisa ser
+      // movida e reclassificaria o acervo inteiro dele por causa de um contrato.
+      setStage("organize", {
+        status: "done",
+        detail: "Cliente já da base — os documentos vão para a pasta que ele já tem",
+      });
+      return;
+    }
     if (!pre.drive_folder_id) {
       setStage("organize", { status: "error", detail: "Pre-cliente sem drive_folder_id" });
       return;
@@ -908,11 +981,20 @@ export default function PreClientes() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {pre.cpf_cnpj || "Sem CPF"} · {dataLabel}
             </p>
-            {vol && (
-              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
-                <User className="h-2.5 w-2.5" /> {vol}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+              {vol && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/40 border border-border rounded-full px-2 py-0.5">
+                  <User className="h-2.5 w-2.5" /> {vol}
+                </span>
+              )}
+              {/* Contrato novo de quem já é cliente: quem confirma precisa saber
+                  antes de clicar que ninguém será cadastrado de novo. */}
+              {pre.cliente_id && pre.status === "aguardando_assinatura" && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-cyan-300 bg-cyan-400/10 border border-cyan-400/25 rounded-full px-2 py-0.5">
+                  <Repeat2 className="h-2.5 w-2.5" /> cliente da base
+                </span>
+              )}
+            </div>
           </div>
           <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${meta.color}`}>
             <meta.Icon className="h-3 w-3" />

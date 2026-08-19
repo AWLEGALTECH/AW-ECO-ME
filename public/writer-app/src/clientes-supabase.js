@@ -105,7 +105,10 @@ async function fetchAnaliseVinculadaMeta(demandaId) {
   }
 }
 
-async function fetchClienteAW(id) {
+// A linha do banco como ela é, sem passar pelo formato do writer — que só
+// carrega os campos do formulário e descarta o resto, inclusive a pasta do
+// Drive de que o pré-cliente de cliente repetido precisa.
+async function fetchClienteAWRaw(id) {
   if (!id) return null;
   try {
     const resp = await fetch(
@@ -114,11 +117,16 @@ async function fetchClienteAW(id) {
     );
     if (!resp.ok) { console.warn('[clientes-aw] fetch cliente', resp.status); return null; }
     const rows = await resp.json();
-    return rows.length ? _dbToWriterShape(rows[0]) : null;
+    return rows.length ? rows[0] : null;
   } catch (e) {
     console.warn('[clientes-aw] erro cliente', e);
     return null;
   }
+}
+
+async function fetchClienteAW(id) {
+  const row = await fetchClienteAWRaw(id);
+  return row ? _dbToWriterShape(row) : null;
 }
 
 // Salva de volta no Supabase os campos do pacote 1 + pacote 2 do cliente
