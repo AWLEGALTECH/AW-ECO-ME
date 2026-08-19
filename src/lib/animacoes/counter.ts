@@ -37,6 +37,8 @@ export interface ConfigCounter {
   tamanhoFonte: number;     // fração da altura (0.1 a 0.5)
   fonte: FonteKey;
   peso: number;             // 400..900
+  fps: number;              // 30 ou 60
+  suavizar: number;         // 0 = desligado; 1 = rastro cheio entre quadros
 }
 
 export const CONFIG_PADRAO: ConfigCounter = {
@@ -54,9 +56,11 @@ export const CONFIG_PADRAO: ConfigCounter = {
   tamanhoFonte: 0.28,
   fonte: "inter",
   peso: 800,
+  fps: 60,
+  suavizar: 0.7,
 };
 
-export const FPS = 30;
+export const FPS_OPCOES = [30, 60] as const;
 
 // Desaceleração forte: a maior parte da contagem acontece nos primeiros
 // instantes e o número "assenta" no fim. É o que dá a sensação de rápido sem
@@ -65,13 +69,24 @@ function suavizar(t: number): number {
   return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
 }
 
+/**
+ * Formata na mão, sem `toLocaleString`.
+ *
+ * O Intl decide o separador pelos dados de locale do navegador, e nem todo
+ * navegador entrega ponto no pt-BR: em alguns, o milhar vem como espaço fino
+ * e "1.000.000" vira "1 000 000" no material final. Peça de marketing não
+ * pode depender de que o computador de quem exportou tenha o locale completo,
+ * então o ponto e a vírgula são escritos aqui.
+ */
 export function formatarValor(v: number, cfg: ConfigCounter): string {
   const negativo = v < 0;
-  const corpo = Math.abs(v).toLocaleString("pt-BR", {
-    minimumFractionDigits: cfg.casas,
-    maximumFractionDigits: cfg.casas,
-    useGrouping: cfg.milhar,
-  });
+  const abs = Math.abs(v);
+
+  const fixo = abs.toFixed(cfg.casas);
+  const [inteira, decimal] = fixo.split(".");
+  const comMilhar = cfg.milhar ? inteira.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : inteira;
+  const corpo = decimal ? `${comMilhar},${decimal}` : comMilhar;
+
   const sinal = negativo ? "-" : (cfg.sinalMais && v > 0 ? "+" : "");
   if (cfg.formato === "dinheiro") return `${sinal}R$ ${corpo}`;
   if (cfg.formato === "percentual") return `${sinal}${corpo}%`;
@@ -89,7 +104,7 @@ export function valorEm(t: number, cfg: ConfigCounter): number {
 
 /** Quadros da contagem em si, sem o tempo parado no fim. */
 export function quadrosDaContagem(cfg: ConfigCounter): number {
-  return Math.max(1, Math.round(cfg.duracao * FPS));
+  return Math.max(1, Math.round(cfg.duracao * cfg.fps));
 }
 
 /**
@@ -100,7 +115,10 @@ export function quadrosDaContagem(cfg: ConfigCounter): number {
  * consegue congelar um quadro que dura 33ms.
  */
 export function totalDeQuadros(cfg: ConfigCounter): number {
-  return quadrosDaContagem(cfg) + Math.round(cfg.segurarFim * FPS);
+  // O "+ 1" é o quadro que fecha a contagem. Com N quadros de contagem os
+  // índices vão de 0 a N-1, e nenhum deles chega a t = 1: sem manter o número
+  // no fim, o arquivo terminava em 998.925 no lugar de 1.000.000.
+  return quadrosDaContagem(cfg) + 1 + Math.round(cfg.segurarFim * cfg.fps);
 }
 
 /** Instante da animação (0 a 1) no quadro `i`. Depois da contagem, fica em 1. */
@@ -132,8 +150,35 @@ export function tamanhoDaFonte(ctx: CanvasRenderingContext2D, cfg: ConfigCounter
   return largura > util ? base * (util / largura) : base;
 }
 
-/** Pinta um quadro. `t` vai de 0 a 1. */
-export function desenharQuadro(ctx: CanvasRenderingContext2D, cfg: ConfigCounter, t: number) {
+// Quantas amostras dentro de um mesmo quadro compõem o rastro. Seis já dá o
+// borrão contínuo; mais que isso custa desenho e não se enxerga.
+const AMOSTRAS_RASTRO = 6;
+
+/**
+ * Pinta um quadro. `t` vai de 0 a 1.
+ *
+ * O travado da contagem rápida não vem da conta, vem da natureza do meio: a 30
+ * quadros por segundo com desaceleração forte, os primeiros quadros pulam
+ * dezenas de milhares de uma vez, e o olho lê salto, não movimento. É o mesmo
+ * motivo pelo qual uma roda de carroça filmada parece girar ao contrário.
+ *
+ * A saída é a que o cinema usa: obturador aberto. Em vez de um instante
+ * congelado, o quadro guarda o caminho percorrido DENTRO dele — várias amostras
+ * entre o quadro anterior e este, as antigas mais fracas, a atual opaca por
+ * cima.
+ *
+ * Por isso `tAnterior` importa: o rastro cobre o intervalo real entre dois
+ * quadros, não uma janela fixa. Nos quadros em que o número já parou, os dois
+ * instantes são o mesmo e o rastro simplesmente não existe — sem isso, o
+ * quadro final, que é justamente o que se usa na edição, sairia com fantasmas
+ * de 998.960 atrás do 1.000.000.
+ */
+export function desenharQuadro(
+  ctx: CanvasRenderingContext2D,
+  cfg: ConfigCounter,
+  t: number,
+  tAnterior?: number,
+) {
   const { largura: L, altura: A } = cfg;
 
   ctx.clearRect(0, 0, L, A);
@@ -146,5 +191,25 @@ export function desenharQuadro(ctx: CanvasRenderingContext2D, cfg: ConfigCounter
   ctx.fillStyle = cfg.corNumero;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(formatarValor(valorEm(t, cfg), cfg), L / 2, A / 2);
+
+  const x = L / 2, y = A / 2;
+  const escreve = (tk: number, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillText(formatarValor(valorEm(tk, cfg), cfg), x, y);
+  };
+
+  // Sem quadro anterior informado, assume um quadro de intervalo.
+  const anterior = tAnterior ?? Math.max(0, t - 1 / Math.max(1, cfg.duracao * cfg.fps));
+  const vao = t - anterior;
+
+  if (cfg.suavizar > 0 && vao > 0) {
+    // De trás pra frente: o rastro entra primeiro e a posição atual cobre por
+    // cima, senão o valor que importa ficaria por baixo dos fantasmas.
+    for (let k = AMOSTRAS_RASTRO; k >= 1; k--) {
+      const tk = Math.max(0, t - (k / AMOSTRAS_RASTRO) * vao * cfg.suavizar);
+      escreve(tk, (1 - k / (AMOSTRAS_RASTRO + 1)) * 0.5 * cfg.suavizar);
+    }
+  }
+  escreve(t, 1);
+  ctx.globalAlpha = 1;
 }

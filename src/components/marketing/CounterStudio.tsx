@@ -7,7 +7,7 @@ import { Play, Download, Film, Images, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { zipStore, type ArquivoZip } from "@/lib/zipStore";
 import {
-  CONFIG_PADRAO, FPS, FONTES, desenharQuadro, formatarValor, tDoQuadro, tamanhoDaFonte,
+  CONFIG_PADRAO, FPS_OPCOES, FONTES, desenharQuadro, formatarValor, tDoQuadro, tamanhoDaFonte,
   totalDeQuadros, valorEm,
   type ConfigCounter, type FonteKey, type FormatoNumero,
 } from "@/lib/animacoes/counter";
@@ -76,15 +76,15 @@ export function CounterStudio() {
   const mudar = <K extends keyof ConfigCounter>(k: K, v: ConfigCounter[K]) =>
     setCfg((c) => ({ ...c, [k]: v }));
 
-  const pintar = useCallback((t: number) => {
+  const pintar = useCallback((t: number, tAnterior?: number) => {
     const cv = canvasRef.current;
     if (!cv) return;
     const ctx = cv.getContext("2d", { alpha: true });
-    if (ctx) desenharQuadro(ctx, cfg, t);
+    if (ctx) desenharQuadro(ctx, cfg, t, tAnterior);
   }, [cfg]);
 
   // Parado, mostra o quadro final: é o número que interessa conferir.
-  useEffect(() => { if (!tocando) pintar(1); }, [pintar, tocando]);
+  useEffect(() => { if (!tocando) pintar(1, 1); }, [pintar, tocando]);
 
   // Tamanho realmente aplicado, pra tela poder dizer quando ele foi reduzido.
   const [medidas, setMedidas] = useState<{ px: number; reduzida: boolean } | null>(null);
@@ -102,9 +102,12 @@ export function CounterStudio() {
     inicioRef.current = performance.now();
     const msContagem = cfg.duracao * 1000;
     const msTotal = msContagem + cfg.segurarFim * 1000;
+    let anterior = 0;
     const passo = (agora: number) => {
       const decorrido = agora - inicioRef.current;
-      pintar(Math.min(decorrido / msContagem, 1));
+      const t = Math.min(decorrido / msContagem, 1);
+      pintar(t, anterior);
+      anterior = t;
       if (decorrido < msTotal) rafRef.current = requestAnimationFrame(passo);
       else setTocando(false);
     };
@@ -142,7 +145,7 @@ export function CounterStudio() {
     // quadrado bem menor.
     const taxa = Math.min(80_000_000, Math.round((cfg.largura * cfg.altura) / (1080 * 1080) * 40_000_000));
 
-    const stream = cv.captureStream(FPS);
+    const stream = cv.captureStream(cfg.fps);
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: taxa });
     const pedacos: Blob[] = [];
     rec.ondataavailable = (e) => { if (e.data.size) pedacos.push(e.data); };
@@ -159,11 +162,13 @@ export function CounterStudio() {
     const msContagem = cfg.duracao * 1000;
     const msTotal = msContagem + cfg.segurarFim * 1000;
     const t0 = performance.now();
+    let anterior = 0;
     await new Promise<void>((resolve) => {
       const passo = (agora: number) => {
         const decorrido = agora - t0;
         const t = Math.min(decorrido / msContagem, 1);
-        desenharQuadro(ctx, cfg, t);
+        desenharQuadro(ctx, cfg, t, anterior);
+        anterior = t;
         setExportando({ feito: Math.min(total, Math.round((decorrido / msTotal) * total)), total });
         if (decorrido < msTotal) requestAnimationFrame(passo);
         else resolve();
@@ -191,7 +196,7 @@ export function CounterStudio() {
     const arquivos: ArquivoZip[] = [];
     try {
       for (let i = 0; i < total; i++) {
-        desenharQuadro(ctx, cfg, tDoQuadro(i, cfg));
+        desenharQuadro(ctx, cfg, tDoQuadro(i, cfg), tDoQuadro(i - 1, cfg));
         const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, "image/png"));
         if (!blob) throw new Error("quadro vazio");
         arquivos.push({
@@ -203,7 +208,7 @@ export function CounterStudio() {
         if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       baixar(zipStore(arquivos), `${baseNome()}-png.zip`);
-      toast.success(`${total} quadros baixados a ${FPS} fps`);
+      toast.success(`${total} quadros baixados a ${cfg.fps} fps`);
     } catch {
       toast.error("Não consegui gerar os quadros");
     } finally {
@@ -358,10 +363,39 @@ export function CounterStudio() {
             onValueChange={([v]) => mudar("duracao", v)} />
         </Campo>
 
-        <Campo label={`Segurar no fim · ${cfg.segurarFim.toFixed(1)}s`}
-          dica="Tempo parado no valor final, pra dar onde cortar na edição.">
-          <Slider value={[cfg.segurarFim]} min={0} max={3} step={0.1} disabled={ocupado}
-            onValueChange={([v]) => mudar("segurarFim", v)} />
+        <Campo label="Manter o número no fim"
+          dica="Depois de bater o alvo, o número fica parado por esse tempo. A animação vira: tempo de subida mais tempo parado.">
+          <div className="flex flex-wrap gap-1.5">
+            <Pastilha ativo={cfg.segurarFim > 0} onClick={() => mudar("segurarFim", cfg.segurarFim > 0 ? 0 : 0.6)}>
+              {cfg.segurarFim > 0 ? "Mantendo" : "Não manter"}
+            </Pastilha>
+          </div>
+          {cfg.segurarFim > 0 && (
+            <div className="pt-1.5">
+              <p className="text-[10.5px] text-muted-foreground mb-1">Por {cfg.segurarFim.toFixed(1)}s</p>
+              <Slider value={[cfg.segurarFim]} min={0.1} max={5} step={0.1} disabled={ocupado}
+                onValueChange={([v]) => mudar("segurarFim", v)} />
+            </div>
+          )}
+        </Campo>
+
+        <Campo label="Suavidade"
+          dica="Contagem rápida pula milhares por quadro e o olho lê salto. O rastro guarda o caminho dentro de cada quadro, como obturador aberto.">
+          <div className="flex flex-wrap gap-1.5">
+            {FPS_OPCOES.map((f) => (
+              <Pastilha key={f} ativo={cfg.fps === f} onClick={() => mudar("fps", f)}>{f} fps</Pastilha>
+            ))}
+            <Pastilha ativo={cfg.suavizar > 0} onClick={() => mudar("suavizar", cfg.suavizar > 0 ? 0 : 0.7)}>
+              {cfg.suavizar > 0 ? "Com rastro" : "Sem rastro"}
+            </Pastilha>
+          </div>
+          {cfg.suavizar > 0 && (
+            <div className="pt-1.5">
+              <p className="text-[10.5px] text-muted-foreground mb-1">Intensidade {Math.round(cfg.suavizar * 100)}%</p>
+              <Slider value={[cfg.suavizar]} min={0.1} max={1} step={0.05} disabled={ocupado}
+                onValueChange={([v]) => mudar("suavizar", v)} />
+            </div>
+          )}
         </Campo>
 
         <Campo label={`Tamanho do número · ${Math.round(cfg.tamanhoFonte * 100)}%`}
@@ -372,7 +406,7 @@ export function CounterStudio() {
 
         <div className="text-[10.5px] text-muted-foreground pt-1 border-t border-white/[0.06] space-y-1">
           <p>
-            {totalDeQuadros(cfg)} quadros a {FPS} fps ·{" "}
+            {totalDeQuadros(cfg)} quadros a {cfg.fps} fps ·{" "}
             {(cfg.duracao + cfg.segurarFim).toFixed(1)}s no total · valor na metade da contagem:{" "}
             <span className="text-foreground/80">{formatarValor(valorEm(0.5, cfg), cfg)}</span>
           </p>
