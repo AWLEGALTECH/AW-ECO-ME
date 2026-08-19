@@ -467,17 +467,16 @@ export default function ClienteDetail() {
     await persistirCliente();
   };
 
-  if (!cliente) return <div className="text-center text-muted-foreground py-8">Carregando…</div>;
-
-  const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
-  const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
-
   // Demanda processual do cliente é a tarefa que vive dentro do processo dele.
   // Antes esta aba lia a tabela `demandas` procurando tipo "processual", que
   // nunca é gravado em lugar nenhum: a aba estava permanentemente vazia
   // enquanto o trabalho processual de verdade só existia dentro da linha
   // temporal. Agora sai de lá, agrupado por processo — que é como se pensa
   // nele: "o que falta neste processo", não "o que falta no cliente".
+  //
+  // ACIMA do `if (!cliente)` de propósito: hook depois de saída antecipada não
+  // roda no primeiro render e roda no seguinte, e o React derruba o app inteiro
+  // com "rendered more hooks than during the previous render".
   const tarefasPorProcesso = useMemo(() => {
     const todas = achatarTarefas(processos.map(p => ({
       id: p.id, numero_processo: p.numero_processo,
@@ -498,6 +497,12 @@ export default function ClienteDetail() {
       abertas: todas.filter(t => !t.desfecho).length,
     };
   }, [processos, cliente?.nome]);
+
+  if (!cliente) return <div className="text-center text-muted-foreground py-8">Carregando…</div>;
+
+  const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
+  const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
+
   // Conta como "demanda em aberto" apenas analise_vinculada que ainda nao
   // virou peca pronta (sem filho pronta_para_protocolo) e nao foi cancelada.
   // Reflete a fila real de trabalho do user.
