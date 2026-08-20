@@ -22,7 +22,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, Eye, Trash2, X, FileText, Gavel } from "lucide-react";
+import { Search, Eye, Trash2, X, FileText, Gavel, ExternalLink } from "lucide-react";
 import { ColunaFiltro } from "@/components/ColunaFiltro";
 import { PinButton } from "@/components/PinButton";
 
@@ -251,6 +251,27 @@ export function ProcessosLista({
                           <FileText className="h-5 w-5 text-primary" />
                         </span>
                         {p.numero_processo}
+                        {/* Abrir em outra guia sem perder o filtro montado aqui.
+                            É um <a> de verdade, e não um navigate: assim o
+                            ctrl+clique, o clique do meio e o "abrir em nova
+                            janela" do botão direito também funcionam. O
+                            stopPropagation impede que a linha navegue junto na
+                            guia atual, que era o que se queria evitar. */}
+                        <a
+                          href={`/processos/${p.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Abrir em outra guia"
+                          aria-label={`Abrir o processo ${p.numero_processo} em outra guia`}
+                          // Sempre visível, só discreto. Escondê-lo até o hover
+                          // seria esconder justamente a saída que se pediu pra
+                          // existir — e o group ficava no span, não na linha,
+                          // então passar o mouse pela linha nem o revelava.
+                          className="shrink-0 rounded-md p-1 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
                       </span>
                     </TableCell>
                     {mostrarCliente && <TableCell className="font-medium">{p.clientes?.nome ?? "—"}</TableCell>}
