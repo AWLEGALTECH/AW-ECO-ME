@@ -374,7 +374,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               ? "Confira o que muda antes de gravar. Isto recalcula o fechamento do cliente."
               : stage === "contrato"
               ? "Cada ação pertence a um contrato do cliente. Escolha qual deles você vai editar."
-              : "Atrele as ações, diga contra quem cada uma vai e salve. Cada mudança recalcula o fechamento (mantendo quem captou)."}
+              : "Atrele as ações e diga contra quem cada uma vai. Na conferência você escolhe a quem as ações novas serão creditadas."}
           </DialogDescription>
         </DialogHeader>
 
@@ -511,7 +511,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               </button>
             )}
           </div>
-        ) : (
+        ) : stage === "manual" ? (
           <>
             <div className="flex items-center justify-between px-1 py-1 shrink-0">
               <span className="text-[11px] text-muted-foreground truncate">
@@ -677,7 +677,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               </Button>
             </DialogFooter>
           </>
-        )}
+        ) : null}
         {stage === "conferir" && (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-1">
