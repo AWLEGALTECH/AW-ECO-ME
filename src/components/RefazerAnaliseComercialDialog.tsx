@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 
+const mesCorrente = () =>
+  new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
 type Motivo = "rubrica_invalida" | "ja_ajuizada" | "cliente_nao_quer";
 const MOTIVO_LABEL: Record<Motivo, string> = {
   rubrica_invalida: "Rúbrica inválida",
@@ -81,6 +84,39 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   };
   useEffect(() => { if (open) carregarCatalogo(); }, [open]);
 
+  // ── Responsabilização das ações NOVAS ──────────────────────────────────────
+  // Quem digita não é necessariamente quem leva o crédito: às vezes a ação é
+  // competência de quem a descobriu agora, às vezes é complemento do trabalho
+  // de quem captou o cliente. Por isso a escolha é explícita — sem padrão
+  // automático pra nenhum dos dois lados.
+  const [equipe, setEquipe] = useState<{ id: string; nome: string }[]>([]);
+  const [donoAnalise, setDonoAnalise] = useState<{ id: string; nome: string } | null>(null);
+  const [creditarA, setCreditarA] = useState<string | null>(null);
+  const [motivoRemocao, setMotivoRemocao] = useState("");
+
+  useEffect(() => {
+    if (!open || !cliente) return;
+    let cancel = false;
+    (async () => {
+      const [{ data: profs }, { data: fech }] = await Promise.all([
+        supabase.from("profiles").select("id, nome").order("nome"),
+        (supabase.from("fechamentos" as never) as never as any)
+          .select("user_id, responsavel")
+          .eq("cliente_id", cliente.id)
+          .order("data", { ascending: true })
+          .limit(1),
+      ]);
+      if (cancel) return;
+      const lista = ((profs || []) as any[]).map((p) => ({ id: String(p.id), nome: String(p.nome || "—") }));
+      setEquipe(lista);
+      const dono = (fech || [])[0];
+      setDonoAnalise(dono?.user_id
+        ? { id: String(dono.user_id), nome: lista.find((p) => p.id === String(dono.user_id))?.nome || String(dono.responsavel || "—") }
+        : null);
+    })();
+    return () => { cancel = true; };
+  }, [open, cliente?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [sel, setSel] = useState<Sel[]>([]);
   // Foto de como a análise estava ao abrir — base do diff de conferência.
   const [selOriginal, setSelOriginal] = useState<Sel[]>([]);
@@ -97,6 +133,8 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setContratoSel(null);
     setAddAberto(false);
     setNovaAcao("");
+    setCreditarA(null);
+    setMotivoRemocao("");
   }
 
   // Só as ações DO contrato escolhido entram no editor; as dos outros ficam
@@ -220,6 +258,12 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
       toast.error(`Informe o requerido de ${semRequerido === 1 ? "1 ação" : `${semRequerido} ações`} (contra quem será ajuizada).`);
       return;
     }
+    // A responsabilização é obrigatória quando há ação nova: é ela que decide
+    // no fechamento de quem a ação vai cair.
+    if (diff.adicionadas.length > 0 && !creditarA) {
+      toast.error("Escolha a quem atribuir as ações novas.");
+      return;
+    }
     setSalvando(true);
     const analise = {
       origem: "manual",
@@ -234,10 +278,12 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         contrato_id: s2.contrato_id,
       })),
     };
-    const { data, error } = await supabase.rpc("fn_refazer_analise_comercial" as any, {
+    const { data, error } = await supabase.rpc("fn_editar_analise_comercial" as any, {
       p_cliente_id: cliente.id,
       p_analise: analise,
       p_editor: editorId,
+      p_creditar_a: creditarA,
+      p_motivo_remocao: motivoRemocao.trim() || null,
     } as any);
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
@@ -245,12 +291,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     // persistido (staleTime 30s) segue mostrando o valor antigo.
     qc.invalidateQueries({ queryKey: ["fechamentos"] });
     const r = (data as any) || {};
-    toast.success(
-      r.acao === "atualizado"
-        ? `Análise refeita — fechamento de ${r.responsavel || "captador"}: ${r.antes} → ${r.depois} ação(ões).`
-        : `Análise salva e fechamento criado (${r.depois} ação(ões)).`,
-      { duration: 4000 },
-    );
+    const partes = [
+      r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação nova" : "ações novas"} para ${r.creditadas_a || "—"}` : null,
+      r.removidas > 0 ? `${r.removidas} ${r.removidas === 1 ? "retirada" : "retiradas"}` : null,
+    ].filter(Boolean);
+    toast.success(partes.length ? `Análise salva — ${partes.join(" · ")}.` : "Análise salva.", { duration: 4000 });
     onSaved();
     onClose();
   };
@@ -672,6 +717,47 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                       </li>
                     ))}
                   </ul>
+
+                  {/* De quem é o crédito. Sem escolha padrão: nem sempre é de
+                      quem digitou, nem sempre de quem captou o cliente. */}
+                  <div className="px-3.5 py-3 border-t border-emerald-500/15 bg-black/20">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                      {diff.adicionadas.length === 1 ? "Esta ação conta para quem?" : `Estas ${diff.adicionadas.length} ações contam para quem?`}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/80 mt-0.5 leading-snug">
+                      Entram no fechamento de <strong className="text-foreground/90">{mesCorrente()}</strong>, o mês em que foram descobertas.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {equipe.map((p) => {
+                        const ativo = creditarA === p.id;
+                        const ehDono = donoAnalise?.id === p.id;
+                        const ehEditor = editorId === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => setCreditarA(p.id)}
+                            className={`rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                              ativo
+                                ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-200"
+                                : "border-white/[0.08] bg-white/[0.02] text-muted-foreground hover:border-emerald-400/30 hover:text-foreground"
+                            }`}
+                          >
+                            <span className="block text-[12.5px] font-medium">{p.nome}</span>
+                            {(ehDono || ehEditor) && (
+                              <span className="block text-[10px] opacity-70">
+                                {[ehDono ? "captou o cliente" : null, ehEditor ? "está editando" : null].filter(Boolean).join(" · ")}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {!creditarA && (
+                      <p className="text-[11px] text-amber-300 mt-2 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0" /> Escolha a quem atribuir antes de salvar.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -693,6 +779,22 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                       </li>
                     ))}
                   </ul>
+
+                  {/* Quem tirou fica registrado de qualquer jeito; o porquê é
+                      opcional, mas é ele que evita a pergunta daqui a um mês. */}
+                  <div className="px-3.5 py-3 border-t border-rose-500/15 bg-black/20">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Por que saiu? (opcional)</p>
+                    <Input
+                      value={motivoRemocao}
+                      onChange={(e) => setMotivoRemocao(e.target.value)}
+                      placeholder="ex.: já ajuizada em outro processo"
+                      className="mt-1.5 h-8 text-[12.5px]"
+                    />
+                    <p className="text-[11px] text-muted-foreground/70 mt-1.5">
+                      Fica registrado que <strong className="text-foreground/80">{editorNome || "você"}</strong> retirou
+                      {diff.removidas.length === 1 ? " esta ação" : ` estas ${diff.removidas.length} ações`}, e elas saem do fechamento em que estavam.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -720,7 +822,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
 
             <DialogFooter className="shrink-0 gap-2 pt-2">
               <Button variant="ghost" onClick={() => setStage("manual")} disabled={salvando}>Voltar e ajustar</Button>
-              <Button onClick={salvarManual} disabled={salvando}>
+              <Button onClick={salvarManual} disabled={salvando || (diff.adicionadas.length > 0 && !creditarA)}>
                 {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
                 Confirmar e recalcular
               </Button>

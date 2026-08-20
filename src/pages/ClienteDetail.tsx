@@ -25,6 +25,7 @@ import { LANDING_OPCOES, type AdvogadoKey, linkSocio, whatsappSocioUrl } from "@
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { RefazerAnaliseComercialDialog } from "@/components/RefazerAnaliseComercialDialog";
+import { HistoricoAnaliseComercial } from "@/components/HistoricoAnaliseComercial";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { SectionLabel, ActionRow } from "@/components/AcaoEsteira";
 import { PendenciaPicker } from "@/components/PendenciaPicker";
@@ -313,6 +314,8 @@ export default function ClienteDetail() {
   });
   const [subDem, setSubDem] = useState<"pre" | "proc">("pre");
   const [colFiltros, setColFiltros] = useState<Record<string, string[]>>({});
+  // id -> nome, pra dizer de quem é o crédito de cada ação sem um join por linha.
+  const [equipeNomes, setEquipeNomes] = useState<Record<string, string>>({});
   const { meusPins, carregarPins, togglePinPessoal } = usePins(user?.id ?? null);
   // Duas etapas, igual à tela de Tarefas: o clique abre o resumo, e o resumo é
   // que leva à edição.
@@ -347,6 +350,15 @@ export default function ClienteDetail() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { carregarPins(); }, []);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("profiles").select("id, nome");
+      const m: Record<string, string> = {};
+      for (const p of (data || []) as any[]) m[String(p.id)] = String(p.nome || "");
+      setEquipeNomes(m);
+    })();
+  }, []);
 
   const togglePinGeral = async (pid: string, atual: boolean) => {
     setProcessos(prev => prev.map(p => (p.id === pid ? { ...p, fixado_geral: !atual } : p)));
@@ -719,7 +731,14 @@ export default function ClienteDetail() {
               </Button>
             </div>
             {cliente.analise_comercial ? (
-              <DescontosAnaliseComercial analise={cliente.analise_comercial} contratos={contratos} />
+              <>
+                <DescontosAnaliseComercial
+                  analise={cliente.analise_comercial}
+                  contratos={contratos}
+                  nomeDe={(id) => equipeNomes[id]}
+                />
+                <HistoricoAnaliseComercial clienteId={cliente.id} />
+              </>
             ) : (
               <p className="text-xs text-muted-foreground/60 italic px-1 py-3">
                 Nenhuma análise comercial ainda. Clique em <strong>Fazer análise</strong> pra criar.

@@ -6,7 +6,13 @@ import { Lock, CheckCircle2, ClipboardList, FileSignature, HelpCircle } from "lu
 // selecionável") pra impedir que a análise primária reconsidere um desconto
 // já descartado no comercial. Os ajuizáveis aparecem em verde.
 
-interface RubricaAC { rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null; detalhe: string | null; requerido: string | null; contrato_id: string | null }
+interface RubricaAC {
+  rubrica: string; valor: number | null; bloqueada: boolean; motivo: string | null;
+  detalhe: string | null; requerido: string | null; contrato_id: string | null;
+  // Autoria: quando a ação entrou e de quem é o crédito no fechamento. Sem
+  // isto, uma ação acrescida meses depois era indistinguível das originais.
+  adicionadaEm: string | null; creditadaA: string | null;
+}
 
 // Contrato (só o que importa pra rotular o grupo).
 export interface ContratoRef { id: string; modalidade?: string | null; data_assinatura?: string | null; reus?: string[] | null }
@@ -33,6 +39,8 @@ export function rubricasDaAnalise(ac: any): RubricaAC[] {
       detalhe: (r?.detalhe && String(r.detalhe).trim()) || null,
       requerido: (r?.requerido && String(r.requerido).trim()) || null,
       contrato_id: (r?.contrato_id && String(r.contrato_id)) || null,
+      adicionadaEm: (r?.adicionada_em && String(r.adicionada_em)) || null,
+      creditadaA: (r?.creditada_a && String(r.creditada_a)) || null,
     }))
     .filter((r: RubricaAC) => r.rubrica);
 }
@@ -43,7 +51,7 @@ const fmtData = (d?: string | null) => {
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("pt-BR");
 };
 
-function LinhaRubrica({ r }: { r: RubricaAC }) {
+function LinhaRubrica({ r, nomeDe }: { r: RubricaAC; nomeDe?: (id: string) => string | undefined }) {
   return (
     <div
       aria-disabled={r.bloqueada || undefined}
@@ -60,6 +68,12 @@ function LinhaRubrica({ r }: { r: RubricaAC }) {
         {r.requerido && <span className="text-muted-foreground font-normal"> · contra {r.requerido}</span>}
         {r.detalhe && <span className="text-muted-foreground font-normal"> · {r.detalhe}</span>}
       </span>
+      {(r.creditadaA || r.adicionadaEm) && (
+        <span className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground/80 text-right leading-tight">
+          {nomeDe?.(r.creditadaA || "") && <span className="block">{nomeDe(r.creditadaA || "")}</span>}
+          {fmtData(r.adicionadaEm) && <span className="block tabular-nums opacity-70">{fmtData(r.adicionadaEm)}</span>}
+        </span>
+      )}
       {fmtBRL(r.valor) && (
         <span className="text-[12px] tabular-nums text-muted-foreground shrink-0">{fmtBRL(r.valor)}</span>
       )}
@@ -72,7 +86,11 @@ function LinhaRubrica({ r }: { r: RubricaAC }) {
   );
 }
 
-export function DescontosAnaliseComercial({ analise, contratos, className }: { analise: any; contratos?: ContratoRef[]; className?: string }) {
+export function DescontosAnaliseComercial({ analise, contratos, className, nomeDe }: {
+  analise: any; contratos?: ContratoRef[]; className?: string;
+  /** Resolve um user_id em nome, pra mostrar de quem é o crédito da ação. */
+  nomeDe?: (id: string) => string | undefined;
+}) {
   const rubricas = rubricasDaAnalise(analise);
   if (rubricas.length === 0) return null;
   const nBloq = rubricas.filter((r) => r.bloqueada).length;
@@ -104,7 +122,8 @@ export function DescontosAnaliseComercial({ analise, contratos, className }: { a
         <ClipboardList className="h-4 w-4 text-primary" />
         <span className="text-xs font-semibold uppercase tracking-wider">Ações ajuizáveis · análise comercial</span>
         <span className="text-[11px] text-muted-foreground ml-auto tabular-nums">
-          {nOk} ajuizável{nOk === 1 ? "" : "is"} · {nBloq} bloqueado{nBloq === 1 ? "" : "s"}
+          {/* "ajuizável" perde o -l no plural: ajuizáveis, não "ajuizávelis". */}
+          {nOk} {nOk === 1 ? "ajuizável" : "ajuizáveis"} · {nBloq} bloqueado{nBloq === 1 ? "" : "s"}
         </span>
       </div>
       {nBloq > 0 && (
@@ -123,7 +142,7 @@ export function DescontosAnaliseComercial({ analise, contratos, className }: { a
               </span>
             </p>
             <div className="rounded-lg border border-border divide-y divide-border/60 overflow-hidden">
-              {itens.map((r, i) => <LinhaRubrica key={i} r={r} />)}
+              {itens.map((r, i) => <LinhaRubrica key={i} r={r} nomeDe={nomeDe} />)}
             </div>
           </div>
         ))}
@@ -135,7 +154,7 @@ export function DescontosAnaliseComercial({ analise, contratos, className }: { a
               {grupos.length > 0 ? "Sem contrato de origem identificado" : "Origem não vinculada a contrato"}
             </p>
             <div className="rounded-lg border border-dashed border-amber-400/25 divide-y divide-border/60 overflow-hidden">
-              {semOrigem.map((r, i) => <LinhaRubrica key={i} r={r} />)}
+              {semOrigem.map((r, i) => <LinhaRubrica key={i} r={r} nomeDe={nomeDe} />)}
             </div>
             <p className="text-[10.5px] text-muted-foreground mt-1 leading-snug">
               {grupos.length > 0

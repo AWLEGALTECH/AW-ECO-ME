@@ -163,7 +163,11 @@ export function FinderAnaliseComercial({
 
     // Modo REFAZER: recalcula a análise/fechamento deste cliente e volta.
     if (refazendo) {
-      const { data, error } = await supabase.rpc("fn_refazer_analise_comercial" as any, {
+      // Sem p_creditar_a: refazer a análise inteira pelo Finder não é a mesma
+      // coisa que acrescentar uma ação pontual, e não há uma pergunta de
+      // responsabilização aqui. As ações novas seguem o crédito de quem já
+      // respondia pelo cliente — que é o comportamento de sempre.
+      const { data, error } = await supabase.rpc("fn_editar_analise_comercial" as any, {
         p_cliente_id: refazerClienteId,
         p_analise: { origem: "finder", rubricas },
         p_editor: user?.id || null,
@@ -175,12 +179,11 @@ export function FinderAnaliseComercial({
       qc.invalidateQueries({ queryKey: ["fechamentos"] });
       const r = (data as any) || {};
       setSalvouId("ok");
-      toast.success(
-        r.acao === "atualizado"
-          ? `Análise refeita — fechamento de ${r.responsavel || "captador"}: ${r.antes} → ${r.depois} ação(ões).`
-          : `Análise salva e fechamento criado (${r.depois} ação(ões)).`,
-        { duration: 4000 },
-      );
+      const partes = [
+        r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação nova" : "ações novas"} para ${r.creditadas_a || "—"}` : null,
+        r.removidas > 0 ? `${r.removidas} ${r.removidas === 1 ? "retirada" : "retiradas"}` : null,
+      ].filter(Boolean);
+      toast.success(partes.length ? `Análise refeita — ${partes.join(" · ")}.` : "Análise refeita.", { duration: 4000 });
       setTimeout(() => navigate(`/clientes/${refazerClienteId}`), 900);
       return;
     }
