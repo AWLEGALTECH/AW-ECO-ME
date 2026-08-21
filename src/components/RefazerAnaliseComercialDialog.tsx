@@ -21,7 +21,53 @@ const MOTIVO_LABEL: Record<Motivo, string> = {
 };
 
 // Cada AÇÃO selecionada (pode repetir a mesma ação para réus diferentes).
-interface Sel { rubrica: string; detalhe: string; requerido: string; bloqueada: boolean; motivo: Motivo; contrato_id: string | null }
+interface Sel {
+  // O id vem do banco e é o que dá identidade à rubrica. Sem ele, "quem é
+  // quem" só podia ser deduzido comparando texto — e preencher um requerido
+  // que faltava fazia a rubrica antiga parecer removida e uma nova aparecer
+  // no lugar, tirando a ação do mês em que foi contratada.
+  id: string | null;
+  grupo_id: string | null;
+  rubrica: string; detalhe: string; requerido: string; bloqueada: boolean; motivo: Motivo; contrato_id: string | null;
+}
+
+// Um GRUPO é o lote de ações percebido numa data. A análise comercial de um
+// cliente não é um bolo só: é o conjunto das análises feitas ao longo do
+// tempo, cada uma com sua data e suas rubricas. O grupo guarda quando foi, a
+// quem foi creditado e qual fechamento gerou — então remover uma rubrica de
+// dentro dele desconta exatamente no mês em que ela contou.
+interface Grupo {
+  id: string;
+  criado_em: string | null;
+  creditada_a: string | null;
+  contrato_id: string | null;
+  fechamento_id: string | null;
+  qtd: number;
+}
+
+function gruposDaAnalise(ac: any): Grupo[] {
+  const gs = Array.isArray(ac?.grupos) ? ac.grupos : [];
+  const rubs = Array.isArray(ac?.rubricas) ? ac.rubricas : [];
+  return gs
+    .map((g: any) => ({
+      id: String(g?.id ?? ""),
+      criado_em: g?.criado_em ? String(g.criado_em) : null,
+      creditada_a: g?.creditada_a ? String(g.creditada_a) : null,
+      contrato_id: g?.contrato_id ? String(g.contrato_id) : null,
+      fechamento_id: g?.fechamento_id ? String(g.fechamento_id) : null,
+      qtd: rubs.filter((r: any) => String(r?.grupo_id ?? "") === String(g?.id ?? "")).length,
+    }))
+    .filter((g: Grupo) => g.id)
+    .sort((a: Grupo, b: Grupo) => (b.criado_em ?? "").localeCompare(a.criado_em ?? ""));
+}
+
+const fmtDia = (d?: string | null) => {
+  if (!d) return "sem data";
+  const dt = new Date(`${String(d).slice(0, 10)}T00:00:00`);
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString("pt-BR");
+};
+
+const hoje = () => new Date().toISOString().slice(0, 10);
 
 // Lê as rubricas de uma análise (aceita array direto ou { rubricas: [...] }).
 function rubricasDaAnalise(ac: any): Sel[] {
@@ -29,6 +75,8 @@ function rubricasDaAnalise(ac: any): Sel[] {
   if (!Array.isArray(arr)) return [];
   return arr
     .map((r: any) => ({
+      id: (r?.id && String(r.id)) || null,
+      grupo_id: (r?.grupo_id && String(r.grupo_id)) || null,
       rubrica: String(r?.rubrica ?? "").trim(),
       detalhe: String(r?.detalhe ?? "").trim(),
       requerido: String(r?.requerido ?? "").trim(),
@@ -61,7 +109,15 @@ interface Props {
 export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId, editorNome }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "contrato" | "sem_contrato" | "manual" | "conferir">("chooser");
+  const [stage, setStage] = useState<"chooser" | "grupo" | "contrato" | "sem_contrato" | "manual" | "conferir">("chooser");
+  // Por onde a pessoa escolheu montar a lista. A escolha do grupo é a mesma
+  // pros dois caminhos — o que muda é só o que vem depois dela.
+  const [rota, setRota] = useState<"manual" | "finder">("manual");
+  // null = grupo NOVO (as ações contam pro mês corrente). Um id = grupo
+  // existente, onde só se corrige o que já está lá.
+  const [grupoSel, setGrupoSel] = useState<string | null>(null);
+  const todasRubricas = useMemo(() => rubricasDaAnalise(cliente?.analise_comercial), [cliente?.analise_comercial]);
+  const grupos = useMemo(() => gruposDaAnalise(cliente?.analise_comercial), [cliente?.analise_comercial]);
   const [busca, setBusca] = useState("");
   const [abrindoChamado, setAbrindoChamado] = useState(false);
   // Já existe chamado de contrato faltante em aberto pra este cliente?
@@ -125,22 +181,25 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   const chaveAtual = `${cliente?.id || ""}|${open}`;
   if (open && chaveAtual !== chaveInit) {
     setChaveInit(chaveAtual);
-    const inicial = rubricasDaAnalise(cliente?.analise_comercial);
-    setSel(inicial);
-    setSelOriginal(inicial);
+    // O editor só é carregado depois que se escolhe o grupo — é o grupo que
+    // define quais rubricas estão em jogo.
+    setSel([]);
+    setSelOriginal([]);
     setBusca("");
     setStage("chooser");
     setContratoSel(null);
+    setGrupoSel(null);
+    setRota("manual");
     setAddAberto(false);
     setNovaAcao("");
     setCreditarA(null);
     setMotivoRemocao("");
   }
 
-  // Só as ações DO contrato escolhido entram no editor; as dos outros ficam
-  // intactas e são recompostas no salvamento.
-  const doContrato = sel.filter((s2) => s2.contrato_id === contratoSel);
-  const deOutros = sel.filter((s2) => s2.contrato_id !== contratoSel);
+  // `sel` já é a lista DO GRUPO em edição — as rubricas dos outros grupos nem
+  // chegam aqui, e é isso que garante que mexer num grupo não mova a
+  // contabilidade de outro mês.
+  const doContrato = sel;
   const fmtDataCt = (d?: string | null) => {
     if (!d) return null;
     const dt = new Date(`${d}T00:00:00`);
@@ -152,10 +211,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
       .filter(Boolean).join(" · ");
 
   const contagem = (label: string) => doContrato.filter((s2) => s2.rubrica.toLowerCase() === label.toLowerCase()).length;
+  // Sem id: é rubrica nova. O banco carimba o id ao gravar.
   const addAcao = (label: string) =>
-    setSel((old) => [...old, { rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida", contrato_id: contratoSel }]);
-  // Os índices da UI são os da lista FILTRADA — converte pro índice real.
-  const idxReal = (i: number) => sel.indexOf(doContrato[i]);
+    setSel((old) => [...old, { id: null, grupo_id: grupoSel, rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida", contrato_id: contratoSel }]);
+  // `sel` é a lista exibida, então o índice da UI já é o real.
+  const idxReal = (i: number) => i;
   const removerSel = (i: number) => { const r = idxReal(i); setSel((old) => old.filter((_, k) => k !== r)); };
   const patchSel = (i: number, campo: keyof Sel, valor: any) => {
     const r = idxReal(i);
@@ -188,9 +248,13 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     [catalogo, busca],
   );
 
-  // Diff da conferência: o que entra, o que sai e o que fica. Compara pelo par
-  // AÇÃO + REQUERIDO, já que a mesma ação pode repetir para réus diferentes.
-  const chaveAcao = (x: Sel) => `${x.rubrica.toLowerCase()}||${x.requerido.trim().toLowerCase()}`;
+  // Diff da conferência: o que entra, o que sai e o que fica. A identidade é o
+  // ID da rubrica quando ele existe — foi comparar por texto que já fez uma
+  // ação antiga, ao ganhar o requerido que faltava, parecer removida e
+  // recriada, mudando de mês. Sem id (rubrica recém-adicionada aqui) cai no
+  // par AÇÃO + REQUERIDO, já que a mesma ação pode repetir para réus
+  // diferentes.
+  const chaveAcao = (x: Sel) => x.id || `novo||${x.rubrica.toLowerCase()}||${x.requerido.trim().toLowerCase()}`;
   const diff = useMemo(() => {
     const antes = new Map<string, Sel>();
     const contaAntes = new Map<string, number>();
@@ -216,8 +280,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     return { adicionadas, removidas, mantidas };
   }, [sel, selOriginal]);
 
-  const ajuizaveis = sel.filter((s2) => !s2.bloqueada).length;
-  const ajuizaveisCt = doContrato.filter((s2) => !s2.bloqueada).length;
+  // Ajuizáveis deste grupo e do cliente inteiro. As dos outros grupos seguem
+  // valendo — o editor não as vê, mas elas continuam no fechamento delas.
+  const ajuizaveisCt = sel.filter((s2) => !s2.bloqueada).length;
+  const ajuizaveisOutros = todasRubricas.filter((r) => !r.bloqueada && r.grupo_id !== grupoSel).length;
+  const ajuizaveis = ajuizaveisOutros + ajuizaveisCt;
 
   // Refazer = abre o Finder no modo ESTEIRA (sessão persistente) no contexto
   // deste cliente. O Finder puxa a pasta do Drive dele pro gatilho e a nova
@@ -231,8 +298,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   // Valida aqui e leva pra conferência — o salvamento em si só acontece
   // depois que a pessoa vê o que entra e o que sai.
   const irConferir = () => {
-    if (doContrato.length === 0) {
-      toast.error("Selecione ao menos uma ação para este contrato.");
+    // Grupo novo sem nenhuma ação não é um grupo. Já esvaziar um grupo antigo
+    // é uma correção legítima — some do fechamento dele e pronto.
+    if (!grupoSel && doContrato.length === 0) {
+      toast.error("Selecione ao menos uma ação para este grupo.");
       return;
     }
     const semRequerido = doContrato.filter((s2) => !s2.requerido.trim()).length;
@@ -247,9 +316,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     if (!cliente) return;
     // Sem contrato é permitido: o cliente pode não ter o instrumento ainda, e
     // isso não pode custar a definição das ações. Elas ficam com contrato_id
-    // nulo e aparecem no bloco "Ações sem contrato" até serem atribuídas.
-    if (doContrato.length === 0) {
-      toast.error("Selecione ao menos uma ação para este contrato.");
+    // nulo até serem atribuídas.
+    if (!grupoSel && doContrato.length === 0) {
+      toast.error("Selecione ao menos uma ação para este grupo.");
       return;
     }
     // O REQUERIDO é obrigatório: é ele que diz contra quem a ação vai.
@@ -259,30 +328,33 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
       return;
     }
     // A responsabilização é obrigatória quando há ação nova: é ela que decide
-    // no fechamento de quem a ação vai cair.
-    if (diff.adicionadas.length > 0 && !creditarA) {
+    // no fechamento de quem a ação vai cair. Só vale pra grupo novo — grupo
+    // antigo não gera contabilidade, então não há a quem atribuir.
+    if (!grupoSel && diff.adicionadas.length > 0 && !creditarA) {
       toast.error("Escolha a quem atribuir as ações novas.");
       return;
     }
     setSalvando(true);
-    const analise = {
-      origem: "manual",
-      // Preserva as ações dos OUTROS contratos; substitui só as deste.
-      rubricas: [...deOutros, ...doContrato].map((s2) => ({
-        rubrica: s2.rubrica,
-        detalhe: s2.detalhe.trim() || null,
-        requerido: s2.requerido.trim(),
-        valor: null,
-        bloqueada: s2.bloqueada,
-        motivo: s2.bloqueada ? s2.motivo : null,
-        contrato_id: s2.contrato_id,
-      })),
-    };
-    const { data, error } = await supabase.rpc("fn_editar_analise_comercial" as any, {
+    // Manda só as rubricas DESTE grupo. Quem tem id continua sendo a mesma
+    // rubrica; quem chega sem id é nova. O banco cuida do resto — inclusive de
+    // não encostar nos outros grupos.
+    const rubricas = sel.map((s2) => ({
+      id: s2.id,
+      rubrica: s2.rubrica,
+      detalhe: s2.detalhe.trim() || null,
+      requerido: s2.requerido.trim(),
+      valor: null,
+      bloqueada: s2.bloqueada,
+      motivo: s2.bloqueada ? s2.motivo : null,
+      contrato_id: s2.contrato_id,
+    }));
+    const { data, error } = await supabase.rpc("fn_salvar_grupo_analise" as any, {
       p_cliente_id: cliente.id,
-      p_analise: analise,
+      p_rubricas: rubricas,
+      p_grupo_id: grupoSel,
       p_editor: editorId,
       p_creditar_a: creditarA,
+      p_contrato_id: contratoSel,
       p_motivo_remocao: motivoRemocao.trim() || null,
     } as any);
     setSalvando(false);
@@ -292,34 +364,65 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     qc.invalidateQueries({ queryKey: ["fechamentos"] });
     const r = (data as any) || {};
     const partes = [
-      r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação nova" : "ações novas"} para ${r.creditadas_a || "—"}` : null,
+      r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação" : "ações"} para ${r.creditadas_a || "—"} em ${r.mes || mesCorrente()}` : null,
       r.removidas > 0 ? `${r.removidas} ${r.removidas === 1 ? "retirada" : "retiradas"}` : null,
     ].filter(Boolean);
-    toast.success(partes.length ? `Análise salva — ${partes.join(" · ")}.` : "Análise salva.", { duration: 4000 });
+    toast.success(
+      partes.length
+        ? `${r.novo ? "Grupo criado" : "Grupo atualizado"} — ${partes.join(" · ")}.`
+        : "Grupo atualizado — nada mudou na contabilidade.",
+      { duration: 4000 },
+    );
     onSaved();
     onClose();
   };
 
   const tituloChamado = cliente ? `Contrato faltante — ${cliente.nome}` : "";
 
-  // Rota manual. Sem contrato NÃO bloqueia: pergunta se segue mesmo assim.
-  // Antes de perguntar, verifica se a falta já foi reportada — um chamado por
-  // rubrica seria ruído; um por cliente basta pra ninguém esquecer.
-  const irManual = async () => {
-    if (contratos.length === 0) {
-      setStage("sem_contrato");
-      if (cliente) {
-        setChecandoChamado(true);
-        const { data } = await (supabase.from("chamados" as never) as never as any)
-          .select("id, status")
-          .eq("titulo", tituloChamado)
-          .neq("status", "resolvido")
-          .limit(1);
-        setChamadoAberto(!!(data && data.length));
-        setChecandoChamado(false);
-      }
-      return;
-    }
+  // Nenhuma das duas rotas abre a lista direto: primeiro se escolhe em qual
+  // grupo mexer, porque é isso que decide se a edição gera contabilidade.
+  const escolherGrupo = (r: "manual" | "finder") => { setRota(r); setStage("grupo"); };
+
+  // Cliente sem contrato cadastrado: avisa e abre um chamado, mas não bloqueia.
+  // Um chamado por rubrica seria ruído; um por cliente basta pra ninguém
+  // esquecer.
+  const checarChamadoContrato = async () => {
+    if (!cliente) return;
+    setChecandoChamado(true);
+    const { data } = await (supabase.from("chamados" as never) as never as any)
+      .select("id, status")
+      .eq("titulo", tituloChamado)
+      .neq("status", "resolvido")
+      .limit(1);
+    setChamadoAberto(!!(data && data.length));
+    setChecandoChamado(false);
+  };
+
+  // O Finder monta a lista lendo os extratos, mas a lista que ele devolve
+  // continua sendo a de UM grupo. Por isso ele leva o grupo escolhido na URL:
+  // grupo novo vira uma leva nova; grupo existente ele apenas corrige.
+  const irFinder = (grupo: string | null, ct: string | null) => {
+    if (!cliente) return;
+    const q = new URLSearchParams({ cliente: cliente.id, nome: cliente.nome });
+    if (grupo) q.set("grupo", grupo); else q.set("grupo", "novo");
+    if (ct) q.set("contrato", ct);
+    navigate(`/finder?${q.toString()}`);
+  };
+
+  // Escolhido o grupo, o editor abre carregado só com o que é dele. Grupo novo
+  // começa vazio e ainda precisa dizer de qual contrato as ações são.
+  const abrirGrupo = (g: Grupo | null) => {
+    setGrupoSel(g?.id ?? null);
+    const doGrupo = g ? todasRubricas.filter((r) => r.grupo_id === g.id) : [];
+    setSel(doGrupo);
+    setSelOriginal(doGrupo);
+    setContratoSel(g?.contrato_id ?? null);
+    setCreditarA(null);
+    setMotivoRemocao("");
+    setBusca("");
+    if (rota === "finder") { irFinder(g?.id ?? null, g?.contrato_id ?? null); return; }
+    if (g) { setStage("manual"); return; }
+    if (contratos.length === 0) { setStage("sem_contrato"); checarChamadoContrato(); return; }
     if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); return; }
     setStage("contrato");
   };
@@ -358,7 +461,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             {stage !== "chooser" && (
-              <button onClick={() => setStage(stage === "conferir" ? "manual" : stage === "manual" && contratos.length > 1 ? "contrato" : "chooser")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+              <button onClick={() => setStage(stage === "conferir" ? "manual" : stage === "grupo" ? "chooser" : "grupo")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -368,20 +471,24 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
           <DialogDescription>
             {stage === "chooser"
               ? "Adicione ou edite as ações deste cliente. Escolha por onde."
+              : stage === "grupo"
+              ? "A análise deste cliente é feita em levas. Escolha a leva que você vai mexer, ou comece uma nova."
               : stage === "sem_contrato"
               ? "Este cliente ainda não tem contrato cadastrado."
               : stage === "conferir"
-              ? "Confira o que muda antes de gravar. Isto recalcula o fechamento do cliente."
+              ? "Confira o que muda antes de gravar. Isto recalcula o fechamento deste grupo."
               : stage === "contrato"
-              ? "Cada ação pertence a um contrato do cliente. Escolha qual deles você vai editar."
-              : "Atrele as ações e diga contra quem cada uma vai. Na conferência você escolhe a quem as ações novas serão creditadas."}
+              ? "Cada ação pertence a um contrato do cliente. Escolha de qual contrato são as ações deste grupo."
+              : grupoSel
+              ? "Corrija o que já está no grupo: réu, detalhe, bloqueio, ou retire uma ação."
+              : "Atrele as ações e diga contra quem cada uma vai. Na conferência você escolhe a quem elas serão creditadas."}
           </DialogDescription>
         </DialogHeader>
 
         {stage === "chooser" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <button
-              onClick={irManual}
+              onClick={() => escolherGrupo("manual")}
               className="text-left rounded-xl border border-primary/30 bg-gradient-to-br from-primary/[0.13] to-transparent hover:border-primary/55 p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-primary/15 ring-1 ring-primary/30 text-primary flex items-center justify-center mb-3">
@@ -394,7 +501,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               </p>
             </button>
             <button
-              onClick={irFinderEsteira}
+              onClick={() => escolherGrupo("finder")}
               className="text-left rounded-xl border border-white/[0.08] bg-white/[0.03] hover:border-primary/40 hover:bg-white/[0.05] p-4 transition-colors"
             >
               <div className="h-10 w-10 rounded-xl bg-white/[0.05] ring-1 ring-white/10 text-foreground/80 flex items-center justify-center mb-3">
@@ -403,9 +510,60 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               <p className="text-sm font-semibold">Levantar pelo Finder (Bradesco)</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 Abre o Finder na esteira com a pasta do Drive já no gatilho. Ele lê os extratos e
-                devolve a lista pronta, substituindo a atual.
+                devolve a lista pronta — que entra na leva que você escolher a seguir.
               </p>
             </button>
+          </div>
+        ) : stage === "grupo" ? (
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1 py-1">
+            {/* Grupo NOVO — é o único lugar onde nasce contabilidade. */}
+            <button
+              onClick={() => abrirGrupo(null)}
+              className="w-full text-left rounded-xl border border-emerald-500/35 bg-emerald-500/[0.06] hover:border-emerald-400/60 p-4 flex items-center gap-3 transition-colors"
+            >
+              <span className="h-10 w-10 rounded-xl bg-emerald-500/15 ring-1 ring-emerald-500/30 text-emerald-400 grid place-items-center shrink-0">
+                <Plus className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Nova leva · {fmtDia(hoje())}</span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                  Ações percebidas agora. Contam no fechamento de {mesCorrente()}, e você escolhe pra quem.
+                </span>
+              </span>
+            </button>
+
+            {grupos.length > 0 && (
+              <>
+                <p className="text-[10.5px] uppercase tracking-[0.15em] text-muted-foreground pt-2">
+                  Ou mexer numa leva que já existe
+                </p>
+                {grupos.map((g) => {
+                  const credito = equipe.find((p2) => p2.id === g.creditada_a)?.nome;
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => abrirGrupo(g)}
+                      className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04] p-3.5 flex items-center gap-3 transition-colors"
+                    >
+                      <span className="h-9 w-9 rounded-lg bg-white/[0.05] ring-1 ring-white/10 text-muted-foreground grid place-items-center shrink-0">
+                        <ClipboardList className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-medium">Leva de {fmtDia(g.criado_em)}</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {g.qtd} {g.qtd === 1 ? "ação" : "ações"}{credito ? ` · ${credito}` : ""}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                    </button>
+                  );
+                })}
+                <p className="text-[11px] text-muted-foreground/70 leading-snug pt-0.5">
+                  Tirar uma ação de uma leva antiga desconta ela do mês em que ela contou. Nenhuma
+                  outra leva é tocada.
+                </p>
+              </>
+            )}
           </div>
         ) : stage === "sem_contrato" ? (
           <div className="space-y-3 py-2">
@@ -447,7 +605,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
             </button>
 
             <button
-              onClick={() => setStage("chooser")}
+              onClick={() => setStage("grupo")}
               disabled={abrindoChamado}
               className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] hover:border-white/[0.16] p-4 flex items-center gap-3 transition-colors disabled:opacity-60"
             >
@@ -466,10 +624,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
           <div className="space-y-2 py-1 overflow-y-auto">
             <p className="text-[12px] text-muted-foreground">
               Toda ação é ajuizada com base num contrato — o instrumento que nos dá poderes para
-              representar o cliente. Escolha de qual contrato você vai editar as ações.
+              representar o cliente. Escolha de qual contrato são as ações desta leva.
             </p>
             {contratos.map((c) => {
-              const n = sel.filter((s2) => s2.contrato_id === c.id).length;
+              const n = todasRubricas.filter((s2) => s2.contrato_id === c.id).length;
               return (
                 <button
                   key={c.id}
@@ -491,39 +649,41 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                 </button>
               );
             })}
-            {sel.some((s2) => !s2.contrato_id) && (
-              <button
-                onClick={() => { setContratoSel(null); setStage("manual"); }}
-                className="w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-amber-400/[0.04] p-3.5 flex items-center gap-3 hover:bg-amber-400/[0.08] transition-colors"
-              >
-                <span className="h-10 w-10 rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 text-amber-400 flex items-center justify-center shrink-0">
-                  <ClipboardList className="h-5 w-5" />
+            <button
+              onClick={() => { setContratoSel(null); setStage("manual"); }}
+              className="w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-amber-400/[0.04] p-3.5 flex items-center gap-3 hover:bg-amber-400/[0.08] transition-colors"
+            >
+              <span className="h-10 w-10 rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 text-amber-400 flex items-center justify-center shrink-0">
+                <ClipboardList className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground/85">Ainda sem contrato definido</span>
+                <span className="block text-[11.5px] text-muted-foreground mt-0.5">
+                  As ações ficam sem contrato de origem e podem ser atreladas depois.
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-foreground/85">Ações sem contrato</span>
-                  <span className="block text-[11.5px] text-muted-foreground mt-0.5">
-                    Ações antigas, sem contrato de origem — abra para atribuí-las a um contrato.
-                  </span>
-                </span>
-                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                  {sel.filter((s2) => !s2.contrato_id).length} ação(ões)
-                </span>
-              </button>
-            )}
+              </span>
+            </button>
           </div>
         ) : stage === "manual" ? (
           <>
             <div className="flex items-center justify-between px-1 py-1 shrink-0">
               <span className="text-[11px] text-muted-foreground truncate">
+                {grupoSel
+                  ? <>Mexendo na <strong className="text-foreground">leva de {fmtDia(grupos.find((g) => g.id === grupoSel)?.criado_em)}</strong></>
+                  : <><strong className="text-emerald-300">Leva nova</strong> · {fmtDia(hoje())}</>}
                 {contratoSel
-                  ? <>Editando o <strong className="text-foreground">contrato {contratos.find((c) => c.id === contratoSel)?.modalidade || ""} · {rotuloCt(contratos.find((c) => c.id === contratoSel) || { id: "" })}</strong></>
-                  : <>Editando as <strong className="text-amber-300">ações sem contrato</strong></>}
-                {" · "}{ajuizaveisCt} nesta · {ajuizaveis} no total = <strong className="text-foreground">{Math.max(1, ajuizaveis)}</strong> ação(ões) no fechamento
+                  ? <> · contrato {contratos.find((c) => c.id === contratoSel)?.modalidade || ""} <span className="opacity-70">({rotuloCt(contratos.find((c) => c.id === contratoSel) || { id: "" })})</span></>
+                  : <> · <span className="text-amber-300">sem contrato</span></>}
+                {" · "}{ajuizaveisCt} nesta leva · <strong className="text-foreground">{Math.max(1, ajuizaveis)}</strong> ação(ões) no total do cliente
               </span>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
-              {/* GRADE DE AÇÕES — mesmo padrão do Writer: clicar atrela (pode repetir) */}
+              {/* GRADE DE AÇÕES — mesmo padrão do Writer: clicar atrela (pode
+                  repetir). Só aparece em leva NOVA: acrescentar dentro de uma
+                  leva antiga contaria a ação no mês daquela leva, e não no mês
+                  em que ela de fato foi percebida. */}
+              {!grupoSel && (
               <div>
                 <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
                   Selecione as ações ({doContrato.length})
@@ -596,11 +756,25 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                   )}
                 </div>
               </div>
+              )}
+
+              {grupoSel && (
+                <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-2.5">
+                  <p className="text-[12px] text-foreground">
+                    Mexendo na <strong>leva de {fmtDia(grupos.find((g) => g.id === grupoSel)?.criado_em)}</strong>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                    Dá pra ajustar réu, detalhe e bloqueio, ou retirar uma ação — e retirar desconta
+                    ela do mês em que contou. Para acrescentar ações novas, volte e abra uma leva
+                    nova: é ela que entra no fechamento deste mês.
+                  </p>
+                </div>
+              )}
 
               {/* AÇÕES ATRELADAS — detalhe + REQUERIDO (obrigatório) */}
               <div>
                 <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
-                  Ações atreladas a este contrato ({doContrato.length})
+                  Ações desta leva ({doContrato.length})
                 </p>
                 {doContrato.length === 0 ? (
                   <p className="text-[12px] text-muted-foreground rounded-lg border border-dashed border-border px-3 py-6 text-center">
@@ -670,7 +844,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
             </div>
 
             <DialogFooter className="shrink-0 gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setStage(contratos.length > 1 ? "contrato" : "chooser")} disabled={salvando}>Voltar</Button>
+              <Button variant="ghost" onClick={() => setStage("grupo")} disabled={salvando}>Voltar</Button>
               <Button onClick={irConferir} disabled={salvando}>
                 <ChevronRight className="h-4 w-4 mr-1.5" />
                 Conferir e salvar
@@ -682,13 +856,15 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
           <>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-1">
               <div className="rounded-xl border border-border bg-card/40 p-3.5">
-                <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Como vai ficar</p>
+                <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {grupoSel ? `Leva de ${fmtDia(grupos.find((g) => g.id === grupoSel)?.criado_em)}` : `Leva nova · ${fmtDia(hoje())}`}
+                </p>
                 <p className="text-sm mt-1">
                   <strong className="text-foreground text-lg tabular-nums">{sel.length}</strong>{" "}
-                  {sel.length === 1 ? "ação ajuizável" : "ações ajuizáveis"} para {cliente?.nome}
+                  {sel.length === 1 ? "ação nesta leva" : "ações nesta leva"}
                   {" · "}
                   <span className="text-muted-foreground">
-                    {ajuizaveis} {ajuizaveis === 1 ? "conta" : "contam"} no fechamento
+                    {cliente?.nome} fica com {ajuizaveis} {ajuizaveis === 1 ? "ação ajuizável" : "ações ajuizáveis"} no total
                   </span>
                 </p>
               </div>
@@ -719,7 +895,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                   </ul>
 
                   {/* De quem é o crédito. Sem escolha padrão: nem sempre é de
-                      quem digitou, nem sempre de quem captou o cliente. */}
+                      quem digitou, nem sempre de quem captou o cliente. Só em
+                      leva NOVA — numa leva antiga o banco não credita nada, e
+                      perguntar sugeriria o contrário. */}
+                  {!grupoSel ? (
                   <div className="px-3.5 py-3 border-t border-emerald-500/15 bg-black/20">
                     <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                       {diff.adicionadas.length === 1 ? "Esta ação conta para quem?" : `Estas ${diff.adicionadas.length} ações contam para quem?`}
@@ -758,6 +937,15 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                       </p>
                     )}
                   </div>
+                  ) : (
+                    <div className="px-3.5 py-2.5 border-t border-emerald-500/15 bg-black/20">
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Correção dentro de uma leva antiga: {diff.adicionadas.length === 1 ? "esta ação entra" : "estas ações entram"} na
+                        amostragem da leva, mas <strong className="text-foreground/85">não contam</strong> como
+                        fechamento novo pra ninguém.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -822,7 +1010,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
 
             <DialogFooter className="shrink-0 gap-2 pt-2">
               <Button variant="ghost" onClick={() => setStage("manual")} disabled={salvando}>Voltar e ajustar</Button>
-              <Button onClick={salvarManual} disabled={salvando || (diff.adicionadas.length > 0 && !creditarA)}>
+              <Button onClick={salvarManual} disabled={salvando || (!grupoSel && diff.adicionadas.length > 0 && !creditarA)}>
                 {salvando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
                 Confirmar e recalcular
               </Button>
