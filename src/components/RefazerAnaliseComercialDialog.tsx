@@ -69,6 +69,23 @@ const fmtDia = (d?: string | null) => {
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 
+// A ida ao Finder é uma viagem de ida e volta por outra página: a pessoa
+// escolhe a leva, lê os extratos lá e só depois volta pra lançar as ações. A
+// escolha fica guardada pra que ela reencontre o diálogo na mesma leva — sem
+// isso, perguntar antes de mandar pro Finder seria só enfeite.
+const CHAVE_LEVA = (id: string) => `analise-leva:${id}`;
+const guardarLeva = (clienteId: string, grupo: string | null) => {
+  try { sessionStorage.setItem(CHAVE_LEVA(clienteId), grupo ?? "nova"); } catch { /* aba anônima */ }
+};
+const resgatarLeva = (clienteId: string): string | null | undefined => {
+  try {
+    const v = sessionStorage.getItem(CHAVE_LEVA(clienteId));
+    if (v === null) return undefined;
+    sessionStorage.removeItem(CHAVE_LEVA(clienteId));
+    return v === "nova" ? null : v;
+  } catch { return undefined; }
+};
+
 // Lê as rubricas de uma análise (aceita array direto ou { rubricas: [...] }).
 function rubricasDaAnalise(ac: any): Sel[] {
   const arr = Array.isArray(ac) ? ac : ac?.rubricas;
@@ -186,7 +203,6 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setSel([]);
     setSelOriginal([]);
     setBusca("");
-    setStage("chooser");
     setContratoSel(null);
     setGrupoSel(null);
     setRota("manual");
@@ -194,6 +210,20 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setNovaAcao("");
     setCreditarA(null);
     setMotivoRemocao("");
+    setStage("chooser");
+
+    // Voltou do Finder: retoma na leva que já tinha sido escolhida, em vez de
+    // fazer a pessoa responder a mesma pergunta de novo.
+    const retomar = cliente ? resgatarLeva(cliente.id) : undefined;
+    if (retomar !== undefined) {
+      const g = retomar ? grupos.find((x) => x.id === retomar) ?? null : null;
+      const doGrupo = g ? todasRubricas.filter((r) => r.grupo_id === g.id) : [];
+      setGrupoSel(g?.id ?? null);
+      setSel(doGrupo);
+      setSelOriginal(doGrupo);
+      setContratoSel(g?.contrato_id ?? (contratos.length === 1 ? contratos[0].id : null));
+      setStage(g || contratos.length <= 1 ? "manual" : "contrato");
+    }
   }
 
   // `sel` já é a lista DO GRUPO em edição — as rubricas dos outros grupos nem
@@ -285,15 +315,6 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   const ajuizaveisCt = sel.filter((s2) => !s2.bloqueada).length;
   const ajuizaveisOutros = todasRubricas.filter((r) => !r.bloqueada && r.grupo_id !== grupoSel).length;
   const ajuizaveis = ajuizaveisOutros + ajuizaveisCt;
-
-  // Refazer = abre o Finder no modo ESTEIRA (sessão persistente) no contexto
-  // deste cliente. O Finder puxa a pasta do Drive dele pro gatilho e a nova
-  // análise vira uma demanda pronta pra esse cliente na esteira.
-  const irFinderEsteira = () => {
-    if (!cliente) return;
-    onClose();
-    navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
-  };
 
   // Valida aqui e leva pra conferência — o salvamento em si só acontece
   // depois que a pessoa vê o que entra e o que sai.
@@ -401,12 +422,14 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   // O Finder monta a lista lendo os extratos, mas a lista que ele devolve
   // continua sendo a de UM grupo. Por isso ele leva o grupo escolhido na URL:
   // grupo novo vira uma leva nova; grupo existente ele apenas corrige.
-  const irFinder = (grupo: string | null, ct: string | null) => {
+  // Abre o Finder no modo ESTEIRA (sessão persistente) no contexto deste
+  // cliente: ele puxa a pasta do Drive pro gatilho. A leva escolhida fica
+  // guardada pra retomar quando a pessoa voltar pra lançar as ações.
+  const irFinder = (grupo: string | null) => {
     if (!cliente) return;
-    const q = new URLSearchParams({ cliente: cliente.id, nome: cliente.nome });
-    if (grupo) q.set("grupo", grupo); else q.set("grupo", "novo");
-    if (ct) q.set("contrato", ct);
-    navigate(`/finder?${q.toString()}`);
+    guardarLeva(cliente.id, grupo);
+    onClose();
+    navigate(`/finder?cliente=${cliente.id}&nome=${encodeURIComponent(cliente.nome)}`);
   };
 
   // Escolhido o grupo, o editor abre carregado só com o que é dele. Grupo novo
@@ -420,7 +443,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setCreditarA(null);
     setMotivoRemocao("");
     setBusca("");
-    if (rota === "finder") { irFinder(g?.id ?? null, g?.contrato_id ?? null); return; }
+    if (rota === "finder") { irFinder(g?.id ?? null); return; }
     if (g) { setStage("manual"); return; }
     if (contratos.length === 0) { setStage("sem_contrato"); checarChamadoContrato(); return; }
     if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); return; }
