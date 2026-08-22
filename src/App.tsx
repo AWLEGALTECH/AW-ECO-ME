@@ -14,6 +14,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clientes from "./pages/Clientes";
 import ClienteDetail from "./pages/ClienteDetail";
+import ClientesArquivados from "./pages/ClientesArquivados";
 import Processos from "./pages/Processos";
 import ProcessosParados from "./pages/ProcessosParados";
 import ProcessoDetail from "./pages/ProcessoDetail";
@@ -72,6 +73,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="clientes" />}>
                   <Route path="/clientes" element={<Clientes />} />
+                  {/* Antes da rota com :id — senão "arquivados" seria lido como
+                      um id de cliente. */}
+                  <Route path="/clientes/arquivados" element={<ClientesArquivados />} />
                   <Route path="/clientes/:id" element={<ClienteDetail />} />
                 </Route>
                 <Route element={<RequireModule module="processos" />}>

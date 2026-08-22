@@ -44,7 +44,10 @@ import {
   Lock, ScanSearch, PenSquare, Layers, X, Ban, Copy, Check, Download, Sparkles, Trophy, ArrowRight,
   Scale, Gavel, Building2, Hammer, ClipboardPaste,
   Package, CalendarDays, UserX, PhoneOff, XCircle, ChevronRight,
+  Archive, ArchiveRestore,
 } from "lucide-react";
+import { ZonaPerigo, AcaoPerigosa } from "@/components/ZonaPerigo";
+import { ArquivarClienteDialog, DesarquivarClienteDialog } from "@/components/ArquivarClienteDialog";
 
 export interface Cliente {
   id: string;
@@ -71,6 +74,13 @@ export interface Cliente {
   cadastrado_por: string | null;
   requerido: string | null;
   parceiro: string | null;
+  // Arquivamento: nulo = cliente ativo. O motivo e a data do último contato
+  // continuam gravados mesmo depois de desarquivar — eles contam o que
+  // aconteceu com esta pessoa, e isso não deixa de ser verdade.
+  arquivado_em: string | null;
+  arquivado_por: string | null;
+  arquivado_motivo: string | null;
+  ultimo_contato_em: string | null;
   created_at: string;
 }
 
@@ -322,6 +332,10 @@ export default function ClienteDetail() {
   const [detalheTarefa, setDetalheTarefa] = useState<ItemTarefa | null>(null);
   const [editandoTarefa, setEditandoTarefa] = useState<ItemTarefa | null>(null);
 
+  // Ações da área restrita, no rodapé da ficha.
+  const [arquivando, setArquivando] = useState(false);
+  const [desarquivando, setDesarquivando] = useState(false);
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Cliente | null>(null);
   const comarcasSugeridas = useComarcasSugeridas();
@@ -513,6 +527,7 @@ export default function ClienteDetail() {
   if (!cliente) return <div className="text-center text-muted-foreground py-8">Carregando…</div>;
 
   const origemMeta = ORIGEM_META[cliente.origem ?? "manual"] ?? ORIGEM_META.manual;
+  const arquivadoPorNome = cliente.arquivado_por ? equipeNomes[cliente.arquivado_por] || "" : "";
   const demandasPre  = demandas.filter(d => d.tipo === "pre_protocolo");
 
   // Conta como "demanda em aberto" apenas analise_vinculada que ainda nao
@@ -547,6 +562,11 @@ export default function ClienteDetail() {
               {cliente.nome}
             </h1>
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mt-2.5">
+              {cliente.arquivado_em && (
+                <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border border-amber-400/40 bg-amber-400/10 text-amber-300 inline-flex items-center gap-1">
+                  <Archive className="h-3 w-3" /> Arquivado
+                </span>
+              )}
               <span className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full border ${origemMeta.color}`}>
                 {origemMeta.label}
               </span>
@@ -580,6 +600,45 @@ export default function ClienteDetail() {
           </div>
         </div>
       </SpotlightCard>
+
+      {/* POR QUE ESTE CLIENTE ESTÁ ARQUIVADO ================================
+          Vem antes de tudo, e não escondido numa aba: quem abre a ficha de um
+          arquivado está justamente tentando descobrir o que aconteceu com essa
+          pessoa. As duas respostas são a última tentativa de contato e o
+          motivo escrito por quem arquivou. */}
+      {cliente.arquivado_em && (
+        <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="h-9 w-9 rounded-xl bg-amber-400/15 ring-1 ring-amber-400/30 text-amber-300 grid place-items-center shrink-0">
+              <Archive className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-[13px] font-semibold text-amber-200">Cliente arquivado</p>
+                <p className="text-[11px] text-muted-foreground">
+                  em {fmtDate(cliente.arquivado_em)}
+                  {arquivadoPorNome ? <> · por <strong className="text-foreground/80 font-medium">{arquivadoPorNome}</strong></> : null}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-x-6 gap-y-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Última tentativa de contato</p>
+                  <p className="text-lg font-medium tabular-nums text-foreground mt-0.5">
+                    {cliente.ultimo_contato_em ? fmtDate(cliente.ultimo_contato_em) : "não informada"}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Por que foi arquivado</p>
+                  <p className="text-[13px] text-foreground/90 leading-relaxed mt-0.5 whitespace-pre-wrap break-words">
+                    {cliente.arquivado_motivo || "sem motivo registrado"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* QUADRADOS DE NAVEGACAO ============================================ */}
       <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
@@ -879,6 +938,49 @@ export default function ClienteDetail() {
           />
         </div>
       )}
+
+      {/* ÁREA RESTRITA ===================================================== */}
+      <ZonaPerigo>
+        {cliente.arquivado_em ? (
+          <AcaoPerigosa
+            titulo="Desarquivar cliente"
+            descricao="Ele volta para a lista de clientes ativos. O motivo e a data do último contato continuam registrados."
+            icone={<ArchiveRestore className="h-4 w-4 text-primary/80" />}
+          >
+            <Button size="sm" variant="outline" onClick={() => setDesarquivando(true)}>
+              <ArchiveRestore className="h-4 w-4 mr-1.5" /> Desarquivar
+            </Button>
+          </AcaoPerigosa>
+        ) : (
+          <AcaoPerigosa
+            titulo="Arquivar cliente"
+            descricao="Tira o cliente da lista de ativos e o move para a área de arquivados. Exige a data da última tentativa de contato e o motivo."
+            icone={<Archive className="h-4 w-4 text-amber-400/80" />}
+          >
+            <Button
+              size="sm"
+              onClick={() => setArquivando(true)}
+              className="bg-amber-500/90 hover:bg-amber-500 text-black"
+            >
+              <Archive className="h-4 w-4 mr-1.5" /> Arquivar
+            </Button>
+          </AcaoPerigosa>
+        )}
+      </ZonaPerigo>
+
+      <ArquivarClienteDialog
+        open={arquivando}
+        onClose={() => setArquivando(false)}
+        cliente={cliente}
+        autorId={user?.id ?? null}
+        onArquivado={load}
+      />
+      <DesarquivarClienteDialog
+        open={desarquivando}
+        onClose={() => setDesarquivando(false)}
+        cliente={cliente}
+        onDesarquivado={load}
+      />
 
       {/* Tarefa do processo: resumo com as saídas, e editar no canto — o mesmo
           par de diálogos da tela de Tarefas, pra que a tarefa se comporte

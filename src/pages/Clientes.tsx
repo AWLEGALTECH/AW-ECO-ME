@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useComarcasSugeridas } from "@/hooks/useComarcasSugeridas";
 import { nomeSobrenome } from "@/lib/audit";
-import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus, Copy, ArrowRight, AlertTriangle } from "lucide-react";
+import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus, Copy, ArrowRight, AlertTriangle, Archive, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
@@ -84,6 +84,7 @@ export default function Clientes() {
   useEffect(() => { document.title = "Clientes · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [arquivadosCount, setArquivadosCount] = useState(0);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [resumo, setResumo] = useState<Cliente | null>(null);
@@ -120,7 +121,7 @@ export default function Clientes() {
     const [cliRes, procRes, demRes] = await Promise.all([
       supabase
         .from("clientes")
-        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at, requerido, observacoes, drive_folder_url, created_at, cadastrado_por")
+        .select("id, nome, cpf_cnpj, telefone, email, dados_socioeconomicos, socio_link_enviado_at, requerido, observacoes, drive_folder_url, created_at, cadastrado_por, arquivado_em")
         .order("nome", { ascending: true }),
       supabase.from("processos").select("cliente_id, valor_causa"),
       supabase.from("demandas" as any).select("cliente_id, status"),
@@ -140,7 +141,12 @@ export default function Clientes() {
       if (STATUS_ATIVOS.has(d.status)) esteira.add(d.cliente_id);
     });
 
-    setClientes(cliRes.data.map((c: any) => {
+    // Arquivado sai da lista de ativos — é justamente o ponto de arquivar. Só
+    // a contagem fica, pra alimentar o acesso à área de arquivados.
+    const ativos = (cliRes.data as any[]).filter((c) => !c.arquivado_em);
+    setArquivadosCount((cliRes.data as any[]).length - ativos.length);
+
+    setClientes(ativos.map((c: any) => {
       const a = agg.get(c.id) || { count: 0, total: 0 };
       const ds = c.dados_socioeconomicos || {};
       const preenchido = Object.values(ds).some(
@@ -451,6 +457,30 @@ export default function Clientes() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Acesso aos arquivados. Discreto de propósito: é uma gaveta que se
+          abre de vez em quando, não parte do trabalho do dia. Fica no rodapé,
+          depois da lista, onde quem procura encontra e quem não procura não
+          esbarra. */}
+      <button
+        onClick={() => navigate("/clientes/arquivados")}
+        className="w-full mt-4 rounded-xl border border-dashed border-border/70 bg-muted/[0.15] hover:bg-muted/30 hover:border-border px-4 py-3 flex items-center gap-3 text-left transition-colors group"
+      >
+        <span className="h-8 w-8 rounded-lg bg-muted/40 ring-1 ring-border/60 text-muted-foreground grid place-items-center shrink-0 group-hover:text-foreground/70 transition-colors">
+          <Archive className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12.5px] font-medium text-muted-foreground group-hover:text-foreground/80 transition-colors">
+            Clientes arquivados
+          </span>
+          <span className="block text-[11px] text-muted-foreground/70">
+            {arquivadosCount === 0
+              ? "Nenhum cliente arquivado"
+              : `${arquivadosCount} ${arquivadosCount === 1 ? "cliente fora" : "clientes fora"} da lista de ativos`}
+          </span>
+        </span>
+        <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+      </button>
 
       <ClienteResumoDialog
         cliente={resumo}
