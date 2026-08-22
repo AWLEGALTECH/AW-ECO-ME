@@ -1373,6 +1373,7 @@ function EspelhoCard({ demanda, onClick, autor }: { demanda: Demanda; onClick: (
   const protocolado = !cancelado && !!demanda.protocolado_at;
   const motivoKey = (demanda as any).cancelamento_motivo as string | null;
   const motivoLabel = MOTIVOS_CANCELAMENTO.find((m) => m.key === motivoKey)?.label
+    || (motivoKey === "cliente_arquivado" ? "Cliente arquivado" : null)
     || (motivoKey === "outro" ? "Outro motivo" : null);
   const motivoDetalhe = (demanda as any).cancelamento_detalhe as string | null;
   return (

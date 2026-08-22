@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CampoData } from "@/components/CampoData";
 import { supabase } from "@/integrations/supabase/client";
-import { Archive, Loader2, AlertTriangle, ArchiveRestore } from "lucide-react";
+import { Archive, Loader2, AlertTriangle, ArchiveRestore, ListX } from "lucide-react";
 
 /**
  * Arquivar tira o cliente da lista de ativos, e as duas perguntas aqui não são
@@ -26,6 +26,9 @@ export function ArquivarClienteDialog({ open, onClose, cliente, autorId, onArqui
   const [ultimoContato, setUltimoContato] = useState("");
   const [motivo, setMotivo] = useState("");
   const [salvando, setSalvando] = useState(false);
+  // Quantas demandas o cliente tem na fila agora — é o que vai ser cancelado.
+  // Dizer o número antes evita a surpresa de ver a esteira encolher depois.
+  const [naFila, setNaFila] = useState<number | null>(null);
 
   // Reinicia ao abrir / trocar de cliente.
   const chave = `${cliente?.id ?? ""}|${open}`;
@@ -34,7 +37,21 @@ export function ArquivarClienteDialog({ open, onClose, cliente, autorId, onArqui
     setChaveInit(chave);
     setUltimoContato(cliente?.ultimo_contato_em?.slice(0, 10) ?? "");
     setMotivo("");
+    setNaFila(null);
   }
+
+  useEffect(() => {
+    if (!open || !cliente) return;
+    let cancelado = false;
+    (async () => {
+      const { count } = await (supabase.from("demandas" as never) as never as any)
+        .select("id", { count: "exact", head: true })
+        .eq("cliente_id", cliente.id)
+        .in("status", ["pendente", "em_andamento", "bloqueada"]);
+      if (!cancelado) setNaFila(count ?? 0);
+    })();
+    return () => { cancelado = true; };
+  }, [open, cliente?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const faltaData = !ultimoContato;
   const faltaMotivo = motivo.trim().length < 3;
@@ -44,17 +61,24 @@ export function ArquivarClienteDialog({ open, onClose, cliente, autorId, onArqui
     if (faltaData) { toast.error("Informe a data da última tentativa de contato."); return; }
     if (faltaMotivo) { toast.error("Escreva por que este cliente está sendo arquivado."); return; }
     setSalvando(true);
-    const { error } = await (supabase.from("clientes" as never) as never as any)
-      .update({
-        arquivado_em: new Date().toISOString(),
-        arquivado_por: autorId,
-        arquivado_motivo: motivo.trim(),
-        ultimo_contato_em: ultimoContato,
-      })
-      .eq("id", cliente.id);
+    // Arquivar mexe em duas tabelas — o cliente e a fila de demandas dele — e
+    // as duas têm que andar juntas: cliente arquivado com demanda viva volta a
+    // aparecer no pipeline. Por isso a gravação é uma função só, no banco.
+    const { data, error } = await supabase.rpc("fn_arquivar_cliente" as any, {
+      p_cliente_id: cliente.id,
+      p_ultimo_contato: ultimoContato,
+      p_motivo: motivo.trim(),
+      p_autor: autorId,
+    } as any);
     setSalvando(false);
     if (error) { toast.error("Erro ao arquivar: " + error.message); return; }
-    toast.success(`${cliente.nome} foi para os arquivados.`);
+    const n = Number((data as any)?.demandas_canceladas ?? 0);
+    toast.success(
+      n > 0
+        ? `${cliente.nome} foi para os arquivados — ${n} ${n === 1 ? "demanda saiu" : "demandas saíram"} da esteira.`
+        : `${cliente.nome} foi para os arquivados.`,
+      { duration: 4000 },
+    );
     onArquivado();
     onClose();
   };
@@ -100,11 +124,26 @@ export function ArquivarClienteDialog({ open, onClose, cliente, autorId, onArqui
             </p>
           </div>
 
+          {/* O que sai da esteira é a consequência menos óbvia de arquivar, e
+              a que mexe no trabalho dos outros. Tem que estar dita antes. */}
+          {naFila !== null && naFila > 0 && (
+            <div className="rounded-lg border border-rose-400/30 bg-rose-400/[0.06] px-3.5 py-2.5 flex items-start gap-2.5">
+              <ListX className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+              <p className="text-[11.5px] text-muted-foreground leading-snug">
+                <strong className="text-rose-200">
+                  {naFila === 1 ? "1 demanda sai da esteira" : `${naFila} demandas saem da esteira`}
+                </strong>{" "}
+                — o pipeline deste cliente zera. Elas continuam na ficha dele, marcadas como
+                canceladas por arquivamento, com o motivo que você escrever acima.
+              </p>
+            </div>
+          )}
+
           <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.05] px-3.5 py-2.5 flex items-start gap-2.5">
             <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             <p className="text-[11.5px] text-muted-foreground leading-snug">
-              Dá pra desarquivar depois, na própria ficha. As duas informações acima ficam
-              gravadas no cliente de qualquer forma.
+              Dá pra desarquivar depois, na própria ficha — e a fila volta ao ponto em que parou.
+              As duas informações acima ficam gravadas no cliente de qualquer forma.
             </p>
           </div>
         </div>
@@ -137,14 +176,21 @@ export function DesarquivarClienteDialog({ open, onClose, cliente, onDesarquivad
   const desarquivar = async () => {
     if (!cliente) return;
     setSalvando(true);
-    // O motivo e a data do último contato ficam: eles contam o que aconteceu
-    // com este cliente, e isso continua sendo verdade depois de desarquivar.
-    const { error } = await (supabase.from("clientes" as never) as never as any)
-      .update({ arquivado_em: null, arquivado_por: null })
-      .eq("id", cliente.id);
+    // Desfaz exatamente o que o arquivamento fez: devolve à esteira as demandas
+    // que ELE cancelou, no status em que estavam. O motivo e a data do último
+    // contato ficam — eles contam o que aconteceu, e isso continua verdade.
+    const { data, error } = await supabase.rpc("fn_desarquivar_cliente" as any, {
+      p_cliente_id: cliente.id,
+    } as any);
     setSalvando(false);
     if (error) { toast.error("Erro ao desarquivar: " + error.message); return; }
-    toast.success(`${cliente.nome} voltou para os clientes ativos.`);
+    const n = Number((data as any)?.demandas_restauradas ?? 0);
+    toast.success(
+      n > 0
+        ? `${cliente.nome} voltou aos ativos — ${n} ${n === 1 ? "demanda voltou" : "demandas voltaram"} para a esteira.`
+        : `${cliente.nome} voltou para os clientes ativos.`,
+      { duration: 4000 },
+    );
     onDesarquivado();
     onClose();
   };
