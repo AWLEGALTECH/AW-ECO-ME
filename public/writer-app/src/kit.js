@@ -545,14 +545,14 @@ function renderKitForm(view) {
           <div class="kit-fields kit-fields-causa">
             <div class="kit-field span-3">
               <span>Tipo de atuação</span>
-              <div class="kit-radio-row">
-                <label class="kit-radio">
+              <div class="kit-seg" role="radiogroup" aria-label="Tipo de atuação">
+                <label>
                   <input type="radio" name="causa_tipo" value="ajuizamento"
                          ${d.causa_tipo==='ajuizamento'?'checked':''}
                          onchange="onKitCausaTipoChange('ajuizamento')">
                   <span>Ajuizamento</span>
                 </label>
-                <label class="kit-radio">
+                <label>
                   <input type="radio" name="causa_tipo" value="defesa"
                          ${d.causa_tipo==='defesa'?'checked':''}
                          onchange="onKitCausaTipoChange('defesa')">
@@ -589,11 +589,17 @@ function renderKitForm(view) {
               </label>
             ` : ''}
 
-            <div class="kit-field span-3">
+            <div class="kit-field span-3 kit-parceria-bloco${d.parceria ? ' is-on' : ''}">
               <label class="kit-check">
                 <input type="checkbox" ${d.parceria ? 'checked' : ''}
                        onchange="onKitParceriaToggle(this.checked)">
-                <span>Caso de parceria</span>
+                <i class="kit-box" aria-hidden="true">
+                  <svg viewBox="0 0 13 10"><path d="M1 5 4.6 8.6 12 1.2"/></svg>
+                </i>
+                <span class="kit-check-txt">
+                  <strong>Caso de parceria</strong>
+                  <small>O caso chegou por indicação de um parceiro</small>
+                </span>
               </label>
               ${d.parceria ? `
                 <div class="kit-parceiro">

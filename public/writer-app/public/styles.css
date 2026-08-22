@@ -2788,21 +2788,52 @@ select:has(option[value=""]:checked) {
 .kit-fields-honorarios { grid-template-columns: repeat(3, 1fr); }
 .kit-fields-assinatura { grid-template-columns: repeat(2, 1fr); }
 
-.kit-radio-row {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  padding: 8px 0;
-}
-.kit-radio {
+/* ── Tipo de atuação: controle segmentado ──────────────────────────────────
+   Eram dois radios nativos, com o desenho que o sistema operacional der. São
+   duas opções que se excluem e nunca vão crescer, então o segmentado diz
+   isso melhor: um trilho, e a escolha ocupa um lado dele. O input continua
+   sendo um radio de verdade — só sai de vista — para o teclado e o leitor de
+   tela seguirem funcionando. */
+.kit-seg {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text);
+  gap: 3px;
+  padding: 3px;
+  margin-top: 2px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  width: fit-content;
 }
-.kit-radio input[type=radio] { accent-color: var(--violet); }
+.kit-seg label { display: block; position: relative; }
+.kit-seg input {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+  pointer-events: none;
+}
+.kit-seg span {
+  display: block;
+  padding: 7px 18px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text-mute);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.kit-seg label:hover span { color: var(--text-dim); background: rgba(255, 255, 255, 0.03); }
+.kit-seg input:checked + span {
+  background: var(--violet-bg);
+  color: var(--violet-soft);
+  box-shadow: inset 0 0 0 1px var(--violet-border);
+}
+/* O foco tem que aparecer em algum lugar: sem isso, esconder o input deixaria
+   quem navega por Tab sem saber onde está. */
+.kit-seg input:focus-visible + span {
+  box-shadow: inset 0 0 0 1px var(--violet-border), 0 0 0 2px var(--violet-glow);
+}
 
 .kit-reus-list {
   display: flex;
@@ -3405,25 +3436,82 @@ select:has(option[value=""]:checked) {
 /* ── Parceria: caixa marcável + nome do parceiro com sugestão da base ──
    Fica dentro do bloco Causa, ocupando a linha inteira, porque é sobre a
    ORIGEM do caso — não é um dado do cliente nem dos honorários. */
+/* O bloco inteiro reage: marcado, ele se acende e o campo do parceiro que
+   aparece embaixo fica visivelmente dentro dele, e não solto na coluna. */
+.kit-parceria-bloco {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 4px;
+  transition: border-color .18s ease, background .18s ease;
+}
+.kit-parceria-bloco.is-on {
+  border-color: var(--violet-border);
+  background: var(--violet-bg);
+}
+
 .kit-check {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
   cursor: pointer;
   user-select: none;
-  padding: 6px 0;
+  padding: 9px 11px;
+  border-radius: 9px;
+  transition: background .16s ease;
 }
+.kit-check:hover { background: rgba(255, 255, 255, 0.025); }
+/* O checkbox nativo sai de vista mas continua sendo o controle: o desenho é
+   o .kit-box, e o estado vem do :checked dele. */
 .kit-check input[type="checkbox"] {
-  width: 16px; height: 16px;
-  accent-color: var(--brand, #7c3aed);
-  cursor: pointer;
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+  pointer-events: none;
+}
+.kit-box {
   flex: none;
+  width: 18px; height: 18px;
+  border-radius: 6px;
+  border: 1.5px solid var(--line-bright);
+  background: rgba(0, 0, 0, 0.25);
+  display: grid;
+  place-items: center;
+  transition: background .16s ease, border-color .16s ease;
 }
-.kit-check > span {
-  font-size: 0.78rem;
+.kit-box svg {
+  width: 11px; height: 9px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* O risco é desenhado do início ao fim quando marca, em vez de piscar. */
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  transition: stroke-dashoffset .2s ease .04s;
+}
+.kit-check:hover .kit-box { border-color: var(--violet-border); }
+.kit-check input:checked ~ .kit-box {
+  background: var(--violet);
+  border-color: var(--violet);
+}
+.kit-check input:checked ~ .kit-box svg { stroke-dashoffset: 0; }
+.kit-check input:focus-visible ~ .kit-box { box-shadow: 0 0 0 2px var(--violet-glow); }
+
+.kit-check-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kit-check-txt strong {
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text, #e6e6ee);
+  letter-spacing: 0.01em;
+  color: var(--text);
 }
-.kit-parceiro { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+.kit-check-txt small { font-size: 11px; color: var(--text-mute); line-height: 1.35; }
+
+.kit-parceiro {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 2px 11px 10px;
+}
 .kit-parceiro small { font-size: 11px; color: var(--text-mute); }
