@@ -155,6 +155,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // ── Presença ──────────────────────────────────────────────────────────────
+  // "Último acesso" era deduzido da renovação do token, que acontece de hora em
+  // hora: quem estava trabalhando naquele instante aparecia sumido há 47
+  // minutos, e o número andava aos saltos. Deduzir presença de um evento
+  // horário não se conserta afinando a conta — o dado não existe na
+  // granularidade certa. Então o app carimba.
+  //
+  // Efeito separado, e não junto do de sessão, porque ele depende do usuário já
+  // resolvido: chamar de dentro daquele exigiria referenciar a função antes da
+  // declaração dela.
+  //
+  // Só com a aba VISÍVEL: aba esquecida aberta a noite toda diria que a pessoa
+  // trabalhou a noite toda.
+  useEffect(() => {
+    if (!user) return;
+    const PULSO = 3 * 60 * 1000;
+    let ultimo = 0;
+    const marcar = () => {
+      if (document.visibilityState !== "visible") return;
+      const agora = Date.now();
+      if (agora - ultimo < PULSO) return;
+      ultimo = agora;
+      supabase.rpc("fn_marcar_presenca" as never).then(() => {}, () => {});
+    };
+    marcar();
+    const relogio = window.setInterval(marcar, PULSO);
+    document.addEventListener("visibilitychange", marcar);
+    return () => {
+      window.clearInterval(relogio);
+      document.removeEventListener("visibilitychange", marcar);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);

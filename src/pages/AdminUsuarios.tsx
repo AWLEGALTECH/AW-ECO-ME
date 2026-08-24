@@ -53,8 +53,20 @@ function desdeAcesso(iso: string | null): { txt: string; frio: boolean } {
   return { txt: m === 1 ? "há 1 mês" : `há ${m} meses`, frio: true };
 }
 
+// "há 3 min" é calculado no render, então sem alguém mandar renderizar ele
+// congela: a tela aberta continua dizendo 3 min meia hora depois. Este tique
+// só marca a passagem do tempo — não vai ao banco.
+function useRelogio(intervaloMs = 30_000) {
+  const [, setTique] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setTique((n) => n + 1), intervaloMs);
+    return () => window.clearInterval(t);
+  }, [intervaloMs]);
+}
+
 export default function AdminUsuarios() {
   useEffect(() => { document.title = `Usuários · ${appConfig.name}`; }, []);
+  useRelogio();
   const qc = useQueryClient();
   const { user: me } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -66,17 +78,16 @@ export default function AdminUsuarios() {
   const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async (): Promise<ProfileRow[]> => {
-      // Passa por função: o último acesso mora no schema auth, que o cliente
-      // não lê. A função devolve só o que a tela mostra, e só para admin.
-      //
-      // É a sessão viva, não o último login. last_sign_in_at só muda quando a
-      // pessoa digita a senha de novo — quem fica logado tem o token renovado
-      // em silêncio, e o campo congela. Dois usuários apareciam sumidos há um
-      // mês enquanto trabalhavam no sistema naquele mesmo dia.
+      // Passa por função: parte do que a tela mostra mora no schema auth, que
+      // o cliente não lê. Ela devolve só estas colunas, e só para admin.
       const { data, error } = await supabase.rpc("fn_admin_usuarios" as any);
       if (error) throw error;
       return (data || []) as ProfileRow[];
     },
+    // O último acesso é o dado mais perecível desta tela: sem reler, ela abre
+    // certa e envelhece em silêncio enquanto fica aberta.
+    refetchInterval: 60_000,
+    staleTime: 0,
   });
 
   const accessQ = useQuery({
@@ -183,7 +194,7 @@ export default function AdminUsuarios() {
             <UserCog className="h-6 w-6 text-primary" /> Equipe
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Quem entra, o que cada um enxerga e o que cada um recebe — num lugar só.
+            Contas, permissões de módulo e preferências de notificação.
           </p>
         </div>
         <div className="flex items-center gap-2">
