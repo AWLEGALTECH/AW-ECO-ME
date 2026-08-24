@@ -44,6 +44,10 @@ export function TarefaDetalheDialog({
   onEditar: () => void;
 }) {
   const [escolhido, setEscolhido] = useState<TaskDesfecho | "">("");
+  // A cobrança de status nasce do CLIQUE numa saída, não do fato de a tarefa
+  // já ter uma. Sem isso, abrir uma tarefa concluída só pra consultar já vinha
+  // com a cobrança na tela, como se algo estivesse pendente.
+  const [escolheuAgora, setEscolheuAgora] = useState(false);
   const [obs, setObs] = useState("");
   const [novoStatus, setNovoStatus] = useState("");
   const [reagendando, setReagendando] = useState(false);
@@ -54,6 +58,7 @@ export function TarefaDetalheDialog({
   useEffect(() => {
     if (!task) return;
     setEscolhido(task.desfecho ?? "");
+    setEscolheuAgora(false);
     setObs(task.desfechoObs ?? "");
     // O status começa VAZIO de propósito, mesmo havendo um atual. Se viesse
     // pré-selecionado, bastaria não olhar pra ele e a obrigatoriedade viraria
@@ -71,10 +76,10 @@ export function TarefaDetalheDialog({
 
   // Dar desfecho exige dizer para onde o processo foi. Reagendar não: ali a
   // tarefa segue aberta e nada aconteceu no processo — só mudou a data.
-  const faltaStatus = !!escolhido && !novoStatus;
+  const faltaStatus = escolheuAgora && !novoStatus;
 
   const confirmarDesfecho = async () => {
-    if (!escolhido || faltaStatus) return;
+    if (!escolhido || !escolheuAgora || faltaStatus) return;
     setOcupado(true);
     try { await onDesfecho(escolhido, obs.trim(), novoStatus); onFechar(); }
     finally { setOcupado(false); }
@@ -161,7 +166,7 @@ export function TarefaDetalheDialog({
                   const info = DESFECHOS[k];
                   const ativo = escolhido === k;
                   return (
-                    <button key={k} onClick={() => setEscolhido(k)} disabled={ocupado}
+                    <button key={k} onClick={() => { setEscolhido(k); setEscolheuAgora(true); }} disabled={ocupado}
                       className={cn("flex flex-col items-center gap-1.5 rounded-xl border p-2.5 transition-all hover:-translate-y-0.5",
                         ativo ? cn("ring-1", info.chip)
                           : "border-white/[0.08] bg-white/[0.03] hover:border-primary/40 text-muted-foreground")}>
@@ -177,7 +182,7 @@ export function TarefaDetalheDialog({
                 </button>
               </div>
 
-              {escolhido && (
+              {escolheuAgora && (
                 <>
                   {/* Vem ANTES das observações e trava o salvar. Fechar a
                       tarefa sem dizer para onde o processo foi era o jeito de
@@ -192,7 +197,7 @@ export function TarefaDetalheDialog({
                       <Milestone className={cn("h-4 w-4 shrink-0 mt-0.5", faltaStatus ? "text-amber-400" : "text-emerald-400")} />
                       <div className="min-w-0 flex-1">
                         <p className="text-[12px] font-medium">
-                          Para onde o processo vai? <span className="text-amber-400">*</span>
+                          Para qual status esse processo vai? <span className="text-amber-400">*</span>
                         </p>
                         <p className="text-[10.5px] text-muted-foreground leading-snug mt-0.5">
                           {statusAtual
@@ -242,7 +247,7 @@ export function TarefaDetalheDialog({
           </Button>
           <Button variant="ghost" onClick={onFechar} disabled={ocupado}>Fechar</Button>
           {!reagendando && (
-            <Button onClick={confirmarDesfecho} disabled={ocupado || !escolhido || faltaStatus}>
+            <Button onClick={confirmarDesfecho} disabled={ocupado || !escolheuAgora || faltaStatus}>
               {ocupado && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />} Salvar
             </Button>
           )}
