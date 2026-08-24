@@ -386,16 +386,20 @@ export default function ClienteDetail() {
   // Grava a alteração (ou a exclusão, com null) e relê. A lista sai da linha
   // temporal, então recarregar é mais barato e mais honesto do que remendar o
   // estado local e torcer pra bater com o banco.
-  const gravarTarefa = async (patch: PatchTarefa | null, alvo: ItemTarefa | null) => {
+  // O status do processo anda junto com o desfecho, na mesma escrita — igual
+  // à tela de Tarefas, que usa este mesmo diálogo.
+  const gravarTarefa = async (patch: PatchTarefa | null, alvo: ItemTarefa | null, statusEtapa?: string) => {
     if (!alvo) return;
     const { ok, erro } = await salvarTarefaNoBanco(
       { processoId: alvo.processoId, etapaId: alvo.etapaId, indice: alvo.indice },
       patch,
+      statusEtapa,
     );
     if (!ok) { toast.error(erro ?? "Não consegui salvar"); return; }
     toast.success(
       patch === null ? "Tarefa excluída"
-        : patch.desfecho ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}`
+        : patch.desfecho
+          ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}${statusEtapa ? ` · processo em ${statusEtapa}` : ""}`
           : "Tarefa atualizada",
     );
     await load();
@@ -506,7 +510,8 @@ export default function ClienteDetail() {
   const tarefasPorProcesso = useMemo(() => {
     const todas = achatarTarefas(processos.map(p => ({
       id: p.id, numero_processo: p.numero_processo,
-      linha_temporal: p.linha_temporal, clientes: { nome: cliente?.nome ?? "" },
+      linha_temporal: p.linha_temporal,
+      clientes: { id: cliente?.id ?? null, nome: cliente?.nome ?? "", drive_folder_url: cliente?.drive_folder_url ?? null },
     })));
     const grupos = processos
       .map(p => ({
@@ -989,8 +994,10 @@ export default function ClienteDetail() {
         <TarefaDetalheDialog
           task={detalheTarefa}
           contexto={contextoTarefa(detalheTarefa)}
+          statusAtual={detalheTarefa.statusEtapa ?? detalheTarefa.status ?? null}
           onFechar={() => setDetalheTarefa(null)}
-          onDesfecho={(desfecho, obs) => gravarTarefa({ desfecho, desfechoObs: obs }, detalheTarefa)}
+          onDesfecho={(desfecho, obs, novoStatus) =>
+            gravarTarefa({ desfecho, desfechoObs: obs, status: novoStatus }, detalheTarefa, novoStatus)}
           onReagendar={(prazo) => gravarTarefa({ prazo }, detalheTarefa)}
           onEditar={() => { setEditandoTarefa(detalheTarefa); setDetalheTarefa(null); }}
         />

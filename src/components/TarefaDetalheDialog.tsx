@@ -5,10 +5,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CampoData } from "@/components/CampoData";
-import { CalendarDays, CalendarClock, Loader2, Pencil, FileText } from "lucide-react";
+import { CalendarDays, CalendarClock, Loader2, Pencil, FileText, Milestone } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  ICONE_TIPO, LABEL_TIPO, DESFECHOS, prazoInfo,
+  ICONE_TIPO, LABEL_TIPO, DESFECHOS, prazoInfo, STATUS_PROCESSUAIS,
   type Task, type TaskDesfecho,
 } from "@/components/ProcessoTimeline";
 
@@ -31,17 +32,20 @@ const ORDEM_DESFECHO: TaskDesfecho[] = ["concluido", "perdido", "cancelado"];
  * Não é desfecho (a tarefa segue aberta), mas é a resposta que compete com eles.
  */
 export function TarefaDetalheDialog({
-  task, contexto, onFechar, onDesfecho, onReagendar, onEditar,
+  task, contexto, statusAtual, onFechar, onDesfecho, onReagendar, onEditar,
 }: {
   task: Task | null;
   contexto?: React.ReactNode;
+  /** Status processual em que o processo está agora. */
+  statusAtual?: string | null;
   onFechar: () => void;
-  onDesfecho: (desfecho: TaskDesfecho, obs: string) => Promise<void> | void;
+  onDesfecho: (desfecho: TaskDesfecho, obs: string, novoStatus: string) => Promise<void> | void;
   onReagendar: (prazo: string) => Promise<void> | void;
   onEditar: () => void;
 }) {
   const [escolhido, setEscolhido] = useState<TaskDesfecho | "">("");
   const [obs, setObs] = useState("");
+  const [novoStatus, setNovoStatus] = useState("");
   const [reagendando, setReagendando] = useState(false);
   const [novoPrazo, setNovoPrazo] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -51,6 +55,10 @@ export function TarefaDetalheDialog({
     if (!task) return;
     setEscolhido(task.desfecho ?? "");
     setObs(task.desfechoObs ?? "");
+    // O status começa VAZIO de propósito, mesmo havendo um atual. Se viesse
+    // pré-selecionado, bastaria não olhar pra ele e a obrigatoriedade viraria
+    // enfeite — que é justamente o que se quer evitar.
+    setNovoStatus("");
     setReagendando(false);
     setNovoPrazo(task.prazo ?? "");
   }, [task]);
@@ -61,10 +69,14 @@ export function TarefaDetalheDialog({
   const d = task.desfecho ? DESFECHOS[task.desfecho] : null;
   const prazo = prazoInfo(task.prazo);
 
+  // Dar desfecho exige dizer para onde o processo foi. Reagendar não: ali a
+  // tarefa segue aberta e nada aconteceu no processo — só mudou a data.
+  const faltaStatus = !!escolhido && !novoStatus;
+
   const confirmarDesfecho = async () => {
-    if (!escolhido) return;
+    if (!escolhido || faltaStatus) return;
     setOcupado(true);
-    try { await onDesfecho(escolhido, obs.trim()); onFechar(); }
+    try { await onDesfecho(escolhido, obs.trim(), novoStatus); onFechar(); }
     finally { setOcupado(false); }
   };
 
@@ -166,16 +178,58 @@ export function TarefaDetalheDialog({
               </div>
 
               {escolhido && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium">Observações</label>
-                  <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3}
-                    placeholder={
-                      escolhido === "concluido" ? "Como foi concluída…"
-                        : escolhido === "perdido" ? "Por que foi perdida…"
-                          : "Por que foi cancelada…"
-                    } />
-                  <p className="text-[10.5px] text-muted-foreground">Fica registrado na tarefa.</p>
-                </div>
+                <>
+                  {/* Vem ANTES das observações e trava o salvar. Fechar a
+                      tarefa sem dizer para onde o processo foi era o jeito de
+                      o status envelhecer sem ninguém perceber: a tarefa
+                      sumia da fila e o processo ficava parado num estado que
+                      já não era verdade. */}
+                  <div className={cn(
+                    "rounded-xl p-3 space-y-2 ring-1",
+                    faltaStatus ? "ring-amber-400/35 bg-amber-400/[0.06]" : "ring-emerald-500/25 bg-emerald-500/[0.05]",
+                  )}>
+                    <div className="flex items-start gap-2">
+                      <Milestone className={cn("h-4 w-4 shrink-0 mt-0.5", faltaStatus ? "text-amber-400" : "text-emerald-400")} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12px] font-medium">
+                          Para onde o processo vai? <span className="text-amber-400">*</span>
+                        </p>
+                        <p className="text-[10.5px] text-muted-foreground leading-snug mt-0.5">
+                          {statusAtual
+                            ? <>Está em <strong className="text-foreground/80">{statusAtual}</strong>. Escolha o status depois desta tarefa.</>
+                            : "Escolha o status em que o processo fica depois desta tarefa."}
+                        </p>
+                      </div>
+                    </div>
+                    <Select value={novoStatus} onValueChange={setNovoStatus}>
+                      <SelectTrigger className="h-9 text-[12.5px]">
+                        <SelectValue placeholder="Selecione o novo status…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statusAtual && (
+                          <SelectItem value={statusAtual} className="text-xs">
+                            {statusAtual} — segue igual
+                          </SelectItem>
+                        )}
+                        {STATUS_PROCESSUAIS.filter((s) => s !== statusAtual).map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className={cn("space-y-1.5 transition-opacity", faltaStatus && "opacity-40 pointer-events-none")}>
+                    <label className="text-xs font-medium">Observações</label>
+                    <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3}
+                      disabled={faltaStatus}
+                      placeholder={
+                        escolhido === "concluido" ? "Como foi concluída…"
+                          : escolhido === "perdido" ? "Por que foi perdida…"
+                            : "Por que foi cancelada…"
+                      } />
+                    <p className="text-[10.5px] text-muted-foreground">Fica registrado na tarefa.</p>
+                  </div>
+                </>
               )}
             </>
           )}
@@ -188,7 +242,7 @@ export function TarefaDetalheDialog({
           </Button>
           <Button variant="ghost" onClick={onFechar} disabled={ocupado}>Fechar</Button>
           {!reagendando && (
-            <Button onClick={confirmarDesfecho} disabled={ocupado || !escolhido || escolhido === task.desfecho}>
+            <Button onClick={confirmarDesfecho} disabled={ocupado || !escolhido || faltaStatus}>
               {ocupado && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />} Salvar
             </Button>
           )}

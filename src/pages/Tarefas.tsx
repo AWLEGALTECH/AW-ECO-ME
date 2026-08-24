@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
   CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
-  ArrowRight, ExternalLink,
+  ArrowRight, ExternalLink, Copy, Check, User, FolderOpen, Milestone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -95,6 +95,30 @@ function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
   );
 }
 
+// Copiar o número do processo é o gesto mais repetido de quem despacha o dia:
+// vai pro Projudi, pro WhatsApp, pra busca. O visto verde confirma que copiou —
+// sem ele, não há como saber se o clique pegou.
+function BotaoCopiar({ texto }: { texto: string }) {
+  const [copiou, setCopiou] = useState(false);
+  return (
+    <button
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(texto);
+          setCopiou(true);
+          setTimeout(() => setCopiou(false), 1400);
+        } catch { toast.error("Não consegui copiar"); }
+      }}
+      title="Copiar o número"
+      aria-label="Copiar o número do processo"
+      className="shrink-0 ml-auto rounded-md p-1 text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors"
+    >
+      {copiou ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
 // Situação é um estado da tarefa, e vencida é um deles: não é um pedaço do
 // calendário. Ela morava também na régua de prazo, contando outro critério com
 // o mesmo nome (lá entravam as finalizadas em atraso, aqui não), então o mesmo
@@ -129,7 +153,7 @@ export default function Tarefas() {
   const carregar = useCallback(async () => {
     const { data } = await supabase
       .from("processos")
-      .select("id, numero_processo, linha_temporal, clientes(nome)");
+      .select("id, numero_processo, linha_temporal, clientes(id, nome, drive_folder_url)");
     if (data) setProcs(data as unknown as Proc[]);
     setLoading(false);
   }, []);
@@ -202,11 +226,48 @@ export default function Tarefas() {
   // <DialogDescription>, que é um <p>: div ali seria HTML inválido.
   const contextoDe = (it: Item) => (
     <span className="block space-y-2">
-      <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
-        <span className="font-mono">{it.processoNumero}</span>
-        {it.clienteNome && <span>· {it.clienteNome}</span>}
-        <span className="opacity-50">·</span>
-        <span>{it.etapaTitulo}</span>
+      {/* Uma linha por informação, cada uma com seu ícone. Antes era tudo
+          separado por pontinhos numa linha só, e no celular virava um bloco
+          comprimido onde não dava pra ver onde o número acabava e o nome do
+          cliente começava. */}
+      <span className="block rounded-xl ring-1 ring-white/[0.07] bg-white/[0.02] divide-y divide-white/[0.05]">
+        <span className="flex items-center gap-2 px-2.5 py-1.5">
+          <FileText className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+          <span className="font-mono text-[12px] text-foreground/90 min-w-0 truncate">{it.processoNumero}</span>
+          <BotaoCopiar texto={it.processoNumero} />
+        </span>
+
+        {it.clienteNome && (
+          <span className="flex items-center gap-2 px-2.5 py-1.5">
+            <User className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+            <span className="text-[12px] text-foreground/90 min-w-0 truncate">{it.clienteNome}</span>
+          </span>
+        )}
+
+        {/* A pasta do cliente, sem passar pela ficha dele. */}
+        <span className="flex items-center gap-2 px-2.5 py-1.5">
+          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+          {it.clienteDriveUrl ? (
+            <a
+              href={it.clienteDriveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[12px] text-primary hover:underline inline-flex items-center gap-1.5"
+            >
+              Abrir pasta no Drive <ExternalLink className="h-3 w-3 opacity-70" />
+            </a>
+          ) : (
+            <span className="text-[12px] text-muted-foreground/60 italic">Cliente sem pasta no Drive</span>
+          )}
+        </span>
+
+        <span className="flex items-center gap-2 px-2.5 py-1.5">
+          <Milestone className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+          <span className="text-[12px] text-foreground/90 min-w-0 truncate">
+            {it.statusEtapa || it.etapaTitulo}
+          </span>
+          <span className="text-[10.5px] text-muted-foreground shrink-0">· {it.etapaTitulo}</span>
+        </span>
       </span>
 
       <span className="grid grid-cols-2 gap-2">
@@ -231,16 +292,21 @@ export default function Tarefas() {
   // Grava a alteração (ou a exclusão, com null) e relê: a lista inteira sai da
   // linha temporal, então recarregar é mais barato e mais honesto do que
   // remendar o estado local e torcer pra bater com o banco.
-  const gravar = async (patch: PatchTarefa | null, alvo: Item | null) => {
+  // `statusEtapa` chega junto no desfecho: a tarefa e o status do processo
+  // andam na mesma escrita, senão dava pra fechar a tarefa e o processo ficar
+  // parado num estado que já não era verdade.
+  const gravar = async (patch: PatchTarefa | null, alvo: Item | null, statusEtapa?: string) => {
     if (!alvo) return;
     const { ok, erro } = await salvarTarefaNoBanco(
       { processoId: alvo.processoId, etapaId: alvo.etapaId, indice: alvo.indice },
       patch,
+      statusEtapa,
     );
     if (!ok) { toast.error(erro ?? "Não consegui salvar"); return; }
     toast.success(
       patch === null ? "Tarefa excluída"
-        : patch.desfecho ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}`
+        : patch.desfecho
+          ? `Tarefa ${DESFECHOS[patch.desfecho].label.toLowerCase()}${statusEtapa ? ` · processo em ${statusEtapa}` : ""}`
           : "Tarefa atualizada",
     );
     await carregar();
@@ -508,8 +574,10 @@ export default function Tarefas() {
         <TarefaDetalheDialog
           task={detalhe}
           contexto={contextoDe(detalhe)}
+          statusAtual={detalhe.statusEtapa ?? detalhe.status ?? null}
           onFechar={() => setDetalhe(null)}
-          onDesfecho={(desfecho, obs) => gravar({ desfecho, desfechoObs: obs }, detalhe)}
+          onDesfecho={(desfecho, obs, novoStatus) =>
+            gravar({ desfecho, desfechoObs: obs, status: novoStatus }, detalhe, novoStatus)}
           onReagendar={(prazo) => gravar({ prazo }, detalhe)}
           onEditar={() => { setEditando(detalhe); setDetalhe(null); }}
         />

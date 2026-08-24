@@ -43,6 +43,11 @@ export interface ItemTarefa extends Task {
   processoId: string;
   processoNumero: string;
   clienteNome: string | null;
+  clienteId: string | null;
+  /** Pasta do cliente no Drive, pra abrir sem passar pela ficha. */
+  clienteDriveUrl: string | null;
+  /** Status processual da etapa em que a tarefa está — o status corrente. */
+  statusEtapa: string | null;
 }
 
 /** Processo do jeito mínimo que o achatamento precisa. */
@@ -50,7 +55,7 @@ export interface ProcessoComTarefas {
   id: string;
   numero_processo: string;
   linha_temporal: unknown;
-  clientes?: { nome: string } | null;
+  clientes?: { id?: string | null; nome: string; drive_folder_url?: string | null } | null;
 }
 
 /**
@@ -70,6 +75,9 @@ export function achatarTarefas(procs: ProcessoComTarefas[]): ItemTarefa[] {
           etapaId: e.id, indice: i,
           etapaTitulo: e.titulo, processoId: p.id, processoNumero: p.numero_processo,
           clienteNome: p.clientes?.nome ?? null,
+          clienteId: p.clientes?.id ?? null,
+          clienteDriveUrl: p.clientes?.drive_folder_url ?? null,
+          statusEtapa: e.statusProcessual ?? null,
         });
       });
     }
@@ -89,6 +97,12 @@ export function aplicarNaLinha(
   linha: Etapa[],
   { etapaId, indice }: Pick<EnderecoTarefa, "etapaId" | "indice">,
   patch: PatchTarefa | null,
+  // Dar desfecho a uma tarefa quase sempre muda onde o PROCESSO está — a
+  // audiência aconteceu, o prazo correu, a peça entrou. Quando o desfecho vem
+  // acompanhado do novo status, ele é gravado na etapa junto, na mesma
+  // escrita: em duas escritas separadas, falhar no meio deixaria a tarefa
+  // fechada e o processo parado no status velho.
+  statusEtapa?: string,
 ): { linha: Etapa[]; achou: boolean } {
   let achou = false;
   const nova = linha.map((e) => {
@@ -98,6 +112,7 @@ export function aplicarNaLinha(
     achou = true;
     return {
       ...e,
+      ...(statusEtapa ? { statusProcessual: statusEtapa } : {}),
       tasks: patch === null
         ? tasks.filter((_, i) => i !== indice)
         : tasks.map((t, i) => (i === indice ? { ...t, ...patch } : t)),
@@ -145,6 +160,7 @@ const clienteProcessos = async () => {
 export async function salvarTarefaNoBanco(
   end: EnderecoTarefa,
   patch: PatchTarefa | null,
+  statusEtapa?: string,
 ): Promise<{ ok: boolean; erro?: string }> {
   const tabela = await clienteProcessos();
   const { data, error } = await tabela
@@ -152,7 +168,7 @@ export async function salvarTarefaNoBanco(
   if (error || !data) return { ok: false, erro: "Não consegui ler o processo" };
 
   const linha = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
-  const { linha: nova, achou } = aplicarNaLinha(linha, end, patch);
+  const { linha: nova, achou } = aplicarNaLinha(linha, end, patch, statusEtapa);
   if (!achou) return { ok: false, erro: "Tarefa não encontrada no processo" };
 
   const { error: erroUpd } = await tabela
