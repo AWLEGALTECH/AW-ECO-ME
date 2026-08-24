@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
-  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X, ExternalLink,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,7 @@ import {
 import { TarefasCalendario } from "@/components/TarefasCalendario";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { TarefaDetalheDialog } from "@/components/TarefaDetalheDialog";
-import { TarefaLinha, StatusChip, COLS_LISTA } from "@/components/TarefaLinha";
+import { TarefaLinha, StatusChip, COLS_LISTA, LinkProcesso } from "@/components/TarefaLinha";
 import { JANELAS, diasAte, naJanela, porPrazo, type Janela } from "@/lib/prazos";
 import {
   achatarTarefas, salvarTarefaNoBanco,
@@ -91,28 +91,6 @@ function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
         </div>
       </div>
     </div>
-  );
-}
-
-// Abre o processo em outra guia sem tirar a pessoa da tela — o filtro que ela
-// acabou de montar continua montado. É <a> de verdade, e não navigate(), pra
-// que ctrl+clique, clique do meio e "abrir em nova janela" também funcionem.
-function LinkProcesso({ id, className }: { id: string; className?: string }) {
-  return (
-    <a
-      href={`/processos/${id}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      title="Abrir o processo em outra guia"
-      aria-label="Abrir o processo em outra guia"
-      className={cn(
-        "shrink-0 rounded-md p-1 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors",
-        className,
-      )}
-    >
-      <ExternalLink className="h-3 w-3" />
-    </a>
   );
 }
 
