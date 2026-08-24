@@ -66,8 +66,13 @@ export default function AdminUsuarios() {
   const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async (): Promise<ProfileRow[]> => {
-      // Passa por função: o último acesso mora em auth.users, que o cliente
+      // Passa por função: o último acesso mora no schema auth, que o cliente
       // não lê. A função devolve só o que a tela mostra, e só para admin.
+      //
+      // É a sessão viva, não o último login. last_sign_in_at só muda quando a
+      // pessoa digita a senha de novo — quem fica logado tem o token renovado
+      // em silêncio, e o campo congela. Dois usuários apareciam sumidos há um
+      // mês enquanto trabalhavam no sistema naquele mesmo dia.
       const { data, error } = await supabase.rpc("fn_admin_usuarios" as any);
       if (error) throw error;
       return (data || []) as ProfileRow[];
