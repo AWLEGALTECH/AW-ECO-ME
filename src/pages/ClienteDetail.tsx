@@ -510,6 +510,7 @@ export default function ClienteDetail() {
   const tarefasPorProcesso = useMemo(() => {
     const todas = achatarTarefas(processos.map(p => ({
       id: p.id, numero_processo: p.numero_processo,
+      materia: p.materia ?? null,
       linha_temporal: p.linha_temporal,
       clientes: { id: cliente?.id ?? null, nome: cliente?.nome ?? "", drive_folder_url: cliente?.drive_folder_url ?? null },
     })));

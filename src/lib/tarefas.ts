@@ -46,6 +46,8 @@ export interface ItemTarefa extends Task {
   clienteId: string | null;
   /** Pasta do cliente no Drive, pra abrir sem passar pela ficha. */
   clienteDriveUrl: string | null;
+  /** Matéria do processo — do que a ação trata. */
+  materia: string | null;
   /** Status processual da etapa em que a tarefa está — o status corrente. */
   statusEtapa: string | null;
 }
@@ -54,6 +56,7 @@ export interface ItemTarefa extends Task {
 export interface ProcessoComTarefas {
   id: string;
   numero_processo: string;
+  materia?: string | null;
   linha_temporal: unknown;
   clientes?: { id?: string | null; nome: string; drive_folder_url?: string | null } | null;
 }
@@ -77,6 +80,7 @@ export function achatarTarefas(procs: ProcessoComTarefas[]): ItemTarefa[] {
           clienteNome: p.clientes?.nome ?? null,
           clienteId: p.clientes?.id ?? null,
           clienteDriveUrl: p.clientes?.drive_folder_url ?? null,
+          materia: p.materia ?? null,
           statusEtapa: e.statusProcessual ?? null,
         });
       });

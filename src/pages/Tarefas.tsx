@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
   CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
-  ArrowRight, ExternalLink, Copy, Check, User, FolderOpen, Milestone,
+  ArrowRight, ExternalLink, Copy, Check, User, FolderOpen, Milestone, Scale,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -153,7 +153,7 @@ export default function Tarefas() {
   const carregar = useCallback(async () => {
     const { data } = await supabase
       .from("processos")
-      .select("id, numero_processo, linha_temporal, clientes(id, nome, drive_folder_url)");
+      .select("id, numero_processo, materia, linha_temporal, clientes(id, nome, drive_folder_url)");
     if (data) setProcs(data as unknown as Proc[]);
     setLoading(false);
   }, []);
@@ -230,22 +230,31 @@ export default function Tarefas() {
           separado por pontinhos numa linha só, e no celular virava um bloco
           comprimido onde não dava pra ver onde o número acabava e o nome do
           cliente começava. */}
-      <span className="block rounded-xl ring-1 ring-white/[0.07] bg-white/[0.02] divide-y divide-white/[0.05]">
-        <span className="flex items-center gap-2 px-2.5 py-1.5">
+      <span className="block rounded-xl ring-1 ring-white/[0.07] bg-white/[0.02] divide-y divide-white/[0.06]">
+        <span className="flex items-center gap-2.5 px-3 py-2.5">
           <FileText className="h-3.5 w-3.5 shrink-0 text-primary/70" />
           <span className="font-mono text-[12px] text-foreground/90 min-w-0 truncate">{it.processoNumero}</span>
           <BotaoCopiar texto={it.processoNumero} />
         </span>
 
+        {/* Do que a ação trata. Vem colada ao número porque as duas
+            descrevem o PROCESSO; cliente e Drive descrevem a pessoa. */}
+        <span className="flex items-center gap-2.5 px-3 py-2.5">
+          <Scale className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+          {it.materia
+            ? <span className="text-[12px] text-foreground/90 min-w-0 truncate">{it.materia}</span>
+            : <span className="text-[12px] text-muted-foreground/60 italic">Matéria não informada</span>}
+        </span>
+
         {it.clienteNome && (
-          <span className="flex items-center gap-2 px-2.5 py-1.5">
+          <span className="flex items-center gap-2.5 px-3 py-2.5">
             <User className="h-3.5 w-3.5 shrink-0 text-primary/70" />
             <span className="text-[12px] text-foreground/90 min-w-0 truncate">{it.clienteNome}</span>
           </span>
         )}
 
         {/* A pasta do cliente, sem passar pela ficha dele. */}
-        <span className="flex items-center gap-2 px-2.5 py-1.5">
+        <span className="flex items-center gap-2.5 px-3 py-2.5">
           <FolderOpen className="h-3.5 w-3.5 shrink-0 text-primary/70" />
           {it.clienteDriveUrl ? (
             <a
@@ -261,7 +270,7 @@ export default function Tarefas() {
           )}
         </span>
 
-        <span className="flex items-center gap-2 px-2.5 py-1.5">
+        <span className="flex items-center gap-2.5 px-3 py-2.5">
           <Milestone className="h-3.5 w-3.5 shrink-0 text-primary/70" />
           <span className="text-[12px] text-foreground/90 min-w-0 truncate">
             {it.statusEtapa || it.etapaTitulo}
