@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Bell, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -242,23 +242,6 @@ export function AppSidebar() {
                     <NavLink to="/admin/usuarios" end className="" activeClassName="">
                       <UserCog className="h-4 w-4 shrink-0" />
                       {!collapsed && <span className={labelMobile}>Usuários</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip="Notificações"
-                    className={
-                      (location.pathname.startsWith("/admin/notificacoes")
-                        ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
-                      + " " + itemMobile
-                    }
-                  >
-                    <NavLink to="/admin/notificacoes" end className="" activeClassName="">
-                      <Bell className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className={labelMobile}>Notificações</span>}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

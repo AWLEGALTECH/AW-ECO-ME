@@ -3,13 +3,21 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { MODULES, type ModuleKey } from "@/lib/modules";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
-import { ShieldCheck, UserCog, Check, X, RefreshCw, Mail, Trash2, MessageSquareText, ChevronDown, Bell } from "lucide-react";
+import {
+  ShieldCheck, UserCog, RefreshCw, Mail, Trash2, MessageSquareText, Bell,
+  Search, Clock, Layers, X, ArrowUpRight, CircleSlash,
+} from "lucide-react";
 import { SLOTS_MENSAGENS } from "@/lib/mensagensProntas";
+import { AvatarUsuario } from "@/components/AvatarUsuario";
+import AdminNotificacoes from "@/pages/AdminNotificacoes";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -19,12 +27,31 @@ interface ProfileRow {
   id: string;
   email: string | null;
   nome: string | null;
+  avatar_url: string | null;
   role: "admin" | "user";
   approved: boolean;
   created_at: string;
+  ultimo_acesso: string | null;
+  modulos: number;
 }
 
 interface AccessRow { user_id: string; module_key: string; }
+
+// "há 27 minutos", "há 4 dias", "há 2 meses" — a mesma leitura do print de
+// referência. Quem olha esta tela quer saber quem sumiu, e a distância diz
+// isso mais rápido que a data.
+function desdeAcesso(iso: string | null): { txt: string; frio: boolean } {
+  if (!iso) return { txt: "nunca entrou", frio: true };
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return { txt: "agora mesmo", frio: false };
+  if (min < 60) return { txt: `há ${min} min`, frio: false };
+  const h = Math.floor(min / 60);
+  if (h < 24) return { txt: h === 1 ? "há cerca de 1 hora" : `há ${h} horas`, frio: false };
+  const d = Math.floor(h / 24);
+  if (d < 30) return { txt: d === 1 ? "há 1 dia" : `há ${d} dias`, frio: d > 7 };
+  const m = Math.floor(d / 30);
+  return { txt: m === 1 ? "há 1 mês" : `há ${m} meses`, frio: true };
+}
 
 export default function AdminUsuarios() {
   useEffect(() => { document.title = `Usuários · ${appConfig.name}`; }, []);
@@ -32,16 +59,18 @@ export default function AdminUsuarios() {
   const { user: me } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingTarget, setDeletingTarget] = useState<ProfileRow | null>(null);
+  const [busca, setBusca] = useState("");
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [vista, setVista] = useState<"pessoas" | "tipos">("pessoas");
 
   const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async (): Promise<ProfileRow[]> => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, nome, role, approved, created_at")
-        .order("created_at", { ascending: true });
+      // Passa por função: o último acesso mora em auth.users, que o cliente
+      // não lê. A função devolve só o que a tela mostra, e só para admin.
+      const { data, error } = await supabase.rpc("fn_admin_usuarios" as any);
       if (error) throw error;
-      return data as ProfileRow[];
+      return (data || []) as ProfileRow[];
     },
   });
 
@@ -68,14 +97,28 @@ export default function AdminUsuarios() {
   const refetchAll = () => { profilesQ.refetch(); accessQ.refetch(); };
   const isLoading = profilesQ.isLoading || accessQ.isLoading;
 
+  const lista = useMemo(() => {
+    const todos = profilesQ.data || [];
+    const s = busca.trim().toLowerCase();
+    const filtrados = s
+      ? todos.filter((p) => (p.nome ?? "").toLowerCase().includes(s) || (p.email ?? "").toLowerCase().includes(s))
+      : todos;
+    // Quem está esperando aprovação vem primeiro: é a única linha desta tela
+    // que pede uma decisão, e ela não pode ficar no meio do bolo.
+    return [...filtrados].sort((a, b) =>
+      Number(a.approved) - Number(b.approved)
+      || (a.nome ?? a.email ?? "").localeCompare(b.nome ?? b.email ?? ""));
+  }, [profilesQ.data, busca]);
+
+  const pendentes = (profilesQ.data || []).filter((p) => !p.approved).length;
+  const usuarioAberto = (profilesQ.data || []).find((p) => p.id === aberto) || null;
+
   const toggleApproved = async (p: ProfileRow, next: boolean) => {
     setSavingId(p.id);
     const { error } = await supabase.from("profiles").update({ approved: next }).eq("id", p.id);
     if (error) toast.error(error.message);
     else {
-      toast.success(next
-        ? `${p.email} aprovado — libere os módulos abaixo`
-        : `${p.email} bloqueado`);
+      toast.success(next ? `${p.email} aprovado — libere os módulos` : `${p.email} bloqueado`);
       refetchAll();
     }
     setSavingId(null);
@@ -88,6 +131,7 @@ export default function AdminUsuarios() {
     setDeletingTarget(null);
     if (error) { toast.error(error.message); return; }
     toast.success(`Solicitação de ${p.email} removida`);
+    setAberto(null);
     refetchAll();
   };
 
@@ -110,7 +154,8 @@ export default function AdminUsuarios() {
       const { error } = await supabase
         .from("user_module_access")
         .upsert({ user_id: p.id, module_key: key, granted_by: me?.id || null });
-      if (error) toast.error(error.message); else qc.setQueryData(["admin-access"], (old: AccessRow[] | undefined) =>
+      if (error) toast.error(error.message);
+      else qc.setQueryData(["admin-access"], (old: AccessRow[] | undefined) =>
         [...(old || []), { user_id: p.id, module_key: key }]);
     } else {
       const { error } = await supabase
@@ -118,159 +163,113 @@ export default function AdminUsuarios() {
         .delete()
         .eq("user_id", p.id)
         .eq("module_key", key);
-      if (error) toast.error(error.message); else qc.setQueryData(["admin-access"], (old: AccessRow[] | undefined) =>
-        (old || []).filter(r => !(r.user_id === p.id && r.module_key === key)));
+      if (error) toast.error(error.message);
+      else qc.setQueryData(["admin-access"], (old: AccessRow[] | undefined) =>
+        (old || []).filter((r) => !(r.user_id === p.id && r.module_key === key)));
     }
     setSavingId(null);
   };
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6">
       <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <UserCog className="h-6 w-6 text-primary" />
-            Usuários & Permissões
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
+            <UserCog className="h-6 w-6 text-primary" /> Equipe
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Aprove novos cadastros e controle quais módulos cada usuário enxerga.
+            Quem entra, o que cada um enxerga e o que cada um recebe — num lugar só.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refetchAll} disabled={isLoading}>
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          {vista === "pessoas" && (
+            <div className="relative w-52">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome ou e-mail" className="pl-9 h-9" />
+            </div>
+          )}
+          <Button variant="outline" size="sm" onClick={refetchAll}>
+            <RefreshCw className="h-4 w-4 mr-1.5" /> Atualizar
+          </Button>
+        </div>
       </header>
 
-      {isLoading ? (
-        <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
-      ) : (profilesQ.data || []).length === 0 ? (
-        <div className="text-center text-muted-foreground py-12 text-sm">Nenhum usuário cadastrado ainda.</div>
+      {/* As duas metades da antiga Central de notificações: por pessoa (dentro
+          do painel de cada uma) e por tipo (aqui). O que era uma tela separada
+          vira a segunda aba desta. */}
+      <div className="inline-flex gap-1 p-1 rounded-xl border border-border bg-muted/20">
+        {([
+          { k: "pessoas", label: "Pessoas", n: (profilesQ.data || []).length },
+          { k: "tipos", label: "Tipos de notificação", n: null },
+        ] as const).map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setVista(t.k)}
+            className={`px-3.5 h-8 rounded-lg text-[12.5px] font-medium transition-colors ${
+              vista === t.k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}{t.n !== null && <span className="ml-1.5 opacity-60 tabular-nums">{t.n}</span>}
+          </button>
+        ))}
+      </div>
+
+      {vista === "tipos" ? (
+        <AdminNotificacoes embutido />
+      ) : isLoading ? (
+        <p className="text-center text-sm text-muted-foreground py-16">Carregando…</p>
+      ) : lista.length === 0 ? (
+        <p className="text-center text-sm text-muted-foreground py-16">Nenhum usuário encontrado.</p>
       ) : (
-        <div className="space-y-3">
-          {(profilesQ.data || []).map(p => {
-            const accessSet = accessByUser.get(p.id) || new Set<string>();
-            const isMe = p.id === me?.id;
-            const isAdminRow = p.role === "admin";
-            return (
-              <div
+        <>
+          {pendentes > 0 && (
+            <p className="text-[12px] text-amber-300 flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {pendentes === 1 ? "1 pessoa aguardando aprovação" : `${pendentes} pessoas aguardando aprovação`}
+              {" — "}aparecem primeiro.
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {lista.map((p) => (
+              <CardPessoa
                 key={p.id}
-                className="rounded-xl border border-border bg-card/40 p-4 space-y-4"
-              >
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-semibold truncate">{p.nome || p.email}</h3>
-                      {isMe && <Badge variant="outline" className="text-[10px]">você</Badge>}
-                      {isAdminRow && (
-                        <Badge className="text-[10px] bg-primary/15 text-primary border-primary/30">
-                          <ShieldCheck className="h-3 w-3 mr-1" /> Admin
-                        </Badge>
-                      )}
-                      {!p.approved && (
-                        <Badge variant="outline" className="text-[10px] border-amber-400/40 text-amber-400">
-                          aguardando aprovação
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Mail className="h-3 w-3" /> {p.email}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3 text-xs">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <span className="text-muted-foreground">Aprovado</span>
-                      <Switch
-                        checked={p.approved}
-                        disabled={savingId === p.id || isMe}
-                        onCheckedChange={(v) => toggleApproved(p, v)}
-                      />
-                    </label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={savingId === p.id || (isMe && isAdminRow)}
-                      onClick={() => toggleRole(p)}
-                    >
-                      {isAdminRow ? "Rebaixar a user" : "Promover a admin"}
-                    </Button>
-                    {!p.approved && !isMe && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={savingId === p.id}
-                        onClick={() => setDeletingTarget(p)}
-                        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        title="Remove a solicitação e libera o e-mail pra novo cadastro"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 mr-1" />
-                        Remover
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Grade de módulos — sempre renderizada pra alinhar cards.
-                    Pra admin: todos checados, fixos, desabilitados.
-                    Pra user pendente de aprovação: visível mas só edita depois. */}
-                {p.approved && (
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">
-                      {isAdminRow ? "Acesso aos módulos (admin)" : "Acesso aos módulos"}
-                    </p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-                      {MODULES.map(m => {
-                        const on = isAdminRow ? true : accessSet.has(m.key);
-                        return (
-                          <button
-                            key={m.key}
-                            disabled={savingId === p.id || isAdminRow}
-                            onClick={() => !isAdminRow && toggleModule(p, m.key, !on)}
-                            className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs transition-colors ${
-                              on
-                                ? "border-primary/40 bg-primary/10 text-primary"
-                                : "border-border bg-card/40 text-muted-foreground hover:border-muted-foreground/40"
-                            } ${isAdminRow ? "cursor-default opacity-90" : ""}`}
-                          >
-                            <span>{m.label}</span>
-                            {on ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5 opacity-40" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {isAdminRow && (
-                      <p className="text-[11px] text-muted-foreground italic mt-2">
-                        Admins têm acesso a todos os módulos automaticamente.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {p.approved && <UserNotificacoesSection userId={p.id} isAdminRow={isAdminRow} />}
-                <UserMensagensSection userId={p.id} />
-              </div>
-            );
-          })}
-        </div>
+                p={p}
+                euMesmo={p.id === me?.id}
+                onAbrir={() => setAberto(p.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
+
+      <PainelPessoa
+        p={usuarioAberto}
+        onFechar={() => setAberto(null)}
+        euMesmo={usuarioAberto?.id === me?.id}
+        salvando={savingId === usuarioAberto?.id}
+        modulos={usuarioAberto ? (accessByUser.get(usuarioAberto.id) ?? new Set<string>()) : new Set<string>()}
+        onAprovar={(v) => usuarioAberto && toggleApproved(usuarioAberto, v)}
+        onPapel={() => usuarioAberto && toggleRole(usuarioAberto)}
+        onModulo={(k, v) => usuarioAberto && toggleModule(usuarioAberto, k, v)}
+        onRemover={() => usuarioAberto && setDeletingTarget(usuarioAberto)}
+      />
 
       <AlertDialog open={!!deletingTarget} onOpenChange={(o) => { if (!o) setDeletingTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover solicitação de acesso?</AlertDialogTitle>
+            <AlertDialogTitle>Remover solicitação?</AlertDialogTitle>
             <AlertDialogDescription>
-              Isto vai apagar o cadastro de <strong>{deletingTarget?.email}</strong> e liberar
-              o e-mail pra um novo signup. Esta ação é irreversível.
+              O cadastro de <strong>{deletingTarget?.email}</strong> será apagado e a pessoa poderá
+              se cadastrar de novo. Só vale para quem ainda não foi aprovado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={savingId === deletingTarget?.id}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); if (deletingTarget) removerSolicitacao(deletingTarget); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); deletingTarget && removerSolicitacao(deletingTarget); }}
+              className="bg-red-600 hover:bg-red-500"
             >
-              {savingId === deletingTarget?.id ? "Removendo…" : "Sim, remover"}
+              Remover
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -279,15 +278,193 @@ export default function AdminUsuarios() {
   );
 }
 
-// Quais notificações este usuário recebe. Admin decide por usuário; admin
-// sempre recebe todas. Lazy: só busca ao expandir.
-function UserNotificacoesSection({ userId, isAdminRow }: { userId: string; isAdminRow: boolean }) {
-  const [open, setOpen] = useState(false);
+// O card grande. O retrato ocupa o topo inteiro, como nas fichas de perfil de
+// console: é o retrato que identifica, e o texto vem depois pra confirmar.
+function CardPessoa({ p, euMesmo, onAbrir }: { p: ProfileRow; euMesmo: boolean; onAbrir: () => void }) {
+  const acesso = desdeAcesso(p.ultimo_acesso);
+  const nome = p.nome || p.email || "sem nome";
+  return (
+    <button
+      onClick={onAbrir}
+      className="group text-left rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden
+                 transition-all hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+    >
+      <div className="relative">
+        <AvatarUsuario nome={p.nome} email={p.email} avatarUrl={p.avatar_url} tamanho="xl" className="rounded-none ring-0" />
+        {/* Degradê pro nome ficar legível por cima de qualquer foto. */}
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+
+        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+          {!p.approved ? (
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/90 text-black">
+              Aguardando
+            </span>
+          ) : (
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-500/85 text-black">
+              Ativo
+            </span>
+          )}
+          {p.role === "admin" && (
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-medium bg-primary/85 text-white inline-flex items-center gap-1">
+              <ShieldCheck className="h-3 w-3" /> Admin
+            </span>
+          )}
+        </div>
+        {euMesmo && (
+          <span className="absolute top-2.5 right-2.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-white/15 text-white backdrop-blur-sm">
+            você
+          </span>
+        )}
+
+        <div className="absolute inset-x-0 bottom-0 p-3">
+          <p className="text-[15px] font-semibold text-white leading-tight break-words drop-shadow">{nome}</p>
+        </div>
+      </div>
+
+      <div className="p-3 space-y-1.5">
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+          <Mail className="h-3 w-3 shrink-0 opacity-70" /> <span className="truncate">{p.email}</span>
+        </p>
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Layers className="h-3 w-3 shrink-0 opacity-70" />
+          {p.role === "admin" ? "todos os módulos" : `${p.modulos} de ${MODULES.length} módulos`}
+        </p>
+        <p className={`flex items-center gap-1.5 text-[11px] ${acesso.frio ? "text-amber-300/80" : "text-muted-foreground"}`}>
+          <Clock className="h-3 w-3 shrink-0 opacity-70" /> Último acesso: {acesso.txt}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+// Painel da pessoa: tudo que era card empilhado vira abas aqui dentro.
+function PainelPessoa({
+  p, onFechar, euMesmo, salvando, modulos, onAprovar, onPapel, onModulo, onRemover,
+}: {
+  p: ProfileRow | null;
+  onFechar: () => void;
+  euMesmo: boolean;
+  salvando: boolean;
+  modulos: Set<string>;
+  onAprovar: (v: boolean) => void;
+  onPapel: () => void;
+  onModulo: (k: ModuleKey, v: boolean) => void;
+  onRemover: () => void;
+}) {
+  const [aba, setAba] = useState<"acesso" | "notificacoes" | "mensagens">("acesso");
+  const chave = `${p?.id ?? ""}`;
+  const [chaveInit, setChaveInit] = useState("");
+  if (p && chave !== chaveInit) { setChaveInit(chave); setAba("acesso"); }
+  if (!p) return null;
+
+  const acesso = desdeAcesso(p.ultimo_acesso);
+  const ehAdmin = p.role === "admin";
+
+  return (
+    <Dialog open={!!p} onOpenChange={(o) => { if (!o) onFechar(); }}>
+      <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-hidden flex flex-col">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="flex items-center gap-3">
+            <AvatarUsuario nome={p.nome} email={p.email} avatarUrl={p.avatar_url} tamanho="md" />
+            <span className="min-w-0">
+              <span className="block truncate">{p.nome || p.email}</span>
+              <span className="block text-[11px] font-normal text-muted-foreground truncate">{p.email}</span>
+            </span>
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {ehAdmin ? "Administrador" : "Membro"} · último acesso {acesso.txt}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="inline-flex gap-1 p-1 rounded-xl border border-border bg-muted/20 shrink-0 w-fit">
+          {([
+            { k: "acesso", label: "Acesso" },
+            { k: "notificacoes", label: "Notificações" },
+            { k: "mensagens", label: "Mensagens prontas" },
+          ] as const).map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setAba(t.k)}
+              className={`px-3 h-7 rounded-lg text-[12px] font-medium transition-colors ${
+                aba === t.k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 py-1">
+          {aba === "acesso" && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/40 p-3">
+                <label className="flex items-center gap-2 text-[12.5px]">
+                  <Switch checked={p.approved} disabled={euMesmo || salvando} onCheckedChange={onAprovar} />
+                  Aprovado
+                </label>
+                <Button size="sm" variant="outline" onClick={onPapel} disabled={salvando || (euMesmo && ehAdmin)}>
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+                  {ehAdmin ? "Rebaixar para membro" : "Promover a admin"}
+                </Button>
+                {!p.approved && !euMesmo && (
+                  <Button size="sm" variant="ghost" onClick={onRemover} className="text-red-400 hover:text-red-300 ml-auto">
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Remover solicitação
+                  </Button>
+                )}
+              </div>
+
+              {!p.approved ? (
+                <p className="text-[12px] text-muted-foreground flex items-center gap-1.5 py-6 justify-center">
+                  <CircleSlash className="h-3.5 w-3.5" /> Aprove a pessoa para liberar módulos.
+                </p>
+              ) : ehAdmin ? (
+                <p className="text-[12px] text-muted-foreground italic">
+                  Admin enxerga todos os módulos automaticamente.
+                </p>
+              ) : (
+                <div>
+                  <p className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-2">
+                    Módulos ({modulos.size} de {MODULES.length})
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {MODULES.map((m) => {
+                      const on = modulos.has(m.key);
+                      return (
+                        <button
+                          key={m.key}
+                          onClick={() => onModulo(m.key, !on)}
+                          disabled={salvando}
+                          className={`px-3 py-2 rounded-lg border text-[12px] text-left transition-colors ${
+                            on
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "border-border bg-card/40 text-muted-foreground hover:text-foreground hover:border-white/20"
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {aba === "notificacoes" && <NotificacoesDoUsuario userId={p.id} isAdminRow={ehAdmin} />}
+          {aba === "mensagens" && <MensagensDoUsuario userId={p.id} />}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Quais notificações este usuário recebe. Admin sempre recebe todas.
+function NotificacoesDoUsuario({ userId, isAdminRow }: { userId: string; isAdminRow: boolean }) {
   const qc = useQueryClient();
 
   const cfgQ = useQuery({
     queryKey: ["notif-config-list"],
-    enabled: open,
     queryFn: async (): Promise<{ tipo: string; label: string; ativo: boolean }[]> => {
       const { data, error } = await (supabase.from("notificacao_config" as any) as any)
         .select("tipo,label,ativo").order("label");
@@ -298,7 +475,7 @@ function UserNotificacoesSection({ userId, isAdminRow }: { userId: string; isAdm
 
   const prefsQ = useQuery({
     queryKey: ["notif-prefs", userId],
-    enabled: open && !isAdminRow,
+    enabled: !isAdminRow,
     queryFn: async (): Promise<Record<string, boolean>> => {
       const { data, error } = await (supabase.from("notificacao_user_prefs" as any) as any)
         .select("tipo,permitido").eq("user_id", userId);
@@ -322,53 +499,39 @@ function UserNotificacoesSection({ userId, isAdminRow }: { userId: string; isAdm
     }
   };
 
+  if (isAdminRow) {
+    return (
+      <p className="text-[12px] text-muted-foreground italic py-4 flex items-center gap-1.5">
+        <Bell className="h-3.5 w-3.5" /> Admin recebe todas as notificações automaticamente.
+      </p>
+    );
+  }
+  if (cfgQ.isLoading) return <p className="text-[12px] text-muted-foreground py-4">Carregando…</p>;
+
   return (
-    <div className="border-t border-border/60 pt-3">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <Bell className="h-3.5 w-3.5" />
-        Notificações que recebe
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        isAdminRow ? (
-          <p className="text-[11px] text-muted-foreground italic mt-2">
-            Admin recebe todas as notificações automaticamente.
-          </p>
-        ) : cfgQ.isLoading ? (
-          <div className="text-[11px] text-muted-foreground mt-2">Carregando…</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
-            {(cfgQ.data || []).map((c) => {
-              const on = !!prefsQ.data?.[c.tipo];
-              return (
-                <label
-                  key={c.tipo}
-                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-card/40 text-xs cursor-pointer"
-                >
-                  <span className={c.ativo ? "" : "text-muted-foreground/60"}>
-                    {c.label}{!c.ativo && " (desligada)"}
-                  </span>
-                  <Switch checked={on} disabled={!c.ativo} onCheckedChange={(v) => toggle(c.tipo, v)} />
-                </label>
-              );
-            })}
-          </div>
-        )
-      )}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+      {(cfgQ.data || []).map((c) => {
+        const on = !!prefsQ.data?.[c.tipo];
+        return (
+          <label
+            key={c.tipo}
+            className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-card/40 text-xs cursor-pointer"
+          >
+            <span className={c.ativo ? "" : "text-muted-foreground/60"}>
+              {c.label}{!c.ativo && " (desligada)"}
+            </span>
+            <Switch checked={on} disabled={!c.ativo} onCheckedChange={(v) => toggle(c.tipo, v)} />
+          </label>
+        );
+      })}
     </div>
   );
 }
 
-// Visão (somente leitura) das mensagens prontas de um usuário. Lazy:
-// só busca quando o admin expande. RLS libera leitura pro admin.
-function UserMensagensSection({ userId }: { userId: string }) {
-  const [open, setOpen] = useState(false);
+// Mensagens prontas do usuário, somente leitura. RLS libera pro admin.
+function MensagensDoUsuario({ userId }: { userId: string }) {
   const q = useQuery({
     queryKey: ["admin-mensagens", userId],
-    enabled: open,
     queryFn: async (): Promise<Record<string, string>> => {
       const { data, error } = await supabase
         .from("mensagens_prontas" as any)
@@ -380,37 +543,26 @@ function UserMensagensSection({ userId }: { userId: string }) {
       return map;
     },
   });
+
+  if (q.isLoading) return <p className="text-[12px] text-muted-foreground py-4">Carregando…</p>;
   return (
-    <div className="border-t border-border/60 pt-3">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <MessageSquareText className="h-3.5 w-3.5" />
-        Mensagens prontas
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="mt-2 space-y-2">
-          {q.isLoading ? (
-            <div className="text-[11px] text-muted-foreground">Carregando…</div>
-          ) : (
-            SLOTS_MENSAGENS.map(slot => {
-              const txt = (q.data?.[slot.chave] || "").trim();
-              return (
-                <div key={slot.chave} className="text-xs">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/80">
-                    <slot.icon className="h-3 w-3 text-primary" /> {slot.label}
-                  </div>
-                  <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-md border border-border/60 bg-card/40 px-2 py-1.5 ${txt ? "" : "italic text-muted-foreground/60"}`}>
-                    {txt || "— vazio —"}
-                  </p>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
+    <div className="space-y-2.5">
+      <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+        <MessageSquareText className="h-3.5 w-3.5" /> Somente leitura — quem edita é a própria pessoa.
+      </p>
+      {SLOTS_MENSAGENS.map((slot) => {
+        const txt = (q.data?.[slot.chave] || "").trim();
+        return (
+          <div key={slot.chave} className="text-xs">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/80">
+              <slot.icon className="h-3 w-3 text-primary" /> {slot.label}
+            </div>
+            <p className={`mt-0.5 whitespace-pre-wrap break-words rounded-md border border-border/60 bg-card/40 px-2 py-1.5 ${txt ? "" : "italic text-muted-foreground/60"}`}>
+              {txt || "— vazio —"}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }

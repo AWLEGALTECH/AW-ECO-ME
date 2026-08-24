@@ -33,7 +33,6 @@ import Sheets from "./pages/Sheets";
 import Marketing from "./pages/Marketing";
 import AdminUsuarios from "./pages/AdminUsuarios";
 import AdminLogs from "./pages/AdminLogs";
-import AdminNotificacoes from "./pages/AdminNotificacoes";
 import NotFound from "./pages/NotFound";
 import { RequireModule } from "@/components/RequireModule";
 
@@ -123,7 +122,9 @@ const App = () => (
                 <Route element={<RequireModule adminOnly />}>
                   <Route path="/admin/usuarios" element={<AdminUsuarios />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />
-                  <Route path="/admin/notificacoes" element={<AdminNotificacoes />} />
+                  {/* A central virou aba dentro de Usuários. A rota antiga
+                      continua respondendo, pra não quebrar link salvo. */}
+                  <Route path="/admin/notificacoes" element={<Navigate to="/admin/usuarios" replace />} />
                 </Route>
                 <Route path="/home" element={<Navigate to="/dashboard" replace />} />
               </Route>

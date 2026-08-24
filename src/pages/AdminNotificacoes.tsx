@@ -18,7 +18,11 @@ interface ConfigRow {
 interface ProfileRow { id: string; nome: string | null; email: string | null; role: "admin" | "user"; approved: boolean; }
 interface PrefRow { user_id: string; tipo: string; permitido: boolean; }
 
-export default function AdminNotificacoes() {
+// A central vive dentro da tela de Usuários (aba "Tipos de notificação"), mas
+// continua sendo uma página inteira quando aberta direto pela URL. `embutido`
+// é o que tira o cabeçalho e a caixa de largura própria, pra não duplicar o
+// cabeçalho da tela que a hospeda.
+export default function AdminNotificacoes({ embutido = false }: { embutido?: boolean }) {
   const qc = useQueryClient();
 
   const cfgQ = useQuery({
@@ -101,17 +105,19 @@ export default function AdminNotificacoes() {
   const isLoading = cfgQ.isLoading || profQ.isLoading || prefsQ.isLoading;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
-          <Bell className="h-6 w-6 text-primary" /> Central de notificações
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Tudo em um lugar: <strong>ligue ou desligue</strong> cada tipo, veja e ajuste
-          {" "}<strong>quem recebe</strong>, e <strong>edite a copy</strong> (título e corpo). Você
-          (admin) sempre recebe todas.
-        </p>
-      </header>
+    <div className={embutido ? "space-y-6" : "max-w-3xl mx-auto space-y-6"}>
+      {!embutido && (
+        <header>
+          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
+            <Bell className="h-6 w-6 text-primary" /> Central de notificações
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Tudo em um lugar: <strong>ligue ou desligue</strong> cada tipo, veja e ajuste
+            {" "}<strong>quem recebe</strong>, e <strong>edite a copy</strong> (título e corpo). Você
+            (admin) sempre recebe todas.
+          </p>
+        </header>
+      )}
 
       {isLoading ? (
         <p className="text-center text-sm text-muted-foreground py-10">Carregando…</p>
