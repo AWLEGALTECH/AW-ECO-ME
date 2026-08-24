@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
   CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
+  ArrowRight, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -190,18 +191,40 @@ export default function Tarefas() {
 
   const irProcesso = (id: string) => navigate(`/processos/${id}`);
 
-  // Linha de contexto compartilhada pelos dois diálogos: de onde a tarefa vem
-  // e como sair daqui pro processo.
+  // Contexto compartilhado pelos dois diálogos: de onde a tarefa vem, e as duas
+  // saídas pro processo.
+  //
+  // As saídas ficam numa linha própria, como dois botões do mesmo tamanho. Antes
+  // eram um link de texto com um ícone colado nele, e nessa distância não dava
+  // pra ver que eram duas coisas diferentes — parecia um botão com um enfeite.
+  //
+  // Tudo é conteúdo em linha (span/button/a) porque isso é renderizado dentro do
+  // <DialogDescription>, que é um <p>: div ali seria HTML inválido.
   const contextoDe = (it: Item) => (
-    <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
-      <span className="font-mono">{it.processoNumero}</span>
-      {it.clienteNome && <span>· {it.clienteNome}</span>}
-      <span className="opacity-50">·</span>
-      <span>{it.etapaTitulo}</span>
-      <button onClick={() => irProcesso(it.processoId)} className="text-primary hover:underline">
-        Abrir processo
-      </button>
-      <LinkProcesso id={it.processoId} />
+    <span className="block space-y-2">
+      <span className="flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+        <span className="font-mono">{it.processoNumero}</span>
+        {it.clienteNome && <span>· {it.clienteNome}</span>}
+        <span className="opacity-50">·</span>
+        <span>{it.etapaTitulo}</span>
+      </span>
+
+      <span className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => irProcesso(it.processoId)}
+          className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-primary/30 bg-primary/10 text-primary text-[12px] font-medium hover:bg-primary/15 hover:border-primary/50 transition-colors"
+        >
+          <ArrowRight className="h-3.5 w-3.5 shrink-0" /> Abrir processo
+        </button>
+        <a
+          href={`/processos/${it.processoId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-white/[0.1] bg-white/[0.03] text-foreground/80 text-[12px] font-medium hover:bg-white/[0.07] hover:border-white/20 hover:text-foreground transition-colors"
+        >
+          <ExternalLink className="h-3.5 w-3.5 shrink-0" /> Abrir em outra aba
+        </a>
+      </span>
     </span>
   );
 
