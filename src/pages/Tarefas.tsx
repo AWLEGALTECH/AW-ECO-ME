@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
 import {
   Search, FileText, CalendarDays, LayoutGrid, GitBranchPlus, ListTodo, Loader2,
-  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X,
+  CalendarRange, ArrowDownWideNarrow, ArrowUpWideNarrow, ChevronRight, Rows3, X, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -38,17 +38,26 @@ const ETAPAS_ORDEM = [
 const ordemEtapa = (t: string) => { const i = ETAPAS_ORDEM.indexOf(t); return i === -1 ? 99 : i; };
 
 // Card de tarefa agregada: mesma estética do processo + referência do processo.
+//
+// É uma div com papel de botão, e não um <button>, porque dentro dele vive um
+// link de verdade para o processo — e âncora dentro de botão é HTML inválido,
+// além de quebrar ctrl+clique e clique do meio, que é justamente o que se quer
+// preservar aqui.
 function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
   const Icon = ICONE_TIPO[it.tipo];
   const d = it.desfecho ? DESFECHOS[it.desfecho] : null;
   const DIcon = d?.icon;
   const prazo = it.tipo !== "pendencia" && !d ? prazoInfo(it.prazo) : null;
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
       className={cn(
-        "group flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-3.5 min-h-[188px]",
+        "group flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md p-3.5 min-h-[188px] cursor-pointer",
         "shadow-[0_4px_20px_rgba(0,0,0,0.25)] transition-all hover:border-primary/40 hover:bg-white/[0.05] hover:-translate-y-0.5",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         d && "opacity-75",
       )}
     >
@@ -78,9 +87,32 @@ function TarefaCard({ it, onClick }: { it: Item; onClick: () => void }) {
           <FileText className="h-3 w-3 text-primary/60 shrink-0" />
           <span className="font-mono truncate">{it.processoNumero}</span>
           {it.clienteNome && <span className="truncate">· {it.clienteNome}</span>}
+          <LinkProcesso id={it.processoId} className="ml-auto" />
         </div>
       </div>
-    </button>
+    </div>
+  );
+}
+
+// Abre o processo em outra guia sem tirar a pessoa da tela — o filtro que ela
+// acabou de montar continua montado. É <a> de verdade, e não navigate(), pra
+// que ctrl+clique, clique do meio e "abrir em nova janela" também funcionem.
+function LinkProcesso({ id, className }: { id: string; className?: string }) {
+  return (
+    <a
+      href={`/processos/${id}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title="Abrir o processo em outra guia"
+      aria-label="Abrir o processo em outra guia"
+      className={cn(
+        "shrink-0 rounded-md p-1 text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition-colors",
+        className,
+      )}
+    >
+      <ExternalLink className="h-3 w-3" />
+    </a>
   );
 }
 
@@ -191,6 +223,7 @@ export default function Tarefas() {
       <button onClick={() => irProcesso(it.processoId)} className="text-primary hover:underline">
         Abrir processo
       </button>
+      <LinkProcesso id={it.processoId} />
     </span>
   );
 
