@@ -88,8 +88,11 @@ export function AppSidebar() {
     queryKey: ["esteira_count"],
     queryFn: async () => {
       const [tagged, vincAny, vincPendente, proto, pend] = await Promise.all([
+        // Arquivado não conta: ele não aparece na coluna, então também não pode
+        // aparecer no número que anuncia a coluna.
         supabase.from("clientes").select("id" as any, { count: "exact", head: false })
-          .eq("precisa_analise_extratos" as any, true),
+          .eq("precisa_analise_extratos" as any, true)
+          .is("arquivado_em" as any, null),
         // Qualquer demanda downstream nao-cancelada — exclui tagged que ja
         // iniciou pipeline (inclui vinculada, artesanal, pronta, pendencia)
         // pra cliente nao contar 2x quando peca avancou.

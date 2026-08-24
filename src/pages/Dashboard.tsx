@@ -146,7 +146,9 @@ export default function Dashboard() {
           supabase
             .from("processos")
             .select("id, numero_processo, cliente_id, materia, data_ultimo_andamento, prazo_processual, fase_processual, tipo_pendencia, status_tarefa, vara_juizo_origem, valor_causa, comarca_uf, parceiro, clientes(nome)"),
-          supabase.from("clientes").select("*", { count: "exact", head: true }),
+          // Sem os arquivados: o número tem que bater com a lista de Clientes.
+          supabase.from("clientes").select("*", { count: "exact", head: true })
+            .is("arquivado_em" as any, null),
           supabase
             .from("vw_tarefas_processo" as never)
             .select("processo_id, numero_processo, cliente_nome, materia, fase_processual, tipo, titulo, conteudo, prazo, desfecho")

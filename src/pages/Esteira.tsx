@@ -177,6 +177,10 @@ export default function Esteira() {
         .select("id, nome, created_at, origem, drive_folder_url, requerido, cadastrado_por, observacoes, analise_comercial")
         .eq("precisa_analise_extratos" as any, true)
         .is("analise_primaria_finalizada_at" as any, null)
+        // Cliente arquivado não tem presença em coluna nenhuma. Esta coluna lê
+        // `clientes` direto, e não `demandas`, então o cancelamento das
+        // demandas no arquivamento não a alcança — o filtro precisa estar aqui.
+        .is("arquivado_em" as any, null)
         .order("created_at", { ascending: true });
       if (e1) throw e1;
       const ids = (tagged || []).map(c => c.id);
