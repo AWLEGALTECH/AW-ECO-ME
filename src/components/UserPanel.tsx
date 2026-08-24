@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { LogOut, Upload, User, Save, Palette, Check } from "lucide-react";
+import { LogOut, Upload, User, Save, Palette, Check, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { logEvent } from "@/lib/audit";
@@ -20,6 +20,7 @@ export function UserPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url || null);
   const [uploading, setUploading] = useState(false);
+  const [removendo, setRemovendo] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [fullName, setFullName] = useState("");
@@ -77,6 +78,26 @@ export function UserPanel() {
     setAvatarUrl(url);
     setUploading(false);
     toast.success("Foto atualizada");
+  };
+
+  // Voltar a ficar sem foto. Limpa a coluna E apaga os arquivos do bucket: só
+  // limpar a coluna deixaria a imagem hospedada e pública para sempre, o que
+  // não é o que "remover minha foto" quer dizer.
+  //
+  // Apaga por listagem porque a extensão faz parte do caminho (avatar.jpg,
+  // avatar.png…) — quem trocou de formato tem mais de um arquivo lá.
+  const handleRemoverFoto = async () => {
+    if (!user) return;
+    setRemovendo(true);
+    const { data: arquivos } = await supabase.storage.from("avatars").list(user.id);
+    if (arquivos?.length) {
+      await supabase.storage.from("avatars").remove(arquivos.map((a) => `${user.id}/${a.name}`));
+    }
+    const { error } = await supabase.from("profiles").update({ avatar_url: null }).eq("id", user.id);
+    setRemovendo(false);
+    if (error) { toast.error("Erro ao remover a foto"); return; }
+    setAvatarUrl(null);
+    toast.success("Foto removida — voltou para as iniciais");
   };
 
   const handleSignOut = async () => {
@@ -140,10 +161,27 @@ export function UserPanel() {
             <p className="text-sm text-muted-foreground">{user.email}</p>
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-            <Upload className="h-4 w-4 mr-2" />
-            {uploading ? "Enviando..." : "Alterar Foto"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading || removendo}>
+              <Upload className="h-4 w-4 mr-2" />
+              {uploading ? "Enviando..." : avatarUrl ? "Trocar foto" : "Adicionar foto"}
+            </Button>
+            {/* Só aparece com foto: botão de remover sem nada pra remover é
+                promessa quebrada. Trocar era o único caminho, e quem quisesse
+                voltar ao monograma ficava sem saída. */}
+            {avatarUrl && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRemoverFoto}
+                disabled={uploading || removendo}
+                className="text-muted-foreground hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" />
+                {removendo ? "Removendo…" : "Remover"}
+              </Button>
+            )}
+          </div>
         </div>
 
         <Separator />
