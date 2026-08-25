@@ -88,6 +88,7 @@ const CAPAS = {
   anuidade: { src: "/processo-capas/anuidade-cartao.jpg", nome: "Anuidade Cartão" },
   cartaoProtegido: { src: "/processo-capas/seguro-cartao-protegido.jpg", nome: "Seguro Cartão Protegido" },
   dividaAtraso: { src: "/processo-capas/divida-atraso.jpg", nome: "Dívida em Atraso" },
+  contaFraude: { src: "/processo-capas/conta-fraude.jpg", nome: "Conta Aberta por Fraude" },
 } as const;
 
 // Remove acentos, sobe pra maiúsculo e colapsa espaços — deixa a matéria pronta
@@ -109,6 +110,15 @@ function capaParaMateria(materia?: string | null): { src: string; nome: string }
   if (!t) return undefined;
   const has = (...ks: string[]) => ks.some((k) => t.includes(k));
 
+  // Conta aberta por fraude: a matéria não é uma rubrica de extrato, é o tipo
+  // da ação, então as variações que o pessoal escreve giram em torno de FRAUDE
+  // e de CONTA/VÍNCULO. Vem primeiro porque "CONTA" sozinha é palavra genérica
+  // demais e a regra precisa da combinação pra não roubar matéria alheia.
+  if (
+    (has("FRAUDE", "FRAUDULENT") && has("CONTA", "ABERTURA", "VINCULO")) ||
+    has("CONTA NAO RECONHECIDA", "INEXISTENCIA DE RELACAO", "VINCULO INEXISTENTE")
+  )
+    return CAPAS.contaFraude;
   // "DIV. EM ATRASO" chega aqui normalizada como "DIV EM ATRASO". Vem antes das
   // demais porque "ATRASO" é palavra que nenhuma outra rubrica usa — e depois
   // dela ficariam regras genéricas ("MORA", "ENCARGO") que roubariam a matéria.
