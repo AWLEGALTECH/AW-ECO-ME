@@ -87,6 +87,7 @@ const CAPAS = {
   cesta: { src: "/processo-capas/cesta-servicos.jpg", nome: "Cesta de Serviços" },
   anuidade: { src: "/processo-capas/anuidade-cartao.jpg", nome: "Anuidade Cartão" },
   cartaoProtegido: { src: "/processo-capas/seguro-cartao-protegido.jpg", nome: "Seguro Cartão Protegido" },
+  dividaAtraso: { src: "/processo-capas/divida-atraso.jpg", nome: "Dívida em Atraso" },
 } as const;
 
 // Remove acentos, sobe pra maiúsculo e colapsa espaços — deixa a matéria pronta
@@ -108,6 +109,10 @@ function capaParaMateria(materia?: string | null): { src: string; nome: string }
   if (!t) return undefined;
   const has = (...ks: string[]) => ks.some((k) => t.includes(k));
 
+  // "DIV. EM ATRASO" chega aqui normalizada como "DIV EM ATRASO". Vem antes das
+  // demais porque "ATRASO" é palavra que nenhuma outra rubrica usa — e depois
+  // dela ficariam regras genéricas ("MORA", "ENCARGO") que roubariam a matéria.
+  if (has("DIV EM ATRASO", "DIVIDA EM ATRASO", "DIVIDA ATRASO", "DIV ATRASO")) return CAPAS.dividaAtraso;
   if (has("CAPITALIZ", "CAPTALIZ")) return CAPAS.capitalizacao;
   if (has("PRESTAMISTA")) return CAPAS.prestamista;
   if (has("VIDA E PREVID", "PREVIDENCIA")) return CAPAS.vidaPrev;

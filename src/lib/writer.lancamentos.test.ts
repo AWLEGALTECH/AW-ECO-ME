@@ -3,6 +3,10 @@
 // que quebraria os outros nove que dependem dele no escopo global), a fonte é
 // avaliada num contexto de VM com um `state` falso no lugar da planilha.
 //
+// O teste mora aqui, e não ao lado do docx.js, porque o Vite copia public/
+// inteiro pra dentro do build — um arquivo de teste lá vira arquivo servido
+// na web, e ainda é contado duas vezes pelo `bun test`.
+//
 // O que se testa aqui é o que a peça de DÍVIDA EM ATRASO AFIRMA sobre os
 // fatos: quantos lançamentos foram, em que janela caíram, do menor ao maior
 // valor, e se subiram em rampa. Cada um desses vira frase na petição, e cada
@@ -12,7 +16,7 @@ import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 
-const fonte = readFileSync(new URL("./docx.js", import.meta.url), "utf8");
+const fonte = readFileSync(new URL("../../public/writer-app/src/docx.js", import.meta.url), "utf8");
 
 interface Linha {
   tipo: string;
