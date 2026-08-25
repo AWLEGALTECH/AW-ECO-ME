@@ -1328,7 +1328,7 @@ function autodetectarRubricas() {
     produto.rubricas_keys.includes('seguro_cartao_protegido');
   const isProdutoDividaAtraso = produto && produto.rubricas_keys &&
     produto.rubricas_keys.length === 1 && produto.rubricas_keys[0] === 'divida_atraso';
-  // Produto 14 (Mix Bradesco) — tem TODAS as 16 rubrica_keys; identificado
+  // Produto 14 (Mix Bradesco) — tem TODAS as 17 rubrica_keys; identificado
   // pela presença do 'anuidade_cartao' + 'seguro_cartao_protegido' juntos
   // (combinação que só o Mix tem, já que os outros são singleton).
   const isProdutoMixBradesco = produto && produto.rubricas_keys &&
@@ -1493,7 +1493,7 @@ function autodetectarRubricas() {
   }
 
   // ============================================================
-  // Mix Bradesco (produto 14): roda TODAS as 16 lógicas, captura
+  // Mix Bradesco (produto 14): roda TODAS as 17 lógicas, captura
   // multi-matches e armazena conflitos pra o modal interativo
   // ============================================================
   // Lista pra rastrear conflitos (linha com 2+ matches) — usado pro modal
@@ -1503,6 +1503,7 @@ function autodetectarRubricas() {
     const matches = [];
     // Ordem: mais específico → mais genérico (a primeira posição vira o
     // "default" em caso de conflito; o usuário pode revisar no modal)
+    if (t.includes('ATRASO') && (t.includes('DIV') || t.includes('DÍV'))) matches.push('divida_atraso');
     if (t.includes('ANUIDADE')) matches.push('anuidade_cartao');
     if (t.includes('PROTEGIDO') && (t.includes('CART') || t.includes('CRÉDIT') || t.includes('CREDIT'))) matches.push('seguro_cartao_protegido');
     if (t.includes('SEG') && t.includes('PREST')) matches.push('seguro_prestamista');

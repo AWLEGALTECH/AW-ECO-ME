@@ -307,7 +307,7 @@ function montarLetrasRubricas() {
   const produto = state.produtoSelecionado;
   const r = state.rubricas || {};
   // Alfabeto completo a-z — suporta até 26 rubricas marcadas. O Mix Bradesco
-  // (id 14) pode ter até 16; produtos legados têm 3-4. Antes era ['a'..'f']
+  // (id 14) pode ter até 17; produtos legados têm 3-4. Antes era ['a'..'f']
   // que estourava no Mix gerando "undefined)" nos itens > 6.
   const letras = 'abcdefghijklmnopqrstuvwxyz'.split('');
   let idx = 0;

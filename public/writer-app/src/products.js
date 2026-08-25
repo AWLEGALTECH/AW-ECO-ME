@@ -317,6 +317,7 @@ const PRODUTOS = [
       'MORA CRED PESSOAL', 'MORA CARTÃO DE CRÉDITO', 'ENCARGOS LIMITE DE CREDITO', 'ENCARGOS DESCOBERTOS',
       'SEGURO PRESTAMISTA', 'BRADESCO VIDA E PREVIDÊNCIA', 'TÍTULO DE CAPITALIZAÇÃO',
       'CESTA DE SERVIÇOS', 'CARTÃO DE CRÉDITO ANUIDADE', 'SEGURO CARTÃO PROTEGIDO',
+      'DIV. EM ATRASO',
     ],
     categoria: 'Bancário · Bradesco',
     ativo: true,
@@ -336,6 +337,7 @@ const PRODUTOS = [
       'seguro_prestamista',
       'vida_previdencia', 'titulo_capitalizacao', 'cesta_servicos',
       'anuidade_cartao', 'seguro_cartao_protegido',
+      'divida_atraso',
     ],
     rubricas_nomes_texto: {
       cartao: '"GASTOS CARTÃO DE CRÉDITO"',
@@ -354,6 +356,7 @@ const PRODUTOS = [
       cesta_servicos: "'CESTA DE SERVIÇOS'",
       anuidade_cartao: '"CARTÃO DE CRÉDITO ANUIDADE"',
       seguro_cartao_protegido: '"SEGURO CARTÃO PROTEGIDO"',
+      divida_atraso: '"DIV. EM ATRASO"',
     },
     // Agrupamento visual dos checkboxes no Pacote 3 (16 rubricas é muito
     // pra flat list). Cada chave é um nome de grupo; valor é a lista das
@@ -364,6 +367,7 @@ const PRODUTOS = [
       'Juros e encargos': ['mora_cred_pessoal', 'mora_cartao', 'encargos_limite', 'encargos_descobertos'],
       'Seguros': ['seguro_prestamista', 'seguro_cartao_protegido'],
       'Produtos cobrados sem contratação': ['vida_previdencia', 'titulo_capitalizacao', 'cesta_servicos', 'anuidade_cartao'],
+      'Débito sem origem identificada': ['divida_atraso'],
     },
     zonas_ia: [
       { tag: 'ia_quadro_socioeconomico', nome: 'Quadro socioeconômico (abertura)', contexto_antes: '(Este é o PRIMEIRO tópico da peça, com título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]", logo após a qualificação das partes e ANTES da seção "DOS FATOS". É a ABERTURA humanizada e personalizada da petição.)', contexto_depois: '(Em seguida abre a seção DOS FATOS, cujo primeiro parágrafo apresenta formalmente a parte autora e a natureza salarial da conta bancária. Aqui você NÃO detalha conta, agência ou a mecânica dos descontos: pinta o RETRATO HUMANO e SOCIOECONÔMICO do cliente, gerando identificação e contextualizando a vulnerabilidade.)' },
