@@ -274,6 +274,39 @@ const PRODUTOS = [
     ],
   },
   {
+    id: 15,
+    nome: 'Dívida em Atraso',
+    sublabel: 'Débito sem origem identificada · Bradesco',
+    reu: 'BRADESCO',
+    rubricas: ['DIV. EM ATRASO'],
+    categoria: 'Bancário · Bradesco',
+    ativo: true,
+    versaoBeta: true,
+    template_base64_var: 'TEMPLATE_DOCX_BASE64_DIVIDA_ATRASO',
+    rubricas_keys: ['divida_atraso'],
+    rubricas_nomes_texto: {
+      divida_atraso: '"DIV. EM ATRASO"',
+    },
+    // Esta peça é diferente das outras da prateleira: não narra desconto mensal
+    // que se repete por anos, e sim uma rajada de lançamentos sob um código de
+    // documento genérico, sem contrato, sem operação, sem natureza. Por isso o
+    // template fala em QUANTIDADE de lançamentos, janela de datas e faixa de
+    // valores — tudo derivado da planilha em montarDadosDosLancamentos()
+    // (docx.js). Nada disso é digitado, e o parágrafo do "padrão escalonado"
+    // entra ou sai sozinho conforme os valores da planilha subam ou não.
+    zonas_ia: [
+      { tag: 'ia_quadro_socioeconomico', nome: 'Quadro socioeconômico (abertura)', contexto_antes: '(Este é o PRIMEIRO tópico da peça, com título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]", logo após a qualificação das partes e ANTES da seção "DOS FATOS". É a ABERTURA humanizada e personalizada da petição.)', contexto_depois: '(Em seguida vem o tópico da procuração eletrônica e depois DOS FATOS, que abre apresentando a parte autora como correntista e a conta como conta salarial.)' },
+      { tag: 'ia_contexto_conta_salarial', nome: 'Contexto da conta salarial', contexto_antes: 'A parte autora, {cliente_profissao}, é correntista do Banco Requerido (Agência {caso_numero_agencia}, Conta {caso_numero_conta}), conta esta de natureza salarial, utilizada para a gestão de sua subsistência e de sua família.', contexto_depois: 'Ocorre que, ao analisar seu extrato bancário de forma mais detida, a parte autora constatou a existência de {caso_qtd_lancamentos} lançamentos consecutivos sob a rubrica "DIV. EM ATRASO", todos sob o mesmo código genérico de documento, sem qualquer identificação de contrato, número de operação, origem ou natureza do débito.' },
+      { tag: 'ia_expropriacao_silenciosa', nome: 'Expropriação silenciosa', contexto_antes: '(o parágrafo anterior é a tabela dos lançamentos impugnados, com data, descrição, código de operação e valor de cada um. A parte autora procurou o banco para entender de onde vinham aqueles débitos e não obteve nem a identificação do contrato, nem o estorno.)', contexto_depois: 'Diante da flagrante abusividade, da ausência de comprovação contratual e da violação à autodeterminação informativa, não restou alternativa senão a busca pela tutela jurisdicional para declarar a inexigibilidade dos débitos e obter a devida reparação.' },
+      { tag: 'ia_frase_minimo_existencial', nome: 'Mínimo existencial', contexto_antes: '(fecha o tópico DA PROTEÇÃO AO CONSUMIDOR SUPERENDIVIDADO — LEI 14.181/2021. Acima já se disse que o banco realizou descontos compulsórios e concentrados, sem demonstrar a origem das cobranças, comprometendo o mínimo existencial.)', contexto_depois: 'DO DANO MORAL IN RE IPSA' },
+      { tag: 'ia_dano_moral_angustia', nome: 'Dano moral · Angústia', contexto_antes: '(ATENÇÃO: os três parágrafos ACIMA já disseram, de forma GENÉRICA, que houve angústia e insegurança financeira, que houve violação à dignidade financeira e que houve desvio produtivo do consumidor. NÃO repita esses argumentos em tese. Seu trabalho aqui é outro: escrever o que aconteceu com ESTA pessoa concreta, com os dados socioeconômicos fornecidos, diante de {caso_qtd_lancamentos} débitos de origem não identificada.)', contexto_depois: '(próximo parágrafo: ia_dano_moral_dignidade)' },
+      { tag: 'ia_dano_moral_dignidade', nome: 'Dano moral · Dignidade econômica', contexto_antes: '(parágrafo anterior ia_dano_moral_angustia — angústia psíquica desta pessoa concreta)', contexto_depois: '(próximo parágrafo: ia_dano_moral_impotencia)' },
+      { tag: 'ia_dano_moral_impotencia', nome: 'Dano moral · Impotência', contexto_antes: '(parágrafos anteriores ia_dano_moral_angustia e ia_dano_moral_dignidade. A impotência aqui tem uma cor própria: a parte autora não consegue nem NOMEAR a dívida que lhe cobram, porque o extrato só traz um código de documento genérico. Não há a quem contestar o quê.)', contexto_depois: 'Considerando a gravidade da conduta ({caso_qtd_lancamentos} descontos, sem comprovação contratual), a extensão do dano e a capacidade econômica do ofensor, requer-se a condenação ao pagamento de danos morais.' },
+      { tag: 'ia_lastro_humanizado', nome: 'Lastro humanizado do dano material', opcional: true, contexto_antes: '(este parágrafo aparece logo APÓS o cálculo do dano material, na seção DOS DANOS MATERIAIS E REPETIÇÃO DO INDÉBITO EM DOBRO) O valor total dos lançamentos sob a rubrica "DIV. EM ATRASO" perfaz R$ {caso_valor_total_descontos}. Assim, o valor a ser restituído em dobro corresponde a R$ {caso_valor_dobro}.', contexto_depois: '(o parágrafo seguinte é o lastro técnico/jurídico, gerado pela IA, ancorado no Decreto 11.567/2023 e no salário-mínimo. Você está fazendo o lastro HUMANIZADO: traduza o valor subtraído em bens cotidianos identificáveis que o cliente desta ação concreta tem aptidão para custear, calibrando a prosa ao perfil socioeconômico fornecido nos dados.)' },
+      { tag: 'ia_lastro_dano_material', nome: 'Lastro do dano material', opcional: true, contexto_antes: '(parágrafo anterior: ia_lastro_humanizado — traduziu o valor em bens cotidianos do cliente concreto. Este parágrafo é o lastro TÉCNICO, ancorado no Decreto 11.567/2023, salário-mínimo e cesta básica DIEESE — parâmetros oficiais que dão régua jurídica ao juiz para dimensionar o prejuízo.)', contexto_depois: 'DA PROTEÇÃO AO CONSUMIDOR SUPERENDIVIDADO — LEI 14.181/2021' },
+    ],
+  },
+  {
     id: 14,
     nome: 'Mix Bradesco',
     sublabel: 'Misturar rubricas de qualquer produto · Bradesco',

@@ -162,6 +162,11 @@ function montarContextoDocx() {
     tipo_vara: vara.tipo_vara,        // "CÍVEL" ou "DO JUIZADO ESPECIAL CÍVEL"
     comarca:   (p3.comarca || '').toLocaleUpperCase('pt-BR'),
     uf:        (p3.uf      || '').toLocaleUpperCase('pt-BR'),
+    // O fecho ("Manaus, data da assinatura eletrônica") pede a comarca em caixa
+    // de nome próprio — {comarca} ali sairia gritando no meio da assinatura.
+    comarca_capitalizada: (p3.comarca || '').replace(/\S+/g, w =>
+      w.length <= 2 ? w.toLocaleLowerCase('pt-BR')
+                    : w.charAt(0).toLocaleUpperCase('pt-BR') + w.slice(1).toLocaleLowerCase('pt-BR')),
 
     // Cliente
     // Nome em MAIÚSCULAS sempre — padrão jurídico para qualificação na inicial.
@@ -186,6 +191,15 @@ function montarContextoDocx() {
     caso_valor_dano_moral:      fmtMoney(vDanoMoral),
     caso_valor_dobro:           fmtMoney(vDobro),
     caso_valor_causa:           fmtMoney(vCausa),
+    // Os mesmos valores por extenso, pro parêntese que acompanha o algarismo.
+    // Derivados do mesmo número — não há como divergir.
+    caso_valor_total_descontos_extenso: valorPorExtenso(vDescontos),
+    caso_valor_dano_moral_extenso:      valorPorExtenso(vDanoMoral),
+    caso_valor_dobro_extenso:           valorPorExtenso(vDobro),
+    caso_valor_causa_extenso:           valorPorExtenso(vCausa),
+    // Quantidade de lançamentos, janela, menor/maior valor e código de operação
+    // — tudo lido da planilha (ver montarDadosDosLancamentos).
+    ...montarDadosDosLancamentos(),
     // caso_nome_cesta: usa o nome CANÔNICO da rubrica de produto.rubricas[0]
     // (exibido em "Rubricas aplicáveis à peça"), NÃO a descrição do XLSX.
     // Razão: a peça precisa referenciar o termo limpo definido no produto,
@@ -383,6 +397,175 @@ function montarTextoRubricas() {
   if (nomes.length === 1) return nomes[0];
   if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
   return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
+/* =========================================================================
+   POR EXTENSO — números e valores em palavras.
+
+   A peça de DÍVIDA EM ATRASO escreve a quantidade de lançamentos e os valores
+   por extenso em 18 pontos do texto ("68 (sessenta e oito) lançamentos",
+   "R$ 14.348,75 (quatorze mil, trezentos e quarenta e oito reais...)").
+   Nenhum desses pontos pode ser digitado: o número sai da planilha, e uma
+   divergência entre o algarismo e o extenso é exatamente o tipo de erro que
+   o juiz enxerga primeiro.
+
+   kit.js tem um numeroExtenso() próprio, mas é feminino ("uma", "duas") e
+   pára no 12 — serve pra contar parcelas de contrato, não pra isto.
+   ========================================================================= */
+const _EXT_UNI = ['', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'];
+const _EXT_DEZ_ESPECIAL = ['dez', 'onze', 'doze', 'treze', 'quatorze', 'quinze', 'dezesseis', 'dezessete', 'dezoito', 'dezenove'];
+const _EXT_DEZ = ['', '', 'vinte', 'trinta', 'quarenta', 'cinquenta', 'sessenta', 'setenta', 'oitenta', 'noventa'];
+const _EXT_CEM = ['', 'cento', 'duzentos', 'trezentos', 'quatrocentos', 'quinhentos', 'seiscentos', 'setecentos', 'oitocentos', 'novecentos'];
+
+/** 1..999 por extenso. Fora da faixa devolve ''. */
+function _extensoAte999(n) {
+  if (n <= 0 || n > 999) return '';
+  if (n === 100) return 'cem';
+  const c = Math.floor(n / 100), resto = n % 100;
+  const partes = [];
+  if (c > 0) partes.push(_EXT_CEM[c]);
+  if (resto > 0) {
+    if (resto < 10) partes.push(_EXT_UNI[resto]);
+    else if (resto < 20) partes.push(_EXT_DEZ_ESPECIAL[resto - 10]);
+    else {
+      const d = Math.floor(resto / 10), u = resto % 10;
+      partes.push(u > 0 ? `${_EXT_DEZ[d]} e ${_EXT_UNI[u]}` : _EXT_DEZ[d]);
+    }
+  }
+  return partes.join(' e ');
+}
+
+/**
+ * Inteiro por extenso, no masculino, até 999.999.999.
+ *
+ * A junção entre grupos leva vírgula, TROCADA por " e " quando o último grupo
+ * é menor que 100 ou é centena redonda — é a norma culta e é o que a própria
+ * peça original escreve ("quatorze mil, trezentos e quarenta e oito").
+ *   14.348 → "quatorze mil, trezentos e quarenta e oito"
+ *    1.005 → "mil e cinco"
+ *    1.500 → "mil e quinhentos"
+ */
+function numeroPorExtensoMasc(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if (n === 0) return 'zero';
+  const grupos = [];
+  const mi = Math.floor(n / 1000000);
+  const mil = Math.floor((n % 1000000) / 1000);
+  const un = n % 1000;
+  if (mi > 0) grupos.push({ v: mi, txt: `${_extensoAte999(mi)} ${mi === 1 ? 'milhão' : 'milhões'}` });
+  if (mil > 0) grupos.push({ v: mil, txt: mil === 1 ? 'mil' : `${_extensoAte999(mil)} mil` });
+  if (un > 0) grupos.push({ v: un, txt: _extensoAte999(un) });
+
+  let out = grupos[0].txt;
+  for (let i = 1; i < grupos.length; i++) {
+    const g = grupos[i];
+    const ligaComE = (i === grupos.length - 1) && (g.v < 100 || g.v % 100 === 0);
+    out += (ligaComE ? ' e ' : ', ') + g.txt;
+  }
+  return out;
+}
+
+/**
+ * Valor monetário por extenso.
+ *   14348.75 → "quatorze mil, trezentos e quarenta e oito reais e setenta e cinco centavos"
+ *   8000     → "oito mil reais"
+ *   0.09     → "nove centavos"
+ */
+function valorPorExtenso(v) {
+  const centavosTotal = Math.round(Math.abs(Number(v) || 0) * 100);
+  const inteiros = Math.floor(centavosTotal / 100);
+  const centavos = centavosTotal % 100;
+  const partes = [];
+  if (inteiros > 0) partes.push(`${numeroPorExtensoMasc(inteiros)} ${inteiros === 1 ? 'real' : 'reais'}`);
+  if (centavos > 0) partes.push(`${numeroPorExtensoMasc(centavos)} ${centavos === 1 ? 'centavo' : 'centavos'}`);
+  if (partes.length === 0) return 'zero real';
+  return partes.join(' e ');
+}
+
+/* =========================================================================
+   LANÇAMENTOS — o que a peça afirma sobre a planilha, lido da planilha.
+
+   A peça de DÍVIDA EM ATRASO não descreve descontos mensais espalhados por
+   anos, como as outras da prateleira; ela descreve uma rajada de lançamentos
+   sob um código genérico. Quantos foram, em que janela caíram, do menor ao
+   maior valor e sob qual código — tudo isso é afirmação de fato, e nenhuma
+   delas pode vir de campo digitado.
+
+   Quando a planilha traz rubricas misturadas (Mix), conta só as linhas da
+   rubrica de dívida em atraso; quando é peça avulsa, conta as linhas de dado.
+   ========================================================================= */
+const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+                  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** "28/11/2023" → "28 de novembro de 2023". Formato inesperado volta como veio. */
+function dataBRPorExtenso(br) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(br || '').trim());
+  if (!m) return String(br || '');
+  const mes = MESES_PT[parseInt(m[2], 10) - 1];
+  if (!mes) return String(br);
+  return `${parseInt(m[1], 10)} de ${mes} de ${m[3]}`;
+}
+
+function montarDadosDosLancamentos() {
+  const vazio = {
+    caso_qtd_lancamentos: '', caso_qtd_lancamentos_frase: '',
+    caso_menor_lancamento: '', caso_maior_lancamento: '',
+    caso_codigo_operacao: '', caso_data_evento: '',
+    caso_janela_lancamentos: '', caso_concentracao: 'sem comprovação de origem',
+    padrao_escalonado: false,
+  };
+
+  const tab = state.anexos && state.anexos.tabelaXlsx;
+  if (!tab || !Array.isArray(tab.linhasClassificadas)) return vazio;
+
+  const dados = tab.linhasClassificadas.filter(l => l.tipo === 'dado');
+  // Se a detecção marcou linhas como divida_atraso, a peça fala só delas.
+  const daRubrica = dados.filter(l => l.rubricaKey === 'divida_atraso');
+  const linhas = daRubrica.length > 0 ? daRubrica : dados;
+  if (linhas.length === 0) return vazio;
+
+  const qtd = linhas.length;
+  const valores = linhas.map(l => Number(l.valor)).filter(v => isFinite(v) && v > 0);
+  const fmt = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Código de operação: o que mais se repete. O argumento da peça é que o
+  // banco carimbou tudo com o MESMO código genérico — se houver vários, o
+  // modal vence e o texto continua verdadeiro sobre a maioria.
+  const contagem = {};
+  for (const l of linhas) {
+    const op = String(l.operacao || '').trim();
+    if (op) contagem[op] = (contagem[op] || 0) + 1;
+  }
+  const codigo = Object.keys(contagem).sort((a, b) => contagem[b] - contagem[a])[0] || '';
+
+  // Janela: as datas vêm em dd/mm/aaaa e chegam aqui na ordem da planilha.
+  const datas = linhas.map(l => String(l.data || '').trim()).filter(Boolean);
+  const emOrdem = [...datas].sort((a, b) => {
+    const [da, ma, aa] = a.split('/'), [db, mb, ab] = b.split('/');
+    return (aa + ma + da).localeCompare(ab + mb + db);
+  });
+  const primeira = emOrdem[0] || '';
+  const ultima = emOrdem[emOrdem.length - 1] || '';
+  const diaUnico = primeira && primeira === ultima;
+
+  // O parágrafo forte da peça ("crescem de forma escalonada e contínua") é uma
+  // afirmação sobre os dados, então só entra quando os dados a sustentam. Não
+  // é escolha do advogado: é o template que troca de parágrafo sozinho.
+  const escalonado = valores.length >= 3 && valores.every((v, i) => i === 0 || v >= valores[i - 1]);
+
+  return {
+    caso_qtd_lancamentos: String(qtd),
+    caso_qtd_lancamentos_frase: `${qtd} (${numeroPorExtensoMasc(qtd)})`,
+    caso_menor_lancamento: valores.length ? fmt(Math.min(...valores)) : '',
+    caso_maior_lancamento: valores.length ? fmt(Math.max(...valores)) : '',
+    caso_codigo_operacao: codigo,
+    caso_data_evento: primeira,
+    caso_janela_lancamentos: diaUnico
+      ? `no dia ${dataBRPorExtenso(primeira)}`
+      : `no período de ${primeira} a ${ultima}`,
+    caso_concentracao: diaUnico ? 'concentrados em um único dia' : 'lançados de forma reiterada',
+    padrao_escalonado: escalonado,
+  };
 }
 
 /**

@@ -1326,6 +1326,8 @@ function autodetectarRubricas() {
     produto.rubricas_keys.includes('anuidade_cartao');
   const isProdutoSeguroCartao = produto && produto.rubricas_keys &&
     produto.rubricas_keys.includes('seguro_cartao_protegido');
+  const isProdutoDividaAtraso = produto && produto.rubricas_keys &&
+    produto.rubricas_keys.length === 1 && produto.rubricas_keys[0] === 'divida_atraso';
   // Produto 14 (Mix Bradesco) — tem TODAS as 16 rubrica_keys; identificado
   // pela presença do 'anuidade_cartao' + 'seguro_cartao_protegido' juntos
   // (combinação que só o Mix tem, já que os outros são singleton).
@@ -1405,6 +1407,17 @@ function autodetectarRubricas() {
       // colidir com Prestamista — que usa SEG + PREST).
       if (t.includes('PROTEGIDO') && (t.includes('CART') || t.includes('CRÉDIT') || t.includes('CREDIT'))) {
         return 'seguro_cartao_protegido';
+      }
+      return null;
+    }
+
+    if (isProdutoDividaAtraso) {
+      // Produto 15 — rubrica única: DIV. EM ATRASO. O Bradesco abrevia de
+      // formas variadas no extrato ("DIV. EM ATRASO", "DIV EM ATRASO",
+      // "DÍVIDA EM ATRASO", "DIV.ATRASO"). Captura DIV + ATRASO, que não
+      // colide com nenhuma outra rubrica da prateleira.
+      if (t.includes('ATRASO') && (t.includes('DIV') || t.includes('DÍV'))) {
+        return 'divida_atraso';
       }
       return null;
     }
