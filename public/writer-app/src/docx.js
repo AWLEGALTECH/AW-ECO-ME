@@ -494,14 +494,22 @@ function valorPorExtenso(v) {
    Quando a planilha traz rubricas misturadas (Mix), conta só as linhas da
    rubrica de dívida em atraso; quando é peça avulsa, conta as linhas de dado.
    ========================================================================= */
-const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-                  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-
-/** "28/11/2023" → "28 de novembro de 2023". Formato inesperado volta como veio. */
+/**
+ * "28/11/2023" → "28 de novembro de 2023". Formato inesperado volta como veio.
+ *
+ * A lista de meses vive DENTRO da função de propósito. Os arquivos do Writer
+ * são <script> clássicos e dividem o mesmo escopo léxico global: um `const`
+ * no topo daqui com nome já usado em outro arquivo é SyntaxError, e o
+ * SyntaxError não mata só a linha — mata o arquivo inteiro que carrega
+ * depois. Foi exatamente o que aconteceu: um `const MESES_PT` aqui derrubou
+ * o kit.js todo, e com ele a geração de contratos. Sem global, sem colisão.
+ */
 function dataBRPorExtenso(br) {
+  const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+                 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(br || '').trim());
   if (!m) return String(br || '');
-  const mes = MESES_PT[parseInt(m[2], 10) - 1];
+  const mes = meses[parseInt(m[2], 10) - 1];
   if (!mes) return String(br);
   return `${parseInt(m[1], 10)} de ${mes} de ${m[3]}`;
 }
