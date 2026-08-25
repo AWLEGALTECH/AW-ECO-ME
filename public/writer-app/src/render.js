@@ -270,6 +270,9 @@ function filtrarProdutos(produtos, busca) {
     const campos = [
       p.nome, p.sublabel, p.categoria, p.reu,
       ...(p.rubricas || []),
+      // peça sem rubrica é descrita pelas etiquetas — quem busca "dano moral"
+      // ou "inexistência" tem que achá-la
+      ...(p.etiquetas || []),
     ].filter(Boolean).join(' ').toLowerCase();
     return campos.includes(termo);
   });
@@ -315,7 +318,9 @@ function renderProductCard(p, idx) {
   const coverStyle = hasImage ? `background-image: url('${p.capa}')` : '';
   const coverClass = hasImage ? 'has-image' : 'placeholder';
   const letraDoProduto = p.nome.charAt(0);
-  const rubricas = p.rubricas || [];
+  // Peça sem rubrica usa `etiquetas` na mesma faixa: sem nada ali o card fica
+  // mais baixo que os vizinhos e a prateleira perde o alinhamento.
+  const rubricas = (p.rubricas && p.rubricas.length > 0) ? p.rubricas : (p.etiquetas || []);
   const chipClass = p.ativo ? '' : 'locked';
 
   return `

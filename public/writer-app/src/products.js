@@ -390,9 +390,17 @@ const PRODUTOS = [
     // caso — instituição de pagamento, fintech, banco — então `reu` aqui é o
     // rótulo da prateleira, não o nome de quem vai ser citado. Quem vai ser
     // citado sai de reu_nome/reu_cnpj/reu_endereco, preenchidos no Pacote 3.
-    reu: 'INSTITUIÇÃO DE PAGAMENTO / BANCO',
+    reu: 'INSTITUIÇÃO DE PAGAMENTO',
     rubricas: [],
     rubricas_keys: [],
+    // O card do produto reserva uma faixa pras rubricas. Esta peça não tem
+    // rubrica — e sem nada ali o card encolhe e destoa dos vizinhos na mesma
+    // prateleira. `etiquetas` ocupa essa faixa com o que a peça de fato pede,
+    // que é a informação equivalente: nas do Bradesco os chips dizem o que se
+    // ataca, aqui dizem o que se pleiteia. É campo só de exibição — fora de
+    // `rubricas` de propósito, pra não entrar no casamento por desconto do
+    // Finder e sugerir esta peça pra qualquer caso que fale em dano moral.
+    etiquetas: ['INEXISTÊNCIA DE RELAÇÃO', 'EXCLUSÃO DE REGISTROS', 'DANO MORAL'],
     categoria: 'Bancário · Geral',
     ativo: true,
     versaoBeta: true,
