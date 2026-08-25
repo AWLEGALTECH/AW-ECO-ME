@@ -507,11 +507,19 @@ function dataBRPorExtenso(br) {
 }
 
 function montarDadosDosLancamentos() {
+  // Sem planilha, esta peça não tem o que afirmar: ela é feita de contagem.
+  // Devolver string vazia produziria "constatou a existência de  lançamentos
+  // consecutivos ... debitados de sua conta , todos sob o código nº ," — prosa
+  // quebrada que passa despercebida numa leitura rápida. O colchete não passa.
   const vazio = {
-    caso_qtd_lancamentos: '', caso_qtd_lancamentos_frase: '',
-    caso_menor_lancamento: '', caso_maior_lancamento: '',
-    caso_codigo_operacao: '', caso_data_evento: '',
-    caso_janela_lancamentos: '', caso_concentracao: 'sem comprovação de origem',
+    caso_qtd_lancamentos: '[Nº DE LANÇAMENTOS]',
+    caso_qtd_lancamentos_frase: '[Nº DE LANÇAMENTOS]',
+    caso_menor_lancamento: '[MENOR VALOR]',
+    caso_maior_lancamento: '[MAIOR VALOR]',
+    caso_codigo_operacao: '[CÓDIGO DE OPERAÇÃO]',
+    caso_data_evento: '[DATA]',
+    caso_janela_lancamentos: '[PERÍODO DOS LANÇAMENTOS]',
+    caso_concentracao: 'lançados sem identificação de origem',
     padrao_escalonado: false,
   };
 
@@ -863,7 +871,11 @@ function revisarECorrigirPeca(xml) {
     }
   }
   // 4b. Placeholders [VALOR]/[NÚMERO] originais sobrando — bug do generator
-  const colchete = xml.match(/\[(?:VALOR|NÚMERO|NOME[^\]]*|VALOR TOTAL)\]/g);
+  // Os quatro primeiros são placeholders que sobraram do docx original; os
+  // demais são os que montarDadosDosLancamentos() emite quando a peça de
+  // dívida em atraso é gerada sem planilha — em ambos os casos, alguém tem
+  // que preencher à mão antes de protocolar.
+  const colchete = xml.match(/\[(?:VALOR|NÚMERO|NOME[^\]]*|VALOR TOTAL|Nº DE LANÇAMENTOS|MENOR VALOR|MAIOR VALOR|CÓDIGO DE OPERAÇÃO|DATA|PERÍODO DOS LANÇAMENTOS)\]/g);
   if (colchete && colchete.length) {
     issuesIrrecuperaveis.push('placeholder(s) original(is) do docx pendente(s): ' + [...new Set(colchete)].join(', '));
   }
