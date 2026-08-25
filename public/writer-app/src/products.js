@@ -381,6 +381,47 @@ const PRODUTOS = [
       { tag: 'ia_lastro_humanizado', nome: 'Lastro humanizado do dano material', opcional: true, contexto_antes: '(este parágrafo aparece logo APÓS o cálculo do dano material) O valor total das diversas rubricas cobradas indevidamente, conforme discriminado na tabela anexa, perfaz o montante de R$ {caso_valor_total_descontos}. Valor a ser restituído em dobro: R$ {caso_valor_dobro}.', contexto_depois: '(o parágrafo seguinte é o lastro técnico/jurídico, gerado pela IA, ancorado no Decreto 11.567/2023 e no salário-mínimo. Você está fazendo o lastro HUMANIZADO: traduza o valor subtraído em bens cotidianos identificáveis que o cliente desta ação concreta tem aptidão para custear, calibrando a prosa ao perfil socioeconômico fornecido nos dados.)' },
       { tag: 'ia_lastro_dano_material', nome: 'Lastro do dano material', opcional: true, contexto_antes: '(parágrafo anterior: ia_lastro_humanizado — traduziu o valor em bens cotidianos. Este parágrafo é o lastro TÉCNICO, ancorado no Decreto 11.567/2023, salário-mínimo e cesta básica DIEESE — parâmetros oficiais que dão régua jurídica ao juiz para dimensionar o prejuízo.)', contexto_depois: 'DA REPETIÇÃO DO INDÉBITO EM DOBRO' },
     ],
+  },
+  {
+    id: 16,
+    nome: 'Conta Aberta por Fraude',
+    sublabel: 'Vínculo inexistente · Bancos e fintechs',
+    // Primeira peça da prateleira que NÃO é do Bradesco. A ré muda a cada
+    // caso — instituição de pagamento, fintech, banco — então `reu` aqui é o
+    // rótulo da prateleira, não o nome de quem vai ser citado. Quem vai ser
+    // citado sai de reu_nome/reu_cnpj/reu_endereco, preenchidos no Pacote 3.
+    reu: 'INSTITUIÇÃO DE PAGAMENTO / BANCO',
+    rubricas: [],
+    rubricas_keys: [],
+    categoria: 'Bancário · Geral',
+    ativo: true,
+    versaoBeta: true,
+    template_base64_var: 'TEMPLATE_DOCX_BASE64_CONTA_FRAUDE',
+    // Esta peça discute a EXISTÊNCIA do vínculo, não uma cobrança dentro dele:
+    // não há desconto, não há tabela, não há repetição de indébito e não há
+    // rubrica. O dano é só moral, e o valor da causa é o próprio dano moral
+    // (o cálculo padrão já chega nisso: 0 × 2 + dano moral).
+    sem_tabela: true,
+    campos_pacote3: [
+      { key: 'comarca', label: 'Comarca (cidade)', tipo: 'text', placeholder: 'ex: Manaus' },
+      { key: 'uf', label: 'UF', tipo: 'select_uf' },
+      { key: 'reu_nome', label: 'Razão social da ré', tipo: 'text', placeholder: 'ex: FULANO PAGAMENTOS S.A.' },
+      { key: 'reu_cnpj', label: 'CNPJ da ré', tipo: 'text', placeholder: '00.000.000/0001-00' },
+      { key: 'reu_endereco', label: 'Sede da ré (endereço completo)', tipo: 'text', placeholder: 'Rua, nº, bairro, cidade/UF' },
+      { key: 'data_abertura_conta', label: 'Conta aberta em (Registrato/SCR)', tipo: 'date_br', placeholder: 'DD/MM/AAAA' },
+      { key: 'valor_dano_moral', label: 'Valor dano moral (R$)', tipo: 'text', placeholder: 'ex: 15.000,00' },
+    ],
+    // Só zonas que o n8n já conhece. A do canal de atendimento reaproveita a
+    // ia_expropriacao_silenciosa, cujo papel nas outras peças é exatamente
+    // "procurou o banco e não obteve nada" — criar tag nova exigiria mexer no
+    // workflow do n8n, e a zona voltaria vazia até lá.
+    zonas_ia: [
+      { tag: 'ia_quadro_socioeconomico', nome: 'Quadro socioeconômico (abertura)', contexto_antes: '(Este é o PRIMEIRO tópico da peça, com título próprio "DO QUADRO SOCIOECONÔMICO DE [NOME]", logo após a qualificação das partes e ANTES do tópico da procuração eletrônica. É a ABERTURA humanizada e personalizada da petição.)', contexto_depois: '(Em seguida vem o tópico da procuração eletrônica e depois DOS FATOS, que abre contando que a parte autora consultou o Registrato do Banco Central e descobriu uma conta de pagamento aberta em seu nome que jamais solicitou.)' },
+      { tag: 'ia_expropriacao_silenciosa', nome: 'Tentativa de solução administrativa', contexto_antes: 'Diante da descoberta, a parte autora buscou esclarecimentos diretamente com a ré, sem sucesso na obtenção de qualquer documento apto a demonstrar a legitimidade do vínculo ou a resolução do problema. (ATENÇÃO: aqui você NÃO está escrevendo sobre descontos indevidos — não existe desconto nenhum nesta ação. O tema é uma CONTA DE PAGAMENTO ABERTA EM NOME DA PARTE AUTORA SEM QUE ELA TENHA PEDIDO. Seu parágrafo deve narrar, com os dados fornecidos, POR QUAIS CANAIS a parte autora procurou a ré (SAC, ouvidoria, aplicativo, agência), o QUE respondeu a ré, e o que ficou sem resposta.)', contexto_depois: 'A subsistência dessa conta em nome da parte autora, sem que ela a tenha constituído, mantém-na em estado permanente de insegurança: o CPF vinculado a produto financeiro que não controla é potencial instrumento para golpes, movimentações ilícitas, imputações indevidas e restrições sistêmicas.' },
+      { tag: 'ia_dano_moral_angustia', nome: 'Dano moral · Angústia', contexto_antes: '(ATENÇÃO: os parágrafos ACIMA já percorreram, de forma GENÉRICA, as circunstâncias agravantes em lista a)/b)/c)/d) e a tese do desvio produtivo. NÃO repita isso em tese. Seu trabalho é escrever o que essa situação significa para ESTA pessoa concreta, com os dados socioeconômicos fornecidos: descobrir que existe uma conta bancária em seu nome, aberta por outra pessoa, e não conseguir fazê-la desaparecer.)', contexto_depois: '(próximo parágrafo: ia_dano_moral_dignidade)' },
+      { tag: 'ia_dano_moral_dignidade', nome: 'Dano moral · Dignidade econômica', contexto_antes: '(parágrafo anterior ia_dano_moral_angustia — a angústia desta pessoa concreta. Aqui o bem lesado é o controle sobre o próprio nome e CPF: a identidade financeira como extensão da personalidade.)', contexto_depois: '(próximo parágrafo: ia_dano_moral_impotencia)' },
+      { tag: 'ia_dano_moral_impotencia', nome: 'Dano moral · Impotência', contexto_antes: '(parágrafos anteriores ia_dano_moral_angustia e ia_dano_moral_dignidade. A impotência aqui tem cor própria: a parte autora não pode encerrar uma conta que nunca abriu, não tem acesso a ela, e depende inteiramente da boa vontade de quem a criou irregularmente para fazê-la sumir.)', contexto_depois: 'O Superior Tribunal de Justiça, ao fixar o Tema Repetitivo 466, reconheceu que a fraude na abertura de conta corrente se insere no risco do empreendimento bancário.' },
+    ],
   }
 ];
 

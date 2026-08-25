@@ -2212,7 +2212,11 @@ function renderPacote3(view) {
   // Próximas chamadas (re-renders por toggle de rubrica etc) ativam a proteção.
   state.dadosPacote3._pacote3_montado = true;
 
-  const campos = [
+  // Campos padrão: a ação de descontos indevidos do Bradesco, que é o que a
+  // prateleira toda fazia até aqui. Produtos que pedem outra coisa declaram
+  // `campos_pacote3` e mandam neste formulário — é o produto que descreve o
+  // que precisa, não o formulário que adivinha.
+  const CAMPOS_DESCONTOS = [
     { key: 'comarca', label: 'Comarca (cidade)', tipo: 'text', placeholder: 'ex: Manaus' },
     { key: 'uf', label: 'UF', tipo: 'select_uf' },
     { key: 'numero_agencia', label: 'Nº da agência', tipo: 'text', placeholder: 'ex: 1234' },
@@ -2222,6 +2226,13 @@ function renderPacote3(view) {
     { key: 'valor_total_descontos', label: 'Valor total dos descontos (R$)', tipo: 'text', placeholder: 'ex: 8.450,00' },
     { key: 'valor_dano_moral', label: 'Valor dano moral (R$)', tipo: 'text', placeholder: 'ex: 15.000,00' },
   ];
+  const campos = Array.isArray(state.produtoSelecionado.campos_pacote3)
+    ? state.produtoSelecionado.campos_pacote3
+    : CAMPOS_DESCONTOS;
+
+  // Peça sem tabela não pede planilha nem rubrica: os dois blocos falam de
+  // descontos que essa ação não discute.
+  const semTabela = state.produtoSelecionado.sem_tabela === true;
 
   view.innerHTML = `
     <div class="form-page">
@@ -2231,9 +2242,9 @@ function renderPacote3(view) {
         <div class="form-sub">Específicos deste produto jurídico. Por segurança, esses dados vão apenas para o documento final, não para a IA.</div>
       </div>
 
-      ${renderBlocoAnexoTabela()}
+      ${semTabela ? '' : renderBlocoAnexoTabela()}
 
-      ${renderBlocoRubricas()}
+      ${semTabela ? '' : renderBlocoRubricas()}
 
       <div class="field-grid">
         ${campos.map(c => renderCampoObrigatorio(c, state.dadosPacote3, 'pacote3')).join('')}
@@ -2361,12 +2372,19 @@ function renderCalc() {
       </button>
     </div>` : '';
 
+  // Peça sem tabela não tem repetição de indébito nem descontos antigos: o
+  // dobro daria sempre R$ 0,00 e a prescrição decenal ofereceria um tópico que
+  // o template dessa peça não tem. Card que mostra zero, ou que promete mexer
+  // em coisa inexistente, ensina o advogado a não olhar o painel.
+  const semTabela = state.produtoSelecionado && state.produtoSelecionado.sem_tabela === true;
+
   return `
     ${bloqueDivergencia}
+    ${semTabela ? '' : `
     <div class="calc-card">
       <div class="calc-label">Calculado · Dobro (CDC)</div>
       <div class="calc-value"><span class="calc-value-prefix">R$</span>${formatarMoeda(valDobro)}</div>
-    </div>
+    </div>`}
     <div class="calc-card">
       <div class="calc-label">Calculado · Valor da causa</div>
       <div class="calc-value"><span class="calc-value-prefix">R$</span>${formatarMoeda(valCausa)}</div>
@@ -2383,6 +2401,7 @@ function renderCalc() {
         ${labelProximo}
       </button>
     </div>
+    ${semTabela ? '' : `
     <div class="calc-card calc-card-vara ${dec.forcado ? 'forcado' : ''}">
       <div class="calc-vara-header">
         <div class="calc-vara-title"><span class="cvt-icon">${IC_PRESC}</span>Prescrição decenal (10 anos)</div>
@@ -2393,7 +2412,7 @@ function renderCalc() {
       <button class="vara-override-btn" onclick="togglePrescricaoDecenalOverride()">
         ${labelPresc}
       </button>
-    </div>
+    </div>`}
     ${reuCard}
   `;
 }

@@ -191,6 +191,16 @@ function montarContextoDocx() {
     caso_valor_dano_moral:      fmtMoney(vDanoMoral),
     caso_valor_dobro:           fmtMoney(vDobro),
     caso_valor_causa:           fmtMoney(vCausa),
+
+    // RÉU — só a prateleira Bancário · Geral usa. As peças do Bradesco cravam
+    // o banco no próprio texto do template, porque lá o réu é sempre o mesmo;
+    // aqui a ré muda a cada caso (instituição de pagamento, fintech, banco),
+    // então nome, CNPJ e sede são dado do formulário como qualquer outro.
+    reu_nome:                   p3.reu_nome     || '',
+    reu_cnpj:                   p3.reu_cnpj     || '',
+    reu_endereco:               p3.reu_endereco || '',
+    // Data em que a conta foi aberta, segundo o Registrato/SCR do Banco Central.
+    caso_data_abertura_conta:   p3.data_abertura_conta || '',
     // Os mesmos valores por extenso, pro parêntese que acompanha o algarismo.
     // Derivados do mesmo número — não há como divergir.
     caso_valor_total_descontos_extenso: valorPorExtenso(vDescontos),
@@ -713,11 +723,18 @@ function aplicarQuadroSocioeconomico(documentXml) {
     // O quadro entra APÓS esse preâmbulo INTEIRO (depois do "Em desfavor de..."),
     // antes do primeiro tópico seguinte — no mix Bradesco, antes de "DA REUNIÃO
     // DE DEMANDAS...". Inserir entre os dois partiria a frase do preâmbulo.
+    // "Em desfavor de" é como as peças do Bradesco abrem o segundo parágrafo do
+    // preâmbulo; "em face de" é como a peça de conta aberta por fraude abre. As
+    // duas fórmulas fecham a mesma frase, então as duas servem de âncora — sem
+    // isso, a peça nova cairia no fallback e o quadro entraria ENTRE o tipo de
+    // ação e o nome da ré, partindo o preâmbulo no meio.
     const acaoIdx = paras.findIndex(m => textOf(m[0]).trim().toUpperCase().startsWith('AÇÃO '));
+    const ABRE_REU = ['EM DESFAVOR DE', 'EM FACE DE'];
     let anchorIdx = -1;
     if (acaoIdx !== -1) {
       for (let i = acaoIdx; i < paras.length; i++) {
-        if (textOf(paras[i][0]).trim().toUpperCase().startsWith('EM DESFAVOR DE')) { anchorIdx = i; break; }
+        const t = textOf(paras[i][0]).trim().toUpperCase();
+        if (ABRE_REU.some(pfx => t.startsWith(pfx))) { anchorIdx = i; break; }
       }
     }
     if (anchorIdx === -1) anchorIdx = acaoIdx; // fallback: após o próprio "AÇÃO ..."
@@ -1540,7 +1557,18 @@ async function montarDocxNoNavegador() {
     'TEMPLATE_DOCX_BASE64_ANUIDADE': typeof TEMPLATE_DOCX_BASE64_ANUIDADE !== 'undefined' ? TEMPLATE_DOCX_BASE64_ANUIDADE : null,
     'TEMPLATE_DOCX_BASE64_SEGURO_CARTAO_PROTEGIDO': typeof TEMPLATE_DOCX_BASE64_SEGURO_CARTAO_PROTEGIDO !== 'undefined' ? TEMPLATE_DOCX_BASE64_SEGURO_CARTAO_PROTEGIDO : null,
     'TEMPLATE_DOCX_BASE64_MIX_BRADESCO': typeof TEMPLATE_DOCX_BASE64_MIX_BRADESCO !== 'undefined' ? TEMPLATE_DOCX_BASE64_MIX_BRADESCO : null,
+    'TEMPLATE_DOCX_BASE64_DIVIDA_ATRASO': typeof TEMPLATE_DOCX_BASE64_DIVIDA_ATRASO !== 'undefined' ? TEMPLATE_DOCX_BASE64_DIVIDA_ATRASO : null,
+    'TEMPLATE_DOCX_BASE64_CONTA_FRAUDE': typeof TEMPLATE_DOCX_BASE64_CONTA_FRAUDE !== 'undefined' ? TEMPLATE_DOCX_BASE64_CONTA_FRAUDE : null,
   };
+  // Produto que aponta pra um template ausente deste mapa cairia no fallback e
+  // geraria a PEÇA ERRADA em silêncio — com os dados certos, o que é pior do
+  // que falhar. Melhor parar aqui e dizer o nome que falta.
+  if (produto && produto.template_base64_var && !TEMPLATES_POR_NOME[produto.template_base64_var]) {
+    throw new Error(
+      `Template "${produto.template_base64_var}" do produto "${produto.nome}" não está em ` +
+      `TEMPLATES_POR_NOME (docx.js). Sem isso a peça sairia com o template de outro produto.`
+    );
+  }
   const templateBase64 = (produto && produto.template_base64_var && TEMPLATES_POR_NOME[produto.template_base64_var])
     ? TEMPLATES_POR_NOME[produto.template_base64_var]
     : TEMPLATE_DOCX_BASE64; // fallback produto 1
@@ -1611,14 +1639,18 @@ async function montarDocxNoNavegador() {
     ? tab.linhasClassificadas
     : null; // null/undefined → montarTabelaXmlDescontos gera um parágrafo de aviso
 
-  const tabelaXml = montarTabelaXmlDescontos(linhasPraTabela);
-  // O marcador está dentro de um <w:p>...ZZTABELADESCONTOSZZ...</w:p> —
-  // substituímos o parágrafo inteiro pelo XML da nova tabela (ou aviso).
+  // Nem toda peça tem tabela. As da prateleira Bancário · Geral discutem a
+  // EXISTÊNCIA do vínculo, não cobranças dentro dele — não há desconto para
+  // tabelar. Nesses produtos a ausência do marcador é o esperado, e avisar
+  // seria ruído que ensina a ignorar o aviso quando ele for de verdade.
+  const semTabela = state.produtoSelecionado && state.produtoSelecionado.sem_tabela === true;
   const padraoMarcador = /<w:p\b[^>]*>(?:(?!<\/w:p>).)*ZZTABELADESCONTOSZZ(?:(?!<\/w:p>).)*<\/w:p>/s;
   if (padraoMarcador.test(documentXml)) {
-    documentXml = documentXml.replace(padraoMarcador, tabelaXml);
+    // O marcador está dentro de um <w:p>...ZZTABELADESCONTOSZZ...</w:p> —
+    // substituímos o parágrafo inteiro pelo XML da nova tabela (ou aviso).
+    documentXml = documentXml.replace(padraoMarcador, montarTabelaXmlDescontos(linhasPraTabela));
     zipFinal.file('word/document.xml', documentXml);
-  } else {
+  } else if (!semTabela) {
     console.warn('Marcador ZZTABELADESCONTOSZZ não encontrado no template renderizado. Tabela não foi injetada.');
   }
 
