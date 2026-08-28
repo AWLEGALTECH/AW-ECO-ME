@@ -42,6 +42,8 @@ interface Grupo {
   creditada_a: string | null;
   contrato_id: string | null;
   fechamento_id: string | null;
+  /** Leva reconstruída pelo backfill: é a que nasceu junto com o contrato. */
+  inicial: boolean;
   qtd: number;
 }
 
@@ -55,6 +57,7 @@ function gruposDaAnalise(ac: any): Grupo[] {
       creditada_a: g?.creditada_a ? String(g.creditada_a) : null,
       contrato_id: g?.contrato_id ? String(g.contrato_id) : null,
       fechamento_id: g?.fechamento_id ? String(g.fechamento_id) : null,
+      inicial: g?.origem === "backfill_leva_inicial",
       qtd: rubs.filter((r: any) => String(r?.grupo_id ?? "") === String(g?.id ?? "")).length,
     }))
     .filter((g: Grupo) => g.id)
@@ -572,7 +575,17 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                         <ClipboardList className="h-4 w-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-medium">Leva de {fmtDia(g.criado_em)}</span>
+                        <span className="block text-[13px] font-medium">
+                          Leva de {fmtDia(g.criado_em)}
+                          {/* Correção feita no mesmo dia da leva original deixa duas
+                              entradas com a mesma data. Sem essa marca, a única forma
+                              de distinguir seria pelo nome de quem levou o crédito. */}
+                          {g.inicial && (
+                            <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide bg-white/[0.06] text-muted-foreground align-[1px]">
+                              inicial
+                            </span>
+                          )}
+                        </span>
                         <span className="block text-[11px] text-muted-foreground">
                           {g.qtd} {g.qtd === 1 ? "ação" : "ações"}{credito ? ` · ${credito}` : ""}
                         </span>
