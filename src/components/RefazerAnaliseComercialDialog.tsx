@@ -9,6 +9,7 @@ import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2,
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
+import { decidirReinicio } from "@/lib/analiseLevas";
 
 const mesCorrente = () =>
   new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -197,10 +198,24 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   // Foto de como a análise estava ao abrir — base do diff de conferência.
   const [selOriginal, setSelOriginal] = useState<Sel[]>([]);
   // Reinicia quando abre / troca de cliente.
+  //
+  // A comparação tem que rodar TAMBÉM com o diálogo fechado, e não só quando
+  // abre. Enquanto a guarda era `if (open && chave !== chaveInit)`, o fechado
+  // nunca era registrado: a chave ia de "" para "id|true" na primeira abertura
+  // e continuava "id|true" na segunda, então o reset não rodava de novo. O
+  // diálogo reabria com o estado inteiro da vez anterior — inclusive o stage
+  // "conferir" (daí ele voltar direto pra tela de conferência) e o selOriginal,
+  // que é a foto contra a qual o diff é calculado. Resultado: a conferência
+  // mostrava ações saindo de uma leva que a pessoa nem tinha aberto naquela
+  // sessão, e confirmar removia rubricas de verdade.
   const [chaveInit, setChaveInit] = useState<string>("");
-  const chaveAtual = `${cliente?.id || ""}|${open}`;
-  if (open && chaveAtual !== chaveInit) {
+  const { chave: chaveAtual, reiniciar } = decidirReinicio(chaveInit, cliente?.id, open);
+  if (reiniciar) {
+    // registra SEMPRE — inclusive o estado fechado, que é justamente o que faz
+    // a próxima abertura ser reconhecida como abertura nova
     setChaveInit(chaveAtual);
+  }
+  if (open && reiniciar) {
     // O editor só é carregado depois que se escolhe o grupo — é o grupo que
     // define quais rubricas estão em jogo.
     setSel([]);
