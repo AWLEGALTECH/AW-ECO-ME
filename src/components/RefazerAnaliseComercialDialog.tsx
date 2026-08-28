@@ -239,8 +239,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
       setGrupoSel(g?.id ?? null);
       setSel(doGrupo);
       setSelOriginal(doGrupo);
-      setContratoSel(g?.contrato_id ?? (contratos.length === 1 ? contratos[0].id : null));
-      setStage(g || contratos.length <= 1 ? "manual" : "contrato");
+      // Mesma regra da escolha direta: leva existente traz seu contrato, leva
+      // nova ainda tem que dizer em qual contrato vai pendurar as ações.
+      setContratoSel(g?.contrato_id ?? null);
+      setStage(g ? "manual" : contratos.length === 0 ? "sem_contrato" : "contrato");
     }
   }
 
@@ -462,9 +464,14 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setMotivoRemocao("");
     setBusca("");
     if (rota === "finder") { irFinder(g?.id ?? null); return; }
+    // Leva existente já nasceu presa a um contrato — não se pergunta de novo.
     if (g) { setStage("manual"); return; }
     if (contratos.length === 0) { setStage("sem_contrato"); checarChamadoContrato(); return; }
-    if (contratos.length === 1) { setContratoSel(contratos[0].id); setStage("manual"); return; }
+    // Leva NOVA sempre passa pela escolha do contrato, mesmo com um só. Escolher
+    // sozinho quando havia apenas um poupava um clique e escondia a decisão: a
+    // ação é ajuizada COM BASE num contrato, e quem lança precisa ver em qual
+    // está pendurando. Cliente com dois contratos era o único caso em que a
+    // pergunta aparecia — justamente o caso raro.
     setStage("contrato");
   };
 
@@ -580,6 +587,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                 </p>
                 {grupos.map((g) => {
                   const credito = equipe.find((p2) => p2.id === g.creditada_a)?.nome;
+                  // Com mais de um contrato no cliente, data e creditado não
+                  // bastam pra saber qual leva é qual — o contrato é o que
+                  // separa. Sem ele, escolher a leva errada é fácil demais.
+                  const ct = contratos.find((c) => c.id === g.contrato_id);
                   return (
                     <button
                       key={g.id}
@@ -603,6 +614,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                         </span>
                         <span className="block text-[11px] text-muted-foreground">
                           {g.qtd} {g.qtd === 1 ? "ação" : "ações"}{credito ? ` · ${credito}` : ""}
+                        </span>
+                        <span className="block text-[10.5px] text-muted-foreground/70 truncate mt-0.5">
+                          {ct
+                            ? <>contrato {ct.modalidade ? `de ${ct.modalidade}` : ""} · {rotuloCt(ct)}</>
+                            : <span className="text-amber-300/80">sem contrato definido</span>}
                         </span>
                       </span>
                       <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
