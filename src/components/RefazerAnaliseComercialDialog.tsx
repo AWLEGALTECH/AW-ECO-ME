@@ -702,8 +702,11 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
           </div>
         ) : stage === "manual" ? (
           <>
-            <div className="flex items-center justify-between px-1 py-1 shrink-0">
-              <span className="text-[11px] text-muted-foreground truncate">
+            {/* Esta tira carrega leva, contrato e as duas contagens. Numa linha
+                só com `truncate`, o total do cliente caía fora por reticências —
+                justamente o número que diz se a conta do mês fecha. Deixa quebrar. */}
+            <div className="flex items-start justify-between gap-2 px-1 py-1 shrink-0">
+              <span className="text-[11px] text-muted-foreground leading-relaxed">
                 {grupoSel
                   ? <>Mexendo na <strong className="text-foreground">leva de {fmtDia(grupos.find((g) => g.id === grupoSel)?.criado_em)}</strong></>
                   : <><strong className="text-emerald-300">Leva nova</strong> · {fmtDia(hoje())}</>}
@@ -794,15 +797,15 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               </div>
               )}
 
+              {/* A tira de contexto logo acima já diz em que leva se está mexendo.
+                  Repetir a frase aqui empurrava a explicação — que é o conteúdo
+                  útil da caixa — pra segunda linha. */}
               {grupoSel && (
                 <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-2.5">
-                  <p className="text-[12px] text-foreground">
-                    Mexendo na <strong>leva de {fmtDia(grupos.find((g) => g.id === grupoSel)?.criado_em)}</strong>
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                    Dá pra ajustar réu, detalhe e bloqueio, ou retirar uma ação — e retirar desconta
-                    ela do mês em que contou. Para acrescentar ações novas, volte e abra uma leva
-                    nova: é ela que entra no fechamento deste mês.
+                  <p className="text-[11.5px] text-muted-foreground leading-snug">
+                    Nesta leva dá pra ajustar réu, detalhe e bloqueio, ou retirar uma ação — e
+                    retirar desconta ela do mês em que contou. Para acrescentar ações novas, volte e
+                    abra uma leva nova: é ela que entra no fechamento deste mês.
                   </p>
                 </div>
               )}
