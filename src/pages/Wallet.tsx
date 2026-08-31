@@ -327,36 +327,96 @@ export default function WalletPage() {
         </SpotlightCard>
       ) : (
         <>
-          {/* ── o saldo, sozinho ── */}
-          <SpotlightCard className="p-6 md:p-7">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Em conta</p>
-            <p className={cn(
-              "font-display text-3xl md:text-4xl font-semibold tabular-nums tracking-tight leading-none mt-2",
-              resumo.emConta < 0 && "text-rose-400",
-            )}>
-              {brl(resumo.emConta)}
-            </p>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-[12.5px]">
-              <span className="text-muted-foreground">
-                <span className={cn("font-semibold tabular-nums", resumo.deCliente > 0 ? "text-amber-300" : "text-foreground/70")}>
-                  {brl(resumo.deCliente)}
-                </span>{" "}
-                é de cliente
-              </span>
-              <span className="text-muted-foreground">
-                <span className="font-semibold tabular-nums text-foreground">{brl(resumo.doEscritorio)}</span>{" "}
-                do escritório
-              </span>
-            </div>
-            <div className="flex gap-2 mt-5">
-              <Button size="sm" variant="outline" onClick={() => setNovoLanc("entrada")}>
-                <ArrowUpRight className="h-4 w-4 mr-1.5 text-emerald-400" /> Entrada
+          {/* ── o saldo e os fixos, lado a lado ──
+              O saldo sozinho virava uma barra larga e vazia. Ao lado dele vai
+              o compromisso do mês, que é a outra metade da mesma pergunta:
+              quanto tem, e quanto já está comprometido. */}
+          <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr] items-stretch">
+            <SpotlightCard className="p-6 md:p-7">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Em conta</p>
+              <p className={cn(
+                "font-display text-3xl md:text-4xl font-semibold tabular-nums tracking-tight leading-none mt-2",
+                resumo.emConta < 0 && "text-rose-400",
+              )}>
+                {brl(resumo.emConta)}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-[12.5px]">
+                <span className="text-muted-foreground">
+                  <span className={cn("font-semibold tabular-nums", resumo.deCliente > 0 ? "text-amber-300" : "text-foreground/70")}>
+                    {brl(resumo.deCliente)}
+                  </span>{" "}
+                  é de cliente
+                </span>
+                <span className="text-muted-foreground">
+                  <span className="font-semibold tabular-nums text-foreground">{brl(resumo.doEscritorio)}</span>{" "}
+                  do escritório
+                </span>
+              </div>
+              <div className="flex gap-2 mt-5">
+                <Button size="sm" variant="outline" onClick={() => setNovoLanc("entrada")}>
+                  <ArrowUpRight className="h-4 w-4 mr-1.5 text-emerald-400" /> Entrada
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setNovoLanc("saida")}>
+                  <ArrowDownRight className="h-4 w-4 mr-1.5 text-rose-400" /> Saída
+                </Button>
+              </div>
+            </SpotlightCard>
+
+            {/* ── o compromisso do mês ── */}
+            <SpotlightCard className="p-5 flex flex-col">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <Repeat className="h-3.5 w-3.5" /> Custos fixos
+                </p>
+                <span className="text-[10.5px] text-muted-foreground/80">
+                  {fixos.porMes ? mesPorExtenso(mesRef).nome : "no período"}
+                </span>
+              </div>
+
+              <p className="font-display text-2xl font-semibold tabular-nums leading-none mt-2">
+                {brl(fixos.mensal)}
+                <span className="text-[11px] font-normal text-muted-foreground ml-1.5">/mês</span>
+              </p>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[12px]">
+                <span className="text-muted-foreground">
+                  <span className="font-semibold tabular-nums text-emerald-400">{brl(fixos.pago)}</span> pago
+                </span>
+                {fixos.porMes && (
+                  <span className="text-muted-foreground">
+                    <span className={cn("font-semibold tabular-nums",
+                      fixos.emAberto > 0 ? "text-amber-300" : "text-foreground/70")}>
+                      {brl(fixos.emAberto)}
+                    </span>{" "}
+                    em aberto
+                  </span>
+                )}
+              </div>
+
+              {/* a lista curta, com o ícone de cada um */}
+              <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-1.5 flex-1">
+                {fixos.linhas.slice(0, 4).map((f) => (
+                  <div key={f.r.id} className="flex items-center gap-2 min-w-0">
+                    <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-[12px] truncate min-w-0 flex-1">{f.r.descricao}</span>
+                    <span className={cn("text-[11.5px] tabular-nums shrink-0",
+                      f.estado === "pago" ? "text-emerald-400" : "text-muted-foreground")}>
+                      {brl(Number(f.r.valor))}
+                    </span>
+                  </div>
+                ))}
+                {fixos.linhas.length === 0 && (
+                  <p className="text-[12px] text-muted-foreground">Nenhum custo fixo cadastrado.</p>
+                )}
+              </div>
+
+              <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => setAba("fixos")}>
+                {fixos.linhas.length > 4
+                  ? `Ver os ${fixos.linhas.length} custos fixos`
+                  : "Abrir custos fixos"}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setNovoLanc("saida")}>
-                <ArrowDownRight className="h-4 w-4 mr-1.5 text-rose-400" /> Saída
-              </Button>
-            </div>
-          </SpotlightCard>
+            </SpotlightCard>
+          </div>
 
           {/* ── abas ── */}
           <div className="flex gap-1.5 flex-wrap">
@@ -425,7 +485,17 @@ export default function WalletPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todas">Todas as categorias</SelectItem>
-                      {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                      {/* o ícone junto do nome: é aqui que se aprende qual
+                          desenho é qual categoria antes de filtrar por ela */}
+                      {categorias.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <span className="flex items-center gap-2">
+                            <IconeCat nome={c.icone}
+                              className={cn("h-3.5 w-3.5", c.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")} />
+                            {c.nome}
+                          </span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   {(busca || catFiltro !== "todas") && (
@@ -471,7 +541,17 @@ export default function WalletPage() {
               )}
 
               <SpotlightCard className="p-4">
-                <h2 className="text-sm font-semibold mb-3">Realizado</h2>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h2 className="text-sm font-semibold">Realizado</h2>
+                  {/* o cabeçalho das colunas, pra categoria ler como coluna e
+                      não como um chip solto no meio da linha */}
+                  {realizados.length > 0 && (
+                    <span className="hidden sm:flex items-center gap-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 pr-3">
+                      <span className="w-[10.5rem]">Categoria</span>
+                      <span className="w-[6.5rem] text-right">Valor</span>
+                    </span>
+                  )}
+                </div>
                 {realizados.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
                     Nenhum lançamento neste período.
@@ -1018,10 +1098,30 @@ function LinhaLanc({ l, categoria, onClick, acao }: {
         <span className="block text-[13px] font-medium truncate">{l.descricao}</span>
         <span className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
           <span className="shrink-0">{fmtDia(l.data)}</span>
-          {categoria && <><span className="opacity-40">·</span><span className="truncate">{categoria.nome}</span></>}
+          {/* em tela estreita a coluna de categoria não cabe; aqui ela volta */}
+          {categoria && <span className="sm:hidden truncate"><span className="opacity-40 mr-1">·</span>{categoria.nome}</span>}
         </span>
       </span>
-      <span className={cn("text-[13px] font-semibold tabular-nums shrink-0",
+
+      {/* COLUNA DA CATEGORIA. O ícone sozinho não se explica — um martelo, um
+          café e um megafone só querem dizer alguma coisa depois que alguém te
+          conta. Aqui o nome anda junto do mesmo ícone da esquerda, na mesma
+          altura em todas as linhas, então dá pra aprender a legenda lendo a
+          coluna de cima a baixo. */}
+      <span className="hidden sm:flex items-center gap-1.5 shrink-0 w-[10.5rem] min-w-0">
+        {categoria ? (
+          <>
+            <IconeCat nome={categoria.icone} className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+            <span className="text-[11.5px] text-muted-foreground truncate">{categoria.nome}</span>
+          </>
+        ) : (
+          <span className="text-[11.5px] text-muted-foreground/50">sem categoria</span>
+        )}
+      </span>
+
+      {/* largura fixa pro valor: sem isso as colunas dançam de linha em linha
+          e o cabeçalho não bate com nada */}
+      <span className={cn("text-[13px] font-semibold tabular-nums shrink-0 sm:w-[6.5rem] sm:text-right",
         l.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
         {l.tipo === "entrada" ? "+" : "−"}{brl(Number(l.valor))}
       </span>
