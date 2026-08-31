@@ -35,7 +35,17 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
 
 ## Regras
 
-1. **DB:** sempre via `supabase/migrations/` — nunca SQL manual
+1. **DB — Postgres da VPS é a regra; Supabase é legado (ordem do João,
+   30/08/2026):** todo dado NOVO do ME nasce no Postgres da VPS da AW
+   (`163.176.179.9`), database **`aweco_me`** — usuário `me_app` (credenciais
+   com o João/Luan; conexão por túnel SSH em dev, direta em produção na VPS).
+   O **CRM do ME nasce 100% nesse Postgres — zero Supabase.** O projeto
+   Supabase `wvltdjspytysuoybcfgb` vira legado: apenas manutenção do app
+   existente (via `supabase/migrations/`), com migração gradual para o
+   Postgres. O database `aweco_mp` é da operação Martins Pontes: **jamais**
+   ler, escrever ou referenciar — as operações são isoladas por construção.
+   Estrutura do `aweco_me` muda por SQL versionado e numerado no repo
+   (ex.: `ops/sql/001_crm.sql`), nunca comando solto.
 2. **Testes:** rodar `bun run build` para verificar typecheck/build
 3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
 4. **Push:** nunca fazer push sem pedir permissão
