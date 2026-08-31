@@ -42,7 +42,7 @@ import {
   Trash2, Users, Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank,
   Undo2, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
-  UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee, ChevronLeft, ChevronRight,
+  UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee, ChevronLeft, ChevronRight, Pencil,
 } from "lucide-react";
 import { LogoBanco } from "@/components/LogoBanco";
 import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes } from "@/lib/mesRef";
@@ -270,16 +270,14 @@ export default function WalletPage() {
       };
     });
 
-    const ativos = linhas.filter((f) => f.r.ativo);
     return {
       porMes,
       linhas,
-      // o compromisso do mês: quanto os fixos ativos custam por mês
-      mensal: ativos.reduce((a, f) => a + Number(f.r.valor), 0),
-      pago: linhas.reduce((a, f) => a + f.total, 0),
-      emAberto: porMes
-        ? ativos.filter((f) => f.estado !== "pago").reduce((a, f) => a + Number(f.r.valor), 0)
-        : 0,
+      // O único total que fica é o compromisso: quanto os fixos ativos custam
+      // por mês. Somar "o que foi pago" e "o que está aberto" era responder
+      // uma pergunta que ninguém fez — o que se quer saber é, de cada linha,
+      // se aquela já foi paga.
+      mensal: linhas.filter((f) => f.r.ativo).reduce((a, f) => a + Number(f.r.valor), 0),
     };
   }, [recorrentes, lancamentos, periodo, mesRef, janela]);
 
@@ -287,6 +285,7 @@ export default function WalletPage() {
   const [novaConta, setNovaConta] = useState(false);
   const [novoLanc, setNovoLanc] = useState<null | "entrada" | "saida">(null);
   const [novoFixo, setNovoFixo] = useState(false);
+  const [editandoFixo, setEditandoFixo] = useState<Recorrente | null>(null);
   const [pagando, setPagando] = useState<Repasse | null>(null);
   const [detalhe, setDetalhe] = useState<Lancamento | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -378,31 +377,17 @@ export default function WalletPage() {
                 <span className="text-[11px] font-normal text-muted-foreground ml-1.5">/mês</span>
               </p>
 
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[12px]">
-                <span className="text-muted-foreground">
-                  <span className="font-semibold tabular-nums text-emerald-400">{brl(fixos.pago)}</span> pago
-                </span>
-                {fixos.porMes && (
-                  <span className="text-muted-foreground">
-                    <span className={cn("font-semibold tabular-nums",
-                      fixos.emAberto > 0 ? "text-amber-300" : "text-foreground/70")}>
-                      {brl(fixos.emAberto)}
-                    </span>{" "}
-                    em aberto
-                  </span>
-                )}
-              </div>
-
-              {/* a lista curta, com o ícone de cada um */}
+              {/* Cada fixo com o seu status ao lado, sem somatória: a pergunta
+                  aqui é "esse aí, pagou?", uma linha de cada vez. */}
               <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-1.5 flex-1">
-                {fixos.linhas.slice(0, 4).map((f) => (
+                {fixos.linhas.slice(0, 5).map((f) => (
                   <div key={f.r.id} className="flex items-center gap-2 min-w-0">
                     <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <span className="text-[12px] truncate min-w-0 flex-1">{f.r.descricao}</span>
-                    <span className={cn("text-[11.5px] tabular-nums shrink-0",
-                      f.estado === "pago" ? "text-emerald-400" : "text-muted-foreground")}>
+                    <span className="text-[11.5px] tabular-nums shrink-0 text-muted-foreground">
                       {brl(Number(f.r.valor))}
                     </span>
+                    <PontoStatus estado={f.estado} />
                   </div>
                 ))}
                 {fixos.linhas.length === 0 && (
@@ -656,30 +641,6 @@ export default function WalletPage() {
                   <Button size="sm" onClick={() => setNovoFixo(true)}><Plus className="h-4 w-4 mr-1.5" /> Novo</Button>
                 </div>
               </div>
-              {/* o compromisso do mês, antes da tabela */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 mb-4">
-                <MiniNumero
-                  icone={<Repeat className="h-3.5 w-3.5" />}
-                  rotulo="Por mês"
-                  valor={brl(fixos.mensal)}
-                />
-                <MiniNumero
-                  icone={<Check className="h-3.5 w-3.5" />}
-                  rotulo={fixos.porMes ? "Pago no mês" : "Total pago no período"}
-                  valor={brl(fixos.pago)}
-                  tom="emerald"
-                  nota={!fixos.porMes ? `${fixos.linhas.reduce((a, f) => a + f.meses, 0)} pagamento(s)` : undefined}
-                />
-                {fixos.porMes && (
-                  <MiniNumero
-                    icone={<CalendarRange className="h-3.5 w-3.5" />}
-                    rotulo="Falta pagar"
-                    valor={brl(fixos.emAberto)}
-                    tom={fixos.emAberto > 0 ? "amber" : "muted"}
-                  />
-                )}
-              </div>
-
               {recorrentes.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6 text-center">Nenhum custo fixo cadastrado.</p>
               ) : (
@@ -692,7 +653,7 @@ export default function WalletPage() {
                         <th className="text-right font-medium pb-2 w-[11rem] pr-1">
                           {fixos.porMes ? mesPorExtenso(mesRef).nome : "Total no período"}
                         </th>
-                        <th className="w-9" />
+                        <th className="w-[4.5rem]" />
                       </tr>
                     </thead>
                     <tbody>
@@ -726,7 +687,13 @@ export default function WalletPage() {
                               onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined}
                             />
                           </td>
-                          <td className="text-right">
+                          <td className="text-right whitespace-nowrap">
+                            <Button size="sm" variant="ghost"
+                              className="h-8 w-8 p-0 opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                              aria-label={`Editar ${f.r.descricao}`}
+                              onClick={() => setEditandoFixo(f.r)}>
+                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
                             <Button size="sm" variant="ghost"
                               className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                               aria-label={`Remover ${f.r.descricao}`}
@@ -932,6 +899,38 @@ export default function WalletPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── editar custo fixo ── */}
+      <Dialog open={!!editandoFixo} onOpenChange={(o) => !o && setEditandoFixo(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar custo fixo</DialogTitle>
+            <DialogDescription>
+              Vale dos próximos meses em diante. O que já foi gerado não muda de valor sozinho —
+              se precisar, ajuste o lançamento na lista de movimento.
+            </DialogDescription>
+          </DialogHeader>
+          {/* a key força o formulário a renascer a cada fixo aberto, senão ele
+              reabre com os campos do anterior */}
+          {editandoFixo && (
+            <FormRecorrente
+              key={editandoFixo.id}
+              inicial={editandoFixo}
+              contas={contas.filter((c) => c.ativo)}
+              categorias={categorias}
+              salvando={salvando}
+              onSalvar={async (v) => {
+                setSalvando(true);
+                const { error } = await (supabase.from("balance_recorrentes" as never) as never as any)
+                  .update({ ...v, updated_at: new Date().toISOString() }).eq("id", editandoFixo.id);
+                setSalvando(false);
+                if (error) return toast.error("Erro: " + error.message);
+                toast.success("Custo fixo atualizado."); setEditandoFixo(null); inval();
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* ── pagar repasse ── */}
       <Dialog open={!!pagando} onOpenChange={(o) => !o && setPagando(null)}>
         <DialogContent className="max-w-md">
@@ -1006,22 +1005,18 @@ function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes }: {
   );
 }
 
-/* Número pequeno com ícone, pros resumos de custo fixo. */
-function MiniNumero({ icone, rotulo, valor, tom = "muted", nota }: {
-  icone: React.ReactNode; rotulo: string; valor: string;
-  tom?: "muted" | "emerald" | "amber"; nota?: string;
-}) {
-  const cor = tom === "emerald" ? "text-emerald-400"
-            : tom === "amber" ? "text-amber-300"
-            : "text-foreground";
+/* O status de um fixo reduzido a uma bolinha, pro card estreito do topo.
+   O selo com texto fica na tabela, onde há largura pra ele. */
+function PontoStatus({ estado }: { estado: "pago" | "aberto" | "nao_gerado" | "total" }) {
+  const tom = estado === "pago" ? "bg-emerald-400"
+            : estado === "aberto" ? "bg-amber-300"
+            : "bg-muted-foreground/30";
+  const titulo = estado === "pago" ? "Pago"
+               : estado === "aberto" ? "Em aberto"
+               : estado === "total" ? "Total do período"
+               : "Não gerado neste mês";
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-      <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
-        <span className="text-muted-foreground/70">{icone}</span>{rotulo}
-      </p>
-      <p className={cn("font-display text-lg font-semibold tabular-nums leading-none mt-1.5", cor)}>{valor}</p>
-      {nota && <p className="text-[10.5px] text-muted-foreground mt-1">{nota}</p>}
-    </div>
+    <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", tom)} title={titulo} aria-label={titulo} />
   );
 }
 
@@ -1322,16 +1317,22 @@ function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando
   );
 }
 
-function FormRecorrente({ contas, categorias, onSalvar, salvando }: {
+/* Serve pra criar e pra editar: com `inicial` os campos já nascem preenchidos.
+   O mesmo formulário nos dois casos evita que criar e editar aceitem coisas
+   diferentes — que é como um custo fixo acaba salvo sem categoria. */
+function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
   contas: Conta[]; categorias: Categoria[];
   onSalvar: (v: Record<string, unknown>) => void; salvando: boolean;
+  inicial?: Recorrente;
 }) {
-  const [descricao, setDescricao] = useState("");
-  const [valor, setValor] = useState("");
-  const [dia, setDia] = useState("5");
-  const [tipo, setTipo] = useState<"entrada" | "saida">("saida");
-  const [contaId, setContaId] = useState(contas[0]?.id ?? "");
-  const [catId, setCatId] = useState("");
+  const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
+  const [valor, setValor] = useState(
+    inicial ? Number(inicial.valor).toFixed(2).replace(".", ",") : "");
+  const [dia, setDia] = useState(String(inicial?.dia_vencimento ?? 5));
+  const [tipo, setTipo] = useState<"entrada" | "saida">(inicial?.tipo ?? "saida");
+  const [contaId, setContaId] = useState(inicial?.conta_id ?? contas[0]?.id ?? "");
+  const [catId, setCatId] = useState(inicial?.categoria_id ?? "");
+  const [ativo, setAtivo] = useState(inicial?.ativo ?? true);
   const diaN = Number(dia);
   const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0 && contaId && diaN >= 1 && diaN <= 31;
   return (
@@ -1383,14 +1384,26 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando }: {
             </Select>
           </div>
         </div>
+        {inicial && (
+          <label className="flex items-center gap-2 text-[12.5px] cursor-pointer">
+            <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)}
+              className="h-3.5 w-3.5 accent-primary" />
+            <span>Ativo — pausado, ele para de ser gerado nos meses seguintes</span>
+          </label>
+        )}
         <p className="text-[11px] text-muted-foreground">
           Mês que não tem o dia escolhido usa o último dia dele — dia 31 em fevereiro cai no 28.
         </p>
       </div>
       <DialogFooter>
         <Button disabled={salvando || !valido}
-          onClick={() => onSalvar({ descricao: descricao.trim(), valor: parseMoneyBR(valor), dia_vencimento: diaN, tipo, conta_id: contaId, categoria_id: catId || null })}>
-          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null} Criar
+          onClick={() => onSalvar({
+            descricao: descricao.trim(), valor: parseMoneyBR(valor), dia_vencimento: diaN,
+            tipo, conta_id: contaId, categoria_id: catId || null,
+            ...(inicial ? { ativo } : {}),
+          })}>
+          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+          {inicial ? "Salvar" : "Criar"}
         </Button>
       </DialogFooter>
     </>
