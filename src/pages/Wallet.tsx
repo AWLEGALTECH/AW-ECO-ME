@@ -64,7 +64,7 @@ const ICONES: Record<string, React.ComponentType<{ className?: string }>> = {
   Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank, Undo2, Users,
   Landmark, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
-  UserCheck, Hammer, Coffee,
+  UserCheck, Hammer, Coffee, HandCoins,
 };
 const IconeCat = ({ nome, className }: { nome?: string | null; className?: string }) => {
   const C = (nome && ICONES[nome]) || CircleDashed;
@@ -89,6 +89,9 @@ interface Lancamento {
   // pro custo fixo, origem='recorrente' e origem_ref='<id do fixo>|YYYY-MM'.
   // É o que amarra o lançamento ao fixo que o gerou, sem casar por descrição.
   origem_ref: string | null;
+  // a que mês este dinheiro se refere, quando não for o mês em que ele andou.
+  // Nulo = mesmo mês da data.
+  competencia: string | null;
   created_at: string;
 }
 interface Repasse {
@@ -98,6 +101,8 @@ interface Repasse {
 interface Recorrente {
   id: string; descricao: string; conta_id: string; categoria_id: string | null;
   tipo: "entrada" | "saida"; valor: number; dia_vencimento: number; ativo: boolean;
+  // 0 = a despesa é do próprio mês do pagamento; -1 = do mês anterior
+  competencia_offset: number;
 }
 
 type Aba = "movimento" | "repasses" | "fixos" | "contas";
@@ -214,16 +219,32 @@ export default function WalletPage() {
     return { de: "0000-01-01", ate: "9999-12-31" };
   }, [periodo, mesRef, de, ate]);
 
+  /* CAIXA OU COMPETÊNCIA.
+     Por caixa, o mês é o dia em que o dinheiro andou — é o regime do Wallet e
+     o que bate com extrato. Por competência, o mês é aquele a que a despesa se
+     refere: a comissão paga em 15/09 conta como custo de agosto, que é quando
+     ela foi ganha. Sem essa chave, o custo de um mês nunca fecha com o
+     resultado daquele mês.
+
+     Só faz sentido dentro de UM mês. Em 90 dias ou "tudo" a distinção some, e
+     o filtro volta pro caixa sozinho. */
+  const [regime, setRegime] = useState<"caixa" | "competencia">("caixa");
+  const porCompetencia = regime === "competencia" && periodo === "mes";
+  const mesDoLancamento = (l: Lancamento) => l.competencia ?? l.data.slice(0, 7);
+
   const filtrados = useMemo(() => {
     const termo = busca.toLowerCase().trim();
     return lancamentos.filter((l) => {
-      if (l.data < janela.de || l.data > janela.ate) return false;
+      if (porCompetencia) {
+        if ((l.competencia ?? l.data.slice(0, 7)) !== mesRef) return false;
+      } else if (l.data < janela.de || l.data > janela.ate) return false;
       if (catFiltro !== "todas" && l.categoria_id !== catFiltro) return false;
       if (!termo) return true;
       const c = cat(l.categoria_id)?.nome ?? "";
       return `${l.descricao} ${c}`.toLowerCase().includes(termo);
     });
-  }, [lancamentos, janela, catFiltro, busca, categorias]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lancamentos, janela, catFiltro, busca, categorias, porCompetencia, mesRef]);
 
   const previstos = filtrados.filter((l) => l.status === "previsto").sort((a, b) => a.data.localeCompare(b.data));
   const realizados = filtrados.filter((l) => l.status === "realizado");
@@ -456,6 +477,8 @@ export default function WalletPage() {
                 ativo={periodo === "mes"}
                 onAndar={andarMes}
                 onVoltarAoMes={() => setPeriodo("mes")}
+                regime={regime}
+                onRegime={setRegime}
               />
 
               {/* filtros */}
@@ -698,6 +721,7 @@ export default function WalletPage() {
                                 <span className="block text-[11px] text-muted-foreground truncate">
                                   todo dia {f.r.dia_vencimento}
                                   {cat(f.r.categoria_id) && ` · ${cat(f.r.categoria_id)!.nome}`}
+                                  {f.r.competencia_offset === -1 && " · refere-se ao mês anterior"}
                                   {!f.r.ativo && " · pausado"}
                                 </span>
                               </span>
@@ -1022,13 +1046,16 @@ export default function WalletPage() {
    olhado, não mais um filtro. Quando o recorte em vigor é outro (90 dias,
    tudo, intervalo livre), o nome esmaece e um toque devolve o mês — assim a
    pessoa nunca fica olhando "Agosto" enquanto a lista mostra o ano inteiro. */
-function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes }: {
+function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes, regime, onRegime }: {
   mesRef: string; ativo: boolean;
   onAndar: (passos: number) => void; onVoltarAoMes: () => void;
+  regime?: "caixa" | "competencia";
+  onRegime?: (r: "caixa" | "competencia") => void;
 }) {
   const { nome, ano } = mesPorExtenso(mesRef);
   const ehAtual = mesRef === mesAtual();
   return (
+    <div className="flex flex-col items-center gap-2">
     <div className="flex items-center justify-center gap-1">
       <Button
         variant="ghost" size="icon" className="h-9 w-9 shrink-0"
@@ -1060,6 +1087,27 @@ function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes }: {
       >
         <ChevronRight className="h-5 w-5" />
       </Button>
+    </div>
+
+    {/* A chave que responde as duas perguntas do mês. Só aparece quando o
+        recorte é um mês: em 90 dias ou "tudo" a distinção não significa nada. */}
+    {ativo && regime && onRegime && (
+      <div className="flex items-center rounded-lg border border-white/[0.06] bg-white/[0.02] p-0.5">
+        {([
+          ["caixa", "Por caixa", "O mês em que o dinheiro andou. É o que bate com o extrato."],
+          ["competencia", "Por competência", "O mês a que a despesa se refere. A comissão paga em setembro conta como custo de agosto."],
+        ] as ["caixa" | "competencia", string, string][]).map(([k, label, ajuda]) => (
+          <button
+            key={k} onClick={() => onRegime(k)} title={ajuda}
+            className={cn("px-2.5 py-1 rounded-md text-[11.5px] transition-colors",
+              regime === k ? "bg-primary/12 text-foreground"
+                           : "text-muted-foreground hover:text-foreground")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    )}
     </div>
   );
 }
@@ -1152,6 +1200,13 @@ function LinhaLanc({ l, categoria, onClick, acao }: {
         <span className="block text-[13px] font-medium truncate">{l.descricao}</span>
         <span className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
           <span className="shrink-0">{fmtDia(l.data)}</span>
+          {/* Só aparece quando o dinheiro andou num mês e se refere a outro —
+              que é exatamente o caso em que ler só a data engana. */}
+          {l.competencia && l.competencia !== l.data.slice(0, 7) && (
+            <span className="shrink-0 rounded px-1.5 py-[1px] bg-sky-400/10 text-sky-300/90 ring-1 ring-sky-400/20">
+              ref. {mesPorExtenso(l.competencia).nome.slice(0, 3).toLowerCase()}/{l.competencia.slice(2, 4)}
+            </span>
+          )}
           {/* em tela estreita a coluna de categoria não cabe; aqui ela volta */}
           {categoria && <span className="sm:hidden truncate"><span className="opacity-40 mr-1">·</span>{categoria.nome}</span>}
         </span>
@@ -1399,6 +1454,7 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
   const [contaId, setContaId] = useState(inicial?.conta_id ?? contas[0]?.id ?? "");
   const [catId, setCatId] = useState(inicial?.categoria_id ?? "");
   const [ativo, setAtivo] = useState(inicial?.ativo ?? true);
+  const [compOffset, setCompOffset] = useState(String(inicial?.competencia_offset ?? 0));
   const diaN = Number(dia);
   const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0 && contaId && diaN >= 1 && diaN <= 31;
   return (
@@ -1457,6 +1513,20 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
             <span>Ativo — pausado, ele para de ser gerado nos meses seguintes</span>
           </label>
         )}
+        <div>
+          <Label className="text-xs">A que mês se refere</Label>
+          <Select value={compOffset} onValueChange={setCompOffset}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Ao próprio mês em que é pago</SelectItem>
+              <SelectItem value="-1">Ao mês anterior ao pagamento</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Comissão fechada em agosto e paga em setembro se refere ao mês anterior — assim ela
+            continua contando como custo de agosto, mesmo saindo do caixa em setembro.
+          </p>
+        </div>
         <p className="text-[11px] text-muted-foreground">
           Mês que não tem o dia escolhido usa o último dia dele — dia 31 em fevereiro cai no 28.
         </p>
@@ -1466,6 +1536,7 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
           onClick={() => onSalvar({
             descricao: descricao.trim(), valor: parseMoneyBR(valor), dia_vencimento: diaN,
             tipo, conta_id: contaId, categoria_id: catId || null,
+            competencia_offset: Number(compOffset),
             ...(inicial ? { ativo } : {}),
           })}>
           {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
