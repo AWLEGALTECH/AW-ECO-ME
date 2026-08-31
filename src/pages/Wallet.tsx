@@ -92,6 +92,9 @@ interface Lancamento {
   // a que mês este dinheiro se refere, quando não for o mês em que ele andou.
   // Nulo = mesmo mês da data.
   competencia: string | null;
+  // o custo fixo que este lançamento cumpre, tenha ele nascido da automação,
+  // do extrato ou da mão
+  recorrente_id: string | null;
   created_at: string;
 }
 interface Repasse {
@@ -268,11 +271,12 @@ export default function WalletPage() {
   const fixos = useMemo(() => {
     const porMes = periodo === "mes";
     const linhas = recorrentes.map((r) => {
-      const meus = lancamentos.filter((l) => l.origem === "recorrente"
-        && (l.origem_ref ?? "").startsWith(`${r.id}|`));
+      // Casa pelo recorrente_id, não pelo origem_ref: dinheiro que saiu por
+      // fora e foi ligado ao fixo depois também conta como pagamento dele.
+      const meus = lancamentos.filter((l) => l.recorrente_id === r.id);
 
       if (porMes) {
-        const doMes = meus.find((l) => l.origem_ref === `${r.id}|${mesRef}`);
+        const doMes = meus.find((l) => l.data.slice(0, 7) === mesRef);
         return {
           r,
           modo: "mes" as const,
@@ -733,7 +737,7 @@ export default function WalletPage() {
                           </td>
                           <td className="text-right pr-1">
                             <StatusFixo
-                              f={f}
+                              f={{ ...f, valorFixo: Number(f.r.valor) }}
                               onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined}
                             />
                           </td>
@@ -1135,7 +1139,8 @@ function StatusFixo({ f, onConfirmar }: {
   f: {
     modo: "mes" | "periodo";
     estado: "pago" | "aberto" | "nao_gerado" | "total";
-    lancamento?: { data: string };
+    lancamento?: { data: string; valor: number };
+    valorFixo?: number;
     total: number; meses: number; emAberto?: number;
   };
   onConfirmar?: () => void;
@@ -1156,10 +1161,15 @@ function StatusFixo({ f, onConfirmar }: {
   }
 
   if (f.estado === "pago") {
+    // Quando o que saiu não é o valor cadastrado, o selo mostra o valor real.
+    // Dizer só "pago" esconderia um aluguel de 524 debaixo de um fixo de 786.
+    const real = f.lancamento ? Number(f.lancamento.valor) : null;
+    const difere = real != null && f.valorFixo != null && Math.abs(real - f.valorFixo) >= 0.01;
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 ring-1 ring-emerald-400/25 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
         <Check className="h-3 w-3" />
         Pago {f.lancamento && <span className="opacity-70 tabular-nums">{fmtDia(f.lancamento.data).slice(0, 5)}</span>}
+        {difere && <span className="tabular-nums text-amber-300">· {brl(real!)}</span>}
       </span>
     );
   }
