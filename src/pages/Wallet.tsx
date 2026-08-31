@@ -178,7 +178,16 @@ export default function WalletPage() {
     const emConta = inicial + movimento;
     const deCliente = repasses.filter((r) => r.status === "pendente")
       .reduce((a, r) => a + Number(r.valor_devido), 0);
-    return { emConta, deCliente, doEscritorio: emConta - deCliente };
+    // A quebra por conta: o saldo continua sendo UM, mas com mais de uma conta
+    // é preciso dizer de onde ele vem, senão o total sobe e ninguém sabe por
+    // quê. Cada conta parte do saldo inicial dela e soma só o que passou lá.
+    const porConta = contas.filter((c) => c.ativo).map((c) => ({
+      conta: c,
+      saldo: Number(c.saldo_inicial || 0) + lancamentos
+        .filter((l) => l.conta_id === c.id && l.status === "realizado")
+        .reduce((a, l) => a + (l.tipo === "entrada" ? Number(l.valor) : -Number(l.valor)), 0),
+    }));
+    return { emConta, deCliente, doEscritorio: emConta - deCliente, porConta };
   }, [contas, lancamentos, repasses]);
 
   /* ── filtros ── */
@@ -286,6 +295,7 @@ export default function WalletPage() {
   const [novoLanc, setNovoLanc] = useState<null | "entrada" | "saida">(null);
   const [novoFixo, setNovoFixo] = useState(false);
   const [editandoFixo, setEditandoFixo] = useState<Recorrente | null>(null);
+  const [editandoConta, setEditandoConta] = useState<Conta | null>(null);
   const [pagando, setPagando] = useState<Repasse | null>(null);
   const [detalhe, setDetalhe] = useState<Lancamento | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -351,6 +361,22 @@ export default function WalletPage() {
                   do escritório
                 </span>
               </div>
+
+              {/* De onde vem o total. Só aparece com mais de uma conta: com uma
+                  só seria repetir o número de cima. */}
+              {resumo.porConta.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  {resumo.porConta.map(({ conta: c, saldo }) => (
+                    <span key={c.id}
+                      className="flex items-center gap-1.5 rounded-md bg-white/[0.04] ring-1 ring-white/[0.06] px-2 py-1">
+                      <LogoBanco banco={c.banco} nome={c.nome} />
+                      <span className="text-[11px] text-muted-foreground">{c.nome}</span>
+                      <span className={cn("text-[11.5px] font-semibold tabular-nums",
+                        saldo < 0 ? "text-rose-400" : "text-foreground")}>{brl(saldo)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2 mt-5">
                 <Button size="sm" variant="outline" onClick={() => setNovoLanc("entrada")}>
                   <ArrowUpRight className="h-4 w-4 mr-1.5 text-emerald-400" /> Entrada
@@ -759,6 +785,11 @@ export default function WalletPage() {
                       <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
                         {usos} lançamento{usos === 1 ? "" : "s"}
                       </span>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 shrink-0"
+                        aria-label={`Editar ${c.nome}`}
+                        onClick={() => setEditandoConta(c)}>
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
                     </div>
                   );
                 })}
@@ -925,6 +956,34 @@ export default function WalletPage() {
                 setSalvando(false);
                 if (error) return toast.error("Erro: " + error.message);
                 toast.success("Custo fixo atualizado."); setEditandoFixo(null); inval();
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── editar conta ── */}
+      <Dialog open={!!editandoConta} onOpenChange={(o) => !o && setEditandoConta(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar conta</DialogTitle>
+            <DialogDescription>
+              O nome e o banco só mudam a etiqueta. O saldo inicial é o ponto de partida —
+              mexer nele desloca o saldo atual no mesmo valor.
+            </DialogDescription>
+          </DialogHeader>
+          {editandoConta && (
+            <FormNovaConta
+              key={editandoConta.id}
+              inicial={editandoConta}
+              salvando={salvando}
+              onSalvar={async (v) => {
+                setSalvando(true);
+                const { error } = await (supabase.from("balance_contas" as never) as never as any)
+                  .update({ ...v, updated_at: new Date().toISOString() }).eq("id", editandoConta.id);
+                setSalvando(false);
+                if (error) return toast.error("Erro: " + error.message);
+                toast.success("Conta atualizada."); setEditandoConta(null); inval();
               }}
             />
           )}
@@ -1125,12 +1184,18 @@ function LinhaLanc({ l, categoria, onClick, acao }: {
   );
 }
 
-function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, unknown>) => void; salvando: boolean }) {
-  const [nome, setNome] = useState("");
-  const [instituicao, setInstituicao] = useState("");
-  const [banco, setBanco] = useState("outro");
-  const [tipo, setTipo] = useState("corrente");
-  const [saldo, setSaldo] = useState("");
+/* Serve pra criar e pra editar, como o de custo fixo. Com `inicial`, o campo
+   de saldo passa a ser o saldo INICIAL da conta — o de partida, não o de hoje:
+   mexer nele reescreve o saldo atual inteiro, e o rótulo tem que dizer isso. */
+function FormNovaConta({ onSalvar, salvando, inicial }: {
+  onSalvar: (v: Record<string, unknown>) => void; salvando: boolean; inicial?: Conta;
+}) {
+  const [nome, setNome] = useState(inicial?.nome ?? "");
+  const [instituicao, setInstituicao] = useState(inicial?.instituicao ?? "");
+  const [banco, setBanco] = useState(inicial?.banco ?? "outro");
+  const [tipo, setTipo] = useState(inicial?.tipo ?? "corrente");
+  const [saldo, setSaldo] = useState(
+    inicial ? Number(inicial.saldo_inicial).toFixed(2).replace(".", ",") : "");
   return (
     <>
       <div className="space-y-3">
@@ -1178,7 +1243,7 @@ function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, un
               placeholder="ex: Caixa Econômica Federal" className="mt-1" />
           </div>
           <div>
-            <Label className="text-xs">Saldo de hoje (R$)</Label>
+            <Label className="text-xs">{inicial ? "Saldo inicial (R$)" : "Saldo de hoje (R$)"}</Label>
             <Input value={saldo} onChange={(e) => setSaldo(e.target.value)} placeholder="0,00" className="mt-1" />
           </div>
         </div>
@@ -1192,7 +1257,8 @@ function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, un
             tipo,
             saldo_inicial: parseMoneyBR(saldo) || 0,
           })}>
-          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null} Criar conta
+          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+          {inicial ? "Salvar" : "Criar conta"}
         </Button>
       </DialogFooter>
     </>
