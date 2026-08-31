@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { parseMoneyBR } from "@/lib/money";
+import { podeGravarLinha } from "@/lib/linhaTemporal";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -197,6 +198,13 @@ export default function ProcessoDetail() {
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   // Snapshot do que já está salvo, pra não regravar no carregamento inicial.
   const linhaSalvaRef = useRef<string>("");
+  // Trava de segurança: guarda o id do processo cuja linha já está em `etapas`.
+  // `etapas` nasce vazio e só é preenchido quando o load termina; sem esta
+  // trava, uma leitura lenta deixava o autosave disparar antes e gravar
+  // `linha_temporal: []` — apagando a história do processo. Guardar o id (e não
+  // um booleano) também evita salvar a linha de um processo em cima de outro
+  // ao trocar de processo sem desmontar a tela.
+  const linhaProntaRef = useRef<string | null>(null);
   const [fixadoGeral, setFixadoGeral] = useState(false);
   const [fixadoPessoal, setFixadoPessoal] = useState(false);
 
@@ -262,6 +270,7 @@ export default function ProcessoDetail() {
         }
       }
       setEtapas(semeada);
+      linhaProntaRef.current = data.id;
       setFixadoGeral(!!(data as { fixado_geral?: boolean }).fixado_geral);
       const { data: pin } = await supabase.from("processo_fixados").select("processo_id").eq("processo_id", data.id).maybeSingle();
       setFixadoPessoal(!!pin);
@@ -316,7 +325,9 @@ export default function ProcessoDetail() {
   // Persiste a linha temporal no banco sempre que as etapas mudam (tarefa nova,
   // pendência, avanço, status). Debounce curto; ignora se nada mudou vs o salvo.
   useEffect(() => {
-    if (isNew || !id) return;
+    // Enquanto o processo não terminou de carregar, `etapas` é só o vazio
+    // inicial do useState — gravar isso apagaria a linha do banco.
+    if (!podeGravarLinha(linhaProntaRef.current, id, isNew)) return;
     const atual = JSON.stringify(etapas);
     if (atual === linhaSalvaRef.current) return;
     const t = window.setTimeout(async () => {
