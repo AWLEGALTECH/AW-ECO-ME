@@ -31,7 +31,7 @@ const FASES_POS: { key: string; label: string; short: string; icon: any; dot: st
   { key: ETAPA_JULGAMENTO,  label: "Julgamento em 2º grau",  short: "2º grau",     icon: Gavel,     dot: "bg-sky-400",     text: "text-sky-300",     chip: "bg-sky-400/10 text-sky-300 border-sky-400/25" },
   { key: "Trânsito em julgado", label: "Trânsito em julgado", short: "Trânsito",   icon: Milestone, dot: "bg-fuchsia-400", text: "text-fuchsia-300", chip: "bg-fuchsia-400/10 text-fuchsia-300 border-fuchsia-400/25" },
   { key: ETAPA_CUMPRIMENTO, label: "Cumprimento de sentença", short: "Cumprimento", icon: Trophy,   dot: "bg-emerald-400", text: "text-emerald-300", chip: "bg-emerald-400/10 text-emerald-300 border-emerald-400/25" },
-  { key: ETAPA_ACORDO,      label: "Acordo",                 short: "Acordo",      icon: Handshake, dot: "bg-cyan-400",    text: "text-cyan-300",    chip: "bg-cyan-400/10 text-cyan-300 border-cyan-400/25" },
+  { key: ETAPA_ACORDO,      label: "Acordo",                 short: "Acordo",      icon: Handshake, dot: "bg-primary",     text: "text-primary",     chip: "bg-primary/10 text-primary border-primary/25" },
 ];
 const FASE_BY = Object.fromEntries(FASES_POS.map((f) => [f.key, f])) as Record<string, typeof FASES_POS[number]>;
 const faseInfo = (k: string) => FASE_BY[k] ?? FASES_POS[0];
@@ -234,10 +234,11 @@ export default function Tracker() {
           {/* ── Dois caminhos para o mesmo dinheiro, um de cada lado ──
               Ganhar no julgamento e fechar um acordo são coisas diferentes, com
               números que não se somam, e misturá-los numa fileira só fazia o
-              olho tentar comparar o que não é comparável. Cada grupo tem sua
-              cor: roxo é sentença, ciano é acordo. Verde não é grupo, é ESTADO
-              — vale nos dois lados e quer dizer a mesma coisa: dinheiro
-              praticamente garantido. */}
+              olho tentar comparar o que não é comparável. Os dois usam a cor do
+              tema: sentença e acordo são caminhos diferentes pro MESMO dinheiro,
+              e pintar um de outra cor sugeria uma hierarquia que não existe.
+              Verde não é grupo, é ESTADO — vale nos dois lados e quer dizer a
+              mesma coisa: dinheiro praticamente garantido. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Grupo
               icone={Hammer} titulo="Sentenças" anel="ring-primary/25" tom="text-primary"
@@ -251,11 +252,11 @@ export default function Tracker() {
               ]}
             />
             <Grupo
-              icone={Handshake} titulo="Acordos" anel="ring-cyan-400/25" tom="text-cyan-300"
+              icone={Handshake} titulo="Acordos" anel="ring-primary/25" tom="text-primary"
               rotulo="Total fechado em acordo" valor={m.totalAcordo}
               sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado" : "acordos fechados"}`}
               detalhes={[
-                { icone: CalendarClock, rotulo: "Aguardando pagamento", valor: m.aReceberValor, tom: "text-cyan-300",
+                { icone: CalendarClock, rotulo: "Aguardando pagamento", valor: m.aReceberValor, tom: "text-foreground",
                   sub: m.emTratativa > 0
                     ? `${m.nAReceber} ${m.nAReceber === 1 ? "acordo" : "acordos"} · ${m.emTratativa} ainda em tratativa`
                     : `${m.nAReceber} ${m.nAReceber === 1 ? "acordo" : "acordos"} · valor a receber` },
@@ -311,11 +312,11 @@ export default function Tracker() {
               deixá-lo aqui fazia a tela avisar "atrasado há 35 dias" sobre um
               dinheiro que já tinha entrado. O total dos pagos está no painel. */}
           {m.aReceber.length > 0 && (
-            <Card className="ring-1 ring-cyan-400/25">
+            <Card className="ring-1 ring-primary/25">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Handshake className="h-4 w-4 text-cyan-300" /> Acordos a receber
-                  <span className="ml-auto text-sm font-semibold text-cyan-300 tabular-nums">{brl(m.aReceberValor)}</span>
+                  <Handshake className="h-4 w-4 text-primary" /> Acordos a receber
+                  <span className="ml-auto text-sm font-semibold text-primary tabular-nums">{brl(m.aReceberValor)}</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -326,10 +327,10 @@ export default function Tracker() {
                       <a
                         key={v.id}
                         href={`/processos/${v.id}`}
-                        className="group flex items-center gap-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.05] p-3 hover:bg-cyan-400/[0.09] transition-colors"
+                        className="group flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/[0.05] p-3 hover:bg-primary/[0.09] transition-colors"
                       >
-                        <span className="h-9 w-9 rounded-lg bg-cyan-400/15 ring-1 ring-cyan-400/30 grid place-items-center shrink-0">
-                          <Handshake className="h-4 w-4 text-cyan-300" />
+                        <span className="h-9 w-9 rounded-lg bg-primary/15 ring-1 ring-primary/30 grid place-items-center shrink-0">
+                          <Handshake className="h-4 w-4 text-primary" />
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
@@ -342,7 +343,7 @@ export default function Tracker() {
                                 : "previsão de pagamento a definir"}
                           </p>
                         </div>
-                        <span className="text-base font-semibold font-display tabular-nums text-cyan-300 shrink-0">{brl(v.acordo?.valor ?? 0)}</span>
+                        <span className="text-base font-semibold font-display tabular-nums text-primary shrink-0">{brl(v.acordo?.valor ?? 0)}</span>
                       </a>
                     );
                   })}
@@ -494,7 +495,7 @@ export default function Tracker() {
                                 {v.acordo && (
                                   v.acordo.pago
                                     ? <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-emerald-400/10 text-emerald-300 border-emerald-400/25">acordo pago</span>
-                                    : <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-cyan-400/10 text-cyan-300 border-cyan-400/25">acordo a receber</span>
+                                    : <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-primary/10 text-primary border-primary/25">acordo a receber</span>
                                 )}
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
