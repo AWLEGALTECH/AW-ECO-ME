@@ -106,9 +106,17 @@ interface Recorrente {
   tipo: "entrada" | "saida"; valor: number; dia_vencimento: number; ativo: boolean;
   // 0 = a despesa é do próprio mês do pagamento; -1 = do mês anterior
   competencia_offset: number;
+  // fixo = estrutura do escritório, sem fim previsto.
+  // previsibilidade = o que está contratado pra entrar ou sair e acaba um dia.
+  serie: "fixo" | "previsibilidade";
+  // o valor é ordem de grandeza, não número conferido — a tela marca com *
+  estimado: boolean;
+  fim: string | null;
+  cliente_id: string | null;
+  observacoes: string | null;
 }
 
-type Aba = "movimento" | "repasses" | "fixos" | "contas";
+type Aba = "movimento" | "previsiveis" | "repasses" | "fixos" | "contas";
 /* "mes" agora é o mês NAVEGADO (mesRef), não "este mês": é o recorte padrão. */
 type Periodo = "mes" | "90" | "tudo" | "livre";
 
@@ -268,9 +276,9 @@ export default function WalletPage() {
      A ligação com o lançamento é pelo `origem_ref` que a materialização grava
      ('<id do fixo>|YYYY-MM'), nunca pela descrição: dois fixos podem se chamar
      igual, e renomear um não pode reescrever o histórico do outro. */
-  const fixos = useMemo(() => {
+  const lerSerie = (lista: Recorrente[]) => {
     const porMes = periodo === "mes";
-    const linhas = recorrentes.map((r) => {
+    const linhas = lista.map((r) => {
       // Casa pelo recorrente_id, não pelo origem_ref: dinheiro que saiu por
       // fora e foi ligado ao fixo depois também conta como pagamento dele.
       const meus = lancamentos.filter((l) => l.recorrente_id === r.id);
@@ -312,13 +320,33 @@ export default function WalletPage() {
       // uma pergunta que ninguém fez — o que se quer saber é, de cada linha,
       // se aquela já foi paga.
       mensal: linhas.filter((f) => f.r.ativo).reduce((a, f) => a + Number(f.r.valor), 0),
+      // só a previsibilidade separa entrada de saída: o fixo é tudo saída
+      aReceber: linhas.filter((f) => f.r.ativo && f.r.tipo === "entrada")
+        .reduce((a, f) => a + Number(f.r.valor), 0),
+      aPagar: linhas.filter((f) => f.r.ativo && f.r.tipo === "saida")
+        .reduce((a, f) => a + Number(f.r.valor), 0),
+      // algum valor da série ainda é chute? a tela precisa avisar
+      temEstimado: linhas.some((f) => f.r.ativo && f.r.estimado),
     };
-  }, [recorrentes, lancamentos, periodo, mesRef, janela]);
+  };
+
+  /* Duas séries, uma mecânica. O custo fixo é a estrutura que não para; a
+     previsibilidade é o que está contratado pra entrar ou sair e acaba um dia.
+     Lidas do mesmo jeito, mostradas em cards e abas separados, porque
+     respondem perguntas diferentes. */
+  const fixos = useMemo(
+    () => lerSerie(recorrentes.filter((r) => r.serie !== "previsibilidade")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [recorrentes, lancamentos, periodo, mesRef, janela]);
+  const previsiveis = useMemo(
+    () => lerSerie(recorrentes.filter((r) => r.serie === "previsibilidade")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [recorrentes, lancamentos, periodo, mesRef, janela]);
 
   /* ── diálogos ── */
   const [novaConta, setNovaConta] = useState(false);
   const [novoLanc, setNovoLanc] = useState<null | "entrada" | "saida">(null);
-  const [novoFixo, setNovoFixo] = useState(false);
+  const [novoFixo, setNovoFixo] = useState<null | "fixo" | "previsibilidade">(null);
   const [editandoFixo, setEditandoFixo] = useState<Recorrente | null>(null);
   const [editandoConta, setEditandoConta] = useState<Conta | null>(null);
   const [pagando, setPagando] = useState<Repasse | null>(null);
@@ -365,7 +393,7 @@ export default function WalletPage() {
               O saldo sozinho virava uma barra larga e vazia. Ao lado dele vai
               o compromisso do mês, que é a outra metade da mesma pergunta:
               quanto tem, e quanto já está comprometido. */}
-          <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr] items-stretch">
+          <div className="grid gap-4 lg:grid-cols-3 items-stretch">
             <SpotlightCard className="p-6 md:p-7">
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Em conta</p>
               <p className={cn(
@@ -452,6 +480,59 @@ export default function WalletPage() {
                   : "Abrir custos fixos"}
               </Button>
             </SpotlightCard>
+
+            {/* ── o que já está contratado pra entrar e pra sair ── */}
+            <SpotlightCard className="p-5 flex flex-col">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <CalendarRange className="h-3.5 w-3.5" /> Previsibilidades
+                </p>
+                {previsiveis.temEstimado && (
+                  <span className="text-[10.5px] text-amber-300/80" title="Há valores estimados nesta lista">
+                    * estimado
+                  </span>
+                )}
+              </div>
+
+              {/* Entrada e saída não se somam num número só: um cliente que
+                  paga 500 e uma parcela de 195 não viram 305 de nada. */}
+              <div className="flex items-baseline gap-3 mt-2">
+                <p className="font-display text-2xl font-semibold tabular-nums leading-none text-emerald-400">
+                  {brl(previsiveis.aReceber)}
+                </p>
+                <p className="font-display text-lg font-semibold tabular-nums leading-none text-rose-400">
+                  −{brl(previsiveis.aPagar)}
+                </p>
+              </div>
+              <p className="text-[10.5px] text-muted-foreground mt-1">a receber · a pagar, por mês</p>
+
+              <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-1.5 flex-1">
+                {previsiveis.linhas.slice(0, 5).map((f) => (
+                  <div key={f.r.id} className="flex items-center gap-2 min-w-0">
+                    <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-[12px] truncate min-w-0 flex-1">
+                      {f.r.descricao}{f.r.estimado && <span className="text-amber-300/80">*</span>}
+                    </span>
+                    <span className={cn("text-[11.5px] tabular-nums shrink-0",
+                      f.r.tipo === "entrada" ? "text-emerald-400/80" : "text-rose-400/80")}>
+                      {f.r.tipo === "entrada" ? "+" : "−"}{brl(Number(f.r.valor))}
+                    </span>
+                    <PontoStatus estado={f.estado} />
+                  </div>
+                ))}
+                {previsiveis.linhas.length === 0 && (
+                  <p className="text-[12px] text-muted-foreground">
+                    Nada previsto ainda. Cliente que paga todo mês e parcela que vocês assumiram entram aqui.
+                  </p>
+                )}
+              </div>
+
+              <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => setAba("previsiveis")}>
+                {previsiveis.linhas.length > 5
+                  ? `Ver as ${previsiveis.linhas.length} previsibilidades`
+                  : "Abrir previsibilidades"}
+              </Button>
+            </SpotlightCard>
           </div>
 
           {/* ── abas ── */}
@@ -459,7 +540,8 @@ export default function WalletPage() {
             {([
               ["movimento", "Movimento", lancamentos.length],
               ["repasses", "Repasses", repassesPendentes.length],
-              ["fixos", "Custos fixos", recorrentes.filter((r) => r.ativo).length],
+              ["previsiveis", "Previsibilidades", previsiveis.linhas.filter((f) => f.r.ativo).length],
+              ["fixos", "Custos fixos", fixos.linhas.filter((f) => f.r.ativo).length],
               ["contas", "Contas", contas.length],
             ] as [Aba, string, number][]).map(([k, label, n]) => (
               <button
@@ -652,7 +734,12 @@ export default function WalletPage() {
             </SpotlightCard>
           )}
 
-          {aba === "fixos" && (
+          {(aba === "fixos" || aba === "previsiveis") && (() => {
+            /* As duas séries usam a mesma tabela. O que muda é o texto e o que
+               a régua está lendo — a mecânica de pago/em aberto é idêntica. */
+            const ehPrev = aba === "previsiveis";
+            const s = ehPrev ? previsiveis : fixos;
+            return (
             <div className="space-y-4">
               {/* a mesma régua do movimento manda aqui */}
               <NavegadorDeMes
@@ -663,127 +750,149 @@ export default function WalletPage() {
               />
 
               <SpotlightCard className="p-4 md:p-5">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Repeat className="h-4 w-4 text-primary" />
-                    <h2 className="text-sm font-semibold">Custos fixos</h2>
+                <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      {ehPrev ? <CalendarRange className="h-4 w-4 text-primary" />
+                              : <Repeat className="h-4 w-4 text-primary" />}
+                      <h2 className="text-sm font-semibold">
+                        {ehPrev ? "Previsibilidades" : "Custos fixos"}
+                      </h2>
+                    </div>
+                    <p className="text-[12px] text-muted-foreground mt-0.5 max-w-xl">
+                      {ehPrev
+                        ? "Cliente que paga todo mês e parcela que o escritório assumiu. Aparecem como \"a vencer\" no dia combinado; você confirma quando o dinheiro andar."
+                        : "Aparecem sozinhos como \"a vencer\" todo mês. Você só confirma quando pagar."}
+                    </p>
                   </div>
-                  <p className="text-[12px] text-muted-foreground mt-0.5">
-                    Aparecem sozinhos como "a vencer" todo mês. Você só confirma quando pagar.
+                  <div className="flex gap-2 shrink-0">
+                    {/* gera o mês que está sendo olhado, não "hoje": quem
+                        navegou até julho quer fechar julho */}
+                    <Button size="sm" variant="outline"
+                      onClick={async () => {
+                        const alvo = periodo === "mes" ? mesRef : mesAtual();
+                        const { data, error } = await supabase.rpc(
+                          "fn_balance_materializar_recorrentes" as never,
+                          { p_mes: `${alvo}-01` } as never,
+                        );
+                        if (error) return toast.error("Erro: " + error.message);
+                        const n = (data as any)?.criados ?? 0;
+                        const nome = mesPorExtenso(alvo).nome.toLowerCase();
+                        toast.success(n > 0 ? `${n} lançamento(s) gerado(s) para ${nome}.` : `${mesPorExtenso(alvo).nome} já estava gerado.`);
+                        inval();
+                      }}>
+                      Gerar {periodo === "mes" ? mesPorExtenso(mesRef).nome.toLowerCase() : "este mês"}
+                    </Button>
+                    <Button size="sm" onClick={() => setNovoFixo(ehPrev ? "previsibilidade" : "fixo")}>
+                      <Plus className="h-4 w-4 mr-1.5" /> Novo
+                    </Button>
+                  </div>
+                </div>
+
+                {s.linhas.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    {ehPrev
+                      ? "Nada previsto ainda. Cliente mensal e parcela assumida entram aqui."
+                      : "Nenhum custo fixo cadastrado."}
                   </p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  {/* gera o mês que está sendo olhado, não "hoje": quem
-                      navegou até julho quer fechar julho */}
-                  <Button size="sm" variant="outline"
-                    onClick={async () => {
-                      const alvo = periodo === "mes" ? mesRef : mesAtual();
-                      const { data, error } = await supabase.rpc(
-                        "fn_balance_materializar_recorrentes" as never,
-                        { p_mes: `${alvo}-01` } as never,
-                      );
-                      if (error) return toast.error("Erro: " + error.message);
-                      const n = (data as any)?.criados ?? 0;
-                      const nome = mesPorExtenso(alvo).nome.toLowerCase();
-                      toast.success(n > 0 ? `${n} lançamento(s) gerado(s) para ${nome}.` : `${mesPorExtenso(alvo).nome} já estava gerado.`);
-                      inval();
-                    }}>
-                    Gerar {periodo === "mes" ? mesPorExtenso(mesRef).nome.toLowerCase() : "este mês"}
-                  </Button>
-                  <Button size="sm" onClick={() => setNovoFixo(true)}><Plus className="h-4 w-4 mr-1.5" /> Novo</Button>
-                </div>
-              </div>
-              {recorrentes.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-6 text-center">Nenhum custo fixo cadastrado.</p>
-              ) : (
-                <div className="overflow-x-auto -mx-1 px-1">
-                  <table className="w-full min-w-[34rem] border-collapse">
-                    <thead>
-                      <tr className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/80">
-                        <th className="text-left font-medium pb-2 pl-1">Custo</th>
-                        <th className="text-right font-medium pb-2 w-[7.5rem]">Valor</th>
-                        <th className="text-right font-medium pb-2 w-[11rem] pr-1">
-                          {fixos.porMes ? mesPorExtenso(mesRef).nome : "Total no período"}
-                        </th>
-                        <th className="w-[4.5rem]" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fixos.linhas.map((f) => (
-                        <tr
-                          key={f.r.id}
-                          className="border-t border-white/[0.06] group hover:bg-white/[0.025] transition-colors"
-                        >
-                          <td className="py-2.5 pl-1">
-                            <span className="flex items-center gap-2.5 min-w-0">
-                              <span className="h-8 w-8 rounded-lg bg-white/[0.05] ring-1 ring-white/10 grid place-items-center shrink-0">
-                                <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-4 w-4 text-muted-foreground" />
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-[13px] font-medium truncate">{f.r.descricao}</span>
-                                <span className="block text-[11px] text-muted-foreground truncate">
-                                  todo dia {f.r.dia_vencimento}
-                                  {cat(f.r.categoria_id) && ` · ${cat(f.r.categoria_id)!.nome}`}
-                                  {f.r.competencia_offset === -1 && " · refere-se ao mês anterior"}
-                                  {!f.r.ativo && " · pausado"}
+                ) : (
+                  <div className="overflow-x-auto -mx-1 px-1">
+                    <table className="w-full min-w-[34rem] border-collapse">
+                      <thead>
+                        <tr className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/80">
+                          <th className="text-left font-medium pb-2 pl-1">{ehPrev ? "Previsto" : "Custo"}</th>
+                          <th className="text-right font-medium pb-2 w-[7.5rem]">Valor</th>
+                          <th className="text-right font-medium pb-2 w-[11rem] pr-1">
+                            {s.porMes ? mesPorExtenso(mesRef).nome : "Total no período"}
+                          </th>
+                          <th className="w-[4.5rem]" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.linhas.map((f) => (
+                          <tr key={f.r.id}
+                            className="border-t border-white/[0.06] group hover:bg-white/[0.025] transition-colors">
+                            <td className="py-2.5 pl-1">
+                              <span className="flex items-center gap-2.5 min-w-0">
+                                <span className="h-8 w-8 rounded-lg bg-white/[0.05] ring-1 ring-white/10 grid place-items-center shrink-0">
+                                  <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-4 w-4 text-muted-foreground" />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-[13px] font-medium truncate">
+                                    {f.r.descricao}
+                                    {f.r.estimado && (
+                                      <span className="text-amber-300/80" title="Valor estimado, ainda não conferido">*</span>
+                                    )}
+                                  </span>
+                                  <span className="block text-[11px] text-muted-foreground truncate">
+                                    todo dia {f.r.dia_vencimento}
+                                    {cat(f.r.categoria_id) && ` · ${cat(f.r.categoria_id)!.nome}`}
+                                    {f.r.competencia_offset === -1 && " · refere-se ao mês anterior"}
+                                    {f.r.fim && ` · até ${fmtDia(f.r.fim)}`}
+                                    {!f.r.ativo && " · pausado"}
+                                  </span>
                                 </span>
                               </span>
-                            </span>
-                          </td>
-                          <td className={cn("text-right text-[13px] font-semibold tabular-nums",
-                            f.r.tipo === "entrada" ? "text-emerald-400" : "text-foreground")}>
-                            {brl(Number(f.r.valor))}
-                          </td>
-                          <td className="text-right pr-1">
-                            <StatusFixo
-                              f={{ ...f, valorFixo: Number(f.r.valor) }}
-                              onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined}
-                            />
-                          </td>
-                          <td className="text-right whitespace-nowrap">
-                            <Button size="sm" variant="ghost"
-                              className="h-8 w-8 p-0 opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-                              aria-label={`Editar ${f.r.descricao}`}
-                              onClick={() => setEditandoFixo(f.r)}>
-                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                            </Button>
-                            <Button size="sm" variant="ghost"
-                              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-                              aria-label={`Remover ${f.r.descricao}`}
-                              onClick={async () => {
-                                const { error } = await (supabase.from("balance_recorrentes" as never) as never as any).delete().eq("id", f.r.id);
-                                if (error) return toast.error("Erro: " + error.message);
-                                toast.success("Custo fixo removido."); inval();
-                              }}>
-                              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                            </td>
+                            <td className={cn("text-right text-[13px] font-semibold tabular-nums",
+                              f.r.tipo === "entrada" ? "text-emerald-400" : "text-foreground")}>
+                              {f.r.tipo === "entrada" ? "+" : ""}{brl(Number(f.r.valor))}
+                            </td>
+                            <td className="text-right pr-1">
+                              <StatusFixo f={{ ...f, valorFixo: Number(f.r.valor) }}
+                                onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined} />
+                            </td>
+                            <td className="text-right whitespace-nowrap">
+                              <Button size="sm" variant="ghost"
+                                className="h-8 w-8 p-0 opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                                aria-label={`Editar ${f.r.descricao}`}
+                                onClick={() => setEditandoFixo(f.r)}>
+                                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                              </Button>
+                              <Button size="sm" variant="ghost"
+                                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                                aria-label={`Remover ${f.r.descricao}`}
+                                onClick={async () => {
+                                  const { error } = await (supabase.from("balance_recorrentes" as never) as never as any).delete().eq("id", f.r.id);
+                                  if (error) return toast.error("Erro: " + error.message);
+                                  toast.success("Removido."); inval();
+                                }}>
+                                <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
-              {/* Um mês sem nada gerado não é um mês sem custo: é um mês que
-                  ninguém materializou ainda. Dizer isso evita ler a coluna
-                  vazia como "não devo nada". */}
-              {fixos.porMes && recorrentes.length > 0
-                && fixos.linhas.every((f) => f.estado === "nao_gerado") && (
-                <p className="text-[12px] text-muted-foreground mt-3 pt-3 border-t border-white/[0.06]">
-                  Nenhum fixo foi gerado em {mesPorExtenso(mesRef).nome.toLowerCase()} ainda.
-                  Clique em <span className="text-foreground">Gerar {mesPorExtenso(mesRef).nome.toLowerCase()}</span>{" "}
-                  pra eles virarem "a vencer" e a coluna passar a responder pago ou em aberto.
-                  {mesRef === "2026-08" && (
-                    <> Em agosto, cuidado: o mês já entrou inteiro pelo extrato do banco, então
-                    gerar aqui lançaria de novo o que já está na lista.</>
-                  )}
-                </p>
-              )}
+                {s.temEstimado && (
+                  <p className="text-[12px] text-amber-300/80 mt-3">
+                    <span className="font-semibold">*</span> valor estimado, posto por alto pra dar
+                    ordem de grandeza. Corrija no lápis quando souber o número certo.
+                  </p>
+                )}
+
+                {/* Um mês sem nada gerado não é um mês sem custo: é um mês que
+                    ninguém materializou ainda. */}
+                {s.porMes && s.linhas.length > 0
+                  && s.linhas.every((f) => f.estado === "nao_gerado") && (
+                  <p className="text-[12px] text-muted-foreground mt-3 pt-3 border-t border-white/[0.06]">
+                    Nada foi gerado em {mesPorExtenso(mesRef).nome.toLowerCase()} ainda.
+                    Clique em <span className="text-foreground">Gerar {mesPorExtenso(mesRef).nome.toLowerCase()}</span>{" "}
+                    pra virar "a vencer" e a coluna passar a responder pago ou em aberto.
+                    {mesRef === "2026-08" && !ehPrev && (
+                      <> Em agosto, cuidado: o mês já entrou inteiro pela planilha, então
+                      gerar aqui lançaria de novo o que já está na lista.</>
+                    )}
+                  </p>
+                )}
               </SpotlightCard>
             </div>
-          )}
+            );
+          })()}
+
 
           {aba === "contas" && (
             <SpotlightCard className="p-4">
@@ -939,21 +1048,26 @@ export default function WalletPage() {
       </Dialog>
 
       {/* ── custo fixo ── */}
-      <Dialog open={novoFixo} onOpenChange={(o) => !o && setNovoFixo(false)}>
+      <Dialog open={!!novoFixo} onOpenChange={(o) => !o && setNovoFixo(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Novo custo fixo</DialogTitle>
+            <DialogTitle>
+              {novoFixo === "previsibilidade" ? "Nova previsibilidade" : "Novo custo fixo"}
+            </DialogTitle>
             <DialogDescription>
-              Todo mês ele aparece como "a vencer" no dia escolhido, esperando confirmação.
+              {novoFixo === "previsibilidade"
+                ? "Cliente que paga todo mês, parcela que vocês assumiram. Aparece como \"a vencer\" no dia combinado."
+                : "Todo mês ele aparece como \"a vencer\" no dia escolhido, esperando confirmação."}
             </DialogDescription>
           </DialogHeader>
-          <FormRecorrente contas={contas.filter((c) => c.ativo)} categorias={categorias} salvando={salvando}
+          <FormRecorrente contas={contas.filter((c) => c.ativo)} categorias={categorias}
+            clientes={clientes} serie={novoFixo ?? "fixo"} salvando={salvando}
             onSalvar={async (v) => {
               setSalvando(true);
               const { error } = await (supabase.from("balance_recorrentes" as never) as never as any).insert(v);
               setSalvando(false);
               if (error) return toast.error("Erro: " + error.message);
-              toast.success("Custo fixo criado."); setNovoFixo(false); inval();
+              toast.success(novoFixo === "previsibilidade" ? "Previsibilidade criada." : "Custo fixo criado."); setNovoFixo(null); inval();
             }} />
         </DialogContent>
       </Dialog>
@@ -976,6 +1090,8 @@ export default function WalletPage() {
               inicial={editandoFixo}
               contas={contas.filter((c) => c.ativo)}
               categorias={categorias}
+              clientes={clientes}
+              serie={editandoFixo.serie}
               salvando={salvando}
               onSalvar={async (v) => {
                 setSalvando(true);
@@ -1451,11 +1567,14 @@ function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando
 /* Serve pra criar e pra editar: com `inicial` os campos já nascem preenchidos.
    O mesmo formulário nos dois casos evita que criar e editar aceitem coisas
    diferentes — que é como um custo fixo acaba salvo sem categoria. */
-function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
+function FormRecorrente({ contas, categorias, clientes, serie, onSalvar, salvando, inicial }: {
   contas: Conta[]; categorias: Categoria[];
+  clientes: { id: string; nome: string }[];
+  serie: "fixo" | "previsibilidade";
   onSalvar: (v: Record<string, unknown>) => void; salvando: boolean;
   inicial?: Recorrente;
 }) {
+  const ehPrev = serie === "previsibilidade";
   const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
   const [valor, setValor] = useState(
     inicial ? Number(inicial.valor).toFixed(2).replace(".", ",") : "");
@@ -1465,6 +1584,9 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
   const [catId, setCatId] = useState(inicial?.categoria_id ?? "");
   const [ativo, setAtivo] = useState(inicial?.ativo ?? true);
   const [compOffset, setCompOffset] = useState(String(inicial?.competencia_offset ?? 0));
+  const [estimado, setEstimado] = useState(inicial?.estimado ?? ehPrev);
+  const [fim, setFim] = useState(inicial?.fim ?? "");
+  const [clienteId, setClienteId] = useState(inicial?.cliente_id ?? "");
   const diaN = Number(dia);
   const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0 && contaId && diaN >= 1 && diaN <= 31;
   return (
@@ -1537,6 +1659,38 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
             continua contando como custo de agosto, mesmo saindo do caixa em setembro.
           </p>
         </div>
+        {ehPrev && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Vai até (opcional)</Label>
+              <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="mt-1" />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                A última parcela, o fim do contrato. Em branco, repete sem prazo.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">Cliente (opcional)</Label>
+              <Select value={clienteId || "nenhum"} onValueChange={(v) => setClienteId(v === "nenhum" ? "" : v)}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="nenhum" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nenhum">Nenhum</SelectItem>
+                  {clientes.slice(0, 300).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+        <label className="flex items-start gap-2 text-[12.5px] cursor-pointer">
+          <input type="checkbox" checked={estimado} onChange={(e) => setEstimado(e.target.checked)}
+            className="h-3.5 w-3.5 mt-0.5 accent-amber-400" />
+          <span>
+            Valor estimado <span className="text-amber-300/80">*</span>
+            <span className="block text-[11px] text-muted-foreground">
+              Marque enquanto o número for por alto. A tela avisa com asterisco, pra ninguém tratar
+              um chute como número fechado.
+            </span>
+          </span>
+        </label>
         <p className="text-[11px] text-muted-foreground">
           Mês que não tem o dia escolhido usa o último dia dele — dia 31 em fevereiro cai no 28.
         </p>
@@ -1547,6 +1701,9 @@ function FormRecorrente({ contas, categorias, onSalvar, salvando, inicial }: {
             descricao: descricao.trim(), valor: parseMoneyBR(valor), dia_vencimento: diaN,
             tipo, conta_id: contaId, categoria_id: catId || null,
             competencia_offset: Number(compOffset),
+            serie, estimado,
+            fim: fim || null,
+            cliente_id: clienteId || null,
             ...(inicial ? { ativo } : {}),
           })}>
           {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
