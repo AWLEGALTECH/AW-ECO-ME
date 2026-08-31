@@ -85,7 +85,11 @@ interface Lancamento {
   id: string; conta_id: string; categoria_id: string | null;
   tipo: "entrada" | "saida"; valor: number; data: string;
   status: "previsto" | "realizado"; descricao: string; observacoes: string | null;
-  cliente_id: string | null; processo_id: string | null; origem: string; created_at: string;
+  cliente_id: string | null; processo_id: string | null; origem: string;
+  // pro custo fixo, origem='recorrente' e origem_ref='<id do fixo>|YYYY-MM'.
+  // É o que amarra o lançamento ao fixo que o gerou, sem casar por descrição.
+  origem_ref: string | null;
+  created_at: string;
 }
 interface Repasse {
   id: string; cliente_id: string | null; processo_id: string | null;
@@ -222,6 +226,63 @@ export default function WalletPage() {
 
   const repassesPendentes = repasses.filter((r) => r.status === "pendente");
 
+  /* ── custos fixos, lidos pela régua que está em vigor ──
+     Quando a régua é UM MÊS, a pergunta é binária: pagou ou não pagou aquele
+     mês. Quando é um intervalo (90 dias, tudo, escolher), essa pergunta não
+     tem resposta única — três meses podem ter dois pagos e um em aberto — e aí
+     a coluna vira o TOTAL pago no período, com quantos meses ele cobre.
+
+     A ligação com o lançamento é pelo `origem_ref` que a materialização grava
+     ('<id do fixo>|YYYY-MM'), nunca pela descrição: dois fixos podem se chamar
+     igual, e renomear um não pode reescrever o histórico do outro. */
+  const fixos = useMemo(() => {
+    const porMes = periodo === "mes";
+    const linhas = recorrentes.map((r) => {
+      const meus = lancamentos.filter((l) => l.origem === "recorrente"
+        && (l.origem_ref ?? "").startsWith(`${r.id}|`));
+
+      if (porMes) {
+        const doMes = meus.find((l) => l.origem_ref === `${r.id}|${mesRef}`);
+        return {
+          r,
+          modo: "mes" as const,
+          // sem lançamento no mês o fixo ainda não foi gerado — é diferente de
+          // estar em aberto, e a tela diz qual dos dois é
+          estado: !doMes ? ("nao_gerado" as const)
+                : doMes.status === "realizado" ? ("pago" as const)
+                : ("aberto" as const),
+          lancamento: doMes,
+          total: doMes && doMes.status === "realizado" ? Number(doMes.valor) : 0,
+          meses: 0,
+        };
+      }
+
+      const noPeriodo = meus.filter((l) => l.data >= janela.de && l.data <= janela.ate);
+      const pagos = noPeriodo.filter((l) => l.status === "realizado");
+      return {
+        r,
+        modo: "periodo" as const,
+        estado: "total" as const,
+        lancamento: undefined,
+        total: pagos.reduce((a, l) => a + Number(l.valor), 0),
+        meses: pagos.length,
+        emAberto: noPeriodo.filter((l) => l.status === "previsto").length,
+      };
+    });
+
+    const ativos = linhas.filter((f) => f.r.ativo);
+    return {
+      porMes,
+      linhas,
+      // o compromisso do mês: quanto os fixos ativos custam por mês
+      mensal: ativos.reduce((a, f) => a + Number(f.r.valor), 0),
+      pago: linhas.reduce((a, f) => a + f.total, 0),
+      emAberto: porMes
+        ? ativos.filter((f) => f.estado !== "pago").reduce((a, f) => a + Number(f.r.valor), 0)
+        : 0,
+    };
+  }, [recorrentes, lancamentos, periodo, mesRef, janela]);
+
   /* ── diálogos ── */
   const [novaConta, setNovaConta] = useState(false);
   const [novoLanc, setNovoLanc] = useState<null | "entrada" | "saida">(null);
@@ -240,9 +301,13 @@ export default function WalletPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-5 max-w-[1200px] mx-auto">
+    /* Sem largura máxima e sem padding próprio: o SidebarLayout já dá o
+       respiro, e o Tracker — que é a régua de formatação da casa — ocupa a
+       tela inteira. Wallet fazia os dois, e por isso vinha estreito e
+       centralizado enquanto o resto do app é largo. */
+    <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Wallet</h1>
+        <h2 className="font-display text-3xl font-medium tracking-tight">Wallet</h2>
         <p className="text-sm text-muted-foreground mt-1">
           Entradas e saídas do escritório. O dinheiro de cliente aparece separado do que é seu.
         </p>
@@ -266,7 +331,7 @@ export default function WalletPage() {
           <SpotlightCard className="p-6 md:p-7">
             <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Em conta</p>
             <p className={cn(
-              "text-4xl md:text-5xl font-bold tabular-nums tracking-tight mt-1.5",
+              "font-display text-3xl md:text-4xl font-semibold tabular-nums tracking-tight leading-none mt-2",
               resumo.emConta < 0 && "text-rose-400",
             )}>
               {brl(resumo.emConta)}
@@ -391,7 +456,7 @@ export default function WalletPage() {
                   <div className="space-y-1">
                     {previstos.map((l) => (
                       <LinhaLanc
-                        key={l.id} l={l} categoria={cat(l.categoria_id)} conta={conta(l.conta_id)}
+                        key={l.id} l={l} categoria={cat(l.categoria_id)}
                         onClick={() => setDetalhe(l)}
                         acao={
                           <Button size="sm" variant="ghost" className="h-7 text-[11px] shrink-0"
@@ -414,7 +479,7 @@ export default function WalletPage() {
                 ) : (
                   <div className="space-y-1">
                     {realizados.map((l) => (
-                      <LinhaLanc key={l.id} l={l} categoria={cat(l.categoria_id)} conta={conta(l.conta_id)}
+                      <LinhaLanc key={l.id} l={l} categoria={cat(l.categoria_id)}
                         onClick={() => setDetalhe(l)} />
                     ))}
                   </div>
@@ -470,7 +535,16 @@ export default function WalletPage() {
           )}
 
           {aba === "fixos" && (
-            <SpotlightCard className="p-4">
+            <div className="space-y-4">
+              {/* a mesma régua do movimento manda aqui */}
+              <NavegadorDeMes
+                mesRef={mesRef}
+                ativo={periodo === "mes"}
+                onAndar={andarMes}
+                onVoltarAoMes={() => setPeriodo("mes")}
+              />
+
+              <SpotlightCard className="p-4 md:p-5">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -482,51 +556,132 @@ export default function WalletPage() {
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  {/* gera o mês que está sendo olhado, não "hoje": quem
+                      navegou até julho quer fechar julho */}
                   <Button size="sm" variant="outline"
                     onClick={async () => {
-                      const { data, error } = await supabase.rpc("fn_balance_materializar_recorrentes" as never, {} as never);
+                      const alvo = periodo === "mes" ? mesRef : mesAtual();
+                      const { data, error } = await supabase.rpc(
+                        "fn_balance_materializar_recorrentes" as never,
+                        { p_mes: `${alvo}-01` } as never,
+                      );
                       if (error) return toast.error("Erro: " + error.message);
                       const n = (data as any)?.criados ?? 0;
-                      toast.success(n > 0 ? `${n} lançamento(s) gerado(s) para este mês.` : "Este mês já estava gerado.");
+                      const nome = mesPorExtenso(alvo).nome.toLowerCase();
+                      toast.success(n > 0 ? `${n} lançamento(s) gerado(s) para ${nome}.` : `${mesPorExtenso(alvo).nome} já estava gerado.`);
                       inval();
                     }}>
-                    Gerar este mês
+                    Gerar {periodo === "mes" ? mesPorExtenso(mesRef).nome.toLowerCase() : "este mês"}
                   </Button>
                   <Button size="sm" onClick={() => setNovoFixo(true)}><Plus className="h-4 w-4 mr-1.5" /> Novo</Button>
                 </div>
               </div>
+              {/* o compromisso do mês, antes da tabela */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 mb-4">
+                <MiniNumero
+                  icone={<Repeat className="h-3.5 w-3.5" />}
+                  rotulo="Por mês"
+                  valor={brl(fixos.mensal)}
+                />
+                <MiniNumero
+                  icone={<Check className="h-3.5 w-3.5" />}
+                  rotulo={fixos.porMes ? "Pago no mês" : "Total pago no período"}
+                  valor={brl(fixos.pago)}
+                  tom="emerald"
+                  nota={!fixos.porMes ? `${fixos.linhas.reduce((a, f) => a + f.meses, 0)} pagamento(s)` : undefined}
+                />
+                {fixos.porMes && (
+                  <MiniNumero
+                    icone={<CalendarRange className="h-3.5 w-3.5" />}
+                    rotulo="Falta pagar"
+                    valor={brl(fixos.emAberto)}
+                    tom={fixos.emAberto > 0 ? "amber" : "muted"}
+                  />
+                )}
+              </div>
+
               {recorrentes.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6 text-center">Nenhum custo fixo cadastrado.</p>
               ) : (
-                <div className="space-y-1.5">
-                  {recorrentes.map((r) => (
-                    <div key={r.id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-                      <span className="h-8 w-8 rounded-lg bg-white/[0.05] ring-1 ring-white/10 grid place-items-center shrink-0">
-                        <IconeCat nome={cat(r.categoria_id)?.icone} className="h-4 w-4 text-muted-foreground" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-medium truncate">{r.descricao}</span>
-                        <span className="block text-[11px] text-muted-foreground">
-                          todo dia {r.dia_vencimento} · {conta(r.conta_id)?.nome ?? "—"}{!r.ativo && " · pausado"}
-                        </span>
-                      </span>
-                      <span className={cn("text-[13px] font-semibold tabular-nums shrink-0",
-                        r.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
-                        {r.tipo === "entrada" ? "+" : "−"}{brl(Number(r.valor))}
-                      </span>
-                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 shrink-0"
-                        onClick={async () => {
-                          const { error } = await (supabase.from("balance_recorrentes" as never) as never as any).delete().eq("id", r.id);
-                          if (error) return toast.error("Erro: " + error.message);
-                          toast.success("Custo fixo removido."); inval();
-                        }}>
-                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  ))}
+                <div className="overflow-x-auto -mx-1 px-1">
+                  <table className="w-full min-w-[34rem] border-collapse">
+                    <thead>
+                      <tr className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/80">
+                        <th className="text-left font-medium pb-2 pl-1">Custo</th>
+                        <th className="text-right font-medium pb-2 w-[7.5rem]">Valor</th>
+                        <th className="text-right font-medium pb-2 w-[11rem] pr-1">
+                          {fixos.porMes ? mesPorExtenso(mesRef).nome : "Total no período"}
+                        </th>
+                        <th className="w-9" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fixos.linhas.map((f) => (
+                        <tr
+                          key={f.r.id}
+                          className="border-t border-white/[0.06] group hover:bg-white/[0.025] transition-colors"
+                        >
+                          <td className="py-2.5 pl-1">
+                            <span className="flex items-center gap-2.5 min-w-0">
+                              <span className="h-8 w-8 rounded-lg bg-white/[0.05] ring-1 ring-white/10 grid place-items-center shrink-0">
+                                <IconeCat nome={cat(f.r.categoria_id)?.icone} className="h-4 w-4 text-muted-foreground" />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-[13px] font-medium truncate">{f.r.descricao}</span>
+                                <span className="block text-[11px] text-muted-foreground truncate">
+                                  todo dia {f.r.dia_vencimento}
+                                  {cat(f.r.categoria_id) && ` · ${cat(f.r.categoria_id)!.nome}`}
+                                  {!f.r.ativo && " · pausado"}
+                                </span>
+                              </span>
+                            </span>
+                          </td>
+                          <td className={cn("text-right text-[13px] font-semibold tabular-nums",
+                            f.r.tipo === "entrada" ? "text-emerald-400" : "text-foreground")}>
+                            {brl(Number(f.r.valor))}
+                          </td>
+                          <td className="text-right pr-1">
+                            <StatusFixo
+                              f={f}
+                              onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined}
+                            />
+                          </td>
+                          <td className="text-right">
+                            <Button size="sm" variant="ghost"
+                              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                              aria-label={`Remover ${f.r.descricao}`}
+                              onClick={async () => {
+                                const { error } = await (supabase.from("balance_recorrentes" as never) as never as any).delete().eq("id", f.r.id);
+                                if (error) return toast.error("Erro: " + error.message);
+                                toast.success("Custo fixo removido."); inval();
+                              }}>
+                              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
-            </SpotlightCard>
+
+              {/* Um mês sem nada gerado não é um mês sem custo: é um mês que
+                  ninguém materializou ainda. Dizer isso evita ler a coluna
+                  vazia como "não devo nada". */}
+              {fixos.porMes && recorrentes.length > 0
+                && fixos.linhas.every((f) => f.estado === "nao_gerado") && (
+                <p className="text-[12px] text-muted-foreground mt-3 pt-3 border-t border-white/[0.06]">
+                  Nenhum fixo foi gerado em {mesPorExtenso(mesRef).nome.toLowerCase()} ainda.
+                  Clique em <span className="text-foreground">Gerar {mesPorExtenso(mesRef).nome.toLowerCase()}</span>{" "}
+                  pra eles virarem "a vencer" e a coluna passar a responder pago ou em aberto.
+                  {mesRef === "2026-08" && (
+                    <> Em agosto, cuidado: o mês já entrou inteiro pelo extrato do banco, então
+                    gerar aqui lançaria de novo o que já está na lista.</>
+                  )}
+                </p>
+              )}
+              </SpotlightCard>
+            </div>
           )}
 
           {aba === "contas" && (
@@ -771,8 +926,82 @@ function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes }: {
   );
 }
 
-function LinhaLanc({ l, categoria, conta, onClick, acao }: {
-  l: Lancamento; categoria?: Categoria; conta?: Conta;
+/* Número pequeno com ícone, pros resumos de custo fixo. */
+function MiniNumero({ icone, rotulo, valor, tom = "muted", nota }: {
+  icone: React.ReactNode; rotulo: string; valor: string;
+  tom?: "muted" | "emerald" | "amber"; nota?: string;
+}) {
+  const cor = tom === "emerald" ? "text-emerald-400"
+            : tom === "amber" ? "text-amber-300"
+            : "text-foreground";
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="text-muted-foreground/70">{icone}</span>{rotulo}
+      </p>
+      <p className={cn("font-display text-lg font-semibold tabular-nums leading-none mt-1.5", cor)}>{valor}</p>
+      {nota && <p className="text-[10.5px] text-muted-foreground mt-1">{nota}</p>}
+    </div>
+  );
+}
+
+/* A coluna que muda de pergunta conforme a régua.
+   Num mês: pagou, está em aberto, ou nem foi gerado ainda.
+   Num intervalo: quanto foi pago no total e em quantos meses — porque
+   "pago/não pago" não tem resposta única quando são vários meses. */
+function StatusFixo({ f, onConfirmar }: {
+  f: {
+    modo: "mes" | "periodo";
+    estado: "pago" | "aberto" | "nao_gerado" | "total";
+    lancamento?: { data: string };
+    total: number; meses: number; emAberto?: number;
+  };
+  onConfirmar?: () => void;
+}) {
+  if (f.modo === "periodo") {
+    return (
+      <span className="inline-block text-right">
+        <span className={cn("block text-[13px] font-semibold tabular-nums",
+          f.total > 0 ? "text-emerald-400" : "text-muted-foreground")}>
+          {brl(f.total)}
+        </span>
+        <span className="block text-[10.5px] text-muted-foreground">
+          {f.meses === 0 ? "nada pago" : `${f.meses} mês(es)`}
+          {f.emAberto ? ` · ${f.emAberto} em aberto` : ""}
+        </span>
+      </span>
+    );
+  }
+
+  if (f.estado === "pago") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 ring-1 ring-emerald-400/25 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
+        <Check className="h-3 w-3" />
+        Pago {f.lancamento && <span className="opacity-70 tabular-nums">{fmtDia(f.lancamento.data).slice(0, 5)}</span>}
+      </span>
+    );
+  }
+
+  if (f.estado === "aberto") {
+    return (
+      <button
+        onClick={onConfirmar}
+        className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 ring-1 ring-amber-400/25 px-2.5 py-1 text-[11px] font-medium text-amber-300 hover:bg-amber-400/20 transition-colors"
+      >
+        <CalendarRange className="h-3 w-3" /> Em aberto · dar baixa
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] ring-1 ring-white/10 px-2.5 py-1 text-[11px] text-muted-foreground">
+      <CircleDashed className="h-3 w-3" /> Não gerado
+    </span>
+  );
+}
+
+function LinhaLanc({ l, categoria, onClick, acao }: {
+  l: Lancamento; categoria?: Categoria;
   onClick: () => void; acao?: React.ReactNode;
 }) {
   return (
@@ -792,17 +1021,6 @@ function LinhaLanc({ l, categoria, conta, onClick, acao }: {
           {categoria && <><span className="opacity-40">·</span><span className="truncate">{categoria.nome}</span></>}
         </span>
       </span>
-      {/* a conta que se moveu, com a marca do banco */}
-      {conta && (
-        <span
-          className="flex items-center gap-1.5 shrink-0 rounded-md px-1.5 py-1 bg-white/[0.05]"
-          title={conta.instituicao || conta.nome}
-        >
-          <LogoBanco banco={conta.banco} nome={conta.nome} />
-          {/* em tela estreita a marca já basta; o nome entra quando cabe */}
-          <span className="hidden sm:inline text-[10.5px] text-muted-foreground/90">{conta.nome}</span>
-        </span>
-      )}
       <span className={cn("text-[13px] font-semibold tabular-nums shrink-0",
         l.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
         {l.tipo === "entrada" ? "+" : "−"}{brl(Number(l.valor))}
