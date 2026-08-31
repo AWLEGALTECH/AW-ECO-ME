@@ -25,7 +25,7 @@ import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import Publicacoes from "./pages/Publicacoes";
 import Fechamentos from "./pages/Fechamentos";
-import Balance from "./pages/Balance";
+import Wallet from "./pages/Wallet";
 import Tracker from "./pages/Tracker";
 import Chamados from "./pages/Chamados";
 import Projetos from "./pages/Projetos";
@@ -103,7 +103,9 @@ const App = () => (
                   <Route path="/fechamentos" element={<PageErrorBoundary pageName="Fechamentos"><Fechamentos /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule module="balance" />}>
-                  <Route path="/balance" element={<PageErrorBoundary pageName="Balance"><Balance /></PageErrorBoundary>} />
+                  <Route path="/wallet" element={<PageErrorBoundary pageName="Wallet"><Wallet /></PageErrorBoundary>} />
+                  {/* a tela se chamava Balance; link velho continua chegando */}
+                  <Route path="/balance" element={<Navigate to="/wallet" replace />} />
                 </Route>
                 <Route element={<RequireModule module="tracker" />}>
                   <Route path="/tracker" element={<PageErrorBoundary pageName="Tracker"><Tracker /></PageErrorBoundary>} />

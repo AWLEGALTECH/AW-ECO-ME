@@ -10,7 +10,7 @@ export const MODULES = [
   { key: "writer",       label: "Writer",        path: "/writer" },
   { key: "finder",       label: "Finder",        path: "/finder" },
   { key: "fechamentos",  label: "Fechamentos",   path: "/fechamentos" },
-  { key: "balance",      label: "Balance",       path: "/balance" },
+  { key: "balance",      label: "Wallet",        path: "/wallet" },
   { key: "tracker",      label: "Tracker",       path: "/tracker" },
   { key: "projetos",     label: "Projetos",      path: "/projetos" },
   { key: "chamados",     label: "Chamados",      path: "/chamados" },

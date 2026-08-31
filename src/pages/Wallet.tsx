@@ -1,4 +1,4 @@
-// BALANCE — o caixa do escritório.
+// WALLET — o caixa do escritório.
 //
 // A tela responde uma pergunta antes de qualquer outra: quanto tem na conta.
 // Esse número é o protagonista e ocupa o topo sozinho. O que é de cliente e o
@@ -12,6 +12,12 @@
 // O dinheiro do cliente entra inteiro na conta e fica aqui até o escritório
 // decidir repassar. Por isso ele aparece descontado do "seu": é o que impede
 // gastar dinheiro de terceiro achando que é caixa.
+//
+// O MÊS É O PARÂMETRO PRINCIPAL. O escritório fecha as contas por mês, então a
+// tela abre no mês corrente e a navegação é mês a mês, com o nome dele em
+// destaque em cima da lista. Os outros recortes (90 dias, tudo, intervalo
+// livre) continuam existindo, mas como exceção — não como o jeito normal de
+// olhar.
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,8 +42,10 @@ import {
   Trash2, Users, Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank,
   Undo2, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
-  UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee,
+  UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee, ChevronLeft, ChevronRight,
 } from "lucide-react";
+import { LogoBanco } from "@/components/LogoBanco";
+import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes } from "@/lib/mesRef";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -48,6 +56,7 @@ const fmtDia = (d?: string | null) => {
   const [y, m, dd] = String(d).slice(0, 10).split("-");
   return `${dd}/${m}/${y}`;
 };
+
 
 /* O banco guarda o NOME do ícone; aqui ele vira componente. Categoria com nome
    desconhecido cai no genérico em vez de quebrar a lista. */
@@ -62,7 +71,12 @@ const IconeCat = ({ nome, className }: { nome?: string | null; className?: strin
   return <C className={className} />;
 };
 
-interface Conta { id: string; nome: string; tipo: string; instituicao: string | null; saldo_inicial: number; ativo: boolean }
+interface Conta {
+  id: string; nome: string; tipo: string; instituicao: string | null;
+  // slug da instituição; a tela usa pra escolher a marca na linha
+  banco: string | null;
+  saldo_inicial: number; ativo: boolean;
+}
 interface Categoria {
   id: string; nome: string; tipo: "entrada" | "saida"; grupo: string | null;
   fixa: boolean; icone: string | null; judicial: boolean;
@@ -83,9 +97,10 @@ interface Recorrente {
 }
 
 type Aba = "movimento" | "repasses" | "fixos" | "contas";
-type Periodo = "mes" | "anterior" | "90" | "tudo" | "livre";
+/* "mes" agora é o mês NAVEGADO (mesRef), não "este mês": é o recorte padrão. */
+type Periodo = "mes" | "90" | "tudo" | "livre";
 
-export default function Balance() {
+export default function WalletPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [aba, setAba] = useState<Aba>("movimento");
@@ -164,20 +179,27 @@ export default function Balance() {
 
   /* ── filtros ── */
   const [periodo, setPeriodo] = useState<Periodo>("mes");
+  const [mesRef, setMesRef] = useState<string>(mesAtual());
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
   const [busca, setBusca] = useState("");
   const [catFiltro, setCatFiltro] = useState<string>("todas");
 
+  // Andar no mês é o gesto principal: mexer nas setas devolve o recorte pro
+  // mês, mesmo que a pessoa tenha ido pra "90 dias" ou pro intervalo livre.
+  const andarMes = (passos: number) => {
+    setMesRef((r) => mesDeslocado(r, passos));
+    setPeriodo("mes");
+  };
+
   const janela = useMemo(() => {
     const h = new Date();
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    if (periodo === "mes") return { de: iso(new Date(h.getFullYear(), h.getMonth(), 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + 1, 0)) };
-    if (periodo === "anterior") return { de: iso(new Date(h.getFullYear(), h.getMonth() - 1, 1)), ate: iso(new Date(h.getFullYear(), h.getMonth(), 0)) };
+    if (periodo === "mes") return janelaDoMes(mesRef);
     if (periodo === "90") return { de: iso(new Date(h.getTime() - 90 * 86400000)), ate: iso(h) };
     if (periodo === "livre") return { de: de || "0000-01-01", ate: ate || "9999-12-31" };
     return { de: "0000-01-01", ate: "9999-12-31" };
-  }, [periodo, de, ate]);
+  }, [periodo, mesRef, de, ate]);
 
   const filtrados = useMemo(() => {
     const termo = busca.toLowerCase().trim();
@@ -220,7 +242,7 @@ export default function Balance() {
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-[1200px] mx-auto">
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Balance</h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Wallet</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Entradas e saídas do escritório. O dinheiro de cliente aparece separado do que é seu.
         </p>
@@ -292,11 +314,19 @@ export default function Balance() {
 
           {aba === "movimento" && (
             <div className="space-y-4">
+              {/* ── o mês, que é o recorte principal ── */}
+              <NavegadorDeMes
+                mesRef={mesRef}
+                ativo={periodo === "mes"}
+                onAndar={andarMes}
+                onVoltarAoMes={() => setPeriodo("mes")}
+              />
+
               {/* filtros */}
               <SpotlightCard className="p-3.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <CalendarRange className="h-4 w-4 text-muted-foreground shrink-0" />
-                  {([["mes", "Este mês"], ["anterior", "Mês passado"], ["90", "90 dias"], ["tudo", "Tudo"], ["livre", "Escolher"]] as [Periodo, string][])
+                  {([["mes", "Mês"], ["90", "90 dias"], ["tudo", "Tudo"], ["livre", "Escolher"]] as [Periodo, string][])
                     .map(([k, label]) => (
                       <button
                         key={k} onClick={() => setPeriodo(k)}
@@ -514,8 +544,8 @@ export default function Balance() {
                   const usos = lancamentos.filter((l) => l.conta_id === c.id).length;
                   return (
                     <div key={c.id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-                      <span className="h-8 w-8 rounded-lg bg-primary/10 ring-1 ring-primary/20 grid place-items-center shrink-0">
-                        <Landmark className="h-4 w-4 text-primary" />
+                      <span className="h-8 w-8 rounded-lg bg-white/[0.05] grid place-items-center shrink-0">
+                        <LogoBanco banco={c.banco} nome={c.nome} tamanho="md" />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-medium truncate">{c.nome}</span>
@@ -695,6 +725,52 @@ export default function Balance() {
 
 /* ─────────────────────────── peças ─────────────────────────── */
 
+/* O mês em corpo grande, com as setas dos lados: é o título do que está sendo
+   olhado, não mais um filtro. Quando o recorte em vigor é outro (90 dias,
+   tudo, intervalo livre), o nome esmaece e um toque devolve o mês — assim a
+   pessoa nunca fica olhando "Agosto" enquanto a lista mostra o ano inteiro. */
+function NavegadorDeMes({ mesRef, ativo, onAndar, onVoltarAoMes }: {
+  mesRef: string; ativo: boolean;
+  onAndar: (passos: number) => void; onVoltarAoMes: () => void;
+}) {
+  const { nome, ano } = mesPorExtenso(mesRef);
+  const ehAtual = mesRef === mesAtual();
+  return (
+    <div className="flex items-center justify-center gap-1">
+      <Button
+        variant="ghost" size="icon" className="h-9 w-9 shrink-0"
+        onClick={() => onAndar(-1)} aria-label="Mês anterior"
+      >
+        <ChevronLeft className="h-5 w-5" />
+      </Button>
+
+      <button
+        onClick={onVoltarAoMes}
+        className={cn(
+          "px-3 py-1 rounded-lg text-center transition-opacity min-w-[11rem]",
+          ativo ? "cursor-default" : "opacity-45 hover:opacity-80",
+        )}
+        aria-label={ativo ? undefined : "Voltar a filtrar por mês"}
+      >
+        <span className="block text-xl md:text-2xl font-bold tracking-tight leading-none">
+          {nome}
+        </span>
+        <span className="block text-[11px] text-muted-foreground tabular-nums mt-0.5">
+          {ano}{ehAtual && ativo && " · mês corrente"}
+          {!ativo && " · toque pra usar"}
+        </span>
+      </button>
+
+      <Button
+        variant="ghost" size="icon" className="h-9 w-9 shrink-0"
+        onClick={() => onAndar(1)} aria-label="Próximo mês"
+      >
+        <ChevronRight className="h-5 w-5" />
+      </Button>
+    </div>
+  );
+}
+
 function LinhaLanc({ l, categoria, conta, onClick, acao }: {
   l: Lancamento; categoria?: Categoria; conta?: Conta;
   onClick: () => void; acao?: React.ReactNode;
@@ -714,13 +790,19 @@ function LinhaLanc({ l, categoria, conta, onClick, acao }: {
         <span className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
           <span className="shrink-0">{fmtDia(l.data)}</span>
           {categoria && <><span className="opacity-40">·</span><span className="truncate">{categoria.nome}</span></>}
-          {conta && (
-            <span className="shrink-0 rounded px-1.5 py-[1px] bg-white/[0.06] text-muted-foreground/90">
-              {conta.nome}
-            </span>
-          )}
         </span>
       </span>
+      {/* a conta que se moveu, com a marca do banco */}
+      {conta && (
+        <span
+          className="flex items-center gap-1.5 shrink-0 rounded-md px-1.5 py-1 bg-white/[0.05]"
+          title={conta.instituicao || conta.nome}
+        >
+          <LogoBanco banco={conta.banco} nome={conta.nome} />
+          {/* em tela estreita a marca já basta; o nome entra quando cabe */}
+          <span className="hidden sm:inline text-[10.5px] text-muted-foreground/90">{conta.nome}</span>
+        </span>
+      )}
       <span className={cn("text-[13px] font-semibold tabular-nums shrink-0",
         l.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
         {l.tipo === "entrada" ? "+" : "−"}{brl(Number(l.valor))}
@@ -733,6 +815,7 @@ function LinhaLanc({ l, categoria, conta, onClick, acao }: {
 function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, unknown>) => void; salvando: boolean }) {
   const [nome, setNome] = useState("");
   const [instituicao, setInstituicao] = useState("");
+  const [banco, setBanco] = useState("outro");
   const [tipo, setTipo] = useState("corrente");
   const [saldo, setSaldo] = useState("");
   return (
@@ -744,8 +827,23 @@ function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, un
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label className="text-xs">Instituição</Label>
-            <Input value={instituicao} onChange={(e) => setInstituicao(e.target.value)} placeholder="ex: Itaú" className="mt-1" />
+            <Label className="text-xs">Banco</Label>
+            <Select value={banco} onValueChange={setBanco}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {([
+                  ["caixa", "Caixa"], ["itau", "Itaú"], ["bb", "Banco do Brasil"],
+                  ["bradesco", "Bradesco"], ["nubank", "Nubank"],
+                  ["especie", "Espécie"], ["outro", "Outro"],
+                ] as [string, string][]).map(([k, label]) => (
+                  <SelectItem key={k} value={k}>
+                    <span className="flex items-center gap-2">
+                      <LogoBanco banco={k} nome={label} />{label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label className="text-xs">Tipo</Label>
@@ -760,14 +858,27 @@ function FormNovaConta({ onSalvar, salvando }: { onSalvar: (v: Record<string, un
             </Select>
           </div>
         </div>
-        <div>
-          <Label className="text-xs">Saldo de hoje (R$)</Label>
-          <Input value={saldo} onChange={(e) => setSaldo(e.target.value)} placeholder="0,00" className="mt-1" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Instituição</Label>
+            <Input value={instituicao} onChange={(e) => setInstituicao(e.target.value)}
+              placeholder="ex: Caixa Econômica Federal" className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs">Saldo de hoje (R$)</Label>
+            <Input value={saldo} onChange={(e) => setSaldo(e.target.value)} placeholder="0,00" className="mt-1" />
+          </div>
         </div>
       </div>
       <DialogFooter>
         <Button disabled={salvando || !nome.trim()}
-          onClick={() => onSalvar({ nome: nome.trim(), instituicao: instituicao.trim() || null, tipo, saldo_inicial: parseMoneyBR(saldo) || 0 })}>
+          onClick={() => onSalvar({
+            nome: nome.trim(),
+            instituicao: instituicao.trim() || null,
+            banco: banco === "outro" ? null : banco,
+            tipo,
+            saldo_inicial: parseMoneyBR(saldo) || 0,
+          })}>
           {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null} Criar conta
         </Button>
       </DialogFooter>
