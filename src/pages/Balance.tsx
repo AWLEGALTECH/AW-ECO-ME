@@ -36,7 +36,7 @@ import {
   Trash2, Users, Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank,
   Undo2, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
-  UserCheck, Search, CalendarRange, Tag, X,
+  UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +55,7 @@ const ICONES: Record<string, React.ComponentType<{ className?: string }>> = {
   Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank, Undo2, Users,
   Landmark, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
-  UserCheck,
+  UserCheck, Hammer, Coffee,
 };
 const IconeCat = ({ nome, className }: { nome?: string | null; className?: string }) => {
   const C = (nome && ICONES[nome]) || CircleDashed;
