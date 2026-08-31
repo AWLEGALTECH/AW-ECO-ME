@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone, Wallet } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -33,6 +33,7 @@ const navItems: NavItem[] = [
   { title: "Writer",        url: "/writer",        icon: PenSquare,       module: "writer" },
   { title: "Finder",        url: "/finder",        icon: ScanSearch,      module: "finder" },
   { title: "Fechamentos",   url: "/fechamentos",   icon: Trophy,          module: "fechamentos",  beta: true },
+  { title: "Balance",       url: "/balance",       icon: Wallet,          module: "balance",      beta: true },
   { title: "Tracker",       url: "/tracker",       icon: BarChart3,       module: "tracker",      beta: true },
   { title: "Projetos",      url: "/projetos",      icon: KanbanSquare,    module: "projetos",     beta: true },
   { title: "Chamados",      url: "/chamados",      icon: Ticket,          module: "chamados" },

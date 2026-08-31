@@ -25,6 +25,7 @@ import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import Publicacoes from "./pages/Publicacoes";
 import Fechamentos from "./pages/Fechamentos";
+import Balance from "./pages/Balance";
 import Tracker from "./pages/Tracker";
 import Chamados from "./pages/Chamados";
 import Projetos from "./pages/Projetos";
@@ -100,6 +101,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="fechamentos" />}>
                   <Route path="/fechamentos" element={<PageErrorBoundary pageName="Fechamentos"><Fechamentos /></PageErrorBoundary>} />
+                </Route>
+                <Route element={<RequireModule module="balance" />}>
+                  <Route path="/balance" element={<PageErrorBoundary pageName="Balance"><Balance /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule module="tracker" />}>
                   <Route path="/tracker" element={<PageErrorBoundary pageName="Tracker"><Tracker /></PageErrorBoundary>} />
