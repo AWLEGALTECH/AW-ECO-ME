@@ -37,6 +37,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ptBR } from "date-fns/locale";
 import {
   Plus, ArrowUpRight, ArrowDownRight, Loader2, Landmark, HandCoins, Repeat, Check,
   Trash2, Users, Trophy, Handshake, Gavel, FileSignature, MessagesSquare, PiggyBank,
@@ -45,7 +49,7 @@ import {
   UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee, ChevronLeft, ChevronRight, Pencil,
 } from "lucide-react";
 import { LogoBanco } from "@/components/LogoBanco";
-import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes } from "@/lib/mesRef";
+import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes, mesesEntre } from "@/lib/mesRef";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -354,11 +358,26 @@ export default function WalletPage() {
   const [salvando, setSalvando] = useState(false);
   const semConta = !loadContas && contas.length === 0;
 
-  const confirmar = async (l: Lancamento) => {
+  /* DAR BAIXA PASSA POR CONFIRMAÇÃO.
+     Antes o botão agia direto no clique, e um toque errado marcou o pró-labore
+     do Dr. Matheus como pago — mexendo no saldo do escritório sem nenhuma
+     pergunta. Baixa é dinheiro: o clique agora só abre a tela.
+
+     E a tela pede valor e data porque é aí que se sabe o número de verdade. O
+     previsto é estimativa; o aluguel de agosto foi orçado em 786 e saiu 524.
+     Obrigar a confirmar sem poder corrigir empurraria a diferença pra alguém
+     lembrar de arrumar depois — e ninguém lembra. */
+  const [baixando, setBaixando] = useState<Lancamento | null>(null);
+
+  const darBaixa = async (l: Lancamento, valor: number, data: string) => {
+    setSalvando(true);
     const { error } = await (supabase.from("balance_lancamentos" as never) as never as any)
-      .update({ status: "realizado", pago_em: new Date().toISOString() }).eq("id", l.id);
+      .update({ status: "realizado", valor, data, pago_em: new Date().toISOString() })
+      .eq("id", l.id);
+    setSalvando(false);
     if (error) return toast.error("Erro: " + error.message);
     toast.success(l.tipo === "entrada" ? "Entrada confirmada." : "Pagamento confirmado.");
+    setBaixando(null);
     inval();
   };
 
@@ -650,7 +669,7 @@ export default function WalletPage() {
                         onClick={() => setDetalhe(l)}
                         acao={
                           <Button size="sm" variant="ghost" className="h-7 text-[11px] shrink-0"
-                            onClick={(e) => { e.stopPropagation(); confirmar(l); }}>
+                            onClick={(e) => { e.stopPropagation(); setBaixando(l); }}>
                             <Check className="h-3.5 w-3.5 mr-1" /> Confirmar
                           </Button>
                         }
@@ -840,7 +859,7 @@ export default function WalletPage() {
                             </td>
                             <td className="text-right pr-1">
                               <StatusFixo f={{ ...f, valorFixo: Number(f.r.valor) }}
-                                onConfirmar={f.lancamento ? () => confirmar(f.lancamento!) : undefined} />
+                                onConfirmar={f.lancamento ? () => setBaixando(f.lancamento!) : undefined} />
                             </td>
                             <td className="text-right whitespace-nowrap">
                               <Button size="sm" variant="ghost"
@@ -1069,6 +1088,27 @@ export default function WalletPage() {
               if (error) return toast.error("Erro: " + error.message);
               toast.success(novoFixo === "previsibilidade" ? "Previsibilidade criada." : "Custo fixo criado."); setNovoFixo(null); inval();
             }} />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── dar baixa: confirmação ── */}
+      <Dialog open={!!baixando} onOpenChange={(o) => !o && setBaixando(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {baixando?.tipo === "entrada" ? "Confirmar entrada" : "Confirmar pagamento"}
+            </DialogTitle>
+            <DialogDescription>
+              Isso mexe no saldo do escritório. Confira o valor e o dia antes.
+            </DialogDescription>
+          </DialogHeader>
+          {baixando && (
+            <FormBaixa
+              l={baixando} salvando={salvando}
+              onConfirmar={(valor, data) => darBaixa(baixando, valor, data)}
+              onCancelar={() => setBaixando(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1305,6 +1345,53 @@ function StatusFixo({ f, onConfirmar }: {
     <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] ring-1 ring-white/10 px-2.5 py-1 text-[11px] text-muted-foreground">
       <CircleDashed className="h-3 w-3" /> Não gerado
     </span>
+  );
+}
+
+/* A tela de "tem certeza" da baixa. Traz o valor previsto já preenchido, mas
+   deixa corrigir: é neste momento que se sabe quanto de fato saiu. */
+function FormBaixa({ l, salvando, onConfirmar, onCancelar }: {
+  l: Lancamento; salvando: boolean;
+  onConfirmar: (valor: number, data: string) => void;
+  onCancelar: () => void;
+}) {
+  const [valor, setValor] = useState(Number(l.valor).toFixed(2).replace(".", ","));
+  const [data, setData] = useState(l.data.slice(0, 10));
+  const v = parseMoneyBR(valor) || 0;
+  const mudou = Math.abs(v - Number(l.valor)) >= 0.01;
+  return (
+    <>
+      <div className="space-y-3">
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-[13px] font-medium">{l.descricao}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            previsto pra {fmtDia(l.data)} · {brl(Number(l.valor))}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Quanto saiu de verdade</Label>
+            <Input value={valor} onChange={(e) => setValor(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs">Em que dia</Label>
+            <Input type="date" value={data} onChange={(e) => setData(e.target.value)} className="mt-1" />
+          </div>
+        </div>
+        {mudou && (
+          <p className="text-[11.5px] text-amber-300/90">
+            Diferente do previsto — o lançamento passa a valer {brl(v)}.
+          </p>
+        )}
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onCancelar}>Cancelar</Button>
+        <Button disabled={salvando || v <= 0} onClick={() => onConfirmar(v, data)}>
+          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Check className="h-4 w-4 mr-1.5" />}
+          {l.tipo === "entrada" ? "Confirmar entrada" : "Confirmar pagamento"}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 
@@ -1567,6 +1654,19 @@ function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando
 /* Serve pra criar e pra editar: com `inicial` os campos já nascem preenchidos.
    O mesmo formulário nos dois casos evita que criar e editar aceitem coisas
    diferentes — que é como um custo fixo acaba salvo sem categoria. */
+/* O AGENDAMENTO EM QUATRO PERGUNTAS.
+   Valor, quando cai a primeira, em que dia caem as outras, e quantas são. É
+   isso pra mensalidade de cliente, pra parcela assumida e pra retirada — as
+   três são a mesma coisa: um valor que se repete num dia, um número de vezes.
+
+   O formulário antigo pedia doze coisas e escondia essas quatro no meio. Conta
+   sumiu (é uma só; quando houver duas ele volta), competência ficou só no custo
+   fixo, que é onde ela significa alguma coisa, e as explicações longas viraram
+   uma linha cada.
+
+   Nº de parcelas em branco = sem prazo, que é o caso do cliente que paga todo
+   mês sem data pra acabar. Preenchido, ele calcula o fim sozinho — ninguém
+   deveria ter que somar doze meses de cabeça pra saber quando a dívida quita. */
 function FormRecorrente({ contas, categorias, clientes, serie, onSalvar, salvando, inicial }: {
   contas: Conta[]; categorias: Categoria[];
   clientes: { id: string; nome: string }[];
@@ -1578,52 +1678,118 @@ function FormRecorrente({ contas, categorias, clientes, serie, onSalvar, salvand
   const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
   const [valor, setValor] = useState(
     inicial ? Number(inicial.valor).toFixed(2).replace(".", ",") : "");
-  const [dia, setDia] = useState(String(inicial?.dia_vencimento ?? 5));
   const [tipo, setTipo] = useState<"entrada" | "saida">(inicial?.tipo ?? "saida");
+  const [primeiro, setPrimeiro] = useState(inicial?.inicio?.slice(0, 10) ?? hoje());
+  const [dia, setDia] = useState(String(inicial?.dia_vencimento ?? 5));
+  const [parcelas, setParcelas] = useState(() => {
+    if (!inicial?.fim) return "";
+    return String(mesesEntre(inicial.inicio.slice(0, 7), inicial.fim.slice(0, 7)) + 1);
+  });
   const [contaId, setContaId] = useState(inicial?.conta_id ?? contas[0]?.id ?? "");
   const [catId, setCatId] = useState(inicial?.categoria_id ?? "");
+  const [clienteId, setClienteId] = useState(inicial?.cliente_id ?? "");
+  const [estimado, setEstimado] = useState(inicial?.estimado ?? ehPrev);
   const [ativo, setAtivo] = useState(inicial?.ativo ?? true);
   const [compOffset, setCompOffset] = useState(String(inicial?.competencia_offset ?? 0));
-  const [estimado, setEstimado] = useState(inicial?.estimado ?? ehPrev);
-  const [fim, setFim] = useState(inicial?.fim ?? "");
-  const [clienteId, setClienteId] = useState(inicial?.cliente_id ?? "");
+  const [calAberto, setCalAberto] = useState(false);
+
   const diaN = Number(dia);
-  const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0 && contaId && diaN >= 1 && diaN <= 31;
+  const nParcelas = parcelas.trim() ? Number(parcelas) : 0;
+  const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0
+    && contaId && diaN >= 1 && diaN <= 31 && primeiro
+    && (!parcelas.trim() || (nParcelas >= 1 && nParcelas <= 600));
+
+  // a última parcela cai no mês da primeira mais (n-1) meses
+  const fimCalculado = nParcelas >= 1
+    ? (() => {
+        const mes = mesDeslocado(primeiro.slice(0, 7), nParcelas - 1);
+        const [a, m] = mes.split("-").map(Number);
+        const ultimo = new Date(a, m, 0).getDate();
+        return `${mes}-${String(Math.min(diaN, ultimo)).padStart(2, "0")}`;
+      })()
+    : null;
+
   return (
     <>
-      <div className="space-y-3">
+      <div className="space-y-3.5">
         <div>
           <Label className="text-xs">Descrição</Label>
-          <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="ex: Aluguel da sala" className="mt-1" />
+          <Input value={descricao} onChange={(e) => setDescricao(e.target.value)}
+            placeholder={ehPrev ? "ex: Mensalidade · Fausto" : "ex: Aluguel da sala"} className="mt-1" />
         </div>
-        <div className="grid grid-cols-3 gap-3">
+
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="text-xs">Valor (R$)</Label>
             <Input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" className="mt-1" />
           </div>
           <div>
-            <Label className="text-xs">Dia do mês</Label>
-            <Input value={dia} onChange={(e) => setDia(e.target.value)} className="mt-1" />
-          </div>
-          <div>
-            <Label className="text-xs">Tipo</Label>
+            <Label className="text-xs">Entra ou sai</Label>
             <Select value={tipo} onValueChange={(v) => { setTipo(v as "entrada" | "saida"); setCatId(""); }}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="saida">Saída</SelectItem>
-                <SelectItem value="entrada">Entrada</SelectItem>
+                <SelectItem value="saida">
+                  <span className="flex items-center gap-2">
+                    <ArrowDownRight className="h-3.5 w-3.5 text-rose-400" /> Sai
+                  </span>
+                </SelectItem>
+                <SelectItem value="entrada">
+                  <span className="flex items-center gap-2">
+                    <ArrowUpRight className="h-3.5 w-3.5 text-emerald-400" /> Entra
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+
+        {/* ── o agendamento ── */}
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <Label className="text-xs">Conta</Label>
-            <Select value={contaId} onValueChange={setContaId}>
-              <SelectTrigger className="mt-1"><SelectValue placeholder="escolha" /></SelectTrigger>
-              <SelectContent>{contas.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
-            </Select>
+            <Label className="text-xs">Primeiro pagamento</Label>
+            <Popover open={calAberto} onOpenChange={setCalAberto}>
+              <PopoverTrigger asChild>
+                <Button variant="outline"
+                  className="mt-1 w-full justify-start font-normal tabular-nums h-10">
+                  <CalendarRange className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                  {fmtDia(primeiro)}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single" locale={ptBR}
+                  selected={primeiro ? new Date(`${primeiro}T12:00:00`) : undefined}
+                  onSelect={(d) => {
+                    if (!d) return;
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const dd = String(d.getDate()).padStart(2, "0");
+                    setPrimeiro(`${y}-${m}-${dd}`);
+                    setDia(String(d.getDate()));
+                    setCalAberto(false);
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
           </div>
+          <div>
+            <Label className="text-xs">Dia das demais</Label>
+            <Input value={dia} onChange={(e) => setDia(e.target.value)} className="mt-1 h-10" />
+          </div>
+          <div>
+            <Label className="text-xs">Nº de parcelas</Label>
+            <Input value={parcelas} onChange={(e) => setParcelas(e.target.value)}
+              placeholder="sem prazo" className="mt-1 h-10" />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          {fimCalculado
+            ? <>Última parcela em <span className="text-foreground tabular-nums">{fmtDia(fimCalculado)}</span>. Mês sem o dia {diaN} usa o último dia dele.</>
+            : <>Em branco, repete sem prazo. Mês sem o dia {diaN || "escolhido"} usa o último dia dele.</>}
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="text-xs">Categoria</Label>
             <Select value={catId} onValueChange={setCatId}>
@@ -1637,73 +1803,80 @@ function FormRecorrente({ contas, categorias, clientes, serie, onSalvar, salvand
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <Label className="text-xs">Cliente (opcional)</Label>
+            <Select value={clienteId || "nenhum"} onValueChange={(v) => setClienteId(v === "nenhum" ? "" : v)}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nenhum">Nenhum</SelectItem>
+                {clientes.slice(0, 300).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        {inicial && (
-          <label className="flex items-center gap-2 text-[12.5px] cursor-pointer">
-            <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)}
-              className="h-3.5 w-3.5 accent-primary" />
-            <span>Ativo — pausado, ele para de ser gerado nos meses seguintes</span>
-          </label>
-        )}
-        <div>
-          <Label className="text-xs">A que mês se refere</Label>
-          <Select value={compOffset} onValueChange={setCompOffset}>
-            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">Ao próprio mês em que é pago</SelectItem>
-              <SelectItem value="-1">Ao mês anterior ao pagamento</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-[11px] text-muted-foreground mt-1.5">
-            Comissão fechada em agosto e paga em setembro se refere ao mês anterior — assim ela
-            continua contando como custo de agosto, mesmo saindo do caixa em setembro.
-          </p>
-        </div>
-        {ehPrev && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Vai até (opcional)</Label>
-              <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="mt-1" />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                A última parcela, o fim do contrato. Em branco, repete sem prazo.
-              </p>
-            </div>
-            <div>
-              <Label className="text-xs">Cliente (opcional)</Label>
-              <Select value={clienteId || "nenhum"} onValueChange={(v) => setClienteId(v === "nenhum" ? "" : v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="nenhum" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="nenhum">Nenhum</SelectItem>
-                  {clientes.slice(0, 300).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+
+        {/* a conta só aparece quando há mais de uma pra escolher */}
+        {contas.length > 1 && (
+          <div>
+            <Label className="text-xs">Conta</Label>
+            <Select value={contaId} onValueChange={setContaId}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="escolha" /></SelectTrigger>
+              <SelectContent>
+                {contas.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    <span className="flex items-center gap-2">
+                      <LogoBanco banco={c.banco} nome={c.nome} />{c.nome}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
-        <label className="flex items-start gap-2 text-[12.5px] cursor-pointer">
-          <input type="checkbox" checked={estimado} onChange={(e) => setEstimado(e.target.checked)}
-            className="h-3.5 w-3.5 mt-0.5 accent-amber-400" />
-          <span>
-            Valor estimado <span className="text-amber-300/80">*</span>
-            <span className="block text-[11px] text-muted-foreground">
-              Marque enquanto o número for por alto. A tela avisa com asterisco, pra ninguém tratar
-              um chute como número fechado.
-            </span>
-          </span>
-        </label>
-        <p className="text-[11px] text-muted-foreground">
-          Mês que não tem o dia escolhido usa o último dia dele — dia 31 em fevereiro cai no 28.
-        </p>
+
+        {/* competência só existe no custo fixo: é lá que a comissão de agosto
+            paga em setembro precisa continuar contando como agosto */}
+        {!ehPrev && (
+          <div>
+            <Label className="text-xs">A que mês se refere</Label>
+            <Select value={compOffset} onValueChange={setCompOffset}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Ao próprio mês em que é pago</SelectItem>
+                <SelectItem value="-1">Ao mês anterior ao pagamento</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-0.5">
+          <label className="flex items-center gap-2 text-[12.5px] cursor-pointer">
+            <Checkbox checked={estimado} onCheckedChange={(c) => setEstimado(c === true)} />
+            <span>Valor estimado <span className="text-amber-300/80">*</span></span>
+          </label>
+          {inicial && (
+            <label className="flex items-center gap-2 text-[12.5px] cursor-pointer">
+              <Checkbox checked={ativo} onCheckedChange={(c) => setAtivo(c === true)} />
+              <span>Ativo</span>
+            </label>
+          )}
+        </div>
       </div>
+
       <DialogFooter>
         <Button disabled={salvando || !valido}
           onClick={() => onSalvar({
-            descricao: descricao.trim(), valor: parseMoneyBR(valor), dia_vencimento: diaN,
-            tipo, conta_id: contaId, categoria_id: catId || null,
-            competencia_offset: Number(compOffset),
-            serie, estimado,
-            fim: fim || null,
+            descricao: descricao.trim(),
+            valor: parseMoneyBR(valor),
+            tipo,
+            inicio: primeiro,
+            dia_vencimento: diaN,
+            fim: fimCalculado,
+            conta_id: contaId,
+            categoria_id: catId || null,
             cliente_id: clienteId || null,
+            serie, estimado,
+            competencia_offset: ehPrev ? 0 : Number(compOffset),
             ...(inicial ? { ativo } : {}),
           })}>
           {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}

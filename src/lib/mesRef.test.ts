@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes } from "./mesRef";
+import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes, mesesEntre } from "./mesRef";
 
 describe("mesDeslocado", () => {
   it("anda pra frente e pra trás dentro do ano", () => {
@@ -73,5 +73,28 @@ describe("mesPorExtenso", () => {
     expect(mesPorExtenso("2026-08")).toEqual({ nome: "Agosto", ano: 2026 });
     expect(mesPorExtenso("2026-03")).toEqual({ nome: "Março", ano: 2026 });
     expect(mesPorExtenso("2026-12")).toEqual({ nome: "Dezembro", ano: 2026 });
+  });
+});
+
+describe("mesesEntre", () => {
+  it("conta dentro do ano", () => {
+    expect(mesesEntre("2026-01", "2026-12")).toBe(11);
+    expect(mesesEntre("2026-08", "2026-08")).toBe(0);
+  });
+
+  it("atravessa o ano", () => {
+    expect(mesesEntre("2026-11", "2027-02")).toBe(3);
+    expect(mesesEntre("2025-12", "2027-01")).toBe(13);
+  });
+
+  it("é negativo quando o fim vem antes", () => {
+    expect(mesesEntre("2026-08", "2026-05")).toBe(-3);
+  });
+
+  it("fecha o ciclo com mesDeslocado: 12 parcelas terminam 11 meses depois", () => {
+    const primeiro = "2026-09";
+    const ultimo = mesDeslocado(primeiro, 12 - 1);
+    expect(ultimo).toBe("2027-08");
+    expect(mesesEntre(primeiro, ultimo) + 1).toBe(12);
   });
 });

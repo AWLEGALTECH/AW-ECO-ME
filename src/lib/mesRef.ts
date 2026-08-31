@@ -44,3 +44,10 @@ export function janelaDoMes(referencia: string): { de: string; ate: string } {
   const ultimo = new Date(a, m, 0).getDate();
   return { de: `${referencia}-01`, ate: `${referencia}-${String(ultimo).padStart(2, "0")}` };
 }
+
+/** Quantos meses separam duas referências. Negativo se a segunda for antes. */
+export function mesesEntre(de: string, ate: string): number {
+  const [a1, m1] = de.split("-").map(Number);
+  const [a2, m2] = ate.split("-").map(Number);
+  return (a2 - a1) * 12 + (m2 - m1);
+}
