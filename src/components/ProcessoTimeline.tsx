@@ -1189,6 +1189,35 @@ export function ProcessoTimeline({
                   </motion.div>
                 )}
 
+                {/* ATALHO DA BAIXA.
+                    O cumprimento e o acordo são as duas etapas de onde o
+                    dinheiro entra — e o status que fecha cada uma está no fim de
+                    uma lista de quarenta. Quem acabou de receber o alvará não
+                    devia ter que caçar "ALVARÁ PAGO" ali dentro. O botão faz o
+                    mesmo que escolher o status: abre a confirmação e a baixa.
+
+                    Some depois de baixado: reaparecer ali seria convite a lançar
+                    o mesmo dinheiro duas vezes. */}
+                {e.status === "atual" && onPedirBaixa && !ehStatusDeBaixa(e.statusProcessual)
+                  && (e.titulo === ETAPA_CUMPRIMENTO || e.titulo === ETAPA_ACORDO) && (
+                  <motion.div
+                    className="mt-6 flex justify-center"
+                    initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? cascata + 0.6 : 0 }}
+                  >
+                    <Button
+                      size="sm"
+                      className="gap-1.5 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30 hover:bg-emerald-500/25 hover:text-emerald-200 shadow-none"
+                      onClick={() => onPedirBaixa(e.titulo === ETAPA_ACORDO ? "acordo" : "alvara")}
+                    >
+                      <Landmark className="h-4 w-4" />
+                      {e.titulo === ETAPA_ACORDO ? "Acordo pago" : "Alvará pago"}
+                      <span className="text-emerald-300/60 font-normal">· dar baixa</span>
+                    </Button>
+                  </motion.div>
+                )}
+
                 {/* Avançar etapa — Sentença e Julgamento 2º grau exigem o teor antes.
                     Na última etapa não há para onde avançar: o botão sairia e
                     abriria um popup com a lista de destinos vazia. */}
