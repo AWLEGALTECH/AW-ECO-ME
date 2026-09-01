@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   STATUS_ALVARA_PAGO, STATUS_ACORDO_PAGO,
   viaDeBaixa, ehStatusDeBaixa, jaSaiuDoTracker, decidirBaixa, dividirBaixa,
+  valorPrevistoDoProcesso,
 } from "./baixaTracker";
 
 describe("viaDeBaixa", () => {
@@ -132,5 +133,45 @@ describe("dividirBaixa", () => {
     const cliente = 1652.66;
     const d = dividirBaixa(bruto, cliente);
     expect(d.doEscritorio + cliente).toBeCloseTo(bruto, 2);
+  });
+});
+
+describe("valorPrevistoDoProcesso", () => {
+  const comSentenca = [{ titulo: "Sentença", sentenca: { valor: 3305.32, resultado: "procedente" } }];
+
+  it("pela via do acordo, é o valor acordado", () => {
+    const lt = [...comSentenca, { titulo: "Acordo", acordo: { valor: 1500 } }];
+    expect(valorPrevistoDoProcesso(lt, "acordo")).toBe(1500);
+  });
+
+  it("pela via litigiosa, o executado ganha do julgado e do sentenciado", () => {
+    const lt = [
+      { titulo: "Sentença", sentenca: { valor: 3305.32, resultado: "procedente" } },
+      { titulo: "Julgamento em 2º grau", julgamento: { valor: 4000, resultado: "procedente" } },
+      { titulo: "Cumprimento de sentença", execucao: { valor: 3305.48 } },
+    ];
+    expect(valorPrevistoDoProcesso(lt, "alvara")).toBe(3305.48);
+  });
+
+  it("sem execução, cai no 2º grau", () => {
+    const lt = [
+      { titulo: "Sentença", sentenca: { valor: 3305.32, resultado: "procedente" } },
+      { titulo: "Julgamento em 2º grau", julgamento: { valor: 4000, resultado: "procedente" } },
+    ];
+    expect(valorPrevistoDoProcesso(lt, "alvara")).toBe(4000);
+  });
+
+  it("ignora improcedente: não se recebe o que se perdeu", () => {
+    const lt = [
+      { titulo: "Sentença", sentenca: { valor: 3305.32, resultado: "procedente" } },
+      { titulo: "Julgamento em 2º grau", julgamento: { valor: 9000, resultado: "improcedente" } },
+    ];
+    expect(valorPrevistoDoProcesso(lt, "alvara")).toBe(3305.32);
+  });
+
+  it("devolve zero quando não há o que prever", () => {
+    expect(valorPrevistoDoProcesso([], "alvara")).toBe(0);
+    expect(valorPrevistoDoProcesso(null, "acordo")).toBe(0);
+    expect(valorPrevistoDoProcesso(comSentenca, "acordo")).toBe(0);
   });
 });

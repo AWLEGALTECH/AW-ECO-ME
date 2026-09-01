@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { parseMoneyBR } from "@/lib/money";
 import { podeGravarLinha } from "@/lib/linhaTemporal";
+import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
+import { valorPrevistoDoProcesso } from "@/lib/baixaTracker";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -207,6 +209,9 @@ export default function ProcessoDetail() {
   const linhaProntaRef = useRef<string | null>(null);
   const [fixadoGeral, setFixadoGeral] = useState(false);
   const [fixadoPessoal, setFixadoPessoal] = useState(false);
+  // A baixa não é gravada pela timeline: ela abre esta confirmação e o banco
+  // faz status e lançamento numa transação só.
+  const [baixa, setBaixa] = useState<AlvoBaixa | null>(null);
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -657,7 +662,16 @@ export default function ProcessoDetail() {
         {etapas.length > 0 ? (
           <Card>
             <CardContent className="pt-6">
-              <ProcessoTimeline etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca} />
+              <ProcessoTimeline
+                etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca}
+                onPedirBaixa={(via) => setBaixa({
+                  processoId: id!,
+                  numeroProcesso: form.numero_processo || null,
+                  clienteNome: clientes.find((c) => c.id === form.cliente_id)?.nome ?? null,
+                  via,
+                  valorPrevisto: valorPrevistoDoProcesso(etapas, via),
+                })}
+              />
             </CardContent>
           </Card>
         ) : (
@@ -797,6 +811,18 @@ export default function ProcessoDetail() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── baixa no Tracker ──
+          Não fica dentro da timeline de propósito: ela só avisa que alguém
+          escolheu um status de baixa; quem conhece o processo, o cliente e o
+          valor é esta tela. */}
+      <DialogBaixaTracker
+        alvo={baixa}
+        onFechar={() => setBaixa(null)}
+        /* O banco carimbou o status dentro da transação; recarregar lê o que
+           ficou gravado em vez de a tela adivinhar. */
+        onBaixado={() => { loadProcesso(); }}
+      />
     </div>
   );
 }

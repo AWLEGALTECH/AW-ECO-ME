@@ -10,7 +10,7 @@ import { DonutChart } from "@/components/DonutChart";
 import {
   Trophy, Scale, Hammer, Coins, Search, Gavel, Milestone,
   CalendarDays, Loader2, Hash, ExternalLink, Layers, MapPin, BarChart3, CalendarRange,
-  Handshake, CalendarClock, CheckCircle2,
+  Handshake, CalendarClock, CheckCircle2, Landmark, Check,
 } from "lucide-react";
 
 /* ─────────────────────────── tipos ───────────────────────────
@@ -23,6 +23,7 @@ import {
   ACORDO_TRATATIVA,
   type ProcRow, type Vitoria,
 } from "@/lib/tracker";
+import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
 
 /* ─── fases pós-vitória (só leitura, na ordem processual) ─── */
 const FASES_POS: { key: string; label: string; short: string; icon: any; dot: string; text: string; chip: string }[] = [
@@ -80,6 +81,9 @@ function CountUp({ value, format, className }: { value: number; format?: (n: num
 
 /* ══════════════════════════ página ══════════════════════════ */
 export default function Tracker() {
+  // A baixa também acontece daqui, não só pela ficha: quando o alvará cai, é
+  // esta lista que a pessoa está olhando.
+  const [baixa, setBaixa] = useState<AlvoBaixa | null>(null);
   useEffect(() => { document.title = `Tracker · ${appConfig.name}`; }, []);
 
   const [busca, setBusca] = useState("");
@@ -142,7 +146,12 @@ export default function Tracker() {
     const totalGanho = comSentenca.reduce((a, v) => a + v.valorSentenca, 0);
     const comAcordo = vBase.filter((v) => v.acordo);
     const totalAcordo = comAcordo.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0);
-    const emCumprimento = vBase.filter((v) => v.emCumprimento);
+    // ROTATIVIDADE: quem já recebeu saiu do Tracker. Ele não desaparece — vai
+    // pro bloco de baixados, que é o que mostra o giro do mês. Mas some de
+    // tudo que responde "quanto ainda vai entrar", senão o Tracker cobraria
+    // dinheiro que já está na conta.
+    const baixados = vBase.filter((v) => v.baixado);
+    const emCumprimento = vBase.filter((v) => v.emCumprimento && !v.baixado);
     const valorCumprimento = emCumprimento.reduce((a, v) => a + v.valorCumprimento, 0);
     const ticket = vBase.length ? vBase.reduce((a, v) => a + v.valor, 0) / vBase.length : 0;
     const porFase: Record<string, { n: number; valor: number }> = {};
@@ -151,7 +160,7 @@ export default function Tracker() {
     // Dentro dos acordos, o que separa é se o dinheiro entrou. "Em tratativa"
     // e "aguardando pagamento" são os dois lados de uma promessa que ainda não
     // virou dinheiro; arquivado é a que virou.
-    const aReceber = comAcordo.filter((v) => !v.acordo?.pago);
+    const aReceber = comAcordo.filter((v) => !v.acordo?.pago && !v.baixado);
     const recebidos = comAcordo.filter((v) => v.acordo?.pago);
     const emTratativa = aReceber.filter((v) => v.acordo?.status === ACORDO_TRATATIVA).length;
 
@@ -164,6 +173,8 @@ export default function Tracker() {
       recebidoValor: recebidos.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0),
       nRecebidos: recebidos.length,
       transitou: (porFase[ETAPA_CUMPRIMENTO]?.valor ?? 0) + (porFase["Trânsito em julgado"]?.valor ?? 0),
+      baixados,
+      baixadoValor: baixados.reduce((a, v) => a + v.valor, 0),
       // Fila de cobrança: primeiro os que têm previsão, do mais próximo ao mais
       // distante; os sem data caem no fim, que é onde uma cobrança sem prazo
       // pertence.
@@ -207,6 +218,13 @@ export default function Tracker() {
 
   return (
     <div className="space-y-6">
+      <DialogBaixaTracker
+        alvo={baixa}
+        onFechar={() => setBaixa(null)}
+        /* recarrega as vitórias: o processo baixado sai da lista sozinho,
+           porque derivarVitorias passa a marcá-lo como fora do Tracker */
+        onBaixado={() => procRes.refetch()}
+      />
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -287,20 +305,34 @@ export default function Tracker() {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {m.emCumprimento.map((v) => (
-                    <a
+                    <div
                       key={v.id}
-                      href={`/processos/${v.id}`}
                       className="group flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] p-3 hover:bg-emerald-500/[0.09] transition-colors"
                     >
-                      <span className="h-9 w-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
-                        <Trophy className="h-4 w-4 text-emerald-400" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">{v.materia || "Matéria não informada"}{v.comarca_uf ? ` · ${v.comarca_uf}` : ""}</p>
-                      </div>
-                      <span className="text-base font-semibold font-display tabular-nums text-emerald-400 shrink-0">{brl(v.valorCumprimento)}</span>
-                    </a>
+                      <a href={`/processos/${v.id}`} className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className="h-9 w-9 rounded-lg bg-emerald-500/15 ring-1 ring-emerald-500/30 grid place-items-center shrink-0">
+                          <Trophy className="h-4 w-4 text-emerald-400" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">{v.materia || "Matéria não informada"}{v.comarca_uf ? ` · ${v.comarca_uf}` : ""}</p>
+                        </div>
+                        <span className="text-base font-semibold font-display tabular-nums text-emerald-400 shrink-0">{brl(v.valorCumprimento)}</span>
+                      </a>
+                      {/* Dar baixa sem sair do Tracker: é aqui que a pessoa está
+                          olhando quando o alvará cai. */}
+                      <button
+                        onClick={() => setBaixa({
+                          processoId: v.id, numeroProcesso: v.numero_processo,
+                          clienteNome: v.cliente_nome, via: "alvara",
+                          valorPrevisto: v.valorCumprimento,
+                        })}
+                        title="Alvará pago — dar baixa e lançar no Wallet"
+                        className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium text-emerald-300/80 ring-1 ring-emerald-400/25 bg-emerald-400/[0.06] hover:bg-emerald-400/15 hover:text-emerald-200 transition-colors"
+                      >
+                        Alvará pago
+                      </button>
+                    </div>
                   ))}
                 </div>
               </CardContent>
@@ -351,6 +383,49 @@ export default function Tracker() {
               </CardContent>
             </Card>
           )}
+
+          {/* ── Já recebido: a rotatividade do Tracker ──
+              O que saiu daqui não sumiu: virou dinheiro. Fica no fim, fora de
+              tudo que responde "quanto ainda vai entrar", porque o Tracker
+              cobrando o que já está na conta é o erro que a baixa existe pra
+              evitar. */}
+          {m.baixados.length > 0 && (
+            <Card className="ring-1 ring-white/[0.06]">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+                  <Landmark className="h-4 w-4" /> Já recebido — saiu do Tracker
+                  <span className="ml-auto text-sm font-semibold tabular-nums text-emerald-400/80">{brl(m.baixadoValor)}</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {m.baixados.map((v) => (
+                    <a
+                      key={v.id}
+                      href={`/processos/${v.id}`}
+                      className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 hover:bg-white/[0.05] transition-colors"
+                    >
+                      <span className="h-9 w-9 rounded-lg bg-emerald-400/10 ring-1 ring-emerald-400/20 grid place-items-center shrink-0">
+                        <Check className="h-4 w-4 text-emerald-400/80" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{v.cliente_nome || v.numero_processo || "Processo"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {v.viaBaixa === "acordo" ? "acordo pago" : "alvará pago"}
+                          {v.materia ? ` · ${v.materia}` : ""}
+                        </p>
+                      </div>
+                      <span className="text-sm font-semibold font-display tabular-nums text-emerald-400/70 shrink-0">{brl(v.valor)}</span>
+                    </a>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  Esse dinheiro agora vive no Wallet. Aqui ele fica só como registro do giro.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
 
           {/* ── Gráficos dos ganhos ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock, Handshake } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock, Handshake, Landmark } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { viaDeBaixa, ehStatusDeBaixa, type ViaBaixa } from "@/lib/baixaTracker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -485,11 +486,17 @@ export function ProcessoTimeline({
   setEtapas,
   badge,
   onRegistrarSentenca,
+  onPedirBaixa,
 }: {
   etapas: Etapa[];
   setEtapas: Dispatch<SetStateAction<Etapa[]>>;
   badge?: string;
   onRegistrarSentenca?: (s: SentencaEtapa) => void;
+  /* ALVARÁ PAGO e ACORDO PAGO não são status como os outros: eles declaram que
+     o dinheiro entrou, tiram o processo do Tracker e lançam no Wallet. A
+     timeline não grava sozinha — avisa quem a montou, que abre a confirmação e
+     só então a baixa acontece, tudo numa transação. */
+  onPedirBaixa?: (via: ViaBaixa) => void;
 }) {
   // Contador de tarefas do processo. Precisa começar depois da última que já
   // existe: começando sempre em 1, reabrir um processo e criar uma tarefa
@@ -639,8 +646,14 @@ export function ProcessoTimeline({
   // Processos antigos, salvos antes da milestone existir, não têm etapa de
   // acordo: aí o atalho simplesmente não aparece.
 
-  const setStatusEtapa = (id: string, v: string) =>
+  const setStatusEtapa = (id: string, v: string) => {
+    // Status de baixa não é gravado aqui. Ele sai da tela, passa pela pergunta
+    // e volta pelo banco junto com o lançamento — senão daria pra ficar com o
+    // processo marcado como pago e nenhum dinheiro no Wallet.
+    const via = viaDeBaixa(v);
+    if (via && onPedirBaixa) { onPedirBaixa(via); return; }
     setEtapas((prev) => prev.map((e) => (e.id === id ? { ...e, statusProcessual: v } : e)));
+  };
 
   const escolherTipo = (tipo: TaskTipo) => {
     if (!tipoDialog) return;
@@ -1146,16 +1159,31 @@ export function ProcessoTimeline({
                       <SelectTrigger
                         className={cn(
                           "mx-auto w-auto justify-center gap-1.5 border-0 bg-transparent shadow-none h-auto px-0 py-0 text-sm font-normal text-foreground focus:ring-0 focus:ring-offset-0 [&>svg]:hidden",
-                          e.statusProcessual && "status-blink",
+                          e.statusProcessual && !ehStatusDeBaixa(e.statusProcessual) && "status-blink",
+                          // pago não pisca: ele não está esperando nada
+                          ehStatusDeBaixa(e.statusProcessual) && "text-emerald-400 font-semibold",
                         )}
                       >
-                        <span className="text-muted-foreground text-xs">Aguardando</span>
+                        <span className="text-muted-foreground text-xs">
+                          {ehStatusDeBaixa(e.statusProcessual) ? "Recebido —" : "Aguardando"}
+                        </span>
                         <SelectValue placeholder="definir status" />
                       </SelectTrigger>
-                      {/* No acordo, os três — e só os três. */}
+                      {/* No acordo, os do acordo — e só eles. */}
                       <SelectContent>
                         {(e.titulo === ETAPA_ACORDO ? STATUS_ACORDO : STATUS_PROCESSUAIS)
-                          .map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}
+                          .map((s) => (
+                            <SelectItem key={s} value={s}
+                              className={cn("text-xs",
+                                // o status de baixa se destaca: escolher ele é
+                                // declarar que o dinheiro entrou, não é mais um
+                                // passo de espera
+                                ehStatusDeBaixa(s) && "text-emerald-400 font-semibold")}>
+                              <span className="flex items-center gap-1.5">
+                                {ehStatusDeBaixa(s) && <Landmark className="h-3 w-3" />}{s}
+                              </span>
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </motion.div>

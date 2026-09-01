@@ -117,3 +117,37 @@ export function dividirBaixa(bruto: number, doCliente: number): {
     percentualCliente: Number(((doCliente / bruto) * 100).toFixed(1)),
   };
 }
+
+/**
+ * Quanto o Tracker esperava receber deste processo — a sugestão que aparece
+ * preenchida no diálogo da baixa.
+ *
+ * Pela via do acordo é o valor acordado; pela litigiosa, o mais próximo do que
+ * de fato vai cair: o valor já executado, senão a condenação de 2º grau, senão
+ * a de 1º. É sugestão, não imposição — quem dá a baixa digita o que caiu.
+ */
+export function valorPrevistoDoProcesso(
+  etapas: Array<{
+    titulo?: string;
+    sentenca?: { valor?: number; resultado?: string };
+    julgamento?: { valor?: number; resultado?: string };
+    execucao?: { valor?: number };
+    acordo?: { valor?: number };
+  }> | null | undefined,
+  via: ViaBaixa,
+): number {
+  const lista = etapas ?? [];
+  const achar = (t: string) => lista.find((e) => e.titulo === t);
+
+  if (via === "acordo") return Number(achar("Acordo")?.acordo?.valor || 0);
+
+  const exec = achar("Cumprimento de sentença")?.execucao?.valor;
+  const julg = achar("Julgamento em 2º grau")?.julgamento;
+  const sent = achar("Sentença")?.sentenca;
+  return Number(
+    exec ||
+    (julg && julg.resultado !== "improcedente" ? julg.valor : 0) ||
+    (sent && sent.resultado !== "improcedente" ? sent.valor : 0) ||
+    0,
+  );
+}
