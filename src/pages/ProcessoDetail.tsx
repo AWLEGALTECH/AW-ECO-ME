@@ -6,6 +6,7 @@ import { parseMoneyBR } from "@/lib/money";
 import { podeGravarLinha } from "@/lib/linhaTemporal";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
 import { valorPrevistoDoProcesso } from "@/lib/baixaTracker";
+import { useMateriaCatalogo } from "@/hooks/useMateriaCatalogo";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -212,6 +213,9 @@ export default function ProcessoDetail() {
   // A baixa não é gravada pela timeline: ela abre esta confirmação e o banco
   // faz status e lançamento numa transação só.
   const [baixa, setBaixa] = useState<AlvoBaixa | null>(null);
+  // as rubricas que o banco leu da matéria — texto original intacto, leitura ao lado
+  const [materiaRubricas, setMateriaRubricas] = useState<string[]>([]);
+  const { lerMateria } = useMateriaCatalogo();
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -276,6 +280,7 @@ export default function ProcessoDetail() {
       }
       setEtapas(semeada);
       linhaProntaRef.current = data.id;
+      setMateriaRubricas(((data as { materia_rubricas?: string[] }).materia_rubricas) ?? []);
       setFixadoGeral(!!(data as { fixado_geral?: boolean }).fixado_geral);
       const { data: pin } = await supabase.from("processo_fixados").select("processo_id").eq("processo_id", data.id).maybeSingle();
       setFixadoPessoal(!!pin);
@@ -518,10 +523,34 @@ export default function ProcessoDetail() {
 
           {/* Matéria, Vara e Cliente — mesma importância */}
           <div className="mt-5 space-y-2.5">
-            <div className="flex items-center gap-2 text-[15px]">
-              <Package className="h-4 w-4 text-primary/70 shrink-0" />
-              <span className="font-medium">{form.materia || "Matéria não informada"}</span>
-            </div>
+            {/* A MATÉRIA, LIDA EM VEZ DE TRANSCRITA.
+                "BX ANT FINAN/PARC CRED/GASTOS CARTÃO" é como a planilha guardou,
+                não como se lê. São três rubricas, e as três juntas têm nome: o
+                grupo do Writer que as ataca. O título é esse nome; embaixo, uma
+                linha por rubrica. Sem grupo reconhecido, o texto original
+                aparece como estava — melhor mostrar o que foi digitado do que
+                sumir com a informação por não saber lê-la. */}
+            {(() => {
+              const m = lerMateria(materiaRubricas, form.materia);
+              return (
+                <div className="flex items-start gap-2 text-[15px]">
+                  <Package className="h-4 w-4 text-primary/70 shrink-0 mt-[3px]" />
+                  <div className="min-w-0">
+                    <span className="font-medium block">{m.titulo}</span>
+                    {m.rubricas.length > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {m.rubricas.map((r) => (
+                          <li key={r.chave} className="text-[13px] text-muted-foreground flex items-start gap-1.5">
+                            <span className="text-primary/50 leading-[1.35]">·</span>
+                            <span>{r.rotulo}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             <div className="flex items-center gap-2 text-[15px]">
               <MapPin className="h-4 w-4 text-primary/70 shrink-0" />
               <span className="font-medium">{localizacao || "Vara e comarca não informadas"}</span>
