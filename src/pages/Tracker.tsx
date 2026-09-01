@@ -323,7 +323,8 @@ export default function Tracker() {
                           olhando quando o alvará cai. */}
                       <button
                         onClick={() => setBaixa({
-                          processoId: v.id, numeroProcesso: v.numero_processo,
+                          processoId: v.id, clienteId: v.cliente_id,
+                          numeroProcesso: v.numero_processo,
                           clienteNome: v.cliente_nome, via: "alvara",
                           valorPrevisto: v.valorCumprimento,
                         })}

@@ -666,6 +666,7 @@ export default function ProcessoDetail() {
                 etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca}
                 onPedirBaixa={(via) => setBaixa({
                   processoId: id!,
+                  clienteId: form.cliente_id || null,
                   numeroProcesso: form.numero_processo || null,
                   clienteNome: clientes.find((c) => c.id === form.cliente_id)?.nome ?? null,
                   via,

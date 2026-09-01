@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { parseMoneyBR } from "@/lib/money";
 import { hojeISO } from "@/lib/hoje";
 import { dividirBaixa, type ViaBaixa } from "@/lib/baixaTracker";
+import { sugerirRepasse, type ContratoDoCliente } from "@/lib/repasseContrato";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +46,7 @@ const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", curren
 
 export interface AlvoBaixa {
   processoId: string;
+  clienteId: string | null;
   numeroProcesso: string | null;
   clienteNome: string | null;
   via: ViaBaixa;
@@ -53,6 +55,7 @@ export interface AlvoBaixa {
 }
 
 interface Conta { id: string; nome: string; ativo: boolean }
+interface Contrato { id: string; percentual_exito: number | null; modalidade: string | null }
 
 export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
   alvo: AlvoBaixa | null;
@@ -69,6 +72,11 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
   const [data, setData] = useState(hojeISO());
   const [salvando, setSalvando] = useState(false);
   const [festa, setFesta] = useState(false);
+  const [contratos, setContratos] = useState<Contrato[]>([]);
+  // Quem digitou manda. A sugestão do contrato só preenche enquanto o campo
+  // estiver intocado — sobrescrever o que a pessoa acabou de digitar é o tipo
+  // de gentileza que faz repassar o valor errado.
+  const [clienteTocado, setClienteTocado] = useState(false);
 
   const ehAcordo = alvo?.via === "acordo";
   const rotuloVia = ehAcordo ? "acordo" : "alvará";
@@ -81,6 +89,8 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
     setPasso(1);
     setValor(alvo.valorPrevisto > 0 ? alvo.valorPrevisto.toFixed(2).replace(".", ",") : "");
     setDoCliente("");
+    setClienteTocado(false);
+    setContratos([]);
     setData(hojeISO());
   }, [alvo?.processoId, alvo?.via]);
 
@@ -92,12 +102,36 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
       const lista = (cs || []) as Conta[];
       setContas(lista);
       setContaId((atual) => atual || lista[0]?.id || "");
+
+      // O contrato diz o percentual de êxito do escritório; o resto é do
+      // cliente. Sem contrato, o campo fica vazio e a pessoa preenche.
+      if (alvo.clienteId) {
+        const { data: ct } = await (supabase.from("contratos" as never) as never as any)
+          .select("id, percentual_exito, modalidade")
+          .eq("cliente_id", alvo.clienteId)
+          .eq("status", "ativo")
+          .order("data_assinatura", { ascending: false });
+        setContratos((ct || []) as Contrato[]);
+      }
     })();
-  }, [alvo?.processoId]);
+  }, [alvo?.processoId, alvo?.clienteId]);
 
   const bruto = parseMoneyBR(valor) || 0;
   const cliente = parseMoneyBR(doCliente) || 0;
   const divisao = useMemo(() => dividirBaixa(bruto, cliente), [bruto, cliente]);
+
+  const sugestao = useMemo(
+    () => sugerirRepasse(bruto, contratos as ContratoDoCliente[]),
+    [bruto, contratos],
+  );
+
+  // Preenche a parte do cliente pelo contrato enquanto ninguém tiver digitado
+  // ali. Se a pessoa mexeu, o campo é dela — recalcular por cima seria trocar
+  // o valor de repasse debaixo da mão de quem está confirmando.
+  useEffect(() => {
+    if (clienteTocado || sugestao.valor == null) return;
+    setDoCliente(sugestao.valor.toFixed(2).replace(".", ","));
+  }, [sugestao.valor, clienteTocado]);
 
   const confirmar = async () => {
     if (!alvo || !divisao.valido || !contaId) return;
@@ -214,11 +248,23 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
                   </div>
                   <div>
                     <Label className="text-xs">Parte do cliente (R$)</Label>
-                    <Input value={doCliente} onChange={(e) => setDoCliente(e.target.value)}
+                    <Input
+                      value={doCliente}
+                      onChange={(e) => { setClienteTocado(true); setDoCliente(e.target.value); }}
                       placeholder="0,00" className="mt-1 tabular-nums" />
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      em branco, é tudo do escritório
-                    </p>
+                    {/* A conta escrita, não só o número: se eu tiver invertido a
+                        direção do percentual, isso denuncia antes de confirmar. */}
+                    {sugestao.valor != null ? (
+                      <p className={cn("text-[11px] mt-1",
+                        sugestao.ambiguo ? "text-amber-300/90" : "text-muted-foreground")}>
+                        {sugestao.explicacao}
+                        {!clienteTocado && !sugestao.ambiguo && " Confira e ajuste se for o caso."}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {sugestao.explicacao || "em branco, é tudo do escritório"}
+                      </p>
+                    )}
                   </div>
                 </div>
 

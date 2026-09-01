@@ -34,6 +34,8 @@ export interface Vitoria {
   materia: string | null;
   comarca_uf: string | null;
   cliente_nome: string | null;
+  /** pro diálogo de baixa buscar o contrato e sugerir o repasse */
+  cliente_id: string | null;
   /** O que o processo vale HOJE. Havendo acordo, é o acordo. */
   valor: number;
   /** Condenação de 1º grau (0 quando a vitória veio só do acordo). */
@@ -119,6 +121,7 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
       materia: p.materia,
       comarca_uf: p.comarca_uf,
       cliente_nome: p.cliente?.nome ?? null,
+      cliente_id: p.cliente?.id ?? null,
       valor,
       valorSentenca,
       origem,
