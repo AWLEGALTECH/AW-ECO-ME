@@ -40,8 +40,10 @@ export interface ParteDoCliente<T extends RepasseLancamento = RepasseLancamento>
   doEscritorio: number;
   /** ainda não saiu da conta */
   pendente: boolean;
-  /** frase curta, pro selo na linha do movimento */
+  /** frase curta, pro selo em tela estreita (onde não há colunas) */
   resumo: string;
+  /** só o essencial, pra coluna "do cliente" — ela já tem cabeçalho dizendo o quê */
+  curto: string;
   /** frase inteira, pro detalhe do lançamento */
   aviso: string;
 }
@@ -104,6 +106,7 @@ export function parteDoCliente<T extends RepasseLancamento>(
     doEscritorio,
     pendente,
     resumo: pendente ? `${brl(devido)} é do cliente` : "já repassado",
+    curto: pendente ? brl(devido) : "repassado",
     aviso: pendente
       ? `${brl(devido)} deste valor é do cliente e ainda está na conta. ` +
         `Do escritório são ${brl(doEscritorio)}.`

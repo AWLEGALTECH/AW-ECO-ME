@@ -282,6 +282,12 @@ export default function WalletPage() {
      repasses inteira a cada render. */
   const ixRepasses = useMemo(() => indexarRepasses(repasses), [repasses]);
 
+  /* A coluna "do cliente" aparece por lista, e só quando há o que mostrar
+     nela — num mês sem alvará nenhum ela seria uma faixa vazia roubando
+     espaço do nome de todos os lançamentos. */
+  const colunaClientePrevistos = previstos.some((l) => parteDoCliente(l, ixRepasses));
+  const colunaClienteRealizados = realizados.some((l) => parteDoCliente(l, ixRepasses));
+
   /* ── custos fixos, lidos pela régua que está em vigor ──
      Quando a régua é UM MÊS, a pergunta é binária: pagou ou não pagou aquele
      mês. Quando é um intervalo (90 dias, tudo, escolher), essa pergunta não
@@ -678,6 +684,7 @@ export default function WalletPage() {
                       <LinhaLanc
                         key={l.id} l={l} categoria={cat(l.categoria_id)}
                         parte={parteDoCliente(l, ixRepasses)}
+                        colunaCliente={colunaClientePrevistos}
                         onClick={() => setDetalhe(l)}
                         acao={
                           <Button size="sm" variant="ghost" className="h-7 text-[11px] shrink-0"
@@ -699,6 +706,7 @@ export default function WalletPage() {
                   {realizados.length > 0 && (
                     <span className="hidden sm:flex items-center gap-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 pr-3">
                       <span className="w-[10.5rem]">Categoria</span>
+                      {colunaClienteRealizados && <span className="w-[7.25rem] text-right">Do cliente</span>}
                       <span className="w-[6.5rem] text-right">Valor</span>
                     </span>
                   )}
@@ -712,6 +720,7 @@ export default function WalletPage() {
                     {realizados.map((l) => (
                       <LinhaLanc key={l.id} l={l} categoria={cat(l.categoria_id)}
                         parte={parteDoCliente(l, ixRepasses)}
+                        colunaCliente={colunaClienteRealizados}
                         onClick={() => setDetalhe(l)} />
                     ))}
                   </div>
@@ -1462,10 +1471,14 @@ function FormBaixa({ l, salvando, onConfirmar, onCancelar }: {
    saiu, a linha para de ser só "entrou tanto": ela avisa, no mesmo lugar em que
    o valor está escrito, que uma fatia daquilo não é do escritório. Já repassado
    também aparece, mas apagado — é histórico, não pendência. */
-function LinhaLanc({ l, categoria, onClick, acao, parte }: {
+function LinhaLanc({ l, categoria, onClick, acao, parte, colunaCliente }: {
   l: Lancamento; categoria?: Categoria;
   onClick: () => void; acao?: React.ReactNode;
   parte?: ParteDoCliente<Repasse> | null;
+  /* A coluna "do cliente" só existe quando ALGUMA linha da lista tem repasse.
+     Fora isso ela seria 7rem de vazio comendo o nome do lançamento em todas as
+     linhas por causa de nenhuma. */
+  colunaCliente?: boolean;
 }) {
   return (
     <div
@@ -1488,13 +1501,10 @@ function LinhaLanc({ l, categoria, onClick, acao, parte }: {
               ref. {mesPorExtenso(l.competencia).nome.slice(0, 3).toLowerCase()}/{l.competencia.slice(2, 4)}
             </span>
           )}
-          {/* O AVISO. Fica colado na data, na linha que o olho já lê depois do
-              nome — e não no fim, onde some no truncamento.
-              O amarelo é SÓ o símbolo. Pintar a linha inteira de âmbar fazia
-              cada alvará gritar mais alto que o saldo; o ícone sozinho já
-              marca a linha na varredura, sem virar alarme. */}
+          {/* Em tela estreita não há colunas: o aviso volta pra cá, junto da
+              data, como o nome da categoria faz logo abaixo. */}
           {parte && (
-            <span className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] bg-white/[0.04] ring-1 ring-white/10 text-foreground/70">
+            <span className="sm:hidden shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] bg-white/[0.04] ring-1 ring-white/10 text-foreground/70">
               <HandCoins className={cn("h-3 w-3", parte.pendente ? "text-amber-300" : "text-muted-foreground/50")} />
               {parte.resumo}
             </span>
@@ -1519,6 +1529,26 @@ function LinhaLanc({ l, categoria, onClick, acao, parte }: {
           <span className="text-[11.5px] text-muted-foreground/50">sem categoria</span>
         )}
       </span>
+
+      {/* COLUNA "DO CLIENTE". Enfiado na linha da data, o aviso ficava sumido;
+          como coluna ele ganha cabeçalho, altura fixa e vizinhos — dá pra
+          correr o olho por ela de cima a baixo e ver de quais entradas o
+          escritório ainda deve dinheiro. O amarelo continua sendo só o
+          símbolo. */}
+      {colunaCliente && (
+        <span className="hidden sm:flex items-center justify-end gap-1.5 shrink-0 w-[7.25rem] min-w-0">
+          {parte && (
+            <>
+              <HandCoins className={cn("h-3.5 w-3.5 shrink-0",
+                parte.pendente ? "text-amber-300" : "text-muted-foreground/40")} />
+              <span className={cn("text-[11.5px] tabular-nums truncate",
+                parte.pendente ? "text-foreground/80" : "text-muted-foreground/60")}>
+                {parte.curto}
+              </span>
+            </>
+          )}
+        </span>
+      )}
 
       {/* largura fixa pro valor: sem isso as colunas dançam de linha em linha
           e o cabeçalho não bate com nada */}

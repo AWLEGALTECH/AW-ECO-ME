@@ -33,6 +33,13 @@ describe("o caso real que motivou a tela", () => {
     expect(p.resumo).toContain("2.037,79");
     expect(p.resumo).toContain("do cliente");
   });
+
+  it("na coluna vai só o número — o cabeçalho já diz do que se trata", () => {
+    // o espaço depois de "R$" é NBSP: é o que o Intl produz, e comparar com
+    // espaço comum falha por um caractere invisível
+    expect(p.curto.replace(/ /g, " ")).toBe("R$ 2.037,79");
+    expect(p.curto).not.toContain("cliente");
+  });
 });
 
 describe("quando não há aviso a dar", () => {
@@ -65,6 +72,8 @@ describe("repasse já pago", () => {
   it("continua aparecendo, mas como fato consumado", () => {
     expect(p.pendente).toBe(false);
     expect(p.resumo).toBe("já repassado");
+    // sem valor na coluna: repetir o número sugeriria que ainda há o que pagar
+    expect(p.curto).toBe("repassado");
   });
 
   it("o aviso conta quando saiu", () => {
