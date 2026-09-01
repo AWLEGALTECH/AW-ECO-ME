@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Trophy, Plus, User, CalendarDays, AlertTriangle, FolderUp, Trash2, Hash, Loader2,
-  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check,
+  ChevronLeft, ChevronRight, Flame, Zap, Target, Users, Sparkles, Settings2, Coins, Check, ArrowRight,
   ClipboardList, ListChecks, PiggyBank, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
@@ -468,6 +468,17 @@ export default function Fechamentos() {
   const focoValorAcao = valorAcaoVigente(focoPagas, focoRegra);
   const focoComissao = comissaoDe(focoPagas, focoRegra, focoBonus);
 
+  /* O QUE SERIA SEM O EXCEPCIONAL — a base da comparação.
+     Não é o valor base do mês cru: é a regra que valeria pra esta pessoa se
+     ninguém tivesse mexido, incluindo a faixa especial própria e a geral. Se a
+     comparação usasse o base puro, alguém que já estava no degrau apareceria
+     ganhando mais do que de fato ganhou de aumento. */
+  const focoRegraSemExc = focoExcepcional
+    ? regraDoFoco(regra, { ...focoRegistro!, excepcionalAtivo: false }).regra
+    : focoRegra;
+  const focoValorSemExc = valorAcaoVigente(focoPagas, focoRegraSemExc);
+  const focoComissaoSemExc = comissaoDe(focoPagas, focoRegraSemExc, focoBonus);
+
   // Linhas de excedente pro rodapé da lista (contexto: foco ou time inteiro).
   //  · recebido = excedente do mês anterior, paga aqui (conta como fechamento).
   //  · bolsa    = retido neste mês, sem valor, vai pro próximo mês.
@@ -617,11 +628,11 @@ export default function Fechamentos() {
                   regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao}
                   especialAtivo={focoEspecialAtivo}
                   excepcional={focoExcepcional
-                    ? { valor: focoRegistro!.excepcionalValor, obs: focoRegistro!.excepcionalObs }
+                    ? { valor: focoRegistro!.excepcionalValor, obs: focoRegistro!.excepcionalObs, antes: focoValorSemExc }
                     : null}
                 />
                 <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao}
-                  excepcional={focoExcepcional} />
+                  excepcional={focoExcepcional} totalSemExc={focoComissaoSemExc} />
               </div>
             </>
           ) : (
@@ -991,7 +1002,7 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
   /* Quando o valor veio de decisão manual, o card muda de cara e mostra o
      recado. Um número diferente do combinado sem o motivo ao lado é o que
      ninguém consegue explicar três meses depois. */
-  excepcional?: { valor: number; obs: string | null } | null;
+  excepcional?: { valor: number; obs: string | null; antes: number } | null;
 }) {
   const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
   const lim = regra.especial_limite ?? 0;
@@ -1003,18 +1014,13 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
         <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 text-violet-300" /> Valor por rubrica válida
         </p>
-        <div className="mt-1.5 flex items-center gap-2">
-          <motion.span
-            className="text-3xl font-normal font-display tabular-nums leading-none text-violet-300"
-            initial={{ scale: 0.85, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {brl(excepcional.valor)}
-          </motion.span>
-          <span className="text-sm text-muted-foreground mb-0.5">/ rubrica</span>
-          <Sparkles className="h-5 w-5 text-violet-300" />
-        </div>
+        {/* ERA → PASSOU A SER. O número sozinho não conta a história: quem olha
+            quer ver o tamanho da mudança, não só o resultado dela. */}
+        <DeParaValor
+          antes={excepcional.antes}
+          depois={excepcional.valor}
+          sufixo="/ rubrica"
+        />
         <p className="text-[11px] text-violet-300/90 mt-2.5 font-medium">
           Valor excepcional deste mês
         </p>
@@ -1022,7 +1028,7 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
           ? <p className="text-[11px] text-muted-foreground mt-1 whitespace-pre-line">{excepcional.obs}</p>
           : <p className="text-[11px] text-amber-300/80 mt-1">Sem motivo registrado.</p>}
         <p className="text-[11px] text-muted-foreground/70 mt-2 pt-2 border-t border-white/[0.06]">
-          Vale da primeira rubrica à última. O valor base do mês é {brl(regra.valor_base)}.
+          Vale da primeira rubrica à última.
         </p>
       </SpotlightCard>
     );
@@ -1056,8 +1062,10 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
   );
 }
 
-function CardComissao({ acoes, valorAcao, bonus, total, excepcional }: {
+function CardComissao({ acoes, valorAcao, bonus, total, excepcional, totalSemExc }: {
   acoes: number; valorAcao: number; bonus: number; total: number;
+  /** o que a comissão seria sem o excepcional — a base da comparação */
+  totalSemExc?: number;
   /* Os três cards são uma linha só. Se os dois primeiros comemoram e o do
      dinheiro fica apagado, a conta final vira a parte sem graça — justo o
      número que a pessoa mais quer ver. */
@@ -1069,16 +1077,54 @@ function CardComissao({ acoes, valorAcao, bonus, total, excepcional }: {
         excepcional ? "text-violet-300" : "text-emerald-400/90")}>
         <Coins className="h-3.5 w-3.5" /> Comissão do mês
       </p>
-      <div className="mt-1.5">
-        <CountUp value={total} format={(n) => brl(n)}
-          className={cn("text-3xl font-semibold font-display tabular-nums leading-none",
-            excepcional ? "text-violet-300" : "text-emerald-400")} />
-      </div>
+      {excepcional && totalSemExc != null ? (
+        <DeParaValor antes={totalSemExc} depois={total} tamanho="medio" />
+      ) : (
+        <div className="mt-1.5">
+          <CountUp value={total} format={(n) => brl(n)}
+            className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
+        </div>
+      )}
       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
         {intBR(acoes)} rubricas válidas × {brl(valorAcao)}/rubrica
         {bonus > 0 && <> + {brl(bonus)} bônus</>}
       </p>
     </SpotlightCard>
+  );
+}
+
+/* ERA → PASSOU A SER.
+   O valor antigo cortado, a seta, o novo em destaque. Mostrar só o resultado
+   esconde o tamanho da decisão — e é o tamanho dela que a pessoa quer ver, e
+   que quem decidiu vai precisar justificar depois.
+
+   Quando os dois são iguais (o excepcional foi definido no mesmo valor que já
+   valia), não há corte nenhum: riscar um número igual ao outro só confundiria. */
+function DeParaValor({ antes, depois, sufixo, tamanho = "grande" }: {
+  antes: number; depois: number; sufixo?: string; tamanho?: "grande" | "medio";
+}) {
+  const mudou = Math.abs(antes - depois) >= 0.005;
+  const grande = tamanho === "grande";
+  return (
+    <div className="mt-1.5 flex items-baseline flex-wrap gap-x-2 gap-y-1">
+      {mudou && antes > 0 && (
+        <span className="text-base text-muted-foreground/60 tabular-nums line-through decoration-muted-foreground/50">
+          {brl(antes)}
+        </span>
+      )}
+      {mudou && antes > 0 && <ArrowRight className="h-3.5 w-3.5 text-violet-300/70 self-center" />}
+      <motion.span
+        className={cn("font-display tabular-nums leading-none text-violet-300",
+          grande ? "text-3xl font-normal" : "text-3xl font-semibold")}
+        initial={{ scale: 0.85, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
+        {brl(depois)}
+      </motion.span>
+      {sufixo && <span className="text-sm text-muted-foreground">{sufixo}</span>}
+      <Sparkles className="h-4 w-4 text-violet-300 self-center" />
+    </div>
   );
 }
 

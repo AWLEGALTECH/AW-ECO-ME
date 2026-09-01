@@ -100,3 +100,42 @@ describe("comissaoDoMes", () => {
     expect(comissaoDoMes(0, SIMPLES, { excepcionalAtivo: true, excepcionalValor: 9 }, 250).total).toBe(250);
   });
 });
+
+describe("o que seria sem o excepcional — base da comparação da tela", () => {
+  /* A tela mostra "era X, passou a ser Y". O X não é o valor base cru do mês:
+     é o que valeria pra AQUELA pessoa se ninguém tivesse mexido, incluindo as
+     faixas especiais. Usar o base puro faria quem já estava no degrau parecer
+     ter ganhado mais aumento do que ganhou. */
+  const pessoa = {
+    excepcionalAtivo: true, excepcionalValor: 9,
+    especialAtivo: true, valorEspecial: 8, especialLimite: 10,
+  };
+
+  it("desligar o excepcional revela a faixa especial, não o base", () => {
+    const semExc = valorDaRubrica(30, COM_DEGRAU, { ...pessoa, excepcionalAtivo: false });
+    expect(semExc.valor).toBe(8);           // e não 5
+    expect(semExc.origem).toBe("especial-propria");
+  });
+
+  it("a comparação mede o aumento real", () => {
+    const antes = valorDaRubrica(30, COM_DEGRAU, { ...pessoa, excepcionalAtivo: false }).valor;
+    const depois = valorDaRubrica(30, COM_DEGRAU, pessoa).valor;
+    expect(depois - antes).toBe(1);         // 8 → 9, e não 5 → 9
+  });
+
+  it("sem faixa nenhuma, a base da comparação é o valor base do mês", () => {
+    const p = { excepcionalAtivo: true, excepcionalValor: 12 };
+    expect(valorDaRubrica(6, SIMPLES, { ...p, excepcionalAtivo: false }).valor).toBe(5);
+    expect(comissaoDoMes(6, SIMPLES, { ...p, excepcionalAtivo: false }).total).toBe(30);
+    expect(comissaoDoMes(6, SIMPLES, p).total).toBe(72);
+  });
+
+  it("o bônus entra dos dois lados e não distorce a diferença", () => {
+    const p = { excepcionalAtivo: true, excepcionalValor: 10 };
+    const antes = comissaoDoMes(6, SIMPLES, { ...p, excepcionalAtivo: false }, 200).total;
+    const depois = comissaoDoMes(6, SIMPLES, p, 200).total;
+    expect(antes).toBe(230);
+    expect(depois).toBe(260);
+    expect(depois - antes).toBe(30);        // só as rubricas mudaram de preço
+  });
+});
