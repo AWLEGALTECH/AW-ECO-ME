@@ -36,7 +36,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Confete } from "@/components/Confete";
+import { ChuvaDeDinheiro } from "@/components/ChuvaDeDinheiro";
 import {
   Loader2, Landmark, Handshake, ArrowRight, Check, TriangleAlert, Users, Building2,
 } from "lucide-react";
@@ -171,7 +171,7 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
 
   return (
     <>
-      <Confete ativo={festa} onFim={() => setFesta(false)} />
+      <ChuvaDeDinheiro ativo={festa} onFim={() => setFesta(false)} />
 
       <Dialog open={!!alvo} onOpenChange={(o) => !o && onFechar()}>
         <DialogContent className="max-w-lg">

@@ -151,3 +151,65 @@ export function valorPrevistoDoProcesso(
     0,
   );
 }
+
+/** O que o processo ganhou, e por qual caminho. */
+export interface GanhoDoProcesso {
+  /** quanto vale hoje: o executado, senão o acordado, senão a condenação */
+  valor: number;
+  via: ViaBaixa;
+  /** litigiosa venceu no julgamento; acordo foi negociado */
+  rotulo: "Litigiosa" | "Acordo";
+  /** o dinheiro já entrou (ALVARÁ PAGO / ACORDO PAGO) */
+  recebido: boolean;
+}
+
+/**
+ * Lê o ganho de um processo pra mostrar na capa, ao lado do valor da causa.
+ *
+ * O ACORDO MANDA QUANDO EXISTE. Uma condenação de 10 mil que se acertou por 6
+ * mil vale 6 mil — é o que vai entrar, e a capa existe pra dizer o que entra,
+ * não o que poderia ter entrado. Mesma regra que o Tracker usa.
+ *
+ * Devolve null quando não há nada ganho: capa de processo em andamento não
+ * inventa vitória.
+ */
+export function ganhoDoProcesso(
+  etapas: Array<{
+    titulo?: string;
+    statusProcessual?: string;
+    status?: string;
+    sentenca?: { valor?: number; resultado?: string };
+    julgamento?: { valor?: number; resultado?: string };
+    execucao?: { valor?: number };
+    acordo?: { valor?: number };
+  }> | null | undefined,
+  faseFicha?: string | null,
+): GanhoDoProcesso | null {
+  const lista = etapas ?? [];
+  const achar = (t: string) => lista.find((e) => e.titulo === t);
+  const statusVigente =
+    lista.find((e) => e.status === "atual")?.statusProcessual || faseFicha || "";
+
+  const acordo = Number(achar("Acordo")?.acordo?.valor || 0);
+  if (acordo > 0) {
+    return {
+      valor: acordo,
+      via: "acordo",
+      rotulo: "Acordo",
+      recebido: viaDeBaixa(statusVigente) === "acordo"
+        || limpo(statusVigente) === "ARQUIVADO ACORDO",
+    };
+  }
+
+  const litigioso = valorPrevistoDoProcesso(lista, "alvara");
+  if (litigioso > 0) {
+    return {
+      valor: litigioso,
+      via: "alvara",
+      rotulo: "Litigiosa",
+      recebido: viaDeBaixa(statusVigente) === "alvara",
+    };
+  }
+
+  return null;
+}

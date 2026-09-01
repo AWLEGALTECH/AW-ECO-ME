@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { parseMoneyBR } from "@/lib/money";
 import { podeGravarLinha } from "@/lib/linhaTemporal";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
-import { valorPrevistoDoProcesso } from "@/lib/baixaTracker";
+import { valorPrevistoDoProcesso, ganhoDoProcesso } from "@/lib/baixaTracker";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
   FileText, MapPin, User, SquareArrowOutUpRight, Package,
-  Handshake, Activity, ListTodo, Paperclip,
+  Handshake, Activity, ListTodo, Paperclip, Landmark, Trophy, Scale,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -550,13 +550,47 @@ export default function ProcessoDetail() {
             )}
           </div>
 
-          {/* Valor da causa — destaque em verde, abaixo das infos */}
-          <div className="mt-4">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da causa</p>
-            <p className="text-xl font-semibold text-emerald-400 tabular-nums mt-0.5">
-              {valorNum ? brl(valorNum) : "Não informado"}
-            </p>
-          </div>
+          {/* Valor da causa e, ao lado, o que o processo ganhou.
+              A causa é o que se pediu; o ganho é o que o juízo deu ou o que se
+              acertou — e são números diferentes na maioria das vezes. Ficam
+              lado a lado porque é justamente a comparação entre os dois que
+              alguém quer fazer ao abrir a capa. Processo em andamento não
+              mostra ganho nenhum: capa não inventa vitória. */}
+          {(() => {
+            const g = ganhoDoProcesso(etapas, form.fase_processual);
+            return (
+              <div className="mt-4 flex flex-wrap items-start gap-x-10 gap-y-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Valor da causa</p>
+                  <p className={cn("text-xl font-semibold tabular-nums mt-0.5",
+                    g ? "text-foreground/70" : "text-emerald-400")}>
+                    {valorNum ? brl(valorNum) : "Não informado"}
+                  </p>
+                </div>
+
+                {g && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      {g.recebido ? <Landmark className="h-3 w-3 text-emerald-400" />
+                                  : <Trophy className="h-3 w-3 text-emerald-400/70" />}
+                      {g.recebido ? "Recebido" : "Ganho"}
+                    </p>
+                    <p className="text-xl font-semibold text-emerald-400 tabular-nums mt-0.5">
+                      {brl(g.valor)}
+                    </p>
+                    <span className={cn(
+                      "inline-flex items-center gap-1 mt-1 rounded-full px-2 py-[2px] text-[10.5px] font-medium ring-1",
+                      g.via === "acordo"
+                        ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
+                        : "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25")}>
+                      {g.via === "acordo" ? <Handshake className="h-3 w-3" /> : <Scale className="h-3 w-3" />}
+                      {g.rotulo}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </SpotlightCard>
       </motion.div>

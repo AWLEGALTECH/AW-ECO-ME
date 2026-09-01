@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   STATUS_ALVARA_PAGO, STATUS_ACORDO_PAGO,
   viaDeBaixa, ehStatusDeBaixa, jaSaiuDoTracker, decidirBaixa, dividirBaixa,
-  valorPrevistoDoProcesso,
+  valorPrevistoDoProcesso, ganhoDoProcesso,
 } from "./baixaTracker";
 
 describe("viaDeBaixa", () => {
@@ -173,5 +173,57 @@ describe("valorPrevistoDoProcesso", () => {
     expect(valorPrevistoDoProcesso([], "alvara")).toBe(0);
     expect(valorPrevistoDoProcesso(null, "acordo")).toBe(0);
     expect(valorPrevistoDoProcesso(comSentenca, "acordo")).toBe(0);
+  });
+});
+
+describe("ganhoDoProcesso — o que a capa mostra", () => {
+  const sent = { titulo: "Sentença", sentenca: { valor: 10000, resultado: "procedente" } };
+
+  it("sem nada ganho, não inventa vitória", () => {
+    expect(ganhoDoProcesso([], null)).toBeNull();
+    expect(ganhoDoProcesso(null, "AG. SENTENÇA")).toBeNull();
+    expect(ganhoDoProcesso([{ titulo: "Sentença", sentenca: { valor: 0, resultado: "improcedente" } }], null)).toBeNull();
+  });
+
+  it("com sentença procedente, é litigiosa", () => {
+    const g = ganhoDoProcesso([sent], "AG. CUMPRIMENTO SENTENÇA");
+    expect(g).toEqual({ valor: 10000, via: "alvara", rotulo: "Litigiosa", recebido: false });
+  });
+
+  it("o acordo manda quando existe, mesmo com condenação maior", () => {
+    // condenação de 10 mil acertada por 6 mil vale 6 mil: é o que vai entrar
+    const g = ganhoDoProcesso([sent, { titulo: "Acordo", acordo: { valor: 6000 } }], null);
+    expect(g?.valor).toBe(6000);
+    expect(g?.rotulo).toBe("Acordo");
+  });
+
+  it("o executado manda sobre a condenação na via litigiosa", () => {
+    const g = ganhoDoProcesso([
+      sent,
+      { titulo: "Cumprimento de sentença", execucao: { valor: 10480.22 } },
+    ], null);
+    expect(g?.valor).toBe(10480.22);
+  });
+
+  it("marca recebido em ALVARÁ PAGO", () => {
+    const lt = [{ ...sent, status: "concluida" },
+                { titulo: "Cumprimento de sentença", status: "atual", statusProcessual: "ALVARÁ PAGO" }];
+    expect(ganhoDoProcesso(lt, null)?.recebido).toBe(true);
+  });
+
+  it("marca recebido em ACORDO PAGO e no arquivado do acordo", () => {
+    const base = { titulo: "Acordo", status: "atual", acordo: { valor: 1500 } };
+    expect(ganhoDoProcesso([{ ...base, statusProcessual: "ACORDO PAGO" }], null)?.recebido).toBe(true);
+    expect(ganhoDoProcesso([{ ...base, statusProcessual: "ARQUIVADO ACORDO" }], null)?.recebido).toBe(true);
+    expect(ganhoDoProcesso([{ ...base, statusProcessual: "AG. PAGAMENTO ACORDO" }], null)?.recebido).toBe(false);
+  });
+
+  it("não confunde as vias: alvará pago não marca acordo como recebido", () => {
+    const lt = [{ titulo: "Acordo", status: "atual", statusProcessual: "ALVARÁ PAGO", acordo: { valor: 1500 } }];
+    expect(ganhoDoProcesso(lt, null)?.recebido).toBe(false);
+  });
+
+  it("cai na fase da ficha quando não há etapa atual", () => {
+    expect(ganhoDoProcesso([sent], "ALVARÁ PAGO")?.recebido).toBe(true);
   });
 });
