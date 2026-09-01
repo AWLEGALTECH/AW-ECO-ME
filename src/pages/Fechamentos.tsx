@@ -22,6 +22,8 @@ import {
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { hojeISO, mesDeHoje } from "@/lib/hoje";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── tipos ─────────────────────────── */
 interface Fechamento {
@@ -104,6 +106,11 @@ interface MetaUser {
   valorEspecial: number;
   especialLimite: number | null;
   permitirExcedentes: boolean | null;   // null = segue o geral do mês
+  // Valor decidido pra esta pessoa neste mês, sem degrau, com o porquê junto.
+  // Sobrepõe a faixa especial própria e a geral — é decisão manual.
+  excepcionalAtivo: boolean;
+  excepcionalValor: number;
+  excepcionalObs: string | null;
 }
 /**
  * Regra vigente pra uma pessoa: se ela tem faixa especial PRÓPRIA ativa,
@@ -112,6 +119,16 @@ interface MetaUser {
  * vigor é individual (pra sinalizar na UI).
  */
 function regraDoFoco(regraMes: Regra, mu?: MetaUser): { regra: Regra; individual: boolean } {
+  // O EXCEPCIONAL VEM PRIMEIRO. Ele não é degrau: reprecifica a rubrica do
+  // início ao fim. Se perdesse pra faixa especial, quem produzisse muito
+  // receberia pela regra que a direção tinha decidido substituir — e a decisão
+  // manual viraria letra morta justamente onde ela mais aparece.
+  if (mu && mu.excepcionalAtivo && mu.excepcionalValor > 0) {
+    return {
+      regra: { ...regraMes, valor_base: mu.excepcionalValor, especial_ativo: false, valor_especial: 0, especial_limite: null },
+      individual: true,
+    };
+  }
   if (mu && mu.especialAtivo && mu.valorEspecial > 0) {
     return {
       regra: { ...regraMes, especial_ativo: true, valor_especial: mu.valorEspecial, especial_limite: mu.especialLimite ?? 0 },
@@ -383,6 +400,9 @@ export default function Fechamentos() {
     especialAtivo: !!r.especial_ativo,
     valorEspecial: Number(r.valor_especial) || 0,
     especialLimite: r.especial_limite == null ? null : Number(r.especial_limite),
+    excepcionalAtivo: !!r.excepcional_ativo,
+    excepcionalValor: Number(r.excepcional_valor) || 0,
+    excepcionalObs: r.excepcional_obs ?? null,
     permitirExcedentes: r.permitir_excedentes == null ? null : !!r.permitir_excedentes,
   });
   const regraDe = useMemo(() => {
@@ -429,6 +449,8 @@ export default function Fechamentos() {
   const focoAcoes = focoId ? acoesDe[focoId] || 0 : 0;
   const focoMeta = focoId ? metasMap[focoId]?.meta || 0 : 0;
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
+  // O registro individual de quem está em foco: é dele que sai o excepcional.
+  const focoRegistro = focoId ? metasMap[focoId] : undefined;
   // Regra vigente pro foco: faixa especial individual sobrepõe a geral do mês.
   const { regra: focoRegra } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
   // Excedentes: o que a pessoa retém (bolsa) e o que recebe do mês anterior.
@@ -586,8 +608,15 @@ export default function Fechamentos() {
                 excedente={excedenteInfo}
               />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardDinamica regra={focoRegra} acoes={focoPagas} />
-                <CardValorAcao regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao} especialAtivo={focoEspecialAtivo} />
+                <CardDinamica regra={focoRegra} acoes={focoPagas}
+                  excepcional={!!focoRegistro?.excepcionalAtivo && focoRegistro.excepcionalValor > 0} />
+                <CardValorAcao
+                  regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao}
+                  especialAtivo={focoEspecialAtivo}
+                  excepcional={focoRegistro?.excepcionalAtivo && focoRegistro.excepcionalValor > 0
+                    ? { valor: focoRegistro.excepcionalValor, obs: focoRegistro.excepcionalObs }
+                    : null}
+                />
                 <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
               </div>
             </>
@@ -953,10 +982,40 @@ function RankingMes({ equipe, acoesDe, pagasDe, regra, metasMap }: {
   );
 }
 
-function CardValorAcao({ regra, acoes, vigente, especialAtivo }: { regra: Regra; acoes: number; vigente: number; especialAtivo: boolean }) {
+function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
+  regra: Regra; acoes: number; vigente: number; especialAtivo: boolean;
+  /* Quando o valor veio de decisão manual, o card muda de cara e mostra o
+     recado. Um número diferente do combinado sem o motivo ao lado é o que
+     ninguém consegue explicar três meses depois. */
+  excepcional?: { valor: number; obs: string | null } | null;
+}) {
   const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
   const lim = regra.especial_limite ?? 0;
   const faltam = temEspecial && !especialAtivo ? Math.max(0, lim + 1 - acoes) : 0;
+
+  if (excepcional) {
+    return (
+      <SpotlightCard className="border-violet-400/40">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 text-violet-300" /> Valor por rubrica válida
+        </p>
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="text-3xl font-normal font-display tabular-nums leading-none text-violet-300">{brl(excepcional.valor)}</span>
+          <span className="text-sm text-muted-foreground mb-0.5">/ rubrica</span>
+        </div>
+        <p className="text-[11px] text-violet-300/90 mt-2.5 font-medium">
+          Valor excepcional deste mês
+        </p>
+        {excepcional.obs
+          ? <p className="text-[11px] text-muted-foreground mt-1 whitespace-pre-line">{excepcional.obs}</p>
+          : <p className="text-[11px] text-amber-300/80 mt-1">Sem motivo registrado.</p>}
+        <p className="text-[11px] text-muted-foreground/70 mt-2 pt-2 border-t border-white/[0.06]">
+          Vale da primeira rubrica à última. O valor base do mês é {brl(regra.valor_base)}.
+        </p>
+      </SpotlightCard>
+    );
+  }
+
   return (
     <SpotlightCard className={especialAtivo ? "border-amber-400/40 fech-glow" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
@@ -1028,7 +1087,13 @@ function BarraViva({ value, max, desbloqueado }: { value: number; max: number; d
 
 /* Dinâmica do mês, versão compacta — cabe na linha dos 3 cards (individual).
    Mantém a frase corrida da regra e a barra viva gamificada. */
-function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
+function CardDinamica({ regra, acoes, excepcional }: {
+  regra: Regra; acoes: number;
+  /* `regra` já chega com o valor excepcional no lugar do base — quem resolve a
+     precedência é regraDoFoco. Este sinal serve só pra tela não anunciar como
+     "a dinâmica do mês" um valor que é de uma pessoa só. */
+  excepcional?: boolean;
+}) {
   const temEspecial = regra.especial_ativo && regra.valor_especial > 0;
   const lim = regra.especial_limite ?? 0;
   const alvo = lim + 1;
@@ -1038,7 +1103,10 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
   return (
     <SpotlightCard className={desbloqueado ? "border-amber-400/40 fech-glow" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-        {desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />} Dinâmica do mês
+        {excepcional ? <Sparkles className="h-3.5 w-3.5 text-violet-300" />
+          : desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" />
+          : <Sparkles className="h-3.5 w-3.5 text-primary" />}
+        {excepcional ? "Dinâmica desta pessoa" : "Dinâmica do mês"}
       </p>
 
       <p className="mt-2 text-[13px] leading-snug">
@@ -1049,7 +1117,11 @@ function CardDinamica({ regra, acoes }: { regra: Regra; acoes: number }) {
             <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
           </>
         ) : (
-          <>Cada rubrica válida vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
+          <>
+            Cada rubrica válida vale{" "}
+            <strong className={excepcional ? "text-violet-300" : "text-foreground"}>{brl(regra.valor_base)}</strong>{" "}
+            do início ao fim{excepcional ? ", por decisão deste mês" : ""}.
+          </>
         )}
       </p>
 
@@ -1230,7 +1302,8 @@ function RegrasDialog({
   const [metaGeral, setMetaGeral] = useState("");
   const [bonus, setBonus] = useState("");
   const [permitirExc, setPermitirExc] = useState(true);   // geral do mês
-  type MetaForm = { meta: string; bonus: string; espAtivo: boolean; espLimite: string; valorEsp: string; permitirExc: string };
+  type MetaForm = { meta: string; bonus: string; espAtivo: boolean; espLimite: string; valorEsp: string; permitirExc: string;
+                    excAtivo: boolean; excValor: string; excObs: string };
   const [metas, setMetas] = useState<Record<string, MetaForm>>({});
   const [saving, setSaving] = useState(false);
 
@@ -1254,6 +1327,9 @@ function RegrasDialog({
         espLimite: cur?.especialLimite == null ? "" : String(cur.especialLimite),
         valorEsp: cur?.valorEspecial ? String(cur.valorEspecial) : "",
         permitirExc: cur?.permitirExcedentes == null ? "" : String(cur.permitirExcedentes),
+        excAtivo: !!cur?.excepcionalAtivo,
+        excValor: cur?.excepcionalValor ? String(cur.excepcionalValor) : "",
+        excObs: cur?.excepcionalObs ?? "",
       };
     }
     setMetas(m);
@@ -1284,9 +1360,15 @@ function RegrasDialog({
     const rows = equipe.map((m) => {
       const f = metas[m.id];
       const espOn = !!f?.espAtivo;
+      const excOn = !!f?.excAtivo;
       return {
         mes,
         user_id: m.id,
+        excepcional_ativo: excOn,
+        excepcional_valor: excOn ? num(f?.excValor || "") : null,
+        // a observação só é apagada quando o excepcional é desligado; enquanto
+        // ligado, ela é obrigatória na tela
+        excepcional_obs: excOn ? (f?.excObs?.trim() || null) : null,
         meta: int(f?.meta || ""),
         bonus: num(f?.bonus || ""),
         especial_ativo: espOn,
@@ -1365,8 +1447,11 @@ function RegrasDialog({
               ) : equipe.map((m) => {
                 const f = metas[m.id];
                 const espOn = !!f?.espAtivo;
+                const excOn = !!f?.excAtivo;
                 return (
-                  <div key={m.id} className={`rounded-lg border p-3 ${espOn ? "border-amber-400/40 bg-amber-400/5" : "border-border"}`}>
+                  <div key={m.id} className={cn("rounded-lg border p-3",
+                    excOn ? "border-violet-400/40 bg-violet-400/[0.05]"
+                          : espOn ? "border-amber-400/40 bg-amber-400/5" : "border-border")}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium flex-1 truncate">{m.nome || m.email}</span>
                       <div className="w-24">
@@ -1389,14 +1474,74 @@ function RegrasDialog({
                       </div>
                     </div>
 
-                    <label className="flex items-center gap-2 text-xs font-medium cursor-pointer mt-2.5">
-                      <Checkbox checked={espOn} onCheckedChange={() => patchMeta(m.id, { espAtivo: !espOn })} />
+                    {/* ── VALOR EXCEPCIONAL ──
+                        Não é degrau: reprecifica a rubrica do início ao fim, e
+                        sobrepõe as duas faixas especiais. Por isso vem antes
+                        delas aqui também — quem liga isso precisa ver, na hora,
+                        que está passando por cima do resto. */}
+                    <div className={cn("rounded-lg border p-2.5 mt-2.5",
+                      excOn ? "border-violet-400/40 bg-violet-400/[0.06]" : "border-white/[0.06]")}>
+                      <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                        <Checkbox checked={excOn} onCheckedChange={() => patchMeta(m.id, { excAtivo: !excOn })} />
+                        <Sparkles className={cn("h-3.5 w-3.5", excOn ? "text-violet-300" : "text-muted-foreground")} />
+                        Valor excepcional
+                        <span className="text-[10px] font-normal text-muted-foreground">
+                          · só pra {primeiroNome(m.nome)}, só em {mesExtenso(mes)}
+                        </span>
+                      </label>
+
+                      {excOn && (
+                        <div className="mt-2.5 space-y-2.5">
+                          <div className="grid grid-cols-2 gap-3">
+                            <CampoNum
+                              label="Valor por rubrica (R$)"
+                              value={f?.excValor || ""}
+                              onChange={(v) => patchMeta(m.id, { excValor: v })}
+                              placeholder="ex: 9"
+                            />
+                            <div className="flex items-end pb-1">
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                Vale da primeira rubrica à última. Ignora as faixas especiais.
+                              </p>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-[11px] text-muted-foreground">
+                              Por que este valor
+                            </Label>
+                            <Textarea
+                              value={f?.excObs || ""}
+                              onChange={(e) => patchMeta(m.id, { excObs: e.target.value })}
+                              placeholder="o combinado, e com quem"
+                              rows={2}
+                              className="mt-1 text-sm resize-none"
+                            />
+                            {!f?.excObs?.trim() && (
+                              <p className="text-[11px] text-amber-300/90 mt-1">
+                                Escreva o motivo. Um valor fora do combinado sem registro do porquê
+                                ninguém consegue explicar depois — nem pra quem recebeu, nem pra
+                                quem não recebeu.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <label className={cn("flex items-center gap-2 text-xs font-medium cursor-pointer mt-2.5",
+                      excOn && "opacity-40")}>
+                      <Checkbox checked={espOn} disabled={excOn} onCheckedChange={() => patchMeta(m.id, { espAtivo: !espOn })} />
                       <Flame className={`h-3.5 w-3.5 ${espOn ? "text-amber-400" : "text-muted-foreground"}`} />
                       Faixa especial própria
                       <span className="text-[10px] font-normal text-muted-foreground">· sobrepõe a geral só pra {primeiroNome(m.nome)}</span>
                     </label>
                     {espOn && (
-                      <>
+                      <div className={cn(excOn && "opacity-40 pointer-events-none")}>
+                        {excOn && (
+                          <p className="text-[11px] text-violet-300/90 mt-2">
+                            Sem efeito enquanto o valor excepcional estiver ligado.
+                          </p>
+                        )}
                         <div className="grid grid-cols-2 gap-3 mt-2.5">
                           <CampoNum label="Base vale até (rubricas)" value={f?.espLimite || ""} onChange={(v) => patchMeta(m.id, { espLimite: v })} placeholder="ex: 20" />
                           <CampoNum label="Valor especial (R$/rubrica)" value={f?.valorEsp || ""} onChange={(v) => patchMeta(m.id, { valorEsp: v })} placeholder="ex: 6" />
@@ -1405,7 +1550,7 @@ function RegrasDialog({
                           Pra {primeiroNome(m.nome)}: cada rubrica válida vale <strong>{brl(num(valorBase))}</strong> até <strong>{int(f?.espLimite || "") || 0}</strong>. Do{" "}
                           <strong>{(int(f?.espLimite || "") || 0) + 1}º</strong> em diante, vale <strong>{brl(num(f?.valorEsp || ""))}</strong>.
                         </p>
-                      </>
+                      </div>
                     )}
 
                     {/* Excedentes próprios — sobrepõe o geral do mês só pra esta pessoa */}
