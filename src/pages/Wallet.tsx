@@ -52,6 +52,7 @@ import { LogoBanco } from "@/components/LogoBanco";
 import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes, mesesEntre } from "@/lib/mesRef";
 import { cn } from "@/lib/utils";
 import { hojeISO } from "@/lib/hoje";
+import { indexarRepasses, parteDoCliente, type ParteDoCliente } from "@/lib/repasseDoLancamento";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -104,7 +105,11 @@ interface Lancamento {
 }
 interface Repasse {
   id: string; cliente_id: string | null; processo_id: string | null;
-  valor_devido: number; status: "pendente" | "pago"; created_at: string;
+  // a entrada que trouxe o dinheiro; é por ela que a linha do movimento sabe
+  // que parte daquele valor não é do escritório
+  lancamento_entrada_id: string;
+  valor_devido: number; status: "pendente" | "pago";
+  pago_em: string | null; created_at: string;
 }
 interface Recorrente {
   id: string; descricao: string; conta_id: string; categoria_id: string | null;
@@ -271,6 +276,11 @@ export default function WalletPage() {
   }, [realizados]);
 
   const repassesPendentes = repasses.filter((r) => r.status === "pendente");
+
+  /* Alvará e acordo entram pelo valor CHEIO, e parte dele é do cliente. O
+     índice deixa cada linha do movimento saber disso sem varrer a lista de
+     repasses inteira a cada render. */
+  const ixRepasses = useMemo(() => indexarRepasses(repasses), [repasses]);
 
   /* ── custos fixos, lidos pela régua que está em vigor ──
      Quando a régua é UM MÊS, a pergunta é binária: pagou ou não pagou aquele
@@ -667,6 +677,7 @@ export default function WalletPage() {
                     {previstos.map((l) => (
                       <LinhaLanc
                         key={l.id} l={l} categoria={cat(l.categoria_id)}
+                        parte={parteDoCliente(l, ixRepasses)}
                         onClick={() => setDetalhe(l)}
                         acao={
                           <Button size="sm" variant="ghost" className="h-7 text-[11px] shrink-0"
@@ -700,6 +711,7 @@ export default function WalletPage() {
                   <div className="space-y-1">
                     {realizados.map((l) => (
                       <LinhaLanc key={l.id} l={l} categoria={cat(l.categoria_id)}
+                        parte={parteDoCliente(l, ixRepasses)}
                         onClick={() => setDetalhe(l)} />
                     ))}
                   </div>
@@ -976,6 +988,51 @@ export default function WalletPage() {
                 detalhe.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
                 {detalhe.tipo === "entrada" ? "+" : "−"}{brl(Number(detalhe.valor))}
               </p>
+
+              {/* ── a parte que não é do escritório ──
+                  Aqui o número grande de cima é desmontado: entrou tanto, tanto
+                  é do cliente, tanto fica. E o botão de repassar mora junto da
+                  conta que o justifica — não numa aba que alguém precisa
+                  lembrar de visitar. */}
+              {(() => {
+                const p = parteDoCliente(detalhe, ixRepasses);
+                if (!p) return null;
+                return (
+                  <div className={cn("rounded-lg border p-3",
+                    p.pendente ? "border-amber-400/30 bg-amber-400/[0.05]" : "border-white/[0.07] bg-white/[0.02]")}>
+                    <div className="flex items-start gap-2">
+                      <HandCoins className={cn("h-4 w-4 shrink-0 mt-[1px]",
+                        p.pendente ? "text-amber-300" : "text-muted-foreground/60")} />
+                      <p className="text-[12px] leading-snug text-foreground/85">{p.aviso}</p>
+                    </div>
+                    <div className="mt-2.5 pt-2.5 border-t border-white/[0.07] space-y-1 text-[12px]">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Entrou</span>
+                        <span className="tabular-nums">{brl(Number(detalhe.valor))}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          {p.pendente ? "Do cliente" : "Repassado ao cliente"}
+                        </span>
+                        <span className={cn("tabular-nums", p.pendente ? "text-amber-300" : "text-muted-foreground")}>
+                          −{brl(p.devido)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4 pt-1 border-t border-white/[0.07]">
+                        <span className="text-muted-foreground">Fica no escritório</span>
+                        <span className="tabular-nums font-semibold text-emerald-400">{brl(p.doEscritorio)}</span>
+                      </div>
+                    </div>
+                    {p.pendente && (
+                      <Button size="sm" className="w-full mt-3"
+                        onClick={() => { setPagando(p.repasse); setDetalhe(null); }}>
+                        <HandCoins className="h-4 w-4 mr-1.5" /> Repassar {brl(p.devido)} ao cliente
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
+
               <dl className="mt-1 divide-y divide-white/[0.06]">
                 {[
                   ["Data", fmtDia(detalhe.data)],
@@ -1396,15 +1453,25 @@ function FormBaixa({ l, salvando, onConfirmar, onCancelar }: {
   );
 }
 
-function LinhaLanc({ l, categoria, onClick, acao }: {
+/* `parte` é o dinheiro de cliente que entrou junto. Quando existe e ainda não
+   saiu, a linha para de ser só "entrou tanto": ela avisa, no mesmo lugar em que
+   o valor está escrito, que uma fatia daquilo não é do escritório. Já repassado
+   também aparece, mas apagado — é histórico, não pendência. */
+function LinhaLanc({ l, categoria, onClick, acao, parte }: {
   l: Lancamento; categoria?: Categoria;
   onClick: () => void; acao?: React.ReactNode;
+  parte?: ParteDoCliente<Repasse> | null;
 }) {
   return (
     <div
       role="button" tabIndex={0} onClick={onClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
-      className="w-full flex items-center gap-3 rounded-lg border border-white/[0.05] bg-white/[0.015] px-3 py-2 text-left cursor-pointer transition-colors hover:border-primary/25 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+      className={cn(
+        "w-full flex items-center gap-3 rounded-lg border px-3 py-2 text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50",
+        parte?.pendente
+          ? "border-amber-400/25 bg-amber-400/[0.035] hover:border-amber-400/45 hover:bg-amber-400/[0.06]"
+          : "border-white/[0.05] bg-white/[0.015] hover:border-primary/25 hover:bg-white/[0.04]",
+      )}
     >
       <span className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0",
         l.tipo === "entrada" ? "bg-emerald-400/10 ring-1 ring-emerald-400/20" : "bg-rose-400/10 ring-1 ring-rose-400/20")}>
@@ -1419,6 +1486,19 @@ function LinhaLanc({ l, categoria, onClick, acao }: {
           {l.competencia && l.competencia !== l.data.slice(0, 7) && (
             <span className="shrink-0 rounded px-1.5 py-[1px] bg-sky-400/10 text-sky-300/90 ring-1 ring-sky-400/20">
               ref. {mesPorExtenso(l.competencia).nome.slice(0, 3).toLowerCase()}/{l.competencia.slice(2, 4)}
+            </span>
+          )}
+          {/* O AVISO. Fica colado na data, na linha que o olho já lê depois do
+              nome — e não no fim, onde some no truncamento. */}
+          {parte && (
+            <span className={cn(
+              "shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] ring-1",
+              parte.pendente
+                ? "bg-amber-400/12 text-amber-200/95 ring-amber-400/30"
+                : "bg-white/[0.04] text-muted-foreground/70 ring-white/10",
+            )}>
+              <HandCoins className="h-3 w-3" />
+              {parte.resumo}
             </span>
           )}
           {/* em tela estreita a coluna de categoria não cabe; aqui ela volta */}
@@ -1444,9 +1524,18 @@ function LinhaLanc({ l, categoria, onClick, acao }: {
 
       {/* largura fixa pro valor: sem isso as colunas dançam de linha em linha
           e o cabeçalho não bate com nada */}
-      <span className={cn("text-[13px] font-semibold tabular-nums shrink-0 sm:w-[6.5rem] sm:text-right",
-        l.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
-        {l.tipo === "entrada" ? "+" : "−"}{brl(Number(l.valor))}
+      <span className="shrink-0 sm:w-[6.5rem] sm:text-right">
+        <span className={cn("block text-[13px] font-semibold tabular-nums",
+          l.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
+          {l.tipo === "entrada" ? "+" : "−"}{brl(Number(l.valor))}
+        </span>
+        {/* o número de cima é o que o extrato mostra; este é o que sobra pro
+            escritório depois de devolver o que é do cliente */}
+        {parte?.pendente && (
+          <span className="block text-[10px] tabular-nums text-muted-foreground/80 leading-tight">
+            {brl(parte.doEscritorio)} seus
+          </span>
+        )}
       </span>
       {acao}
     </div>
