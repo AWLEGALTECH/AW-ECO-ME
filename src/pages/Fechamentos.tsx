@@ -451,6 +451,10 @@ export default function Fechamentos() {
   const focoBonus = focoId ? metasMap[focoId]?.bonus || 0 : 0;
   // O registro individual de quem está em foco: é dele que sai o excepcional.
   const focoRegistro = focoId ? metasMap[focoId] : undefined;
+  // Vale a pena existir uma vez só: os três cards da linha comemoram juntos ou
+  // nenhum comemora, e ler a mesma condição em três lugares é como um deles
+  // acaba ficando pra trás numa mudança futura.
+  const focoExcepcional = !!focoRegistro?.excepcionalAtivo && focoRegistro.excepcionalValor > 0;
   // Regra vigente pro foco: faixa especial individual sobrepõe a geral do mês.
   const { regra: focoRegra } = regraDoFoco(regra, focoId ? metasMap[focoId] : undefined);
   // Excedentes: o que a pessoa retém (bolsa) e o que recebe do mês anterior.
@@ -608,16 +612,16 @@ export default function Fechamentos() {
                 excedente={excedenteInfo}
               />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <CardDinamica regra={focoRegra} acoes={focoPagas}
-                  excepcional={!!focoRegistro?.excepcionalAtivo && focoRegistro.excepcionalValor > 0} />
+                <CardDinamica regra={focoRegra} acoes={focoPagas} excepcional={focoExcepcional} />
                 <CardValorAcao
                   regra={focoRegra} acoes={focoPagas} vigente={focoValorAcao}
                   especialAtivo={focoEspecialAtivo}
-                  excepcional={focoRegistro?.excepcionalAtivo && focoRegistro.excepcionalValor > 0
-                    ? { valor: focoRegistro.excepcionalValor, obs: focoRegistro.excepcionalObs }
+                  excepcional={focoExcepcional
+                    ? { valor: focoRegistro!.excepcionalValor, obs: focoRegistro!.excepcionalObs }
                     : null}
                 />
-                <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao} />
+                <CardComissao acoes={focoPagas} valorAcao={focoValorAcao} bonus={focoBonus} total={focoComissao}
+                  excepcional={focoExcepcional} />
               </div>
             </>
           ) : (
@@ -995,13 +999,21 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
 
   if (excepcional) {
     return (
-      <SpotlightCard className="border-violet-400/40">
+      <SpotlightCard className="border-violet-400/40 fech-glow-exc">
         <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 text-violet-300" /> Valor por rubrica válida
         </p>
         <div className="mt-1.5 flex items-center gap-2">
-          <span className="text-3xl font-normal font-display tabular-nums leading-none text-violet-300">{brl(excepcional.valor)}</span>
+          <motion.span
+            className="text-3xl font-normal font-display tabular-nums leading-none text-violet-300"
+            initial={{ scale: 0.85, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {brl(excepcional.valor)}
+          </motion.span>
           <span className="text-sm text-muted-foreground mb-0.5">/ rubrica</span>
+          <Sparkles className="h-5 w-5 text-violet-300" />
         </div>
         <p className="text-[11px] text-violet-300/90 mt-2.5 font-medium">
           Valor excepcional deste mês
@@ -1044,14 +1056,23 @@ function CardValorAcao({ regra, acoes, vigente, especialAtivo, excepcional }: {
   );
 }
 
-function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valorAcao: number; bonus: number; total: number }) {
+function CardComissao({ acoes, valorAcao, bonus, total, excepcional }: {
+  acoes: number; valorAcao: number; bonus: number; total: number;
+  /* Os três cards são uma linha só. Se os dois primeiros comemoram e o do
+     dinheiro fica apagado, a conta final vira a parte sem graça — justo o
+     número que a pessoa mais quer ver. */
+  excepcional?: boolean;
+}) {
   return (
-    <SpotlightCard className="border-emerald-500/25">
-      <p className="text-xs uppercase tracking-wider text-emerald-400/90 flex items-center gap-1.5">
+    <SpotlightCard className={excepcional ? "border-violet-400/40 fech-glow-exc" : "border-emerald-500/25"}>
+      <p className={cn("text-xs uppercase tracking-wider flex items-center gap-1.5",
+        excepcional ? "text-violet-300" : "text-emerald-400/90")}>
         <Coins className="h-3.5 w-3.5" /> Comissão do mês
       </p>
       <div className="mt-1.5">
-        <CountUp value={total} format={(n) => brl(n)} className="text-3xl font-semibold font-display tabular-nums leading-none text-emerald-400" />
+        <CountUp value={total} format={(n) => brl(n)}
+          className={cn("text-3xl font-semibold font-display tabular-nums leading-none",
+            excepcional ? "text-violet-300" : "text-emerald-400")} />
       </div>
       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
         {intBR(acoes)} rubricas válidas × {brl(valorAcao)}/rubrica
@@ -1063,15 +1084,28 @@ function CardComissao({ acoes, valorAcao, bonus, total }: { acoes: number; valor
 
 /* Banner gamificado: expõe a DINÂMICA do mês pro funcionário como uma frase
    corrida (base + faixa especial), com barra de progresso viva pra motivar. */
-function BarraViva({ value, max, desbloqueado }: { value: number; max: number; desbloqueado: boolean }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : value > 0 ? 100 : 0;
+function BarraViva({ value, max, desbloqueado, excepcional }: {
+  value: number; max: number; desbloqueado: boolean;
+  /* O excepcional já é a conquista: não há degrau pra vencer, então a barra
+     nasce cheia. Deixá-la vazia diria "falta algo" pra quem justamente não tem
+     mais nada a alcançar naquele mês. */
+  excepcional?: boolean;
+}) {
+  const pct = excepcional ? 100
+    : max > 0 ? Math.min(100, (value / max) * 100)
+    : value > 0 ? 100 : 0;
   // Cor segue o tema (--primary). No estado desbloqueado, âmbar fixo — sinal
-  // "quente" da faixa especial, igual aos outros cards. O glow pulsa mantendo
-  // a cor constante numa var (--glow), então o framer interpola só os px.
-  const fill = desbloqueado
-    ? "linear-gradient(90deg, hsl(45 95% 58%), hsl(38 92% 50%), hsl(45 95% 58%))"
-    : "linear-gradient(90deg, hsl(var(--primary) / 0.6), hsl(var(--primary)), hsl(var(--primary) / 0.6))";
-  const glowColor = desbloqueado ? "hsl(45 95% 58% / 0.9)" : "hsl(var(--primary) / 0.85)";
+  // "quente" da faixa especial, igual aos outros cards. No excepcional, roxo,
+  // que é a cor dele em toda a tela. O glow pulsa mantendo a cor constante numa
+  // var (--glow), então o framer interpola só os px.
+  const fill = excepcional
+    ? "linear-gradient(90deg, hsl(268 85% 72%), hsl(276 80% 62%), hsl(268 85% 72%))"
+    : desbloqueado
+      ? "linear-gradient(90deg, hsl(45 95% 58%), hsl(38 92% 50%), hsl(45 95% 58%))"
+      : "linear-gradient(90deg, hsl(var(--primary) / 0.6), hsl(var(--primary)), hsl(var(--primary) / 0.6))";
+  const glowColor = excepcional ? "hsl(268 85% 70% / 0.95)"
+    : desbloqueado ? "hsl(45 95% 58% / 0.9)"
+    : "hsl(var(--primary) / 0.85)";
   return (
     <div className="relative h-3.5 rounded-full bg-black/30 overflow-hidden">
       <motion.div
@@ -1100,13 +1134,37 @@ function CardDinamica({ regra, acoes, excepcional }: {
   const desbloqueado = especialAtivoPara(acoes, regra);
   const faltam = temEspecial && !desbloqueado ? Math.max(0, alvo - acoes) : 0;
 
+  /* O EXCEPCIONAL COMEMORA IGUAL. Bater a meta e receber um valor excepcional
+     são conquistas diferentes — uma atingida, outra concedida — mas as duas são
+     boas notícias, e a tela não tem por que celebrar uma e sussurrar a outra.
+     Mesmo brilho, mesma barra cheia, mesmo peso; muda só a cor. */
+  if (excepcional) {
+    return (
+      <SpotlightCard className="border-violet-400/40 fech-glow-exc">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 text-violet-300" /> Dinâmica desta pessoa
+        </p>
+
+        <p className="mt-2 text-[13px] leading-snug">
+          Cada rubrica válida vale{" "}
+          <strong className="text-violet-300">{brl(regra.valor_base)}</strong> do início ao fim.
+        </p>
+
+        <div className="mt-3 space-y-1.5">
+          {/* nasce cheia: não há degrau a vencer aqui */}
+          <BarraViva value={1} max={1} desbloqueado={false} excepcional />
+          <p className="text-[11px] font-medium text-violet-300">
+            Dinâmica excepcional ativa
+          </p>
+        </div>
+      </SpotlightCard>
+    );
+  }
+
   return (
     <SpotlightCard className={desbloqueado ? "border-amber-400/40 fech-glow" : ""}>
       <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-        {excepcional ? <Sparkles className="h-3.5 w-3.5 text-violet-300" />
-          : desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" />
-          : <Sparkles className="h-3.5 w-3.5 text-primary" />}
-        {excepcional ? "Dinâmica desta pessoa" : "Dinâmica do mês"}
+        {desbloqueado ? <Flame className="h-3.5 w-3.5 text-amber-400" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />} Dinâmica do mês
       </p>
 
       <p className="mt-2 text-[13px] leading-snug">
@@ -1117,11 +1175,7 @@ function CardDinamica({ regra, acoes, excepcional }: {
             <strong className={desbloqueado ? "text-amber-300" : "text-foreground"}>{brl(regra.valor_especial)}</strong>.
           </>
         ) : (
-          <>
-            Cada rubrica válida vale{" "}
-            <strong className={excepcional ? "text-violet-300" : "text-foreground"}>{brl(regra.valor_base)}</strong>{" "}
-            do início ao fim{excepcional ? ", por decisão deste mês" : ""}.
-          </>
+          <>Cada rubrica válida vale <strong className="text-foreground">{brl(regra.valor_base)}</strong> do início ao fim.</>
         )}
       </p>
 

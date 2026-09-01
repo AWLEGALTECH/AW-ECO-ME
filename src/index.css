@@ -340,6 +340,15 @@ html, body, #root {
   }
   .fech-glow { animation: fech-glow 1.8s ease-in-out infinite; }
 
+  /* O mesmo pulso, na cor do valor excepcional. Ele merece a mesma euforia da
+     meta batida — é conquista também, só que concedida em vez de atingida — e
+     por isso muda só a cor, não a intensidade nem o ritmo. */
+  @keyframes fech-glow-exc {
+    0%, 100% { box-shadow: 0 0 0 0 hsla(268,85%,68%,0.45); }
+    50%      { box-shadow: 0 0 22px 3px hsla(268,85%,68%,0.60); }
+  }
+  .fech-glow-exc { animation: fech-glow-exc 1.8s ease-in-out infinite; }
+
   /* Brilho "esteira" que corre sobre as barras de progresso cheias */
   @keyframes fech-shimmer {
     0%   { transform: translateX(-100%); }
