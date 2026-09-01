@@ -1,13 +1,18 @@
-// Chuva de dinheiro pra quando o alvará ou o acordo é pago.
+// Chuva de moedas pra quando o alvará ou o acordo é pago.
 //
-// Era confete colorido. Confete comemora aniversário; aqui o que aconteceu foi
-// dinheiro entrando na conta, e a animação devia dizer isso sem ninguém
-// precisar ler a mensagem.
+// Começou como confete colorido — confete comemora aniversário; aqui o que
+// aconteceu foi dinheiro entrando na conta. Aí virou nota verde mais moeda, e
+// as notas, sendo retângulos coloridos girando, viraram confete de novo: de
+// longe ninguém lê "cédula", lê "papel picado".
 //
-// São cédulas e moedas caindo do alto — nota verde com a faixa clara no meio,
-// moeda dourada com o anel. Elas giram nos dois eixos enquanto caem: o giro no
-// eixo vertical achata a nota periodicamente, que é o que faz papel parecer
-// papel em vez de retângulo deslizando.
+// Então ficou só a moeda. Círculo dourado é lido como dinheiro mesmo pequeno e
+// mesmo de relance, que é o tempo que essa animação tem. Sem retângulo, sem
+// verde, sem cor de festa.
+//
+// O que faz parecer moeda e não bolinha: ela GIRA no próprio eixo enquanto cai.
+// O giro achata o círculo em elipse (|cos| do ângulo), e quando chega de perfil
+// aparece a espessura — um traço claro no lugar do disco. É o mesmo movimento
+// de uma moeda jogada pro alto.
 //
 // Escrito à mão em canvas, sem dependência nova. Some sozinha em dois segundos
 // e meio e não deixa nada montado. Respeita prefers-reduced-motion — quem pediu
@@ -15,14 +20,13 @@
 
 import { useEffect, useRef } from "react";
 
-interface Peca {
+interface Moeda {
   x: number; y: number;
   vx: number; vy: number;
   giro: number; dGiro: number;
-  fase: number; dFase: number;   // giro no eixo vertical: achata a peça
-  larg: number;
-  moeda: boolean;
-  tom: number;                   // variação de verde entre as notas
+  fase: number; dFase: number;   // giro no próprio eixo: achata o disco
+  raio: number;
+  tom: number;                   // variação de ouro entre as moedas
 }
 
 export function ChuvaDeDinheiro({ ativo, onFim }: { ativo: boolean; onFim?: () => void }) {
@@ -48,20 +52,18 @@ export function ChuvaDeDinheiro({ ativo, onFim }: { ativo: boolean; onFim?: () =
 
     // Caem de cima, espalhadas na largura toda e escalonadas acima da tela pra
     // a chuva entrar em cascata em vez de tudo aparecer de uma vez.
-    const pecas: Peca[] = [];
-    for (let i = 0; i < 46; i++) {
-      const moeda = i % 5 === 0;
-      pecas.push({
+    const moedas: Moeda[] = [];
+    for (let i = 0; i < 54; i++) {
+      moedas.push({
         x: Math.random() * L,
         y: -Math.random() * A * 0.9 - 40,
-        vx: (Math.random() - 0.5) * 1.4,
-        vy: 2 + Math.random() * 2.4,
+        vx: (Math.random() - 0.5) * 1.1,
+        vy: 2.2 + Math.random() * 2.4,
         giro: Math.random() * Math.PI * 2,
-        dGiro: (Math.random() - 0.5) * 0.06,
+        dGiro: (Math.random() - 0.5) * 0.05,
         fase: Math.random() * Math.PI * 2,
-        dFase: 0.04 + Math.random() * 0.05,
-        larg: moeda ? 13 + Math.random() * 7 : 26 + Math.random() * 16,
-        moeda,
+        dFase: 0.05 + Math.random() * 0.06,
+        raio: 7 + Math.random() * 7,
         tom: Math.random(),
       });
     }
@@ -70,39 +72,60 @@ export function ChuvaDeDinheiro({ ativo, onFim }: { ativo: boolean; onFim?: () =
     const inicio = performance.now();
     const DURACAO = 2600;
 
-    const nota = (w: number, achatado: number, tom: number) => {
-      const h = w * 0.46;
-      // verde de cédula, variando um pouco entre as notas
-      const esc = `hsl(${146 + tom * 12} 52% ${34 + tom * 8}%)`;
-      const cla = `hsl(${150 + tom * 10} 46% ${62 + tom * 8}%)`;
-      ctx.fillStyle = esc;
-      ctx.fillRect(-w / 2, -h / 2, w, h);
-      // faixa clara no miolo — o que faz o olho ler "nota" e não "retângulo"
-      ctx.fillStyle = cla;
-      ctx.globalAlpha *= 0.55;
-      ctx.fillRect(-w / 2 + w * 0.12, -h / 2 + h * 0.22, w * 0.76, h * 0.56);
-      ctx.globalAlpha /= 0.55;
-      // vinco vertical: some quando a nota está de perfil
-      if (achatado > 0.35) {
-        ctx.strokeStyle = "hsla(0,0%,100%,0.28)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, -h / 2 + 1);
-        ctx.lineTo(0, h / 2 - 1);
-        ctx.stroke();
-      }
-    };
+    /* O achatamento é feito com ELIPSE, não com ctx.scale.
+       Com scale(1, achatado) a espessura do traço encolhe junto: a borda da
+       moeda ia sumindo conforme ela virava, e de perfil não sobrava nada
+       visível. Desenhando elipse de raio vertical r*achatado, o disco achata
+       mas o contorno continua com a mesma espessura — que é como metal se
+       comporta. */
+    const desenhar = (r: number, achatado: number, tom: number) => {
+      // ouro: mais claro no miolo, borda mais escura — sem isso o disco fica
+      // chapado e volta a parecer bolinha de confete
+      const face = `hsl(${44 + tom * 6} 90% ${58 + tom * 8}%)`;
+      const borda = `hsl(${36 + tom * 4} 78% ${38 + tom * 6}%)`;
+      // o brilho não pode subir muito de claridade: passou de ~72% a moeda de
+      // perfil vira um risco BRANCO na tela, que é justamente o que fazia
+      // pensar em confete
+      const brilho = `hsl(${46 + tom * 4} 94% ${68 + tom * 6}%)`;
 
-    const moeda = (r: number) => {
-      ctx.fillStyle = "hsl(43 88% 55%)";
+      // de perfil o disco some e sobra a espessura da moeda
+      if (achatado < 0.12) {
+        ctx.strokeStyle = brilho;
+        ctx.lineWidth = Math.max(1.5, r * 0.2);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.9, 0);
+        ctx.lineTo(r * 0.9, 0);
+        ctx.stroke();
+        return;
+      }
+
+      const ry = r * achatado;
+
+      ctx.fillStyle = face;
       ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, r, ry, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "hsl(38 80% 40%)";
-      ctx.lineWidth = Math.max(1, r * 0.16);
+
+      ctx.strokeStyle = borda;
+      ctx.lineWidth = Math.max(1, r * 0.13);
       ctx.beginPath();
-      ctx.arc(0, 0, r * 0.66, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, r * 0.93, ry * 0.93, 0, 0, Math.PI * 2);
       ctx.stroke();
+
+      // anel interno e um respingo de luz em cima à esquerda: é o que dá
+      // relevo de metal em vez de círculo liso
+      ctx.lineWidth = Math.max(1, r * 0.09);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.55, ry * 0.55, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = brilho;
+      ctx.globalAlpha *= 0.75;
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.3, -ry * 0.32, r * 0.17, ry * 0.17, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha /= 0.75;
     };
 
     const quadro = (t: number) => {
@@ -113,22 +136,21 @@ export function ChuvaDeDinheiro({ ativo, onFim }: { ativo: boolean; onFim?: () =
         ? Math.max(0, 1 - (passado - DURACAO * 0.72) / (DURACAO * 0.28))
         : 1;
 
-      for (const p of pecas) {
-        p.vy += 0.05;                    // aceleração leve
-        p.x += p.vx + Math.sin(p.fase) * 0.8;   // bamboleio do papel
-        p.y += p.vy;
-        p.giro += p.dGiro;
-        p.fase += p.dFase;
+      for (const m of moedas) {
+        m.vy += 0.06;                  // moeda é pesada: acelera mais que papel
+        m.x += m.vx;                   // e cai reto, sem o bamboleio da folha
+        m.y += m.vy;
+        m.giro += m.dGiro;
+        m.fase += m.dFase;
 
-        // |cos| do ângulo de perfil: 1 de frente, 0 de lado
-        const achatado = Math.abs(Math.cos(p.fase));
+        // |cos| do ângulo de giro: 1 de frente, 0 de perfil
+        const achatado = Math.abs(Math.cos(m.fase));
 
         ctx.save();
         ctx.globalAlpha = sumindo;
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.giro);
-        ctx.scale(1, Math.max(0.12, achatado));
-        if (p.moeda) moeda(p.larg / 2); else nota(p.larg, achatado, p.tom);
+        ctx.translate(m.x, m.y);
+        ctx.rotate(m.giro);
+        desenhar(m.raio, achatado, m.tom);
         ctx.restore();
       }
 
