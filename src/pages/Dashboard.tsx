@@ -10,6 +10,7 @@ import {
   Zap, Eye, Flame, Send,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { hojeISO as diaDeHoje } from "@/lib/hoje";
 
 const fmtBRLfull = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -115,7 +116,7 @@ interface TarefaRow {
   desfecho: string | null;
 }
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => diaDeHoje();
 const emDiasISO = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
 
 // "venceu há 3 dias" / "hoje" / "em 5 dias" + a cor da urgência.

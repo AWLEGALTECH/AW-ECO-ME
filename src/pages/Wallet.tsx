@@ -51,10 +51,11 @@ import {
 import { LogoBanco } from "@/components/LogoBanco";
 import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes, mesesEntre } from "@/lib/mesRef";
 import { cn } from "@/lib/utils";
+import { hojeISO } from "@/lib/hoje";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeISO();
 const fmtDia = (d?: string | null) => {
   if (!d) return "—";
   const [y, m, dd] = String(d).slice(0, 10).split("-");

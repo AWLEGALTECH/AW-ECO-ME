@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
+import { hojeISO, mesDeHoje } from "@/lib/hoje";
 
 /* ─────────────────────────── tipos ─────────────────────────── */
 interface Fechamento {
@@ -50,7 +51,9 @@ interface Membro { id: string; nome: string | null; email: string | null }
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const intBR = (n: number) => Math.round(n).toLocaleString("pt-BR");
 
-const hojeMes = () => new Date().toISOString().slice(0, 7);
+// UTC adiantava o mês das 20h à meia-noite: um fechamento de 31/08 abria
+// setembro. mesDeHoje usa o calendário de quem está olhando.
+const hojeMes = () => mesDeHoje();
 function addMes(mes: string, delta: number) {
   const [y, m] = mes.split("-").map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -1075,7 +1078,7 @@ function NovoFechamentoDialog({
   defaultUserId: string | null;
   onSaved: () => void;
 }) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeISO();
   const [data, setData] = useState(hoje);
   const [clienteNome, setClienteNome] = useState("");
   const [userId, setUserId] = useState<string>(defaultUserId || "");

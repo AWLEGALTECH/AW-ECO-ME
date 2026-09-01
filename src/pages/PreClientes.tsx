@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { appConfig } from "@/config/app-config";
+import { hojeISO } from "@/lib/hoje";
 
 interface PreCliente {
   id: string;
@@ -760,7 +761,7 @@ export default function PreClientes() {
           autorId = (profs || []).find((p: any) => nomeSobrenome(p).toLowerCase() === alvo)?.id || null;
         }
         const { error: errFech } = await supabase.from("fechamentos" as any).insert({
-          data: new Date().toISOString().slice(0, 10),
+          data: hojeISO(),
           cliente_nome: nomeFinal,
           cliente_id: novoCliente.id,
           rubricas: descontos,

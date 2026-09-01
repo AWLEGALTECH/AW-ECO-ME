@@ -6,6 +6,7 @@ import {
   Rocket, Video, Palette, Bot, Brain, Globe, BarChart3, Lightbulb,
   type LucideIcon,
 } from "lucide-react";
+import { hojeISO as diaDeHoje } from "./hoje";
 
 // Paleta dos projetos. Chaves, não hex: o Tailwind precisa das classes
 // escritas por extenso pra não perdê-las no purge.
@@ -108,7 +109,7 @@ export const PRIORIDADES = {
 } as const;
 export type Prioridade = keyof typeof PRIORIDADES;
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => diaDeHoje();
 
 // Quanto falta / há quanto venceu, com a cor da urgência. Mesma escala da
 // central de prazos do Dashboard, pra leitura ser a mesma em toda a app.

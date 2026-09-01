@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { decidirReinicio } from "@/lib/analiseLevas";
+import { hojeISO } from "@/lib/hoje";
 
 const mesCorrente = () =>
   new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -71,7 +72,7 @@ const fmtDia = (d?: string | null) => {
   return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString("pt-BR");
 };
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeISO();
 
 // A ida ao Finder é uma viagem de ida e volta por outra página: a pessoa
 // escolhe a leva, lê os extratos lá e só depois volta pra lançar as ações. A

@@ -24,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProjetoDrive } from "@/components/ProjetoDrive";
 import { cn } from "@/lib/utils";
+import { hojeISO } from "@/lib/hoje";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -904,7 +905,7 @@ export default function Projetos() {
   // Progresso por projeto = cards concluídos / total.
   const stats = useMemo(() => {
     const m = new Map<string, { total: number; feitos: number; atrasados: number }>();
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeISO();
     for (const p of projetos) m.set(p.id, { total: 0, feitos: 0, atrasados: 0 });
     for (const c of cards) {
       const s = m.get(c.projeto_id); if (!s) continue;
@@ -1025,7 +1026,7 @@ export default function Projetos() {
     const cols = spSel ? colunas.filter((c) => c.sprint_id === spSel.id).sort((a, b) => a.ordem - b.ordem) : [];
     const cardsSprint = spSel ? cards.filter((c) => c.sprint_id === spSel.id) : [];
     const feitos = cardsSprint.filter((c) => c.concluido_at).length;
-    const atrasados = cardsSprint.filter((c) => !c.concluido_at && c.prazo && c.prazo < new Date().toISOString().slice(0, 10)).length;
+    const atrasados = cardsSprint.filter((c) => !c.concluido_at && c.prazo && c.prazo < hojeISO()).length;
     const pct = cardsSprint.length ? (feitos / cardsSprint.length) * 100 : 0;
 
     return (
