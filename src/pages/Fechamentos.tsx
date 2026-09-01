@@ -1389,13 +1389,17 @@ function RegrasDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[88dvh] overflow-y-auto">
-        <DialogHeader>
+      {/* Rolagem no CORPO, não no diálogo inteiro: com quatro pessoas e os
+          blocos abertos, o rodapé descia junto e o botão de salvar sumia — dava
+          pra preencher tudo e não achar onde confirmar. Agora cabeçalho e
+          rodapé ficam fixos e só o meio rola. */}
+      <DialogContent className="sm:max-w-2xl max-h-[88dvh] flex flex-col gap-0 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /> Regras de {mesExtenso(mes)}</DialogTitle>
           <DialogDescription>Define o valor base, os multiplicadores, o bônus e as metas do mês. Vale só para {mesExtenso(mes)}.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
+        <div className="space-y-4 py-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <CampoNum label="Valor base (R$/rubrica)" value={valorBase} onChange={setValorBase} />
             <CampoNum label="Meta geral (rubricas válidas)" value={metaGeral} onChange={setMetaGeral} />
@@ -1586,9 +1590,12 @@ function RegrasDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 pt-3 border-t border-white/[0.06]">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button onClick={salvar} disabled={saving}>{saving ? "Salvando…" : "Salvar regras"}</Button>
+          <Button onClick={salvar} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {saving ? "Salvando…" : "Salvar regras"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
