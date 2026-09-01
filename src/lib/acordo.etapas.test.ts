@@ -10,7 +10,7 @@ describe("milestone Acordo na espinha do processo", () => {
     expect(ETAPAS_TITULOS.filter((t) => t === ETAPA_ACORDO)).toHaveLength(1);
   });
 
-  it("os três status de acordo levam o processo direto para a milestone", () => {
+  it("os status de acordo levam o processo direto para a milestone", () => {
     for (const s of STATUS_ACORDO) {
       const linha = montarEtapasPadrao(s);
       const atual = linha.find((e) => e.status === "atual");
@@ -22,17 +22,29 @@ describe("milestone Acordo na espinha do processo", () => {
     }
   });
 
-  it("os três status estão na lista geral (a planilha usa) e são exatamente três", () => {
+  it("a via do acordo tem quatro paradas, e ACORDO PAGO é a penúltima", () => {
+    // ACORDO PAGO entrou entre aguardar e arquivar: é o momento em que o
+    // dinheiro caiu, e é ele que tira o processo do Tracker. Arquivar vem
+    // depois e é ato de organização, não de caixa.
     expect(STATUS_ACORDO).toEqual([
       "EM TRATATIVA DE ACORDO",
       "AG. PAGAMENTO ACORDO",
+      "ACORDO PAGO",
       "ARQUIVADO ACORDO",
     ]);
     for (const s of STATUS_ACORDO) expect(STATUS_PROCESSUAIS).toContain(s);
   });
 
+  it("ALVARÁ PAGO é o espelho de ACORDO PAGO na via litigiosa", () => {
+    expect(STATUS_PROCESSUAIS).toContain("ALVARÁ PAGO");
+    // e ele mora no cumprimento, não no acordo: quem recebeu por alvará nunca
+    // passou por acordo nenhum
+    expect(montarEtapasPadrao("ALVARÁ PAGO").find((e) => e.status === "atual")?.titulo)
+      .toBe(ETAPA_CUMPRIMENTO);
+  });
+
   it("status de cumprimento continua no cumprimento — o acordo não os roubou", () => {
-    for (const s of ["AG. CUMPRIMENTO SENTENÇA", "AG. PAGAMENTO VOLUNTÁRIO", "ALVARÁ EXPEDIDO"]) {
+    for (const s of ["AG. CUMPRIMENTO SENTENÇA", "AG. PAGAMENTO VOLUNTÁRIO", "ALVARÁ EXPEDIDO", "ALVARÁ PAGO"]) {
       expect(montarEtapasPadrao(s).find((e) => e.status === "atual")?.titulo).toBe(ETAPA_CUMPRIMENTO);
     }
   });

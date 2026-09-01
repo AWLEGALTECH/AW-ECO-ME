@@ -30,9 +30,10 @@ export const STATUS_PROCESSUAIS: string[] = [
   "AG. DESPACHO INICIAL 2º GRAU", "AG. MOV CONCLUSO DECISÃO", "AG. RECURSO INOMINADO",
   "AG. TJ SENTENÇA", "AG. TJ ACÓRDÃO", "AG. ACÓRDÃO", "JULGADO ACÓRDÃO", "AG. EMBARGOS",
   "AG. CUMPRIMENTO SENTENÇA", "AG. PAGAMENTO VOLUNTÁRIO",
-  "EM TRATATIVA DE ACORDO", "AG. PAGAMENTO ACORDO", "ARQUIVADO ACORDO",
+  "EM TRATATIVA DE ACORDO", "AG. PAGAMENTO ACORDO", "ACORDO PAGO", "ARQUIVADO ACORDO",
   "AG. DECISÃO PENHORA",
-  "AG. DECISÃO CS", "AG. EXPEDIÇÃO ALVARÁ", "ALVARÁ EXPEDIDO", "AG. MANIFESTAÇÃO",
+  "AG. DECISÃO CS", "AG. EXPEDIÇÃO ALVARÁ", "ALVARÁ EXPEDIDO", "ALVARÁ PAGO",
+  "AG. MANIFESTAÇÃO",
   "AG. MANDADO SEGURANÇA",
   "COMPARECER AO FÓRUM", "AG. REAJUIZAMENTO", "REAJUIZAR", "SUSPENSO", "ARQUIVADO",
 ];
@@ -45,6 +46,9 @@ export const STATUS_PROCESSUAIS: string[] = [
 export const STATUS_ACORDO: string[] = [
   "EM TRATATIVA DE ACORDO",
   "AG. PAGAMENTO ACORDO",
+  // O dinheiro entrou. É a porta de saída do Tracker pela via do acordo, e o
+  // último status antes de arquivar.
+  "ACORDO PAGO",
   "ARQUIVADO ACORDO",
 ];
 
@@ -168,10 +172,11 @@ const IDX_POR_STATUS: Record<string, number> = {
   "AG. TJ ACÓRDÃO": 9, "AG. ACÓRDÃO": 9, "JULGADO ACÓRDÃO": 9, "AG. EMBARGOS": 9,
   "AG. CUMPRIMENTO SENTENÇA": 11, "AG. PAGAMENTO VOLUNTÁRIO": 11,
   "AG. DECISÃO PENHORA": 11,
-  "AG. DECISÃO CS": 11, "ALVARÁ EXPEDIDO": 11,
+  "AG. DECISÃO CS": 11, "ALVARÁ EXPEDIDO": 11, "ALVARÁ PAGO": 11,
   // Os três status de acordo apontam para a milestone Acordo, e não para o
   // cumprimento: o processo que virou acordo está no acordo.
-  "EM TRATATIVA DE ACORDO": 12, "AG. PAGAMENTO ACORDO": 12, "ARQUIVADO ACORDO": 12,
+  "EM TRATATIVA DE ACORDO": 12, "AG. PAGAMENTO ACORDO": 12, "ACORDO PAGO": 12,
+  "ARQUIVADO ACORDO": 12,
 };
 
 // Monta uma linha temporal padrão (12 etapas) a partir do status atual do

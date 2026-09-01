@@ -4,6 +4,8 @@
 // processo vale hoje, e é isso que aparece nos KPIs, nos gráficos e na lista.
 // Componente não se testa sem navegador; essa função sim.
 
+import { jaSaiuDoTracker, viaDeBaixa, STATUS_ACORDO_PAGO, type ViaBaixa } from "./baixaTracker";
+
 export type ResultadoSentenca = "procedente" | "parcial" | "improcedente";
 
 export interface Decisao { resultado?: ResultadoSentenca; valor?: number; data?: string; honorarios?: number; tipoDecisao?: string }
@@ -46,15 +48,22 @@ export interface Vitoria {
     valor: number;
     fechamento: string | null;
     previsao: string | null;
-    /** Um dos três status da milestone Acordo. */
+    /** Um dos status da milestone Acordo. */
     status: string;
     /** O dinheiro já entrou (acordo arquivado). */
     pago: boolean;
   } | null;
+  /** ROTATIVIDADE: o dinheiro já entrou, então o processo saiu do Tracker e a
+      vida dele continua no Wallet. */
+  baixado: boolean;
+  viaBaixa: ViaBaixa | null;
 }
 
 export const ACORDO_TRATATIVA = "EM TRATATIVA DE ACORDO";
 export const ACORDO_AG_PAGAMENTO = "AG. PAGAMENTO ACORDO";
+// O dinheiro do acordo entrou. É a porta de saída do Tracker por essa via, e o
+// último status antes do arquivamento — que é ato de organização, não de caixa.
+export const ACORDO_PAGO = STATUS_ACORDO_PAGO;
 export const ACORDO_ARQUIVADO = "ARQUIVADO ACORDO";
 
 export const ETAPA_SENTENCA = "Sentença";
@@ -64,6 +73,12 @@ export const ETAPA_ACORDO = "Acordo";
 
 const acharEtapa = (lt: EtapaLT[] | null, titulo: string) => (lt ?? []).find((e) => e.titulo === titulo);
 const etapaAtual = (lt: EtapaLT[] | null) => (lt ?? []).find((e) => e.status === "atual")?.titulo ?? "";
+
+/** O status processual em vigor: o da etapa atual e, sem ele, o da ficha. */
+const statusEmVigor = (p: ProcRow) =>
+  (p.linha_temporal ?? []).find((e) => e.status === "atual")?.statusProcessual
+  || p.fase_processual
+  || "";
 
 export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
   const out: Vitoria[] = [];
@@ -87,6 +102,7 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
     const valor = valorAcordo > 0 ? valorAcordo : valorSentenca;
 
     const fase = etapaAtual(lt) || (origem === "acordo" ? ETAPA_ACORDO : ETAPA_SENTENCA);
+    const status = statusEmVigor(p);
     const emCumprimento = fase === ETAPA_CUMPRIMENTO;
     const exec = acharEtapa(lt, ETAPA_CUMPRIMENTO)?.execucao;
     const julg = acharEtapa(lt, ETAPA_JULGAMENTO)?.julgamento;
@@ -120,9 +136,14 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
             // Sem status gravado, o acordo conta como não pago. Dinheiro só é
             // dado por recebido quando alguém disse que foi.
             status: etapaAcordo?.statusProcessual ?? ACORDO_TRATATIVA,
-            pago: etapaAcordo?.statusProcessual === ACORDO_ARQUIVADO,
+            // Pago em ACORDO PAGO e também no arquivado, que vem depois dele —
+            // quem arquivou já tinha recebido.
+            pago: etapaAcordo?.statusProcessual === ACORDO_PAGO
+               || etapaAcordo?.statusProcessual === ACORDO_ARQUIVADO,
           }
         : null,
+      baixado: jaSaiuDoTracker(status),
+      viaBaixa: viaDeBaixa(status),
     });
   }
   return out.sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
