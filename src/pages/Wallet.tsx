@@ -969,18 +969,26 @@ export default function WalletPage() {
       )}
 
       {/* ── detalhe do lançamento ── */}
+      {/* `[&>*]:min-w-0` não é enfeite. O DialogContent é um GRID, e item de
+          grid nasce com min-width:auto — basta um filho cujo conteúdo mínimo
+          não caiba (aqui, a descrição do alvará com nome e número do processo
+          numa linha só) pra coluna inteira esticar além da caixa. Como o
+          diálogo tem overflow-y-auto, o overflow-x vira auto junto: em vez de
+          quebrar a linha, ele empurrava tudo pra fora e cortava os valores.
+          Junto com isso a descrição passa a QUEBRAR em vez de truncar — em
+          "0005186-10.2026.8.04.5400" o que importa está no fim. */}
       <Dialog open={!!detalhe} onOpenChange={(o) => !o && setDetalhe(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md [&>*]:min-w-0">
           {detalhe && (
             <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2.5">
+              <DialogHeader className="min-w-0">
+                <DialogTitle className="flex items-start gap-2.5 min-w-0 pr-6">
                   <span className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0",
                     detalhe.tipo === "entrada" ? "bg-emerald-400/10 ring-1 ring-emerald-400/25" : "bg-rose-400/10 ring-1 ring-rose-400/25")}>
                     <IconeCat nome={cat(detalhe.categoria_id)?.icone}
                       className={cn("h-4 w-4", detalhe.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")} />
                   </span>
-                  <span className="min-w-0 truncate">{detalhe.descricao}</span>
+                  <span className="min-w-0 break-words text-[15px] leading-snug">{detalhe.descricao}</span>
                 </DialogTitle>
                 <DialogDescription className="sr-only">Detalhes do lançamento</DialogDescription>
               </DialogHeader>
@@ -998,12 +1006,11 @@ export default function WalletPage() {
                 const p = parteDoCliente(detalhe, ixRepasses);
                 if (!p) return null;
                 return (
-                  <div className={cn("rounded-lg border p-3",
-                    p.pendente ? "border-amber-400/30 bg-amber-400/[0.05]" : "border-white/[0.07] bg-white/[0.02]")}>
-                    <div className="flex items-start gap-2">
+                  <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3 min-w-0">
+                    <div className="flex items-start gap-2 min-w-0">
                       <HandCoins className={cn("h-4 w-4 shrink-0 mt-[1px]",
                         p.pendente ? "text-amber-300" : "text-muted-foreground/60")} />
-                      <p className="text-[12px] leading-snug text-foreground/85">{p.aviso}</p>
+                      <p className="text-[12px] leading-snug text-foreground/85 min-w-0">{p.aviso}</p>
                     </div>
                     <div className="mt-2.5 pt-2.5 border-t border-white/[0.07] space-y-1 text-[12px]">
                       <div className="flex justify-between gap-4">
@@ -1014,9 +1021,7 @@ export default function WalletPage() {
                         <span className="text-muted-foreground">
                           {p.pendente ? "Do cliente" : "Repassado ao cliente"}
                         </span>
-                        <span className={cn("tabular-nums", p.pendente ? "text-amber-300" : "text-muted-foreground")}>
-                          −{brl(p.devido)}
-                        </span>
+                        <span className="tabular-nums text-foreground/80">−{brl(p.devido)}</span>
                       </div>
                       <div className="flex justify-between gap-4 pt-1 border-t border-white/[0.07]">
                         <span className="text-muted-foreground">Fica no escritório</span>
@@ -1026,7 +1031,7 @@ export default function WalletPage() {
                     {p.pendente && (
                       <Button size="sm" className="w-full mt-3"
                         onClick={() => { setPagando(p.repasse); setDetalhe(null); }}>
-                        <HandCoins className="h-4 w-4 mr-1.5" /> Repassar {brl(p.devido)} ao cliente
+                        <HandCoins className="h-4 w-4 mr-1.5 shrink-0" /> Repassar {brl(p.devido)}
                       </Button>
                     )}
                   </div>
@@ -1466,12 +1471,7 @@ function LinhaLanc({ l, categoria, onClick, acao, parte }: {
     <div
       role="button" tabIndex={0} onClick={onClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
-      className={cn(
-        "w-full flex items-center gap-3 rounded-lg border px-3 py-2 text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50",
-        parte?.pendente
-          ? "border-amber-400/25 bg-amber-400/[0.035] hover:border-amber-400/45 hover:bg-amber-400/[0.06]"
-          : "border-white/[0.05] bg-white/[0.015] hover:border-primary/25 hover:bg-white/[0.04]",
-      )}
+      className="w-full flex items-center gap-3 rounded-lg border border-white/[0.05] bg-white/[0.015] px-3 py-2 text-left cursor-pointer transition-colors hover:border-primary/25 hover:bg-white/[0.04] focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
     >
       <span className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0",
         l.tipo === "entrada" ? "bg-emerald-400/10 ring-1 ring-emerald-400/20" : "bg-rose-400/10 ring-1 ring-rose-400/20")}>
@@ -1489,15 +1489,13 @@ function LinhaLanc({ l, categoria, onClick, acao, parte }: {
             </span>
           )}
           {/* O AVISO. Fica colado na data, na linha que o olho já lê depois do
-              nome — e não no fim, onde some no truncamento. */}
+              nome — e não no fim, onde some no truncamento.
+              O amarelo é SÓ o símbolo. Pintar a linha inteira de âmbar fazia
+              cada alvará gritar mais alto que o saldo; o ícone sozinho já
+              marca a linha na varredura, sem virar alarme. */}
           {parte && (
-            <span className={cn(
-              "shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] ring-1",
-              parte.pendente
-                ? "bg-amber-400/12 text-amber-200/95 ring-amber-400/30"
-                : "bg-white/[0.04] text-muted-foreground/70 ring-white/10",
-            )}>
-              <HandCoins className="h-3 w-3" />
+            <span className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] bg-white/[0.04] ring-1 ring-white/10 text-foreground/70">
+              <HandCoins className={cn("h-3 w-3", parte.pendente ? "text-amber-300" : "text-muted-foreground/50")} />
               {parte.resumo}
             </span>
           )}
