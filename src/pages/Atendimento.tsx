@@ -62,6 +62,7 @@ const diasEntre = (de: string, ate: string) => {
   return Math.round((new Date(a2, m2 - 1, d2).getTime() - new Date(a1, m1 - 1, d1).getTime()) / 86400000);
 };
 const fmtDiaCurto = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const fmtDiaLongo = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 const iniciais = (nome: string) =>
   nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -150,6 +151,7 @@ export default function AtendimentoPage() {
   }, [dia, lembretes, feitasFollowUp]);
 
   const tasksVisiveis = tasksDoDia.filter((t) => tipoTask === "todas" || t.tipo === tipoTask);
+  const tasksDoLead = tasksDoDia.filter((t) => t.leadId === lead.id);
   const prog = progressoTasks(tasksDoDia);
   const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
 
@@ -250,7 +252,7 @@ export default function AtendimentoPage() {
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
-                    <MessageCircle className="h-3.5 w-3.5 text-emerald-400" /> Caixa
+                    <MessageCircle className="h-3.5 w-3.5 text-muted-foreground" /> Caixa
                   </h2>
                   <span className="text-[10.5px] text-muted-foreground tabular-nums">{lista.length}</span>
                 </div>
@@ -259,7 +261,7 @@ export default function AtendimentoPage() {
                     <button key={c.chave} onClick={() => setOrigem(c.chave)}
                       className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
                         origem === c.chave
-                          ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30"
+                          ? "bg-white/[0.10] text-foreground ring-white/20"
                           : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
                       {c.rotulo}
                     </button>
@@ -282,7 +284,7 @@ export default function AtendimentoPage() {
                     <button key={l.id} onClick={() => setSelecionadoId(l.id)}
                       className={cn("w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
                         ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
-                      {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-emerald-400" />}
+                      {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
                       <span className={cn("h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1",
                         semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
                                     : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
@@ -303,7 +305,7 @@ export default function AtendimentoPage() {
                           </span>
                           <span className="text-[9px] text-muted-foreground/70">{ORIGENS[l.origem].curto}</span>
                           {l.naoLidas > 0 && (
-                            <span className="ml-auto h-4 min-w-4 px-1 rounded-full bg-emerald-400 text-[9px] font-semibold text-emerald-950 grid place-items-center">
+                            <span className="ml-auto h-4 min-w-4 px-1 rounded-full bg-foreground/85 text-[9px] font-semibold text-background grid place-items-center">
                               {l.naoLidas}
                             </span>
                           )}
@@ -327,6 +329,43 @@ export default function AtendimentoPage() {
                 </div>
               </div>
 
+              {/* AS TASKS DO LEAD, ANTES DAS MENSAGENS.
+                  Elas já existem na coluna da direita e dentro da etapa, mas
+                  quem está conversando não olha pros lados — olha pra conversa.
+                  A faixa põe o que ficou combinado com ESTA pessoa no caminho
+                  do olho, logo abaixo do nome dela, e some quando não há nada. */}
+              {tasksDoLead.length > 0 && (
+                <div className="px-3 py-2 border-b border-white/[0.06] shrink-0 flex gap-2 overflow-x-auto scrollbar-thin">
+                  {tasksDoLead.map((t) => {
+                    const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
+                    return (
+                      <div key={t.id}
+                        className={cn("shrink-0 w-[13.5rem] rounded-xl border px-2.5 py-2 flex items-start gap-2",
+                          t.feita ? "border-white/[0.05] bg-white/[0.015] opacity-60"
+                                  : "border-white/[0.07] bg-white/[0.03]")}>
+                        <span className="h-6 w-6 rounded-lg bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
+                          <Ico className="h-3 w-3 text-primary" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                            {ROTULO_TIPO[t.tipo]}
+                          </span>
+                          <span className={cn("block text-[11.5px] font-medium leading-tight truncate",
+                            t.feita && "line-through")}>{t.titulo}</span>
+                          <span className="block text-[10px] text-muted-foreground truncate">{t.detalhe}</span>
+                        </span>
+                        <button onClick={() => concluir(t.id)}
+                          title={t.feita ? "Reabrir" : "Concluir"}
+                          className={cn("shrink-0 transition-colors",
+                            t.feita ? "text-emerald-400" : "text-muted-foreground/35 hover:text-emerald-400/70")}>
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
                 {conversa.map((msg, i) => (
                   <div key={i} className="flex flex-col gap-2">
@@ -338,7 +377,7 @@ export default function AtendimentoPage() {
                     <div className={cn("max-w-[70%] rounded-2xl px-3 py-2 text-[12.5px] leading-snug",
                       msg.de === "lead"
                         ? "self-start bg-white/[0.05] rounded-tl-sm"
-                        : "self-end bg-emerald-400/12 rounded-tr-sm ring-1 ring-emerald-400/15")}>
+                        : "self-end bg-white/[0.08] rounded-tr-sm ring-1 ring-white/[0.10]")}>
                       {msg.texto}
                       <span className="block text-[9.5px] text-muted-foreground/70 mt-1 text-right tabular-nums">{msg.hora}</span>
                     </div>
@@ -379,13 +418,15 @@ export default function AtendimentoPage() {
                           onClick={() => setOrigemDossie((p) => ({ ...p, [lead.id]: o }))}
                           className={cn("rounded-full px-2 py-[2px] text-[10px] capitalize transition-colors ring-1",
                             origemDossieDe(lead) === o
-                              ? "bg-primary/15 text-primary ring-primary/30"
+                              ? "bg-white/[0.10] text-foreground ring-white/20"
                               : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
                           {o}
                         </button>
                       ))}
                     </div>
                   </div>
+                  <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
+                    valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
                   <Campo icone={<Landmark className="h-3 w-3" />} rotulo="Banco" valor={lead.dossie.banco} />
                   <Campo rotulo="Descontos"
                     valor={lead.dossie.descontos.length ? lead.dossie.descontos.join(", ") : null} />
@@ -400,7 +441,7 @@ export default function AtendimentoPage() {
                   <JornadaLead
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
-                    tasksDoLead={tasksDoDia.filter((t) => t.leadId === lead.id)}
+                    tasksDoLead={tasksDoLead}
                     onAvancar={(alvo) => avancarEtapa(lead, alvo)}
                     onNovaTask={novoLembrete}
                     onConcluirTask={concluir}
@@ -434,7 +475,7 @@ export default function AtendimentoPage() {
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
                     <div className="flex items-center justify-between gap-2">
                       <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
-                        <ListChecks className="h-3.5 w-3.5 text-emerald-400" /> Tasks
+                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Tasks
                       </h2>
                       <div className="flex items-center gap-1.5">
                         <Popover>
@@ -462,7 +503,7 @@ export default function AtendimentoPage() {
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                         <motion.div
-                          className={cn("h-full rounded-full", prog.concluido ? "bg-emerald-400" : "bg-emerald-400/70")}
+                          className={cn("h-full rounded-full", prog.concluido ? "bg-emerald-400" : "bg-foreground/45")}
                           initial={false} animate={{ width: `${prog.pct}%` }}
                           transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }} />
                       </div>
@@ -476,7 +517,7 @@ export default function AtendimentoPage() {
                         <button key={k} onClick={() => setTipoTask(k)}
                           className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
                             tipoTask === k
-                              ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30"
+                              ? "bg-white/[0.10] text-foreground ring-white/20"
                               : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
                           {rot}
                         </button>
@@ -546,7 +587,7 @@ export default function AtendimentoPage() {
                                   <CheckCircle2 className="h-3 w-3" /> Concluído
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-primary/15 text-primary ring-primary/30">
+                                <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-white/[0.06] text-muted-foreground ring-white/[0.10]">
                                   {fu ? `${t.rodada}ª de ${CADENCIA.length}` : "Marcado por você"}
                                 </span>
                               )}
@@ -759,13 +800,13 @@ function CalendarioTasks({ dia, onEscolher, comTask }: {
           return (
             <button key={k} onClick={() => onEscolher(k)}
               className={cn("relative h-7 rounded text-[11px] tabular-nums transition-colors",
-                sel ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/40"
+                sel ? "bg-white/[0.10] text-foreground ring-1 ring-white/25"
                     : doMes ? "hover:bg-white/[0.06]" : "text-muted-foreground/30",
                 k === HOJE && !sel && "ring-1 ring-white/15")}>
               {d.getDate()}
               {comTask.has(k) && (
                 <span className={cn("absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full",
-                  sel ? "bg-emerald-300" : "bg-primary/70")} />
+                  sel ? "bg-foreground" : "bg-muted-foreground/60")} />
               )}
             </button>
           );
@@ -836,7 +877,7 @@ function CardInstancia({ instancia, todas, onTrocar }: {
           <span className="flex items-center gap-1"><Wifi className="h-3 w-3" />{instancia.gateway}</span>
           <span className="flex items-center gap-1"><RefreshCw className="h-3 w-3" />sincronizado {instancia.sincronizadoEm}</span>
           <span className="tabular-nums">{instancia.conversas} conversas</span>
-          <span className="tabular-nums text-emerald-300">{instancia.naoLidas} não lidas</span>
+          <span className="tabular-nums text-foreground/80">{instancia.naoLidas} não lidas</span>
         </div>
       </div>
 
@@ -871,7 +912,7 @@ function CardInstancia({ instancia, todas, onTrocar }: {
                       <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
                       <span className="tabular-nums">{i.telefone}</span>
                       {i.naoLidas > 0 && (
-                        <span className="text-emerald-300 tabular-nums">· {i.naoLidas} não lidas</span>
+                        <span className="text-foreground/70 tabular-nums">· {i.naoLidas} não lidas</span>
                       )}
                     </span>
                   </span>

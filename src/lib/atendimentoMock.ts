@@ -90,6 +90,8 @@ export interface Lead {
      resposta nossa", que é culpa nossa e aparece na caixa de entrada. */
   diasParado: number;
   followUpsFeitos: number;
+  /** quando a primeira mensagem dele caiu na caixa */
+  chegouEm: string;
   dossie: {
     banco: string | null;
     descontos: string[];
@@ -114,6 +116,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: false,
     diasParado: 0,
     followUpsFeitos: 0,
+    chegouEm: "2026-09-01",
     dossie: {
       banco: "Bradesco",
       descontos: ["RMC", "Seguro de vida"],
@@ -143,6 +146,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: true,
     diasParado: 0,
     followUpsFeitos: 1,
+    chegouEm: "2026-08-31",
     dossie: {
       banco: "Banco BMG",
       descontos: ["RCC", "Tarifa SMS"],
@@ -171,6 +175,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: true,
     diasParado: 3,
     followUpsFeitos: 0,
+    chegouEm: "2026-08-30",
     dossie: {
       banco: "Banco Pan",
       descontos: ["Empréstimo não contratado"],
@@ -199,6 +204,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: true,
     diasParado: 1,
     followUpsFeitos: 0,
+    chegouEm: "2026-08-25",
     dossie: {
       banco: "Bradesco",
       descontos: ["RMC", "RCC", "Cesta de serviços"],
@@ -226,6 +232,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: false,
     diasParado: 0,
     followUpsFeitos: 0,
+    chegouEm: "2026-09-01",
     dossie: {
       banco: null,
       descontos: [],
@@ -250,6 +257,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: true,
     diasParado: 0,
     followUpsFeitos: 0,
+    chegouEm: "2026-08-18",
     dossie: {
       banco: "Banco Mercantil",
       descontos: ["Refinanciamento indevido"],
@@ -275,6 +283,7 @@ export const LEADS: Lead[] = [
     temProximaAcao: false,
     diasParado: 6,
     followUpsFeitos: 1,
+    chegouEm: "2026-08-27",
     dossie: {
       banco: "Banco Daycoval",
       descontos: ["Seguro prestamista"],
