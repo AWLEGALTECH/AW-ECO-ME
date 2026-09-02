@@ -33,7 +33,7 @@ import {
   MessageCircle, Search, Send, AlertTriangle, Check, Phone, FileText,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote, Clock,
-  ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft,
+  ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -495,33 +495,57 @@ export default function AtendimentoPage() {
                       </p>
                     ) : tasksVisiveis.map((t) => {
                       const Icone = t.tipo === "follow_up" ? Repeat : BellRing;
+                      const fu = t.tipo === "follow_up";
                       return (
                         <div key={t.id}
-                          className={cn("rounded-xl border px-2 py-1.5 transition-colors",
-                            t.feita ? "border-white/[0.05] bg-white/[0.015] opacity-60"
-                                    : "border-white/[0.06] bg-white/[0.02] hover:border-primary/30")}>
-                          <div className="flex items-start gap-2">
-                            <button onClick={() => concluir(t.id)}
-                              title={t.feita ? "Desmarcar" : "Marcar como feita"}
-                              className={cn("mt-[1px] h-4 w-4 shrink-0 rounded grid place-items-center ring-1 transition-colors",
-                                t.feita ? "bg-emerald-400 ring-emerald-400 text-emerald-950"
-                                        : "ring-white/20 hover:ring-emerald-400/60")}>
-                              {t.feita && <Check className="h-3 w-3" strokeWidth={3} />}
-                            </button>
-                            <span className={cn("h-6 w-6 rounded-lg grid place-items-center shrink-0 ring-1",
-                              t.tipo === "follow_up"
-                                ? "bg-primary/12 ring-primary/25 text-primary"
-                                : "bg-amber-400/10 ring-amber-400/25 text-amber-300")}>
-                              <Icone className="h-3 w-3" />
+                          className={cn(
+                            "flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] p-2.5",
+                            "transition-colors hover:border-primary/40 hover:bg-white/[0.05]",
+                            t.feita && "opacity-70",
+                          )}>
+                          {/* MESMA CABEÇA DO CARD DO JURÍDICO: o quadradinho do
+                              ícone à esquerda e o estado à direita. Lá o desfecho
+                              é um check que aparece quando concluiu; aqui ele
+                              também É o botão que conclui — caixa de seleção não
+                              existe em nenhum dos dois. */}
+                          <div className="flex items-start justify-between gap-2">
+                            <span className={cn("h-7 w-7 rounded-xl grid place-items-center shrink-0 ring-1",
+                              fu ? "bg-primary/12 ring-primary/25 text-primary"
+                                 : "bg-amber-400/10 ring-amber-400/25 text-amber-300")}>
+                              <Icone className="h-3.5 w-3.5" />
                             </span>
-                            <button onClick={() => setSelecionadoId(t.leadId)} className="min-w-0 flex-1 text-left">
-                              <p className={cn("text-[11.5px] font-medium leading-tight truncate", t.feita && "line-through")}>
-                                {t.titulo}
-                              </p>
-                              <p className="text-[10.5px] text-muted-foreground truncate">{t.lead}</p>
-                              <p className="text-[9.5px] text-muted-foreground/70 truncate">{t.detalhe}</p>
+                            <button onClick={() => concluir(t.id)}
+                              title={t.feita ? "Reabrir" : "Concluir"}
+                              className={cn("shrink-0 transition-colors",
+                                t.feita ? "text-emerald-400"
+                                        : "text-muted-foreground/35 hover:text-emerald-400/70")}>
+                              <CheckCircle2 className="h-[18px] w-[18px]" />
                             </button>
                           </div>
+
+                          <button onClick={() => setSelecionadoId(t.leadId)} className="text-left">
+                            <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2">
+                              {ROTULO_TIPO[t.tipo]}
+                            </p>
+                            <p className={cn("text-[12.5px] font-medium leading-tight mt-0.5 line-clamp-2",
+                              t.feita && "line-through")}>
+                              {t.titulo}
+                            </p>
+                            <p className="text-[10.5px] text-muted-foreground mt-0.5 line-clamp-2">{t.detalhe}</p>
+
+                            <div className="mt-2 pt-2 border-t border-white/[0.06] flex flex-col gap-1">
+                              {t.feita ? (
+                                <span className="inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-emerald-500/15 text-emerald-400 ring-emerald-500/30">
+                                  <CheckCircle2 className="h-3 w-3" /> Concluído
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-primary/15 text-primary ring-primary/30">
+                                  {fu ? `${t.rodada}ª de ${CADENCIA.length}` : "Marcado por você"}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-muted-foreground truncate">{t.lead}</span>
+                            </div>
+                          </button>
                         </div>
                       );
                     })}
