@@ -5,10 +5,16 @@ interface SpotlightCardProps {
   children: ReactNode;
   className?: string;
   onClick?: () => void;
+  /* O brilho do hover foi desenhado pro Dashboard, onde são poucos cartões
+     grandes e o mouse passa por um de cada vez. Numa tela de trabalho com
+     quatro painéis lado a lado ele acende o tempo todo e cansa. `sutil` mantém
+     o mesmo gesto com um terço da intensidade — o cartão ainda responde, mas
+     para de piscar. */
+  sutil?: boolean;
 }
 
 export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
-  ({ children, className, onClick }, forwardedRef) => {
+  ({ children, className, onClick, sutil = false }, forwardedRef) => {
     const internalRef = useRef<HTMLDivElement>(null);
     const ref = (forwardedRef as React.RefObject<HTMLDivElement>) || internalRef;
     const [coords, setCoords] = useState({ x: 0, y: 0 });
@@ -42,11 +48,17 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
         )}
         style={
           isHovered
-            ? {
-                background: `radial-gradient(480px circle at ${coords.x}px ${coords.y}px, hsla(var(--primary) / 0.08), rgba(255,255,255,0.02) 55%, transparent 80%)`,
-                borderColor: `hsla(var(--primary) / 0.30)`,
-                boxShadow: `0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px hsla(var(--primary) / 0.18), inset 0 1px 0 rgba(255,255,255,0.07)`,
-              }
+            ? sutil
+              ? {
+                  background: `radial-gradient(320px circle at ${coords.x}px ${coords.y}px, hsla(var(--primary) / 0.030), rgba(255,255,255,0.012) 55%, transparent 78%)`,
+                  borderColor: `hsla(var(--primary) / 0.14)`,
+                  boxShadow: `0 8px 32px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.05)`,
+                }
+              : {
+                  background: `radial-gradient(480px circle at ${coords.x}px ${coords.y}px, hsla(var(--primary) / 0.08), rgba(255,255,255,0.02) 55%, transparent 80%)`,
+                  borderColor: `hsla(var(--primary) / 0.30)`,
+                  boxShadow: `0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px hsla(var(--primary) / 0.18), inset 0 1px 0 rgba(255,255,255,0.07)`,
+                }
             : undefined
         }
       >
@@ -54,7 +66,7 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
           className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl"
           style={{
             background: isHovered
-              ? `linear-gradient(90deg, transparent, hsla(var(--primary) / 0.5), transparent)`
+              ? `linear-gradient(90deg, transparent, hsla(var(--primary) / ${sutil ? 0.18 : 0.5}), transparent)`
               : "linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)",
             transition: "background 0.3s ease",
           }}

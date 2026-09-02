@@ -248,7 +248,7 @@ export default function AtendimentoPage() {
           <div className="flex-1 min-h-0 flex gap-2">
 
             {/* ═══ caixa ═══ */}
-            <SpotlightCard className="w-[15.5rem] shrink-0 flex flex-col min-h-0 p-0 overflow-hidden">
+            <SpotlightCard sutil className="w-[15.5rem] shrink-0 flex flex-col min-h-0 p-0 overflow-hidden">
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -318,7 +318,12 @@ export default function AtendimentoPage() {
             </SpotlightCard>
 
             {/* ═══ conversa — só a conversa ═══ */}
-            <SpotlightCard className="flex-1 min-w-0 flex flex-col min-h-0 p-0 overflow-hidden">
+            {/* Três profundidades de propósito: a caixa e as tasks no nível base, a
+                conversa REBAIXADA (é a mesa onde os balões pousam, e escurecer o
+                fundo faz eles existirem) e o detalhe do cliente ELEVADO, que é
+                painel de consulta e não canvas. Sem isso os quatro painéis eram
+                a mesma superfície repetida e o olho não sabia onde estava. */}
+            <SpotlightCard sutil className="flex-1 min-w-0 flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
                   {iniciais(lead.nome)}
@@ -401,7 +406,7 @@ export default function AtendimentoPage() {
                 logo abaixo, no mesmo desenho e com as mesmas animações da linha
                 do tempo dos processos — inclusive a lógica de abrir a etapa
                 corrente, inserir task ali dentro e avançar. */}
-            <SpotlightCard className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden">
+            <SpotlightCard sutil className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden bg-white/[0.055]">
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -468,7 +473,7 @@ export default function AtendimentoPage() {
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
                 volta sozinho) e lembrete (o sino que alguém marcou). */}
-            <SpotlightCard className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
+            <SpotlightCard sutil className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
               tarefasAbertas ? "w-[16rem]" : "w-[2.75rem]")}>
               {tarefasAbertas ? (
                 <>
@@ -850,7 +855,7 @@ function CardInstancia({ instancia, todas, onTrocar }: {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
   return (
-    <SpotlightCard className="shrink-0 rounded-xl p-3 flex items-center gap-3">
+    <SpotlightCard sutil className="shrink-0 rounded-xl p-3 flex items-center gap-3">
       {/* A FOTO DO PERFIL É IDENTIDADE, NÃO STATUS. Ela fica neutra: quem diz
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
@@ -932,7 +937,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
   const topo = FUNIL_MES[0].n;
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <SpotlightCard className="rounded-xl p-4 flex flex-col gap-3">
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
         <div>
           <h2 className="text-sm font-semibold">Funil do mês</h2>
           <p className="text-[11.5px] text-muted-foreground mt-0.5">
@@ -967,7 +972,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
       </SpotlightCard>
 
       <div className="flex flex-col gap-3">
-        <SpotlightCard className="rounded-xl p-4 flex flex-col gap-1">
+        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-1">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Em risco agora</p>
           <p className={cn("text-3xl font-semibold tabular-nums", emRisco > 0 ? "text-amber-300" : "text-emerald-400")}>
             {emRisco}
@@ -977,7 +982,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
           </p>
         </SpotlightCard>
 
-        <SpotlightCard className="rounded-xl p-4 flex flex-col gap-2.5">
+        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-2.5">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Placar do mês</p>
           {PLACAR_MES.map((p, i) => (
             <div key={p.pessoa} className="flex items-center gap-2.5">
@@ -996,7 +1001,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
           ))}
         </SpotlightCard>
 
-        <SpotlightCard className="rounded-xl p-4">
+        <SpotlightCard sutil className="rounded-xl p-4">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-2">Por origem</p>
           {(Object.keys(ORIGENS) as Origem[]).map((o) => {
             const n = LEADS.filter((l) => l.origem === o).length;
