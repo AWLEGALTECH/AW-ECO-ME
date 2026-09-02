@@ -21,7 +21,7 @@
 //
 // A coluna de missões recolhe: em tela apertada ela vira uma faixa fina com o
 // placar, e volta inteira com um clique. A fila em si (ordem de culpa, pontos,
-// sequência) mora em src/lib/missoes.ts, testada.
+// cadência de follow-up) mora em src/lib/tasksAtendimento.ts, testada.
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -33,15 +33,33 @@ import {
   MessageCircle, Search, Send, AlertTriangle, Check, Phone, FileText,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote, Clock,
+  ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  LEADS, MISSOES, ESTAGIOS, ORIGENS, SEQUENCIA_DIAS, PLACAR_MES, FUNIL_MES,
+  LEADS, LEMBRETES, ESTAGIOS, ORIGENS, PLACAR_MES, FUNIL_MES,
   INSTANCIAS, type Lead, type Origem, type Estagio, type Mensagem, type Instancia,
 } from "@/lib/atendimentoMock";
 import {
-  ordenarMissoes, progressoDoDia, patenteDaSequencia, emRisco, PONTOS,
-  ROTULO_MISSAO, type Missao,
-} from "@/lib/missoes";
+  followUpsDoDia, ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
+  CADENCIA, type Task, type TipoTask,
+} from "@/lib/tasksAtendimento";
+
+/* O "hoje" da maquete é fixo pra ela não mudar de comportamento amanhã e a
+   gente perder a referência do que discutiu. Vira hojeISO() quando for real. */
+const HOJE = "2026-09-02";
+
+const somaDias = (iso: string, n: number) => {
+  const [a, m, d] = iso.split("-").map(Number);
+  const dt = new Date(a, m - 1, d + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
+const diasEntre = (de: string, ate: string) => {
+  const [a1, m1, d1] = de.split("-").map(Number);
+  const [a2, m2, d2] = ate.split("-").map(Number);
+  return Math.round((new Date(a2, m2 - 1, d2).getTime() - new Date(a1, m1 - 1, d1).getTime()) / 86400000);
+};
+const fmtDiaCurto = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 const iniciais = (nome: string) =>
   nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -60,7 +78,10 @@ export default function AtendimentoPage() {
   const [origem, setOrigem] = useState<"todos" | Origem>("todos");
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
-  const [missoes, setMissoes] = useState<Missao[]>(MISSOES);
+  const [lembretes, setLembretes] = useState<Task[]>(LEMBRETES);
+  const [dia, setDia] = useState(HOJE);
+  const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
+  const [feitasFollowUp, setFeitasFollowUp] = useState<string[]>([]);
   const [rascunho, setRascunho] = useState("");
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
@@ -86,13 +107,60 @@ export default function AtendimentoPage() {
   const lead = LEADS.find((l) => l.id === selecionadoId) ?? lista[0] ?? LEADS[0];
   const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
 
-  const fila = ordenarMissoes(missoes);
-  const prog = progressoDoDia(missoes);
-  const patente = patenteDaSequencia(SEQUENCIA_DIAS);
-  const emRiscoAbertas = missoes.filter((m) => !m.feita && emRisco(m)).length;
+  /* AS TASKS DO DIA ESCOLHIDO.
+     Lembrete é dado: tem data própria. Follow-up é conta: a cadência lê o tempo
+     parado do lead NAQUELE dia — por isso andar no calendário mostra quem vai
+     precisar de cobrança amanhã, não só quem precisa hoje. */
+  const tasksDoDia = useMemo(() => {
+    const offset = diasEntre(HOJE, dia);
+    const parados = LEADS.map((l) => ({
+      id: l.id,
+      nome: l.nome,
+      diasParado: l.diasParado + offset,
+      followUpsFeitos: l.followUpsFeitos,
+      ativo: l.estagio !== "fechado",
+    }));
+    const fu = followUpsDoDia(parados, dia)
+      .map((t) => ({ ...t, feita: feitasFollowUp.includes(t.id) }));
+    const lb = lembretes.filter((t) => t.data === dia);
+    return ordenarTasks([...fu, ...lb]);
+  }, [dia, lembretes, feitasFollowUp]);
 
-  const concluir = (id: string) =>
-    setMissoes((prev) => prev.map((m) => (m.id === id ? { ...m, feita: !m.feita } : m)));
+  const tasksVisiveis = tasksDoDia.filter((t) => tipoTask === "todas" || t.tipo === tipoTask);
+  const prog = progressoTasks(tasksDoDia);
+  const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
+
+  /* Dias com task, pro calendário marcar. O follow-up é recalculado dia a dia
+     porque o tempo parado anda junto com a data. */
+  const diasComTask = useMemo(() => {
+    const set = new Set(lembretes.map((t) => t.data));
+    for (let i = -7; i <= 21; i++) {
+      const d = somaDias(HOJE, i);
+      const parados = LEADS.map((l) => ({
+        id: l.id, nome: l.nome, diasParado: l.diasParado + i,
+        followUpsFeitos: l.followUpsFeitos, ativo: l.estagio !== "fechado",
+      }));
+      if (followUpsDoDia(parados, d).length > 0) set.add(d);
+    }
+    return set;
+  }, [lembretes]);
+
+  const concluir = (id: string) => {
+    if (id.startsWith("fu-")) {
+      setFeitasFollowUp((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+      return;
+    }
+    setLembretes((prev) => prev.map((t) => (t.id === id ? { ...t, feita: !t.feita } : t)));
+  };
+
+  const novoLembrete = () => {
+    const titulo = window.prompt(`Lembrete sobre ${lead.nome}:`);
+    if (!titulo?.trim()) return;
+    setLembretes((p) => [...p, {
+      id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
+      titulo: titulo.trim(), detalhe: "marcado agora", data: dia, feita: false,
+    }]);
+  };
 
   const enviar = () => {
     const texto = rascunho.trim();
@@ -103,8 +171,11 @@ export default function AtendimentoPage() {
       [lead.id]: [...(prev[lead.id] ?? []), { de: "nos", texto, hora: agora }],
     }));
     setRascunho("");
-    setMissoes((prev) =>
-      prev.map((m) => (m.leadId === lead.id && m.tipo === "sem_resposta" ? { ...m, feita: true } : m)));
+    // responder resolve o follow-up daquele lead no dia — é a cobrança
+    setFeitasFollowUp((p) => {
+      const ids = tasksDoDia.filter((t) => t.tipo === "follow_up" && t.leadId === lead.id).map((t) => t.id);
+      return [...new Set([...p, ...ids])];
+    });
   };
 
   /* A bancada cancela o respiro que o layout dá a todas as páginas e reaplica
@@ -135,7 +206,7 @@ export default function AtendimentoPage() {
 
       {aba === "funil" ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-          <PainelFunil emRisco={emRiscoAbertas} />
+          <PainelFunil emRisco={abertasHoje} />
         </div>
       ) : (
         <>
@@ -344,18 +415,35 @@ export default function AtendimentoPage() {
               </div>
             </div>
 
-            {/* ═══ missões — retrátil ═══ */}
+            {/* ═══ Tasks — retrátil ═══
+                Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
+                ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
+                (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
+                volta sozinho) e lembrete (o sino que alguém marcou). */}
             <div className={cn("shrink-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden transition-[width] duration-200",
-              tarefasAbertas ? "w-[15.5rem]" : "w-[2.75rem]")}>
+              tarefasAbertas ? "w-[16rem]" : "w-[2.75rem]")}>
               {tarefasAbertas ? (
                 <>
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-[12.5px] font-semibold">Hoje</h2>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10.5px] text-muted-foreground tabular-nums">
-                          {prog.feitas}/{prog.total}
-                        </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
+                        <ListChecks className="h-3.5 w-3.5 text-emerald-400" /> Tasks
+                      </h2>
+                      <div className="flex items-center gap-1.5">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button title="Escolher o dia"
+                              className={cn("flex items-center gap-1 rounded px-1.5 py-[2px] text-[10.5px] transition-colors",
+                                dia === HOJE ? "text-muted-foreground hover:text-foreground"
+                                             : "bg-sky-400/10 text-sky-300 ring-1 ring-sky-400/25")}>
+                              <CalendarDays className="h-3.5 w-3.5" />
+                              {dia === HOJE ? "Hoje" : fmtDiaCurto(dia)}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="w-auto p-2">
+                            <CalendarioTasks dia={dia} onEscolher={setDia} comTask={diasComTask} />
+                          </PopoverContent>
+                        </Popover>
                         <button onClick={() => setTarefasAbertas(false)} title="Recolher"
                           className="text-muted-foreground hover:text-foreground">
                           <PanelRightClose className="h-3.5 w-3.5" />
@@ -363,94 +451,102 @@ export default function AtendimentoPage() {
                       </div>
                     </div>
 
-                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                      <motion.div
-                        className={cn("h-full rounded-full", prog.zerado ? "bg-emerald-400" : "bg-emerald-400/70")}
-                        initial={false} animate={{ width: `${prog.pct}%` }}
-                        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }} />
+                    {/* barra de CONCLUSÃO do dia — quanto da lista saiu */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                        <motion.div
+                          className={cn("h-full rounded-full", prog.concluido ? "bg-emerald-400" : "bg-emerald-400/70")}
+                          initial={false} animate={{ width: `${prog.pct}%` }}
+                          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }} />
+                      </div>
+                      <span className="text-[10.5px] text-muted-foreground tabular-nums shrink-0">
+                        {prog.feitas}/{prog.total}
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[10.5px]">
-                      <span className="flex items-center gap-1 text-amber-300">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span className="tabular-nums font-semibold">{prog.pontos}</span>
-                        <span className="text-muted-foreground">/ {prog.pontosPossiveis}</span>
-                      </span>
-                      <span className="flex items-center gap-1 ml-auto"
-                        title={`${SEQUENCIA_DIAS} dias sem deixar ninguém sem resposta`}>
-                        <Flame className="h-3.5 w-3.5 text-orange-400" />
-                        <span className="tabular-nums font-semibold">{SEQUENCIA_DIAS}</span>
-                        <span className="text-muted-foreground">dias</span>
-                      </span>
+                    <div className="flex gap-1">
+                      {([["todas", "Todas"], ["follow_up", "Follow-up"], ["lembrete", "Lembretes"]] as const).map(([k, rot]) => (
+                        <button key={k} onClick={() => setTipoTask(k)}
+                          className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
+                            tipoTask === k
+                              ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30"
+                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
+                          {rot}
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      {patente.rotulo}
-                      {patente.faltam !== null && ` · faltam ${patente.faltam} pra ${patente.proxima}`}
-                    </p>
 
                     <AnimatePresence>
-                      {prog.zerado && (
+                      {prog.concluido && (
                         <motion.p
                           initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                           className="flex items-center gap-1.5 text-[10.5px] text-emerald-300 bg-emerald-400/10 ring-1 ring-emerald-400/25 rounded-md px-2 py-1">
                           <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
-                          Ninguém está esperando resposta.
+                          Dia fechado.
                         </motion.p>
                       )}
                     </AnimatePresence>
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-1.5 flex flex-col gap-1.5">
-                    {fila.map((m) => {
-                      const risco = emRisco(m) && !m.feita;
+                    {tasksVisiveis.length === 0 ? (
+                      <p className="text-[11.5px] text-muted-foreground text-center py-6">
+                        Nada pra {dia === HOJE ? "hoje" : "este dia"}.
+                      </p>
+                    ) : tasksVisiveis.map((t) => {
+                      const Icone = t.tipo === "follow_up" ? Repeat : BellRing;
                       return (
-                        <div key={m.id}
-                          className={cn("rounded-lg border px-2 py-1.5 transition-colors",
-                            m.feita ? "border-white/[0.05] bg-white/[0.015] opacity-55"
-                              : risco ? "border-amber-400/25 bg-amber-400/[0.05]"
-                                      : "border-white/[0.06] bg-white/[0.02]")}>
+                        <div key={t.id}
+                          className={cn("rounded-xl border px-2 py-1.5 transition-colors",
+                            t.feita ? "border-white/[0.05] bg-white/[0.015] opacity-60"
+                                    : "border-white/[0.06] bg-white/[0.02] hover:border-primary/30")}>
                           <div className="flex items-start gap-2">
-                            <button onClick={() => concluir(m.id)}
-                              title={m.feita ? "Desmarcar" : "Marcar como feita"}
+                            <button onClick={() => concluir(t.id)}
+                              title={t.feita ? "Desmarcar" : "Marcar como feita"}
                               className={cn("mt-[1px] h-4 w-4 shrink-0 rounded grid place-items-center ring-1 transition-colors",
-                                m.feita ? "bg-emerald-400 ring-emerald-400 text-emerald-950"
+                                t.feita ? "bg-emerald-400 ring-emerald-400 text-emerald-950"
                                         : "ring-white/20 hover:ring-emerald-400/60")}>
-                              {m.feita && <Check className="h-3 w-3" strokeWidth={3} />}
+                              {t.feita && <Check className="h-3 w-3" strokeWidth={3} />}
                             </button>
-                            <button onClick={() => setSelecionadoId(m.leadId)} className="min-w-0 flex-1 text-left">
-                              <p className={cn("text-[11.5px] font-medium leading-tight flex items-center gap-1",
-                                m.feita && "line-through")}>
-                                {risco && <AlertTriangle className="h-3 w-3 text-amber-300 shrink-0" />}
-                                {ROTULO_MISSAO[m.tipo]}
-                              </p>
-                              <p className="text-[10.5px] text-muted-foreground truncate">{m.lead}</p>
-                              <p className="text-[9.5px] text-muted-foreground/70 truncate">{m.detalhe}</p>
-                            </button>
-                            <span className="text-[9px] text-muted-foreground/60 tabular-nums shrink-0 mt-[2px]">
-                              +{PONTOS[m.tipo]}
+                            <span className={cn("h-6 w-6 rounded-lg grid place-items-center shrink-0 ring-1",
+                              t.tipo === "follow_up"
+                                ? "bg-primary/12 ring-primary/25 text-primary"
+                                : "bg-amber-400/10 ring-amber-400/25 text-amber-300")}>
+                              <Icone className="h-3 w-3" />
                             </span>
+                            <button onClick={() => setSelecionadoId(t.leadId)} className="min-w-0 flex-1 text-left">
+                              <p className={cn("text-[11.5px] font-medium leading-tight truncate", t.feita && "line-through")}>
+                                {t.titulo}
+                              </p>
+                              <p className="text-[10.5px] text-muted-foreground truncate">{t.lead}</p>
+                              <p className="text-[9.5px] text-muted-foreground/70 truncate">{t.detalhe}</p>
+                            </button>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+
+                  <div className="p-2 border-t border-white/[0.06] shrink-0">
+                    <Button size="sm" variant="outline" className="w-full h-8 text-[11px]" onClick={novoLembrete}>
+                      <BellRing className="h-3.5 w-3.5 mr-1.5" /> Lembrar de {lead.nome.split(" ")[0]}
+                    </Button>
+                  </div>
                 </>
               ) : (
-                /* Recolhida: uma faixa que ainda cobra. Sumir de vez faria a
-                   coluna virar gaveta que ninguém reabre. */
-                <button onClick={() => setTarefasAbertas(true)} title="Abrir missões do dia"
+                <button onClick={() => setTarefasAbertas(true)} title="Abrir as tasks do dia"
                   className="flex-1 flex flex-col items-center gap-3 py-3 hover:bg-white/[0.03] transition-colors">
                   <PanelRightOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                  {emRiscoAbertas > 0 && (
+                  {abertasHoje > 0 && (
                     <span className="h-5 w-5 rounded-full bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30 grid place-items-center text-[10px] font-semibold tabular-nums">
-                      {emRiscoAbertas}
+                      {abertasHoje}
                     </span>
                   )}
                   <span className="text-[10px] text-muted-foreground tabular-nums">
                     {prog.feitas}/{prog.total}
                   </span>
                   <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
-                    Hoje
+                    Tasks
                   </span>
                 </button>
               )}
@@ -458,6 +554,68 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ── o calendário das tasks ───────────────────────────────────────────────
+   Grade do mês com bolinha nos dias que têm task. O follow-up é recalculado por
+   dia, então andar pra frente mostra quem VAI precisar de cobrança — o que é
+   metade da graça de ter cadência. */
+function CalendarioTasks({ dia, onEscolher, comTask }: {
+  dia: string; onEscolher: (d: string) => void; comTask: Set<string>;
+}) {
+  const [a, m] = dia.split("-").map(Number);
+  const [mesVisto, setMesVisto] = useState({ ano: a, mes: m - 1 });
+  const primeiro = new Date(mesVisto.ano, mesVisto.mes, 1);
+  const inicio = new Date(mesVisto.ano, mesVisto.mes, 1 - primeiro.getDay());
+  const dias: Date[] = [];
+  for (let i = 0; i < 42; i++) dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() + i));
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const nomeMes = new Date(mesVisto.ano, mesVisto.mes, 1)
+    .toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  return (
+    <div className="w-[15rem]">
+      <div className="flex items-center justify-between mb-1.5">
+        <button className="text-muted-foreground hover:text-foreground"
+          onClick={() => setMesVisto((v) => v.mes === 0 ? { ano: v.ano - 1, mes: 11 } : { ...v, mes: v.mes - 1 })}>
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+        <span className="text-[11.5px] font-medium first-letter:uppercase">{nomeMes}</span>
+        <button className="text-muted-foreground hover:text-foreground"
+          onClick={() => setMesVisto((v) => v.mes === 11 ? { ano: v.ano + 1, mes: 0 } : { ...v, mes: v.mes + 1 })}>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 text-center">
+        {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => (
+          <span key={i} className="text-[9px] text-muted-foreground/60 py-0.5">{d}</span>
+        ))}
+        {dias.map((d) => {
+          const k = iso(d);
+          const doMes = d.getMonth() === mesVisto.mes;
+          const sel = k === dia;
+          return (
+            <button key={k} onClick={() => onEscolher(k)}
+              className={cn("relative h-7 rounded text-[11px] tabular-nums transition-colors",
+                sel ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/40"
+                    : doMes ? "hover:bg-white/[0.06]" : "text-muted-foreground/30",
+                k === HOJE && !sel && "ring-1 ring-white/15")}>
+              {d.getDate()}
+              {comTask.has(k) && (
+                <span className={cn("absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full",
+                  sel ? "bg-emerald-300" : "bg-primary/70")} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <button onClick={() => onEscolher(HOJE)}
+        className="w-full mt-1.5 rounded-md py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05]">
+        Voltar pra hoje
+      </button>
     </div>
   );
 }

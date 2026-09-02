@@ -13,7 +13,7 @@
 // passam a ser preenchidas pelo banco — é por isso que os tipos moram aqui e
 // não dentro do componente.
 
-import type { Missao } from "./missoes";
+import type { Task } from "./tasksAtendimento";
 
 export type Estagio = "chegou" | "triagem" | "extrato" | "proposta" | "fechado";
 export type Origem = "pda" | "escritorio" | "planilha" | "indicacao";
@@ -85,6 +85,11 @@ export interface Lead {
   ultimaHora: string;
   naoLidas: number;
   temProximaAcao: boolean;
+  /* Dias sem NENHUM movimento — nem mensagem dele, nem nossa, nem troca de
+     etapa. É o relógio da cadência de follow-up, e é diferente de "sem
+     resposta nossa", que é culpa nossa e aparece na caixa de entrada. */
+  diasParado: number;
+  followUpsFeitos: number;
   dossie: {
     banco: string | null;
     descontos: string[];
@@ -107,6 +112,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "09:14",
     naoLidas: 2,
     temProximaAcao: false,
+    diasParado: 0,
+    followUpsFeitos: 0,
     dossie: {
       banco: "Bradesco",
       descontos: ["RMC", "Seguro de vida"],
@@ -134,6 +141,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "07:30",
     naoLidas: 1,
     temProximaAcao: true,
+    diasParado: 0,
+    followUpsFeitos: 1,
     dossie: {
       banco: "Banco BMG",
       descontos: ["RCC", "Tarifa SMS"],
@@ -160,6 +169,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "Ontem",
     naoLidas: 0,
     temProximaAcao: true,
+    diasParado: 3,
+    followUpsFeitos: 0,
     dossie: {
       banco: "Banco Pan",
       descontos: ["Empréstimo não contratado"],
@@ -186,6 +197,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "Ontem",
     naoLidas: 0,
     temProximaAcao: true,
+    diasParado: 1,
+    followUpsFeitos: 0,
     dossie: {
       banco: "Bradesco",
       descontos: ["RMC", "RCC", "Cesta de serviços"],
@@ -211,6 +224,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "Ontem",
     naoLidas: 1,
     temProximaAcao: false,
+    diasParado: 0,
+    followUpsFeitos: 0,
     dossie: {
       banco: null,
       descontos: [],
@@ -233,6 +248,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "Terça",
     naoLidas: 0,
     temProximaAcao: true,
+    diasParado: 0,
+    followUpsFeitos: 0,
     dossie: {
       banco: "Banco Mercantil",
       descontos: ["Refinanciamento indevido"],
@@ -256,6 +273,8 @@ export const LEADS: Lead[] = [
     ultimaHora: "Ontem",
     naoLidas: 0,
     temProximaAcao: false,
+    diasParado: 6,
+    followUpsFeitos: 1,
     dossie: {
       banco: "Banco Daycoval",
       descontos: ["Seguro prestamista"],
@@ -271,15 +290,25 @@ export const LEADS: Lead[] = [
   },
 ];
 
-export const MISSOES: Missao[] = [
-  { id: "m1", tipo: "sem_resposta",     leadId: "l5", lead: "Rita de Cássia Alves",  detalhe: "primeira mensagem, sem resposta há 19h", horas: 19, feita: false },
-  { id: "m2", tipo: "sem_resposta",     leadId: "l2", lead: "José Carlos Ferreira",  detalhe: "não sabe mandar o extrato",             horas: 4,  feita: false },
-  { id: "m3", tipo: "sem_resposta",     leadId: "l1", lead: "Maria das Graças",      detalhe: "respondeu sobre o RMC e o seguro",      horas: 2,  feita: false },
-  { id: "m4", tipo: "sem_proxima_acao", leadId: "l7", lead: "Cleuza Martins",        detalhe: "\"te retorno\" desde ontem, sem combinado", horas: 20, feita: false },
-  { id: "m5", tipo: "cobrar_extrato",   leadId: "l3", lead: "Ana Lúcia Prado",       detalhe: "link enviado ontem · 1ª cobrança",      horas: 24, feita: false },
-  { id: "m6", tipo: "ligar",            leadId: "l4", lead: "Pedro Henrique",        detalhe: "ligação combinada pra hoje",            horas: 3,  feita: false },
-  { id: "m7", tipo: "follow_up",        leadId: "l6", lead: "Walmir Nogueira",       detalhe: "confirmar que o escritório já falou",   horas: 30, feita: true  },
-  { id: "m8", tipo: "cobrar_extrato",   leadId: "l2", lead: "José Carlos Ferreira",  detalhe: "ensinar a mandar pelo link",            horas: 4,  feita: true  },
+/* LEMBRETES — os que a atendente marca na mão. Os follow-ups NÃO estão aqui:
+   eles nascem da cadência, calculados a partir do tempo parado de cada lead, e
+   por isso mudam conforme o dia que a pessoa escolhe no calendário. */
+export const LEMBRETES: Task[] = [
+  { id: "lb1", tipo: "lembrete", leadId: "l4", lead: "Pedro Henrique Sousa",
+    titulo: "Ligar às 15h", detalhe: "combinei de explicar as três rubricas",
+    data: "2026-09-02", feita: false },
+  { id: "lb2", tipo: "lembrete", leadId: "l2", lead: "José Carlos Ferreira",
+    titulo: "Ensinar a mandar o extrato", detalhe: "o filho ajuda ele à noite",
+    data: "2026-09-02", feita: false },
+  { id: "lb3", tipo: "lembrete", leadId: "l6", lead: "Walmir Nogueira",
+    titulo: "Confirmar que o escritório falou", detalhe: "passou pro outro número na terça",
+    data: "2026-09-02", feita: true },
+  { id: "lb4", tipo: "lembrete", leadId: "l1", lead: "Maria das Graças Bentes",
+    titulo: "Retornar sobre o seguro de vida", detalhe: "ela pediu pra ligar depois das 14h",
+    data: "2026-09-03", feita: false },
+  { id: "lb5", tipo: "lembrete", leadId: "l3", lead: "Ana Lúcia Prado",
+    titulo: "Checar se o extrato chegou", detalhe: "prometeu mandar até sexta",
+    data: "2026-09-04", feita: false },
 ];
 
 /** Dias seguidos sem deixar ninguém sem resposta. Exemplo. */
