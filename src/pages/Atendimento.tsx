@@ -320,11 +320,11 @@ export default function AtendimentoPage() {
             {/* ═══ conversa — só a conversa ═══ */}
             {/* Três profundidades de propósito: a caixa e as tasks no nível base, a
                 conversa REBAIXADA (é a mesa onde os balões pousam, e escurecer o
-                fundo faz eles existirem) e as TASKS ELEVADAS, que é a lista que
-                se opera o dia inteiro. O detalhe do cliente fica no nível base:
-                ele é consulta, e consulta não precisa saltar. Sem isso os quatro
-                painéis eram a mesma superfície repetida e o olho não sabia onde
-                estava. */}
+                fundo faz eles existirem), o detalhe do cliente OPACO — superfície
+                sólida, sem vidro, porque é ficha que se lê — e as tasks no vidro
+                mais leve da bancada, que é a lista que muda o dia todo. Sem isso
+                os quatro painéis eram a mesma superfície repetida e o olho não
+                sabia onde estava. */}
             <SpotlightCard sutil className="flex-1 min-w-0 flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
@@ -408,7 +408,7 @@ export default function AtendimentoPage() {
                 logo abaixo, no mesmo desenho e com as mesmas animações da linha
                 do tempo dos processos — inclusive a lógica de abrir a etapa
                 corrente, inserir task ali dentro e avançar. */}
-            <SpotlightCard sutil className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden">
+            <SpotlightCard sutil className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none">
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -475,7 +475,7 @@ export default function AtendimentoPage() {
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
                 volta sozinho) e lembrete (o sino que alguém marcou). */}
-            <SpotlightCard sutil className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.055] transition-[width] duration-200",
+            <SpotlightCard sutil className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.045] transition-[width] duration-200",
               tarefasAbertas ? "w-[16rem]" : "w-[2.75rem]")}>
               {tarefasAbertas ? (
                 <>
