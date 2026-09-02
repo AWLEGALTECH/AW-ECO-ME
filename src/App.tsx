@@ -21,6 +21,7 @@ import ProcessoDetail from "./pages/ProcessoDetail";
 import Tarefas from "./pages/Tarefas";
 import Writer from "./pages/Writer";
 import Finder from "./pages/Finder";
+import Atendimento from "./pages/Atendimento";
 import PreClientes from "./pages/PreClientes";
 import Esteira from "./pages/Esteira";
 import Publicacoes from "./pages/Publicacoes";
@@ -89,6 +90,9 @@ const App = () => (
                 </Route>
                 <Route element={<RequireModule module="finder" />}>
                   <Route path="/finder" element={<Finder />} />
+                </Route>
+                <Route element={<RequireModule module="atendimento" />}>
+                  <Route path="/atendimento" element={<PageErrorBoundary pageName="Atendimento"><Atendimento /></PageErrorBoundary>} />
                 </Route>
                 <Route element={<RequireModule module="pre_clientes" />}>
                   <Route path="/pre-clientes" element={<PreClientes />} />

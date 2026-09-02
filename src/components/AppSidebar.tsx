@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone, Wallet } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone, Wallet, MessagesSquare } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -25,6 +25,7 @@ interface NavItem { title: string; url: string; icon: any; badgeKey?: string; mo
 const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
   { title: "Clientes",      url: "/clientes",      icon: Users,           module: "clientes" },
+  { title: "Atendimento",   url: "/atendimento",   icon: MessagesSquare,  module: "atendimento",  beta: true },
   { title: "Pré-clientes",  url: "/pre-clientes",  icon: FileSignature,   module: "pre_clientes", badgeKey: "pendentes" },
   { title: "Esteira",       url: "/esteira",       icon: Workflow,        module: "esteira",      badgeKey: "esteira" },
   { title: "Publicações",   url: "/publicacoes",   icon: Newspaper,       module: "publicacoes",  badgeKey: "publicacoes" },

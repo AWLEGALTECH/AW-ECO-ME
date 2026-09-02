@@ -3,6 +3,7 @@
 export const MODULES = [
   { key: "dashboard",    label: "Dashboard",     path: "/dashboard" },
   { key: "clientes",     label: "Clientes",      path: "/clientes" },
+  { key: "atendimento",  label: "Atendimento",   path: "/atendimento" },
   { key: "pre_clientes", label: "Pré-clientes",  path: "/pre-clientes" },
   { key: "esteira",      label: "Esteira",       path: "/esteira" },
   { key: "publicacoes",  label: "Publicações",   path: "/publicacoes" },
