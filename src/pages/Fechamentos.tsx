@@ -22,6 +22,7 @@ import {
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { hojeISO, mesDeHoje } from "@/lib/hoje";
+import { mesPorExtenso } from "@/lib/mesRef";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,13 @@ import { cn } from "@/lib/utils";
 interface Fechamento {
   id: string;
   data: string;
+  /* O MÊS DO FECHAMENTO NÃO É O MÊS DA DATA.
+     Regra do escritório: tudo que fecha até o 5º dia útil conta no mês
+     anterior — o mês vai até o 5º dia útil do seguinte. Quem decide é o banco,
+     numa coluna gerada (fechamentos.competencia): a régua fica num lugar só, e
+     a tela nunca discorda de um relatório em SQL. Dia útil aqui exclui feriado,
+     inclusive o 5 e o 7 de setembro. */
+  competencia: string;
   cliente_nome: string;
   cliente_id: string | null;
   rubricas: string[] | null;
@@ -163,7 +171,7 @@ function permiteExcedentes(regraMes: Regra, mu?: MetaUser): boolean {
 /** Fechamentos de uma pessoa num mês, em ordem cronológica estável. */
 function fechsPessoaMes(fechs: Fechamento[], userId: string, mes: string) {
   return fechs
-    .filter((f) => f.user_id === userId && (f.data || "").slice(0, 7) === mes)
+    .filter((f) => f.user_id === userId && f.competencia === mes)
     .sort((a, b) => (a.data || "").localeCompare(b.data || "") || a.id.localeCompare(b.id));
 }
 const contaRubricas = (fs: Fechamento[]) => fs.reduce((a, f) => a + (f.rubricas?.length || 0), 0);
@@ -336,7 +344,7 @@ export default function Fechamentos() {
     queryFn: async (): Promise<Fechamento[]> => {
       const { data, error } = await supabase
         .from("fechamentos" as any)
-        .select("id, data, cliente_nome, cliente_id, rubricas, pendencia, pasta_drive, responsavel, user_id")
+        .select("id, data, competencia, cliente_nome, cliente_id, rubricas, pendencia, pasta_drive, responsavel, user_id")
         .order("data", { ascending: false });
       if (error) throw error;
       return (data || []) as unknown as Fechamento[];
@@ -425,7 +433,7 @@ export default function Fechamentos() {
     return m;
   }, [metasRes.data, mesAtivo]);
 
-  const doMes = useMemo(() => fechamentos.filter((f) => (f.data || "").slice(0, 7) === mesAtivo), [fechamentos, mesAtivo]);
+  const doMes = useMemo(() => fechamentos.filter((f) => f.competencia === mesAtivo), [fechamentos, mesAtivo]);
   const acoesDe = useMemo(() => {
     const map: Record<string, number> = {};
     for (const f of doMes) {
@@ -705,8 +713,16 @@ export default function Fechamentos() {
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1">
+                              <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 flex-wrap">
                                 <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
+                                {/* Fechado no mês seguinte mas contado neste: sem
+                                    dizer isso, a data no cartão parece defeito. */}
+                                {(f.data || "").slice(0, 7) !== f.competencia && (
+                                  <span className="rounded px-1.5 py-[1px] text-[10px] bg-sky-400/10 text-sky-300/90 ring-1 ring-sky-400/20"
+                                    title="Fechado até o 5º dia útil — conta no mês anterior">
+                                    conta em {mesPorExtenso(f.competencia).nome.slice(0, 3).toLowerCase()}
+                                  </span>
+                                )}
                                 <span className="text-muted-foreground/50">·</span>
                                 {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "rubrica válida" : "rubricas válidas"}
                               </div>
