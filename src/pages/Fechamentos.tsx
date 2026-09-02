@@ -31,8 +31,10 @@ interface Fechamento {
   id: string;
   data: string;
   /* O MÊS DO FECHAMENTO NÃO É O MÊS DA DATA.
-     Regra do escritório: tudo que fecha até o 5º dia útil conta no mês
-     anterior — o mês vai até o 5º dia útil do seguinte. Quem decide é o banco,
+     Regra do escritório, valendo da virada agosto→setembro/2026 em diante:
+     tudo que fecha até o 5º dia útil conta no mês anterior — o mês vai até o 5º
+     dia útil do seguinte. Antes disso é o mês da própria data; mês já fechado e
+     pago não muda de número por causa de régua nova. Quem decide é o banco,
      numa coluna gerada (fechamentos.competencia): a régua fica num lugar só, e
      a tela nunca discorda de um relatório em SQL. Dia útil aqui exclui feriado,
      inclusive o 5 e o 7 de setembro. */
