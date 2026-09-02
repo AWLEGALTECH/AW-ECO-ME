@@ -730,6 +730,7 @@ export default function WalletPage() {
                       não como um chip solto no meio da linha */}
                   {realizados.length > 0 && (
                     <span className="hidden sm:flex items-center gap-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70 pr-3">
+                      <span className="w-[5.5rem]">Data</span>
                       <span className="w-[10.5rem]">Categoria</span>
                       {colunaClienteRealizados && <span className="w-[7.25rem] text-right">Do cliente</span>}
                       <span className="w-[6.5rem] text-right">Valor</span>
@@ -1601,26 +1602,38 @@ function LinhaLanc({ l, categoria, onClick, acao, parte, colunaCliente }: {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[13px] font-medium truncate">{l.descricao}</span>
-        <span className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
+        {/* A SEGUNDA LINHA SÓ EXISTE EM TELA ESTREITA. Onde há colunas, data,
+            categoria e parte do cliente estão cada uma na sua; repetir aqui
+            embaixo era o que deixava a data pequena e escondida sob o nome. */}
+        <span className="sm:hidden flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
           <span className="shrink-0">{fmtDia(l.data)}</span>
-          {/* Só aparece quando o dinheiro andou num mês e se refere a outro —
-              que é exatamente o caso em que ler só a data engana. */}
           {l.competencia && l.competencia !== l.data.slice(0, 7) && (
             <span className="shrink-0 rounded px-1.5 py-[1px] bg-sky-400/10 text-sky-300/90 ring-1 ring-sky-400/20">
               ref. {mesPorExtenso(l.competencia).nome.slice(0, 3).toLowerCase()}/{l.competencia.slice(2, 4)}
             </span>
           )}
-          {/* Em tela estreita não há colunas: o aviso volta pra cá, junto da
-              data, como o nome da categoria faz logo abaixo. */}
           {parte && (
-            <span className="sm:hidden shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] bg-white/[0.04] ring-1 ring-white/10 text-foreground/70">
+            <span className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-[1px] bg-white/[0.04] ring-1 ring-white/10 text-foreground/70">
               <HandCoins className={cn("h-3 w-3", parte.pendente ? "text-amber-300" : "text-muted-foreground/50")} />
               {parte.resumo}
             </span>
           )}
-          {/* em tela estreita a coluna de categoria não cabe; aqui ela volta */}
-          {categoria && <span className="sm:hidden truncate"><span className="opacity-40 mr-1">·</span>{categoria.nome}</span>}
+          {categoria && <span className="truncate"><span className="opacity-40 mr-1">·</span>{categoria.nome}</span>}
         </span>
+      </span>
+
+      {/* COLUNA DA DATA. Embaixo da descrição ela ficava em corpo 10 e sem
+          cabeçalho — dava pra ler uma linha, não pra correr o olho pela
+          coluna. Aqui ela alinha com as outras e tem o mês de competência
+          logo abaixo, quando o dinheiro andou num mês e se refere a outro,
+          que é justamente o caso em que ler só a data engana. */}
+      <span className="hidden sm:flex flex-col justify-center shrink-0 w-[5.5rem]">
+        <span className="text-[11.5px] tabular-nums text-muted-foreground leading-tight">{fmtDia(l.data)}</span>
+        {l.competencia && l.competencia !== l.data.slice(0, 7) && (
+          <span className="text-[9.5px] text-sky-300/90 leading-tight mt-[1px]">
+            ref. {mesPorExtenso(l.competencia).nome.slice(0, 3).toLowerCase()}/{l.competencia.slice(2, 4)}
+          </span>
+        )}
       </span>
 
       {/* COLUNA DA CATEGORIA. O ícone sozinho não se explica — um martelo, um
