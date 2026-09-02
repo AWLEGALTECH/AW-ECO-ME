@@ -33,6 +33,38 @@ export const ORIGENS: Record<Origem, { rotulo: string; curto: string }> = {
   indicacao:  { rotulo: "Indicação",             curto: "Indicação" },
 };
 
+/** A instância do WhatsApp: qual número está falando, e se ele está de pé.
+    Quando a conexão cai, tudo abaixo do card fica mentindo — é por isso que o
+    estado dela mora no topo da tela e não num menu de configuração. */
+export interface Instancia {
+  id: string;
+  nome: string;
+  curto: string;
+  telefone: string;
+  status: "conectado" | "desconectado";
+  gateway: string;
+  sincronizadoEm: string;
+  conversas: number;
+  naoLidas: number;
+  /** iniciais no lugar da foto, enquanto é maquete */
+  avatar: string;
+}
+
+export const INSTANCIAS: Instancia[] = [
+  {
+    id: "pda", nome: "Portal Direito Aberto", curto: "PDA",
+    telefone: "(92) 99274-0180", status: "conectado",
+    gateway: "Evolution API", sincronizadoEm: "há 2 min",
+    conversas: 228, naoLidas: 12, avatar: "PDA",
+  },
+  {
+    id: "escritorio", nome: "Matheus Enes Advocacia", curto: "Escritório",
+    telefone: "(92) 98155-4420", status: "conectado",
+    gateway: "Evolution API", sincronizadoEm: "há 6 min",
+    conversas: 97, naoLidas: 1, avatar: "ME",
+  },
+];
+
 export interface Mensagem {
   de: "lead" | "nos";
   texto: string;
