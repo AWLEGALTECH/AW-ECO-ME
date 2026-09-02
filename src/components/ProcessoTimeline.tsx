@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { aplicarNaLinha } from "@/lib/tarefas";
+import {
+  PASSO_PULADA, cadeiaDoPulso, acendeEm as acendeNoPasso, fimDaCascata, temFita,
+} from "@/lib/cascataSalto";
 import { CampoData } from "@/components/CampoData";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -211,13 +214,9 @@ const parseMoney = (s: string) => parseFloat(String(s).replace(/\./g, "").replac
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-// Cascata do salto de etapas. Fechado um acordo lá na contestação, o processo
-// atropela oito etapas de uma vez — e oito X aparecendo juntos não contam
-// história nenhuma. Acendendo uma de cada vez, de cima pra baixo, o que se vê é
-// o fluxo da ação correndo até o acordo e abrindo lá.
-const PASSO_PULADA = 0.13;    // segundos entre uma etapa pulada e a seguinte
-const INICIO_CASCATA = 0.15;  // respiro depois do check da etapa concluída
-const fimDaCascata = (n: number) => (n ? INICIO_CASCATA + n * PASSO_PULADA : 0);
+// A conta da cascata do salto mora em src/lib/cascataSalto.ts — errar meio
+// passo ali faz a etapa nova abrir antes de o corte chegar nela, e isso não se
+// vê lendo JSX.
 const PREMIUM_DIALOG =
   "sm:max-w-md rounded-2xl border-white/[0.08] bg-card/95 backdrop-blur-xl shadow-[0_8px_40px_rgba(0,0,0,0.55)] pointer-events-auto";
 
@@ -860,29 +859,37 @@ export function ProcessoTimeline({
     const idsPulados = etapas.slice(idxAtual + 1, idxAlvo).map((e) => e.id);
     const cascata = fimDaCascata(idsPulados.length);
 
+    // Troca o estado: recolhe as antigas e abre o novo foco. É aqui que a
+    // cascata do salto começa.
+    const aplicar = () => {
+      setAvancando(null);
+      setEtapas((prev) => prev.map((e, i) => {
+        if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
+        if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
+        if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, statusProcessual: statusSnap || e.statusProcessual, tasks: [...(e.tasks ?? []), ...migradas] };
+        return e;
+      }));
+      setRecemAvancado({ concluida: idConcluida, nova: idNova, puladas: idsPulados });
+      // A limpeza espera a cascata: cortada no meio, as últimas etapas
+      // perderiam a animação e o X apareceria seco.
+      window.setTimeout(() => setRecemAvancado(null), 1600 + cascata * 1000);
+    };
+
     // 1) Fecha o modal e mostra o POP do check (com o fundo escuro/blur).
     setAvancar(null);
     dispararPop(Check, `Avançou para ${alvoNome}`, "bg-primary/15 text-primary ring-primary/30");
 
-    // 2) Pop fechou → começa a FITA: a linha longa (etapa ainda atual, com as
-    //    tasks grandes) se preenche por inteiro, de cima até o próximo ponto.
+    // 2) COM SALTO NÃO TEM FITA. Encher a linha até a etapa seguinte e depois
+    //    sair cortando as puladas são dois movimentos contando a mesma coisa,
+    //    um atrás do outro — dá a impressão de animação costurada, e a segunda
+    //    parece começar do zero. Quando o salto atropela etapas, a cascata
+    //    sozinha já é o movimento: ela sai do check e desce cortando. A fita
+    //    fica pro avanço normal, de uma etapa pra seguinte, onde não há corte
+    //    nenhum e sem ela não sobraria animação alguma.
     window.setTimeout(() => {
+      if (!temFita(idsPulados.length)) { aplicar(); return; }
       setAvancando({ concluida: idConcluida, nova: idNova });
-
-      // 3) Fita completou → troca o estado: recolhe as antigas e abre o novo foco.
-      window.setTimeout(() => {
-        setAvancando(null);
-        setEtapas((prev) => prev.map((e, i) => {
-          if (i === idxAtual) return { ...e, status: "concluida", conclusao: dataBR, tasks: (e.tasks ?? []).filter((t) => !migrarSnap.includes(t.id)) };
-          if (i > idxAtual && i < idxAlvo) return { ...e, status: "pulada" };
-          if (i === idxAlvo) return { ...e, status: "atual", inicio: dataBR, statusProcessual: statusSnap || e.statusProcessual, tasks: [...(e.tasks ?? []), ...migradas] };
-          return e;
-        }));
-        setRecemAvancado({ concluida: idConcluida, nova: idNova, puladas: idsPulados });
-        // A limpeza espera a cascata: cortada no meio, as últimas etapas
-        // perderiam a animação e o X apareceria seco.
-        window.setTimeout(() => setRecemAvancado(null), 1600 + cascata * 1000);
-      }, 1150);
+      window.setTimeout(aplicar, 1150);
     }, 1750);
   };
 
@@ -910,8 +917,15 @@ export function ProcessoTimeline({
           const lineCls = e.status === "concluida" ? "bg-primary/50" : "bg-border";
           const temTasks = (e.tasks?.length ?? 0) > 0;
           // Posição desta etapa na cascata do salto (-1 = não faz parte dele).
+          // A CADEIA DO PULSO COMEÇA NA ETAPA CONCLUÍDA, não na primeira pulada:
+          // é o trecho debaixo do check que precisa acender primeiro pro corte
+          // ler como um movimento só, descendo. `iPulada` continua sendo a
+          // posição entre as puladas — é dela que sai o X.
           const iPulada = recemAvancado?.puladas.indexOf(e.id) ?? -1;
-          const acendeEm = INICIO_CASCATA + iPulada * PASSO_PULADA;
+          const iPulso = recemAvancado
+            ? cadeiaDoPulso(recemAvancado.concluida, recemAvancado.puladas).indexOf(e.id)
+            : -1;
+          const acendeEm = acendeNoPasso(iPulso);
           // Datas anteriores ao sistema não têm data real: exibimos "pré-sistema"
           // sem inventar duração.
           const inicioValido = !!parseBR(e.inicio);
@@ -970,7 +984,7 @@ export function ProcessoTimeline({
                       {/* No salto, um pulso desce por este trecho e some: o
                           caminho foi percorrido, mas não foi cumprido — por
                           isso acende e apaga, em vez de ficar aceso. */}
-                      {iPulada >= 0 && (
+                      {iPulso >= 0 && (
                         <motion.div
                           className="absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary origin-top"
                           initial={{ scaleY: 0, opacity: 1 }}
@@ -1007,20 +1021,25 @@ export function ProcessoTimeline({
                   </motion.span>
                 ) : e.status === "pulada" ? (
                   <span title="Etapa pulada" className="relative z-10 mt-1 h-4 w-4 rounded-full bg-muted grid place-items-center ring-4 ring-card">
-                    {/* Ondinha do pulso passando por aqui — some junto com ele. */}
-                    {iPulada >= 0 && (
+                    {/* Ondinha do pulso passando por aqui — some junto com ele.
+                        No instante `acendeEm`: é quando o trecho DE CIMA
+                        termina de acender, ou seja, quando o pulso chega neste
+                        ponto. Somar mais um passo carimbava o X só depois de a
+                        linha de baixo já ter corrido, e o corte parecia atrasado
+                        em relação à linha. */}
+                    {iPulso >= 0 && (
                       <motion.span
                         className="absolute inset-0 rounded-full ring-2 ring-primary"
                         initial={{ scale: 1, opacity: 0.85 }}
                         animate={{ scale: 2.3, opacity: 0 }}
-                        transition={{ duration: 0.5, ease: "easeOut", delay: acendeEm + PASSO_PULADA }}
+                        transition={{ duration: 0.5, ease: "easeOut", delay: acendeEm }}
                       />
                     )}
                     {/* O X carimba quando o pulso chega, não antes. */}
                     <motion.span
                       initial={iPulada >= 0 ? { scale: 0, opacity: 0, rotate: -120 } : false}
                       animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                      transition={{ duration: 0.3, ease: EASE, delay: iPulada >= 0 ? acendeEm + PASSO_PULADA : 0 }}
+                      transition={{ duration: 0.3, ease: EASE, delay: iPulada >= 0 ? acendeEm : 0 }}
                     >
                       <X className="h-2.5 w-2.5 text-muted-foreground" strokeWidth={3} />
                     </motion.span>
