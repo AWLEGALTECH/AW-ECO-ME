@@ -25,6 +25,7 @@
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +35,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote, Clock,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
+  ArrowLeftRight, ChevronsUpDown, Plus,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -223,7 +225,7 @@ export default function AtendimentoPage() {
           <div className="flex-1 min-h-0 flex gap-2">
 
             {/* ═══ caixa ═══ */}
-            <div className="w-[15.5rem] shrink-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <SpotlightCard className="w-[15.5rem] shrink-0 flex flex-col min-h-0 p-0 overflow-hidden">
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -290,10 +292,10 @@ export default function AtendimentoPage() {
                   );
                 })}
               </div>
-            </div>
+            </SpotlightCard>
 
             {/* ═══ conversa — só a conversa ═══ */}
-            <div className="flex-1 min-w-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <SpotlightCard className="flex-1 min-w-0 flex flex-col min-h-0 p-0 overflow-hidden">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
                   {iniciais(lead.nome)}
@@ -331,10 +333,10 @@ export default function AtendimentoPage() {
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
+            </SpotlightCard>
 
             {/* ═══ detalhe do cliente ═══ */}
-            <div className="hidden xl:flex w-[16.5rem] shrink-0 flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <SpotlightCard className="hidden xl:flex w-[16.5rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden">
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -413,14 +415,14 @@ export default function AtendimentoPage() {
                   <FileText className="h-3.5 w-3.5 mr-1" /> Extrato
                 </Button>
               </div>
-            </div>
+            </SpotlightCard>
 
             {/* ═══ Tasks — retrátil ═══
                 Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
                 volta sozinho) e lembrete (o sino que alguém marcou). */}
-            <div className={cn("shrink-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden transition-[width] duration-200",
+            <SpotlightCard className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
               tarefasAbertas ? "w-[16rem]" : "w-[2.75rem]")}>
               {tarefasAbertas ? (
                 <>
@@ -574,7 +576,7 @@ export default function AtendimentoPage() {
                   </span>
                 </button>
               )}
-            </div>
+            </SpotlightCard>
           </div>
         </>
       )}
@@ -662,13 +664,19 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
 /* ── o card da instância ──────────────────────────────────────────────────
    Antes de qualquer conversa, a pergunta é "qual número está falando". Quando
    a Evolution cai, tudo abaixo deste card fica mentindo — por isso o estado da
-   conexão mora no topo, e não escondido num menu de configuração. */
+   conexão mora no topo, e não escondido num menu de configuração.
+
+   A TROCA NÃO É UM INTERRUPTOR. Segmentado só funciona com dois; o escritório
+   pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
+   que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
+   cada instância, que num segmentado não caberia. */
 function CardInstancia({ instancia, todas, onTrocar }: {
   instancia: Instancia; todas: Instancia[]; onTrocar: (id: string) => void;
 }) {
+  const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
   return (
-    <div className="shrink-0 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5 flex items-center gap-3">
+    <SpotlightCard className="shrink-0 rounded-xl p-3 flex items-center gap-3">
       {/* a foto do perfil abre a linha: é a cara do número que está falando */}
       <div className="relative shrink-0">
         <div className={cn("h-11 w-11 rounded-full grid place-items-center text-[13px] font-semibold ring-2",
@@ -699,18 +707,55 @@ function CardInstancia({ instancia, todas, onTrocar }: {
         </div>
       </div>
 
-      {/* troca de instância: são dois números, e a atendente fala pelos dois */}
-      <div className="hidden sm:flex items-center gap-1 rounded-lg border border-white/[0.07] bg-white/[0.02] p-0.5 shrink-0">
-        {todas.map((i) => (
-          <button key={i.id} onClick={() => onTrocar(i.id)}
-            className={cn("rounded-md px-2.5 py-1 text-[11px] transition-colors",
-              i.id === instancia.id ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
-            {i.curto}
+      <Popover open={aberto} onOpenChange={setAberto}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="h-8 shrink-0 text-[11.5px]">
+            <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Trocar instância
+            <ChevronsUpDown className="h-3 w-3 ml-1.5 opacity-60" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-[17rem] p-1.5">
+          <p className="px-2 py-1 text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
+            Números conectados
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {todas.map((i) => {
+              const ativa = i.id === instancia.id;
+              const iOn = i.status === "conectado";
+              return (
+                <button key={i.id}
+                  onClick={() => { onTrocar(i.id); setAberto(false); }}
+                  className={cn("flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors",
+                    ativa ? "bg-white/[0.07]" : "hover:bg-white/[0.05]")}>
+                  <span className={cn("h-8 w-8 shrink-0 rounded-full grid place-items-center text-[10.5px] font-semibold ring-1",
+                    iOn ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/25"
+                        : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
+                    {i.avatar}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium truncate">{i.nome}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
+                      <span className="tabular-nums">{i.telefone}</span>
+                      {i.naoLidas > 0 && (
+                        <span className="text-emerald-300 tabular-nums">· {i.naoLidas} não lidas</span>
+                      )}
+                    </span>
+                  </span>
+                  {ativa && <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+          {/* Onde entra o terceiro número. Fica visível e desligado pra dizer
+              que a lista cresce — é justamente por isso que não é segmentado. */}
+          <button disabled
+            className="mt-1 w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground/50 cursor-not-allowed border-t border-white/[0.06] pt-2">
+            <Plus className="h-3.5 w-3.5 shrink-0" /> Conectar outro número
           </button>
-        ))}
-      </div>
-
-    </div>
+        </PopoverContent>
+      </Popover>
+    </SpotlightCard>
   );
 }
 
@@ -719,7 +764,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
   const topo = FUNIL_MES[0].n;
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4 flex flex-col gap-3">
+      <SpotlightCard className="rounded-xl p-4 flex flex-col gap-3">
         <div>
           <h2 className="text-sm font-semibold">Funil do mês</h2>
           <p className="text-[11.5px] text-muted-foreground mt-0.5">
@@ -751,10 +796,10 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
           A maior queda é de <span className="text-amber-300">triados para extrato recebido (44%)</span> —
           o gargalo que a gente já suspeitava, agora com número.
         </p>
-      </div>
+      </SpotlightCard>
 
       <div className="flex flex-col gap-3">
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4 flex flex-col gap-1">
+        <SpotlightCard className="rounded-xl p-4 flex flex-col gap-1">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Em risco agora</p>
           <p className={cn("text-3xl font-semibold tabular-nums", emRisco > 0 ? "text-amber-300" : "text-emerald-400")}>
             {emRisco}
@@ -762,9 +807,9 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
           <p className="text-[11.5px] text-muted-foreground">
             pessoas esperando resposta ou sem próximo passo definido
           </p>
-        </div>
+        </SpotlightCard>
 
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4 flex flex-col gap-2.5">
+        <SpotlightCard className="rounded-xl p-4 flex flex-col gap-2.5">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Placar do mês</p>
           {PLACAR_MES.map((p, i) => (
             <div key={p.pessoa} className="flex items-center gap-2.5">
@@ -781,9 +826,9 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
               <span className="text-[13px] font-semibold tabular-nums">{p.pontos}</span>
             </div>
           ))}
-        </div>
+        </SpotlightCard>
 
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4">
+        <SpotlightCard className="rounded-xl p-4">
           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-2">Por origem</p>
           {(Object.keys(ORIGENS) as Origem[]).map((o) => {
             const n = LEADS.filter((l) => l.origem === o).length;
@@ -797,7 +842,7 @@ function PainelFunil({ emRisco }: { emRisco: number }) {
           <p className="text-[10.5px] text-muted-foreground/70 mt-2 flex items-center gap-1">
             <ChevronRight className="h-3 w-3" /> amarrar com o custo por lead do Meta Ads
           </p>
-        </div>
+        </SpotlightCard>
       </div>
     </div>
   );
