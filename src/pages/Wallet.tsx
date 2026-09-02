@@ -47,12 +47,14 @@ import {
   Undo2, Microscope, Wallet, Sparkles, BadgeDollarSign, Building2, Plug,
   MonitorSmartphone, Megaphone, Receipt, CreditCard, CircleDashed, Scale, Banknote,
   UserCheck, Search, CalendarRange, Tag, X, Hammer, Coffee, ChevronLeft, ChevronRight, Pencil,
+  History,
 } from "lucide-react";
 import { LogoBanco } from "@/components/LogoBanco";
 import { mesAtual, mesDeslocado, mesPorExtenso, janelaDoMes, mesesEntre } from "@/lib/mesRef";
 import { cn } from "@/lib/utils";
 import { hojeISO } from "@/lib/hoje";
 import { indexarRepasses, parteDoCliente, type ParteDoCliente } from "@/lib/repasseDoLancamento";
+import { lerHistorico } from "@/lib/historicoLancamento";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -372,8 +374,31 @@ export default function WalletPage() {
   const [editandoConta, setEditandoConta] = useState<Conta | null>(null);
   const [pagando, setPagando] = useState<Repasse | null>(null);
   const [detalhe, setDetalhe] = useState<Lancamento | null>(null);
+  const [editando, setEditando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const semConta = !loadContas && contas.length === 0;
+
+  /* ── o histórico do lançamento aberto ──
+     Só busca quando alguém abre o detalhe: é uma consulta por lançamento, e
+     carregar o log dos 46 de uma vez pra mostrar um seria pagar caro por nada.
+     A RPC entrega o log cru; a tradução pra português mora em
+     src/lib/historicoLancamento.ts. */
+  const { data: historico = [], isLoading: carregandoHistorico } = useQuery({
+    queryKey: ["balance", "historico", detalhe?.id],
+    enabled: !!detalhe,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "fn_balance_historico_lancamento" as never,
+        { p_lancamento_id: detalhe!.id } as never,
+      );
+      if (error) throw error;
+      return lerHistorico(data, {
+        categoria: (id) => categorias.find((c) => c.id === id)?.nome,
+        conta: (id) => contas.find((c) => c.id === id)?.nome,
+        cliente: (id) => clientes.find((c) => c.id === id)?.nome,
+      });
+    },
+  });
 
   /* DAR BAIXA PASSA POR CONFIRMAÇÃO.
      Antes o botão agia direto no clique, e um toque errado marcou o pró-labore
@@ -986,7 +1011,7 @@ export default function WalletPage() {
           quebrar a linha, ele empurrava tudo pra fora e cortava os valores.
           Junto com isso a descrição passa a QUEBRAR em vez de truncar — em
           "0005186-10.2026.8.04.5400" o que importa está no fim. */}
-      <Dialog open={!!detalhe} onOpenChange={(o) => !o && setDetalhe(null)}>
+      <Dialog open={!!detalhe} onOpenChange={(o) => !o && (setDetalhe(null), setEditando(false))}>
         <DialogContent className="max-w-md [&>*]:min-w-0">
           {detalhe && (
             <>
@@ -1001,10 +1026,50 @@ export default function WalletPage() {
                 </DialogTitle>
                 <DialogDescription className="sr-only">Detalhes do lançamento</DialogDescription>
               </DialogHeader>
-              <p className={cn("text-3xl font-bold tabular-nums",
-                detalhe.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
-                {detalhe.tipo === "entrada" ? "+" : "−"}{brl(Number(detalhe.valor))}
-              </p>
+
+              {/* O valor e o lápis dividem a linha: o lápis fica onde o olho já
+                  está, e não escondido no rodapé junto do Excluir — corrigir um
+                  lançamento tem que ser mais fácil do que apagar e refazer, que
+                  era o que sobrava antes e levava embora quem lançou e quando. */}
+              <div className="flex items-start justify-between gap-3">
+                <p className={cn("text-3xl font-bold tabular-nums",
+                  detalhe.tipo === "entrada" ? "text-emerald-400" : "text-rose-400")}>
+                  {detalhe.tipo === "entrada" ? "+" : "−"}{brl(Number(detalhe.valor))}
+                </p>
+                {!editando && (
+                  <Button size="sm" variant="outline" className="h-8 shrink-0"
+                    onClick={() => setEditando(true)}>
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
+                  </Button>
+                )}
+              </div>
+
+              {editando ? (
+                <FormLancamento
+                  tipo={detalhe.tipo}
+                  contas={contas.filter((c) => c.ativo)}
+                  categorias={categorias.filter((c) => c.tipo === detalhe.tipo)}
+                  clientes={clientes}
+                  inicial={detalhe}
+                  salvando={salvando}
+                  onCancelar={() => setEditando(false)}
+                  onSalvar={async (v) => {
+                    setSalvando(true);
+                    const { error } = await (supabase.from("balance_lancamentos" as never) as never as any)
+                      .update(v).eq("id", detalhe.id);
+                    setSalvando(false);
+                    // a mensagem do banco já vem pronta e em português — é ela
+                    // que explica, por exemplo, que o valor não pode ficar
+                    // abaixo do repasse devido ao cliente
+                    if (error) return toast.error(error.message);
+                    toast.success("Lançamento atualizado.");
+                    setDetalhe({ ...detalhe, ...(v as Partial<Lancamento>) });
+                    setEditando(false);
+                    inval();
+                  }}
+                />
+              ) : (
+                <>
 
               {/* ── a parte que não é do escritório ──
                   Aqui o número grande de cima é desmontado: entrou tanto, tanto
@@ -1066,6 +1131,48 @@ export default function WalletPage() {
                   </div>
                 ))}
               </dl>
+              {/* ── quem mexeu ──
+                  Um lançamento errado antes só tinha uma saída: excluir e criar
+                  outro — e aí sumia quem lançou, quando, e o que era antes.
+                  Com o log, editar passa a ser o caminho barato, e nada se
+                  perde. Os lançamentos anteriores ao log não ficam órfãos: a
+                  criação é reconstruída de quem os registrou. */}
+              <div className="border-t border-white/[0.06] pt-3">
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <History className="h-3.5 w-3.5 text-muted-foreground/70" />
+                  <h3 className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Histórico</h3>
+                </div>
+                {carregandoHistorico ? (
+                  <p className="text-[12px] text-muted-foreground">carregando…</p>
+                ) : historico.length === 0 ? (
+                  <p className="text-[12px] text-muted-foreground">Sem registro para este lançamento.</p>
+                ) : (
+                  <ol className="space-y-2.5">
+                    {historico.map((e, i) => (
+                      <li key={`${e.quando}-${i}`} className="flex gap-2.5 min-w-0">
+                        <span className={cn("mt-[6px] h-1.5 w-1.5 rounded-full shrink-0",
+                          e.acao === "create" ? "bg-emerald-400/70"
+                            : e.acao === "delete" ? "bg-rose-400/70" : "bg-sky-400/70")} />
+                        <div className="min-w-0">
+                          <p className="text-[12.5px] leading-snug">
+                            <span className="font-medium">{e.quem}</span>{" "}
+                            <span className="text-muted-foreground">{e.titulo}</span>
+                          </p>
+                          <p className="text-[10.5px] text-muted-foreground/80 tabular-nums">{e.quandoTexto}</p>
+                          {e.mudancas.length > 0 && (
+                            <ul className="mt-1 space-y-0.5">
+                              {e.mudancas.map((m, j) => (
+                                <li key={j} className="text-[11.5px] text-muted-foreground break-words">{m}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+
               <DialogFooter className="gap-2">
                 {detalhe.status === "previsto" && (
                   <Button variant="outline" onClick={() => { confirmar(detalhe); setDetalhe(null); }}>
@@ -1084,6 +1191,8 @@ export default function WalletPage() {
                   <Trash2 className="h-4 w-4 mr-1.5" /> Excluir
                 </Button>
               </DialogFooter>
+                </>
+              )}
             </>
           )}
         </DialogContent>
@@ -1651,19 +1760,31 @@ function FormNovaConta({ onSalvar, salvando, inicial }: {
   );
 }
 
-function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando }: {
+/* Serve pra criar e pra editar. Com `inicial`, os campos nascem preenchidos e o
+   botão passa a dizer "Salvar" — o mesmo formulário nos dois casos evita que
+   criar e editar aceitem coisas diferentes, que é como um lançamento acaba
+   salvo sem conta ou com valor zerado por um caminho e não pelo outro.
+
+   O que ele NÃO manda: competência, origem e vínculo com o custo fixo. Editar
+   a descrição de um lançamento não pode reescrever de que mês ele é nem de onde
+   veio — só o que está na tela viaja no update. */
+function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando, inicial, onCancelar }: {
   tipo: "entrada" | "saida"; contas: Conta[]; categorias: Categoria[];
   clientes: { id: string; nome: string }[];
   onSalvar: (v: Record<string, unknown>) => void; salvando: boolean;
+  inicial?: Lancamento;
+  onCancelar?: () => void;
 }) {
-  const [descricao, setDescricao] = useState("");
-  const [valor, setValor] = useState("");
-  const [data, setData] = useState(hoje());
-  const [contaId, setContaId] = useState(contas[0]?.id ?? "");
-  const [catId, setCatId] = useState("");
-  const [clienteId, setClienteId] = useState("");
-  const [status, setStatus] = useState<"previsto" | "realizado">("realizado");
-  const [obs, setObs] = useState("");
+  const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
+  // vírgula, não ponto: o campo é o mesmo em que se digita "4.075,59", e abrir
+  // a edição mostrando "4075.59" parece defeito mesmo o parser aceitando os dois
+  const [valor, setValor] = useState(inicial ? Number(inicial.valor).toFixed(2).replace(".", ",") : "");
+  const [data, setData] = useState(inicial?.data?.slice(0, 10) ?? hoje());
+  const [contaId, setContaId] = useState(inicial?.conta_id ?? contas[0]?.id ?? "");
+  const [catId, setCatId] = useState(inicial?.categoria_id ?? "");
+  const [clienteId, setClienteId] = useState(inicial?.cliente_id ?? "");
+  const [status, setStatus] = useState<"previsto" | "realizado">(inicial?.status ?? "realizado");
+  const [obs, setObs] = useState(inicial?.observacoes ?? "");
   const catSel = categorias.find((c) => c.id === catId);
   const valido = descricao.trim() && (parseMoneyBR(valor) || 0) > 0 && contaId;
 
@@ -1755,14 +1876,18 @@ function FormLancamento({ tipo, contas, categorias, clientes, onSalvar, salvando
           <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} className="mt-1" />
         </div>
       </div>
-      <DialogFooter>
+      <DialogFooter className="gap-2">
+        {onCancelar && (
+          <Button variant="ghost" onClick={onCancelar} disabled={salvando}>Cancelar</Button>
+        )}
         <Button disabled={salvando || !valido}
           onClick={() => onSalvar({
             descricao: descricao.trim(), valor: parseMoneyBR(valor), data, status, tipo,
             conta_id: contaId, categoria_id: catId || null, cliente_id: clienteId || null,
             observacoes: obs.trim() || null,
           })}>
-          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null} Registrar
+          {salvando ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+          {inicial ? "Salvar" : "Registrar"}
         </Button>
       </DialogFooter>
     </>
