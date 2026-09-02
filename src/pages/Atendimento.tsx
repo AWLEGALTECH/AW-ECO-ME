@@ -31,11 +31,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
-  MessageCircle, Search, Send, AlertTriangle, Check, Phone, FileText,
+  MessageCircle, Search, Send, AlertTriangle, Check,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
-  PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote, Clock,
+  PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, Plus,
+  ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -88,10 +88,31 @@ export default function AtendimentoPage() {
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
   const [notas, setNotas] = useState<Record<string, string>>({});
+  const [puladas, setPuladas] = useState<Record<string, Estagio[]>>({});
+  const [origemDossie, setOrigemDossie] = useState<Record<string, "marketing" | "planilha" | "outros">>({});
   const [tarefasAbertas, setTarefasAbertas] = useState(true);
 
   const instancia = INSTANCIAS.find((i) => i.id === instanciaId) ?? INSTANCIAS[0];
   const estagioDe = (l: Lead): Estagio => estagios[l.id] ?? l.estagio;
+  const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? [];
+  /* A origem do dossiê é a do MARKETING (de que campanha veio), não o número
+     que atendeu — este já está no card da instância. Nasce sugerida pelo canal
+     de entrada e a atendente corrige quando souber. */
+  const origemDossieDe = (l: Lead): "marketing" | "planilha" | "outros" =>
+    origemDossie[l.id] ?? (l.origem === "planilha" ? "planilha" : l.origem === "pda" ? "marketing" : "outros");
+
+  /* Avançar etapa, com a mesma regra da linha do tempo do processo: o que fica
+     entre a atual e o destino vira PULADA — não some, e não vira concluída. */
+  const avancarEtapa = (l: Lead, alvo: Estagio) => {
+    const i = ESTAGIOS.findIndex((e) => e.chave === estagioDe(l));
+    const j = ESTAGIOS.findIndex((e) => e.chave === alvo);
+    if (j <= i) return;
+    setEstagios((p) => ({ ...p, [l.id]: alvo }));
+    setPuladas((p) => ({
+      ...p,
+      [l.id]: [...(p[l.id] ?? []), ...ESTAGIOS.slice(i + 1, j).map((e) => e.chave)],
+    }));
+  };
 
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -335,62 +356,55 @@ export default function AtendimentoPage() {
               </div>
             </SpotlightCard>
 
-            {/* ═══ detalhe do cliente ═══ */}
-            <SpotlightCard className="hidden xl:flex w-[16.5rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden">
+            {/* ═══ detalhe do cliente ═══
+                A coluna serve pra DEFINIR ETAPA. O dossiê vem antes porque é a
+                referência que se consulta pra decidir a etapa; a jornada vem
+                logo abaixo, no mesmo desenho e com as mesmas animações da linha
+                do tempo dos processos — inclusive a lógica de abrir a etapa
+                corrente, inserir task ali dentro e avançar. */}
+            <SpotlightCard className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden">
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-                {/* situação */}
-                <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-1.5">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">Situação</p>
-                  <div className="flex items-center gap-1.5 text-[11.5px]">
-                    <span className="text-muted-foreground">{ORIGENS[lead.origem].rotulo}</span>
-                  </div>
-                  {lead.ultimaFoi === "lead" ? (
-                    <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      sem resposta há {lead.horasSemResposta}h
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] bg-white/[0.04] text-muted-foreground ring-1 ring-white/[0.07]">
-                      <Clock className="h-3.5 w-3.5 shrink-0" />
-                      a bola está com ele
-                    </span>
-                  )}
-                </div>
-
-                {/* etapa */}
-                <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-1">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-0.5">Etapa</p>
-                  {ESTAGIOS.map((e, i) => {
-                    const atualIdx = ESTAGIOS.findIndex((x) => x.chave === estagioDe(lead));
-                    const atual = i === atualIdx;
-                    const passou = i < atualIdx;
-                    return (
-                      <button key={e.chave} title={e.descricao}
-                        onClick={() => setEstagios((p) => ({ ...p, [lead.id]: e.chave }))}
-                        className={cn("flex items-center gap-2 rounded-md px-1.5 py-1 text-[11.5px] text-left transition-colors",
-                          atual ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/25"
-                                : "hover:bg-white/[0.04] text-muted-foreground")}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
-                          atual ? "bg-emerald-400" : passou ? "bg-emerald-400/45" : "bg-white/15")} />
-                        {e.rotulo}
-                      </button>
-                    );
-                  })}
-                </div>
-
                 {/* dossiê */}
                 <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-2">
                   <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">Dossiê</p>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
+                    <div className="flex gap-1">
+                      {(["marketing", "planilha", "outros"] as const).map((o) => (
+                        <button key={o}
+                          onClick={() => setOrigemDossie((p) => ({ ...p, [lead.id]: o }))}
+                          className={cn("rounded-full px-2 py-[2px] text-[10px] capitalize transition-colors ring-1",
+                            origemDossieDe(lead) === o
+                              ? "bg-primary/15 text-primary ring-primary/30"
+                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
+                          {o}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <Campo icone={<Landmark className="h-3 w-3" />} rotulo="Banco" valor={lead.dossie.banco} />
                   <Campo rotulo="Descontos"
                     valor={lead.dossie.descontos.length ? lead.dossie.descontos.join(", ") : null} />
                   <Campo rotulo="Perfil"
                     valor={lead.dossie.inss === null ? null
                       : `${lead.dossie.inss ? "INSS" : "não é INSS"}${lead.dossie.consignado ? ` · ${lead.dossie.consignado}` : ""}`} />
+                </div>
+
+                {/* jornada */}
+                <div className="px-3 py-3 border-b border-white/[0.06]">
+                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-2.5">Jornada</p>
+                  <JornadaLead
+                    atual={estagioDe(lead)}
+                    puladas={puladasDe(lead)}
+                    tasksDoLead={tasksDoDia.filter((t) => t.leadId === lead.id)}
+                    onAvancar={(alvo) => avancarEtapa(lead, alvo)}
+                    onNovaTask={novoLembrete}
+                    onConcluirTask={concluir}
+                  />
                 </div>
 
                 {/* anotações */}
@@ -401,19 +415,10 @@ export default function AtendimentoPage() {
                   <Textarea
                     value={notas[lead.id] ?? lead.dossie.obs ?? ""}
                     onChange={(e) => setNotas((p) => ({ ...p, [lead.id]: e.target.value }))}
-                    rows={5}
+                    rows={4}
                     placeholder="O que ficou combinado, o que ela contou, o que conferir depois…"
                     className="text-[11.5px] resize-none" />
                 </div>
-              </div>
-
-              <div className="p-2 border-t border-white/[0.06] flex gap-1.5 shrink-0">
-                <Button size="sm" variant="outline" className="flex-1 h-8 text-[11px]">
-                  <Phone className="h-3.5 w-3.5 mr-1" /> Ligar
-                </Button>
-                <Button size="sm" variant="outline" className="flex-1 h-8 text-[11px]">
-                  <FileText className="h-3.5 w-3.5 mr-1" /> Extrato
-                </Button>
               </div>
             </SpotlightCard>
 
@@ -580,6 +585,134 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ── a jornada do lead ────────────────────────────────────────────────────
+   Mesmo trilho da linha do tempo do processo, e de propósito: quem usa as duas
+   telas não deveria ter que aprender duas gramáticas pra "onde isso está".
+   Ponto cheio com check pra concluída, anel pulsando na atual, oco na pendente,
+   e a partícula descendo pelo trecho vivo. Tudo na cor primária do tema — o
+   verde de antes era uma cor a mais que não queria dizer nada.
+
+   A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
+   aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
+   ficou pelo caminho, em vez de fingir que foi concluído. */
+function JornadaLead({ atual, puladas, tasksDoLead, onAvancar, onNovaTask, onConcluirTask }: {
+  atual: Estagio;
+  puladas: Estagio[];
+  tasksDoLead: Task[];
+  onAvancar: (alvo: Estagio) => void;
+  onNovaTask: () => void;
+  onConcluirTask: (id: string) => void;
+}) {
+  const iAtual = ESTAGIOS.findIndex((e) => e.chave === atual);
+  const proxima = ESTAGIOS[iAtual + 1];
+
+  return (
+    <div>
+      {ESTAGIOS.map((e, i) => {
+        const last = i === ESTAGIOS.length - 1;
+        const pulada = puladas.includes(e.chave);
+        const concluida = i < iAtual && !pulada;
+        const eAtual = i === iAtual;
+        return (
+          <div key={e.chave} className="grid grid-cols-[1.25rem_1fr] gap-x-2.5">
+            {/* trilho */}
+            <div className="relative flex justify-center">
+              {!last && (
+                eAtual ? (
+                  <>
+                    <div className="absolute top-4 bottom-0 w-px left-1/2 -translate-x-1/2 bg-primary/20" />
+                    <div className="absolute top-4 bottom-0 w-1.5 left-1/2 -translate-x-1/2 overflow-hidden">
+                      <span className="absolute inset-x-0 h-8 flow-down bg-gradient-to-b from-transparent via-primary/45 to-transparent" />
+                    </div>
+                  </>
+                ) : (
+                  <div className={cn("absolute top-4 bottom-0 w-px left-1/2 -translate-x-1/2",
+                    concluida || pulada ? "bg-primary/50" : "bg-border")} />
+                )
+              )}
+              {concluida ? (
+                <span className="relative z-10 mt-0.5 h-3.5 w-3.5 rounded-full bg-primary grid place-items-center ring-4 ring-card">
+                  <Check className="h-2 w-2 text-primary-foreground" strokeWidth={3} />
+                </span>
+              ) : eAtual ? (
+                <span className="relative z-10 mt-0.5 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card ring-4 ring-card">
+                  <span className="absolute -inset-px rounded-full border-2 border-primary animate-ping opacity-60" />
+                </span>
+              ) : pulada ? (
+                <span title="Etapa pulada" className="relative z-10 mt-0.5 h-3.5 w-3.5 rounded-full bg-muted grid place-items-center ring-4 ring-card">
+                  <X className="h-2 w-2 text-muted-foreground" strokeWidth={3} />
+                </span>
+              ) : (
+                <span className="relative z-10 mt-0.5 h-3.5 w-3.5 rounded-full border-2 border-muted-foreground/30 bg-card ring-4 ring-card" />
+              )}
+            </div>
+
+            {/* conteúdo */}
+            <div className={cn(!last && "border-b border-border/40", last ? "pb-0.5" : "pb-3")}>
+              <p className={cn("text-[12px] font-medium leading-tight",
+                eAtual ? "text-foreground" : "text-muted-foreground",
+                pulada && "line-through")}>
+                {e.rotulo}
+              </p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                {pulada ? "pulada" : eAtual ? e.descricao : concluida ? "concluída" : "—"}
+              </p>
+
+              {eAtual && (
+                <motion.div className="mt-2 flex flex-col gap-1.5 overflow-hidden"
+                  initial={false} animate={{ height: "auto", opacity: 1 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}>
+                  {tasksDoLead.map((t) => {
+                    const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
+                    return (
+                      <div key={t.id}
+                        className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                        <span className="h-5 w-5 rounded-md bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
+                          <Ico className="h-3 w-3 text-primary" />
+                        </span>
+                        <span className={cn("text-[11px] font-medium truncate flex-1", t.feita && "line-through")}>
+                          {t.titulo}
+                        </span>
+                        <button onClick={() => onConcluirTask(t.id)}
+                          title={t.feita ? "Reabrir" : "Concluir"}
+                          className={cn("shrink-0 transition-colors",
+                            t.feita ? "text-primary" : "text-muted-foreground/35 hover:text-primary/70")}>
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <button onClick={onNovaTask}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                    <Plus className="h-3.5 w-3.5" /> Adicionar task
+                  </button>
+
+                  {proxima && (
+                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
+                      onClick={() => onAvancar(proxima.chave)}>
+                      <ArrowRight className="h-3.5 w-3.5" /> Avançar etapa
+                    </Button>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Pular direto pra uma etapa lá na frente, como no processo: o
+                  que fica no meio vira pulada. */}
+              {!eAtual && i > iAtual && (
+                <button onClick={() => onAvancar(e.chave)}
+                  className="mt-1 text-[10px] text-muted-foreground/60 hover:text-primary transition-colors">
+                  pular pra cá
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
