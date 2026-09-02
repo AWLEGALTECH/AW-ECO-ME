@@ -851,20 +851,16 @@ function CardInstancia({ instancia, todas, onTrocar }: {
   const on = instancia.status === "conectado";
   return (
     <SpotlightCard className="shrink-0 rounded-xl p-3 flex items-center gap-3">
-      {/* a foto do perfil abre a linha: é a cara do número que está falando */}
-      <div className="relative shrink-0">
-        <div className={cn("h-11 w-11 rounded-full grid place-items-center text-[13px] font-semibold ring-2",
-          on ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30" : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
-          {instancia.avatar}
-        </div>
-        <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-background",
-          on ? "bg-emerald-400" : "bg-rose-400")} />
+      {/* A FOTO DO PERFIL É IDENTIDADE, NÃO STATUS. Ela fica neutra: quem diz
+          se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
+          recado em três lugares — anel colorido, pontinho na foto e selo —
+          fazia o card inteiro parecer um alarme aceso. */}
+      <div className="h-11 w-11 shrink-0 rounded-full grid place-items-center text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+        {instancia.avatar}
       </div>
 
       <div className="min-w-0 flex-1 flex flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
-          <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
-            on ? "bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/60" : "bg-rose-400")} />
           <span className="text-[13px] font-semibold truncate">{instancia.nome}</span>
           <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 shrink-0",
             on ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25"
@@ -901,9 +897,7 @@ function CardInstancia({ instancia, todas, onTrocar }: {
                   onClick={() => { onTrocar(i.id); setAberto(false); }}
                   className={cn("flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors",
                     ativa ? "bg-white/[0.07]" : "hover:bg-white/[0.05]")}>
-                  <span className={cn("h-8 w-8 shrink-0 rounded-full grid place-items-center text-[10.5px] font-semibold ring-1",
-                    iOn ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/25"
-                        : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
+                  <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
                     {i.avatar}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -916,7 +910,7 @@ function CardInstancia({ instancia, todas, onTrocar }: {
                       )}
                     </span>
                   </span>
-                  {ativa && <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                  {ativa && <Check className="h-3.5 w-3.5 text-foreground shrink-0" />}
                 </button>
               );
             })}
