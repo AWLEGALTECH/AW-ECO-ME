@@ -107,8 +107,12 @@ export default function AtendimentoPage() {
       prev.map((m) => (m.leadId === lead.id && m.tipo === "sem_resposta" ? { ...m, feita: true } : m)));
   };
 
+  /* A bancada cancela o respiro que o layout dá a todas as páginas e reaplica
+     um menor: numa tela de trabalho, margem larga em volta é espaço que sai da
+     conversa. Header do app tem 3,5rem; com py-3 aqui a conta fecha em 5rem. */
   return (
-    <div className="flex flex-col gap-2.5 h-[calc(100dvh-7.5rem)] min-h-[40rem]">
+    <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
+                    h-[calc(100dvh-5rem)] min-h-[40rem]">
 
       {/* ── título e abas ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -141,11 +145,14 @@ export default function AtendimentoPage() {
             onTrocar={setInstanciaId}
           />
 
-          {/* ── a bancada: um painel só, colunas dividindo borda ── */}
-          <div className="flex-1 min-h-0 flex rounded-xl border border-white/[0.07] bg-white/[0.015] overflow-hidden">
+          {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
+              Colar tudo numa caixa só apagava a divisão de trabalho: a caixa,
+              a conversa, o cliente e o dia são quatro coisas diferentes. Um gap
+              curto mantém cada uma como objeto próprio sem espalhar a tela. */}
+          <div className="flex-1 min-h-0 flex gap-2">
 
             {/* ═══ caixa ═══ */}
-            <div className="w-[15.5rem] shrink-0 flex flex-col min-h-0 border-r border-white/[0.06]">
+            <div className="w-[15.5rem] shrink-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -215,7 +222,7 @@ export default function AtendimentoPage() {
             </div>
 
             {/* ═══ conversa — só a conversa ═══ */}
-            <div className="flex-1 min-w-0 flex flex-col min-h-0">
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
                   {iniciais(lead.nome)}
@@ -256,7 +263,7 @@ export default function AtendimentoPage() {
             </div>
 
             {/* ═══ detalhe do cliente ═══ */}
-            <div className="hidden xl:flex w-[16.5rem] shrink-0 flex-col min-h-0 border-l border-white/[0.06]">
+            <div className="hidden xl:flex w-[16.5rem] shrink-0 flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -338,7 +345,7 @@ export default function AtendimentoPage() {
             </div>
 
             {/* ═══ missões — retrátil ═══ */}
-            <div className={cn("shrink-0 flex flex-col min-h-0 border-l border-white/[0.06] transition-[width] duration-200",
+            <div className={cn("shrink-0 flex flex-col min-h-0 rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden transition-[width] duration-200",
               tarefasAbertas ? "w-[15.5rem]" : "w-[2.75rem]")}>
               {tarefasAbertas ? (
                 <>
@@ -479,7 +486,17 @@ function CardInstancia({ instancia, todas, onTrocar }: {
 }) {
   const on = instancia.status === "conectado";
   return (
-    <div className="shrink-0 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-2.5 flex items-center gap-4">
+    <div className="shrink-0 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5 flex items-center gap-3">
+      {/* a foto do perfil abre a linha: é a cara do número que está falando */}
+      <div className="relative shrink-0">
+        <div className={cn("h-11 w-11 rounded-full grid place-items-center text-[13px] font-semibold ring-2",
+          on ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30" : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
+          {instancia.avatar}
+        </div>
+        <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-background",
+          on ? "bg-emerald-400" : "bg-rose-400")} />
+      </div>
+
       <div className="min-w-0 flex-1 flex flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
           <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
@@ -511,15 +528,6 @@ function CardInstancia({ instancia, todas, onTrocar }: {
         ))}
       </div>
 
-      {/* a foto do perfil, à direita — é ela que a pessoa do outro lado vê */}
-      <div className="relative shrink-0">
-        <div className={cn("h-11 w-11 rounded-full grid place-items-center text-[13px] font-semibold ring-2",
-          on ? "bg-emerald-400/12 text-emerald-300 ring-emerald-400/30" : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
-          {instancia.avatar}
-        </div>
-        <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-background",
-          on ? "bg-emerald-400" : "bg-rose-400")} />
-      </div>
     </div>
   );
 }
