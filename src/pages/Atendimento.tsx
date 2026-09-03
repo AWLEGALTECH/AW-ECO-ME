@@ -84,18 +84,20 @@ const fmtDiaLongo = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${i
 const iniciais = (nome: string) =>
   nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
-const CHIPS_ORIGEM: { chave: "todos" | Origem; rotulo: string }[] = [
+/* OS CHIPS DA CAIXA FILTRAM POR ETAPA, NÃO POR ORIGEM.
+   Origem já está impressa em cada linha da lista (o "PDA" cinza embaixo do
+   nome) e quase não muda o dia de ninguém — praticamente tudo entra pelo mesmo
+   número. Etapa muda: "quem está esperando extrato" é uma pergunta que se faz
+   várias vezes por dia, e era a única que a caixa não sabia responder. */
+const CHIPS_ETAPA: { chave: "todos" | Estagio; rotulo: string }[] = [
   { chave: "todos", rotulo: "Todos" },
-  { chave: "pda", rotulo: "PDA" },
-  { chave: "escritorio", rotulo: "Escritório" },
-  { chave: "planilha", rotulo: "Landing" },
-  { chave: "indicacao", rotulo: "Indicação" },
+  ...ESTAGIOS.map((e) => ({ chave: e.chave, rotulo: e.rotulo })),
 ];
 
 export default function AtendimentoPage() {
   const [aba, setAba] = useState<"atendimento" | "funil">("atendimento");
   const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
-  const [origem, setOrigem] = useState<"todos" | Origem>("todos");
+  const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
@@ -202,7 +204,7 @@ export default function AtendimentoPage() {
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return leadsBase
-      .filter((l) => origem === "todos" || l.origem === origem)
+      .filter((l) => filtroEtapa === "todos" || estagioDe(l) === filtroEtapa)
       .filter((l) => !termo || l.nome.toLowerCase().includes(termo) || l.telefone.includes(termo))
       .sort((a, b) => {
         const ra = a.ultimaFoi === "lead" ? 0 : 1;
@@ -210,7 +212,7 @@ export default function AtendimentoPage() {
         if (ra !== rb) return ra - rb;
         return b.horasSemResposta - a.horasSemResposta;
       });
-  }, [origem, busca, leadsBase]);
+  }, [filtroEtapa, busca, leadsBase, estagios]);
 
   /* Ao vivo os lembretes vêm de `wa_tasks` e sobrevivem ao recarregar; na
      maquete continuam em memória, pra ela seguir servindo pra discutir formato
@@ -483,15 +485,26 @@ export default function AtendimentoPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {CHIPS_ORIGEM.map((c) => (
-                    <button key={c.chave} onClick={() => setOrigem(c.chave)}
-                      className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
-                        origem === c.chave
-                          ? "bg-white/[0.10] text-foreground ring-white/20"
-                          : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
-                      {c.rotulo}
-                    </button>
-                  ))}
+                  {CHIPS_ETAPA.map((c) => {
+                    const n = c.chave === "todos"
+                      ? leadsBase.length
+                      : leadsBase.filter((l) => estagioDe(l) === c.chave).length;
+                    return (
+                      <button key={c.chave} onClick={() => setFiltroEtapa(c.chave)}
+                        className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1 flex items-center gap-1",
+                          filtroEtapa === c.chave
+                            ? "bg-white/[0.10] text-foreground ring-white/20"
+                            : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground",
+                          // Etapa vazia fica apagada mas CLICÁVEL: sumir com ela
+                          // mudaria a largura da fileira a cada mensagem que
+                          // chega, e o chip que estava no lugar A pularia pro B
+                          // debaixo do dedo de quem ia clicar.
+                          n === 0 && filtroEtapa !== c.chave && "opacity-45")}>
+                        {c.rotulo}
+                        {n > 0 && <span className="tabular-nums opacity-60">{n}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
