@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   telefoneBonito, horaDaLista, separadorDeDia, horasSemResposta, previaDe, duracaoCurta,
+  idDaConversaAberta,
   type MensagemRow,
 } from "./wa";
 
@@ -126,5 +127,24 @@ describe("a duração do áudio", () => {
   it("nulo e negativo viram zero em vez de NaN", () => {
     expect(duracaoCurta(null)).toBe("0:00");
     expect(duracaoCurta(-5)).toBe("0:00");
+  });
+});
+
+describe("qual conversa está aberta", () => {
+  const vivas = [{ id: "uuid-a" }, { id: "uuid-b" }];
+
+  it("o escolhido vale quando ele existe", () => {
+    expect(idDaConversaAberta("uuid-b", vivas)).toBe("uuid-b");
+  });
+
+  it("id da maquete cai na primeira conversa viva", () => {
+    // ESTE é o bug que deixou a conversa vazia: a tela nasce com "l1"
+    // selecionado, o WhatsApp responde com uuids, e as mensagens eram buscadas
+    // por um id que não é de ninguém
+    expect(idDaConversaAberta("l1", vivas)).toBe("uuid-a");
+  });
+
+  it("sem conversa viva, devolve o que veio (a maquete segue funcionando)", () => {
+    expect(idDaConversaAberta("l1", [])).toBe("l1");
   });
 });

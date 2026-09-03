@@ -125,3 +125,20 @@ export function duracaoCurta(seg: number | null | undefined): string {
   const s = Math.max(0, Math.floor(Number(seg) || 0));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Qual conversa está aberta.
+ *
+ * A tela nasce com o id da MAQUETE selecionado, porque na primeira renderização
+ * ninguém sabe ainda se o WhatsApp respondeu. Quando ele responde, esse id não
+ * existe entre as conversas reais — e aí a lista mostra a primeira conversa, o
+ * cabeçalho mostra o nome dela, e o corpo fica vazio, porque as mensagens
+ * estavam sendo buscadas por um id que não é de ninguém. Parece conversa sem
+ * mensagem; é conversa nenhuma.
+ *
+ * Regra: o escolhido vale se ele existe entre as vivas; senão, abre a primeira.
+ */
+export function idDaConversaAberta(escolhido: string, conversas: { id: string }[]): string {
+  if (conversas.length === 0) return escolhido;
+  return conversas.some((c) => c.id === escolhido) ? escolhido : conversas[0].id;
+}

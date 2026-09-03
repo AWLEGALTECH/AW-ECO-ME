@@ -50,6 +50,7 @@ import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
+import { idDaConversaAberta } from "@/lib/wa";
 import { MidiaMensagem } from "@/components/atendimento/MidiaMensagem";
 import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
 import { useAuth } from "@/hooks/useAuth";
@@ -125,11 +126,36 @@ export default function AtendimentoPage() {
      qual dos dois modos ela está. */
   const { data: conversas = [] } = useConversas(instancia.nome);
   const aoVivo = conversas.length > 0;
-  const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? selecionadoId : null);
+
+  /* QUAL CONVERSA ESTÁ ABERTA, DE VERDADE.
+     `selecionadoId` nasce com o id da MAQUETE ("l1"), porque na primeira
+     renderização ninguém sabe ainda se o WhatsApp respondeu. Quando ele
+     responde, esse id não existe entre as conversas reais: a lista mostrava a
+     primeira (por causa do fallback lá embaixo), o cabeçalho mostrava o nome
+     dela — e o corpo ficava VAZIO, porque as mensagens eram buscadas pelo id
+     da maquete. Parecia conversa sem mensagem, e era conversa nenhuma.
+     Aqui o id se corrige sozinho: se o escolhido não está entre as conversas
+     vivas, a aberta é a primeira delas. */
+  const idAberto = idDaConversaAberta(selecionadoId, conversas);
+
+  const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? idAberto : null);
 
   const leadsBase: Lead[] = aoVivo
-    ? conversas.map((c) => conversaParaLead(c, c.id === selecionadoId ? msgsDaAberta : []))
+    ? conversas.map((c) => conversaParaLead(c, c.id === idAberto ? msgsDaAberta : []))
     : LEADS;
+
+  /* Os números do card da instância vêm da CAIXA, não da Evolution.
+     A Evolution conta os chats do aparelho (grupos, arquivados, gente que
+     nunca falou com a gente); a caixa mostra o que o atendimento tem. Card
+     dizendo "3 conversas" em cima de uma lista com 1 é uma contradição na
+     mesma tela, e quem lê acredita no número, não na lista. */
+  const cartaoDaInstancia: Instancia = aoVivo
+    ? {
+        ...instancia,
+        conversas: conversas.length,
+        naoLidas: conversas.reduce((t, c) => t + (c.nao_lidas ?? 0), 0),
+      }
+    : instancia;
   const estagioDe = (l: Lead): Estagio => estagios[l.id] ?? l.estagio;
   const abrir = (id: string) => {
     setSelecionadoId(id);
@@ -168,7 +194,7 @@ export default function AtendimentoPage() {
       });
   }, [origem, busca, leadsBase]);
 
-  const lead = leadsBase.find((l) => l.id === selecionadoId) ?? lista[0] ?? leadsBase[0];
+  const lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0];
   const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
 
   /* AS TASKS DO DIA ESCOLHIDO.
@@ -1042,8 +1068,8 @@ function CardInstancia({ instancia, todas, onTrocar }: {
           <span className="tabular-nums">{instancia.telefone}</span>
           <span className="flex items-center gap-1"><Wifi className="h-3 w-3" />{instancia.gateway}</span>
           <span className="flex items-center gap-1"><RefreshCw className="h-3 w-3" />sincronizado {instancia.sincronizadoEm}</span>
-          <span className="tabular-nums">{instancia.conversas} conversas</span>
-          <span className="tabular-nums text-foreground/80">{instancia.naoLidas} não lidas</span>
+          <span className="tabular-nums">{cartaoDaInstancia.conversas} conversas</span>
+          <span className="tabular-nums text-foreground/80">{cartaoDaInstancia.naoLidas} não lidas</span>
         </div>
       </div>
 
