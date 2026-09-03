@@ -36,7 +36,9 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
 ## Regras
 
 1. **DB:** sempre via `supabase/migrations/` — nunca SQL manual
-2. **Testes:** rodar `bun run build` para verificar typecheck/build
+2. **Testes:** `bun test` (lógica) e `bun run build` (typecheck + build).
+   O build roda `tsc --noEmit` antes do Vite — sem isso o esbuild só apaga os
+   tipos e erro de escopo/tipo passa direto pro deploy
 3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
 4. **Push:** nunca fazer push sem pedir permissão
 5. **Fidelidade à planilha:** nomes de campos espelham a aba ADV da planilha original — não renomear sem combinar

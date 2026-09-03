@@ -352,7 +352,7 @@ export default function AtendimentoPage() {
       ) : (
         <>
           <CardInstancia
-            instancia={instancia}
+            instancia={cartaoDaInstancia}
             todas={instancias}
             onTrocar={setInstanciaId}
           />
@@ -1068,8 +1068,8 @@ function CardInstancia({ instancia, todas, onTrocar }: {
           <span className="tabular-nums">{instancia.telefone}</span>
           <span className="flex items-center gap-1"><Wifi className="h-3 w-3" />{instancia.gateway}</span>
           <span className="flex items-center gap-1"><RefreshCw className="h-3 w-3" />sincronizado {instancia.sincronizadoEm}</span>
-          <span className="tabular-nums">{cartaoDaInstancia.conversas} conversas</span>
-          <span className="tabular-nums text-foreground/80">{cartaoDaInstancia.naoLidas} não lidas</span>
+          <span className="tabular-nums">{instancia.conversas} conversas</span>
+          <span className="tabular-nums text-foreground/80">{instancia.naoLidas} não lidas</span>
         </div>
       </div>
 
