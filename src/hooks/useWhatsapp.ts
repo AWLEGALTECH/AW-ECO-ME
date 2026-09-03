@@ -31,7 +31,11 @@ export function useConversas(instancia: string | null) {
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
-      if (instancia) q = q.eq("instancia", instancia);
+      // ILIKE e não EQ: o nome da instância na Evolution é digitado à mão e
+      // ninguém garante a caixa. "PORTAL DIREITO ABERTO" e "Portal Direito
+      // Aberto" são a mesma coisa pra quem configurou, e um EQ devolveria zero
+      // conversa sem dizer por quê — o pior tipo de tela vazia.
+      if (instancia) q = q.ilike("instancia", instancia);
       const { data, error } = await q;
       if (error) throw error;
       return (data || []) as ConversaRow[];

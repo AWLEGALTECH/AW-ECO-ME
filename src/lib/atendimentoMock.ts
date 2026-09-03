@@ -52,8 +52,9 @@ export interface Instancia {
 
 export const INSTANCIAS: Instancia[] = [
   {
-    id: "pda", nome: "Portal Direito Aberto", curto: "PDA",
-    telefone: "(92) 99274-0180", status: "conectado",
+    // nome EXATAMENTE como está na Evolution: é por ele que a tela filtra
+    id: "pda", nome: "PORTAL DIREITO ABERTO", curto: "PDA",
+    telefone: "(92) 3199-8822", status: "conectado",
     gateway: "Evolution API", sincronizadoEm: "há 2 min",
     conversas: 228, naoLidas: 12, avatar: "PDA",
   },
