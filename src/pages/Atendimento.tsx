@@ -23,7 +23,7 @@
 // placar, e volta inteira com um clique. A fila em si (ordem de culpa, pontos,
 // cadência de follow-up) mora em src/lib/tasksAtendimento.ts, testada.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { FundoWhatsapp } from "@/components/FundoWhatsapp";
@@ -36,7 +36,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X,
+  ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -49,8 +49,10 @@ import {
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
-  marcarLida, enviarWhatsapp, useInvalidarWa,
+  marcarLida, enviarTexto, enviarArquivo, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
+import { MidiaMensagem } from "@/components/atendimento/MidiaMensagem";
+import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -93,6 +95,10 @@ export default function AtendimentoPage() {
   const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
   const [feitasFollowUp, setFeitasFollowUp] = useState<string[]>([]);
   const [rascunho, setRascunho] = useState("");
+  const [anexo, setAnexo] = useState<File | null>(null);
+  const [mandandoAnexo, setMandandoAnexo] = useState(false);
+  const [gravando, setGravando] = useState(false);
+  const seletorArquivo = useRef<HTMLInputElement>(null);
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
   const [notas, setNotas] = useState<Record<string, string>>({});
@@ -222,12 +228,43 @@ export default function AtendimentoPage() {
     }]);
   };
 
+  /* ── MANDAR ARQUIVO E ÁUDIO ──
+     Os dois caem no mesmo caminho: sobe pro bucket, a wa-enviar assina a URL e
+     a Evolution baixa. Quando dá erro, o anexo FICA na barra — apagar o que não
+     foi obrigaria a pessoa a procurar o arquivo de novo pra tentar outra vez,
+     que é o pior momento pra dar trabalho. */
+  const mandarArquivo = async (arquivo: Blob, nome: string, legenda?: string, segundos?: number) => {
+    setMandandoAnexo(true);
+    try {
+      const r = await enviarArquivo({
+        conversaId: lead.id, arquivo, nome, legenda, duracao: segundos ?? null,
+      });
+      setAnexo(null);
+      setRascunho("");
+      invalidarWa();
+      if (r?.aviso) toast.warning(r.aviso);
+    } catch (e) {
+      toast.error("Não consegui enviar: " + (e as Error).message);
+    } finally {
+      setMandandoAnexo(false);
+    }
+  };
+
+  const enviarAudio = async (audio: Blob, segundos: number) => {
+    // A extensão acompanha o que o navegador gravou: Safari entrega mp4/aac e o
+    // resto entrega webm/opus. Extensão errada faz o WhatsApp recusar o arquivo
+    // sem dizer por quê.
+    const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+    await mandarArquivo(audio, `audio-${Date.now()}.${ext}`, undefined, segundos);
+  };
+
   const enviar = async () => {
+    if (anexo) { await mandarArquivo(anexo, anexo.name, rascunho.trim() || undefined); return; }
     const texto = rascunho.trim();
     if (!texto) return;
     if (aoVivo) {
       try {
-        await enviarWhatsapp({ conversaId: lead.id, telefone: lead.telefone, texto, enviadoPor: user?.id ?? null });
+        await enviarTexto(lead.id, texto);
         setRascunho("");
         invalidarWa();
       } catch (e) {
@@ -442,24 +479,94 @@ export default function AtendimentoPage() {
                         {msg.dia}
                       </div>
                     )}
-                    <div className={cn("max-w-[70%] rounded-2xl px-3 py-2 text-[12.5px] leading-snug",
+                    {/* O padding encolhe quando a bolha é só imagem ou vídeo:
+                        moldura larga em volta de foto vira porta-retrato, e a
+                        foto é o conteúdo, não o enfeite dentro dele. */}
+                    <div className={cn("max-w-[70%] rounded-2xl text-[12.5px] leading-snug",
+                      msg.midiaPath && (msg.tipo === "imagem" || msg.tipo === "video" || msg.tipo === "sticker")
+                        ? "p-1" : "px-3 py-2",
                       msg.de === "lead"
                         ? "self-start bg-white/[0.05] rounded-tl-sm"
                         : "self-end bg-white/[0.08] rounded-tr-sm ring-1 ring-white/[0.10]")}>
-                      {msg.texto}
-                      <span className="block text-[9.5px] text-muted-foreground/70 mt-1 text-right tabular-nums">{msg.hora}</span>
+                      {msg.midiaPath && (
+                        <MidiaMensagem
+                          id={msg.id ?? String(i)}
+                          tipo={msg.tipo ?? null}
+                          path={msg.midiaPath}
+                          mime={msg.midiaMime ?? null}
+                          nome={msg.midiaNome ?? null}
+                          duracao={msg.duracao ?? null}
+                          nossa={msg.de === "nos"}
+                        />
+                      )}
+                      {/* Legenda de foto é onde mora metade do que o cliente
+                          diz — some só quando realmente não veio nada. */}
+                      {msg.texto && (
+                        <span className={cn("block", msg.midiaPath && "mt-1.5 px-2")}>{msg.texto}</span>
+                      )}
+                      <span className={cn("block text-[9.5px] text-muted-foreground/70 mt-1 text-right tabular-nums",
+                        msg.midiaPath && "px-2 pb-0.5")}>{msg.hora}</span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="px-3 py-2.5 border-t border-white/[0.06] flex items-center gap-2 shrink-0">
-                <Input value={rascunho} onChange={(e) => setRascunho(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-                  placeholder={`Responder ${lead.nome.split(" ")[0]}…`} className="h-9 text-[12.5px]" />
-                <Button size="sm" className="h-9 w-9 p-0 shrink-0" onClick={enviar} disabled={!rascunho.trim()}>
-                  <Send className="h-4 w-4" />
-                </Button>
+              <div className="border-t border-white/[0.06] shrink-0">
+                {/* O anexo escolhido fica VISÍVEL antes de ir. Anexar e mandar
+                    no mesmo clique é o jeito de mandar o arquivo errado pro
+                    cliente errado, e no WhatsApp não existe desfazer. */}
+                {anexo && (
+                  <div className="px-3 pt-2.5 flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5">
+                      {anexo.type.startsWith("image/")
+                        ? <img src={URL.createObjectURL(anexo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
+                        : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
+                      <span className="text-[11.5px] truncate max-w-[180px]" title={anexo.name}>{anexo.name}</span>
+                      <button type="button" onClick={() => setAnexo(null)} title="Tirar o anexo"
+                        className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12]">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="px-3 py-2.5 flex items-center gap-1.5">
+                  {aoVivo && !gravando && (
+                    <>
+                      <input
+                        ref={seletorArquivo} type="file" className="hidden"
+                        accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                        onChange={(e) => { setAnexo(e.target.files?.[0] ?? null); e.target.value = ""; }}
+                      />
+                      <Button size="sm" variant="ghost" title="Anexar arquivo"
+                        className="h-9 w-9 p-0 shrink-0" onClick={() => seletorArquivo.current?.click()}>
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+
+                  {!gravando && (
+                    <Input value={rascunho} onChange={(e) => setRascunho(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+                      placeholder={anexo ? "Legenda (opcional)…" : `Responder ${lead.nome.split(" ")[0]}…`}
+                      className="h-9 text-[12.5px]" />
+                  )}
+
+                  {aoVivo && !anexo && (
+                    <GravadorDeAudio
+                      onEnviar={enviarAudio}
+                      onGravandoChange={setGravando}
+                      disabled={mandandoAnexo}
+                    />
+                  )}
+
+                  {!gravando && (
+                    <Button size="sm" className="h-9 w-9 p-0 shrink-0" onClick={enviar}
+                      disabled={mandandoAnexo || (!rascunho.trim() && !anexo)}>
+                      {mandandoAnexo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </Button>
+                  )}
+                </div>
               </div>
             </SpotlightCard>
 

@@ -156,33 +156,70 @@ export async function marcarLida(conversaId: string) {
 }
 
 /**
- * Envia pelo WhatsApp e registra a saída.
+ * Envia pelo WhatsApp.
  *
- * A ordem importa: só grava depois que a Evolution aceitou. Gravar antes
- * deixaria na tela uma mensagem que o cliente nunca recebeu — e é pior que o
- * erro, porque ninguém reenvia o que parece enviado.
+ * Quem fala com a Evolution e quem grava a linha é a `wa-enviar` — daqui só sai
+ * o pedido. O número não vai junto de propósito: a função lê instância e
+ * telefone da própria conversa, então nada que o navegador mandar pode virar
+ * mensagem pra outro destinatário.
  */
-export async function enviarWhatsapp(args: {
-  conversaId: string; telefone: string; texto: string; enviadoPor?: string | null;
-}) {
-  const { error } = await supabase.functions.invoke("send-whatsapp", {
-    body: {
-      telefone: args.telefone,
-      mensagem: args.texto,
-      contexto: "atendimento",
-      enviado_por: args.enviadoPor ?? null,
-    },
-  });
+async function pedirEnvio(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("wa-enviar", { body });
   if (error) throw new Error(error.message);
+  if (data && data.ok === false) throw new Error(String(data.error || "Falha no envio"));
+  return data as { ok: true; aviso?: string };
+}
 
-  const { error: eIns } = await tabela("wa_mensagens").insert({
+export function enviarTexto(conversaId: string, texto: string) {
+  return pedirEnvio({ conversa_id: conversaId, tipo: "texto", texto });
+}
+
+/** O tipo que a Evolution entende, a partir do arquivo que a pessoa escolheu. */
+function tipoDoArquivo(mime: string): "imagem" | "video" | "audio" | "documento" {
+  if (mime.startsWith("image/")) return "imagem";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "documento";
+}
+
+/** Nome de arquivo que sobrevive a um path de Storage. */
+function nomeSeguro(nome: string): string {
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
+}
+
+/**
+ * Sobe o arquivo e manda.
+ *
+ * O upload vem primeiro porque a Evolution baixa a mídia por URL — e é bom que
+ * seja assim: o arquivo enviado fica no mesmo bucket do recebido, então a mesma
+ * bolha desenha os dois sem precisar saber de onde veio.
+ */
+export async function enviarArquivo(args: {
+  conversaId: string;
+  arquivo: Blob;
+  nome: string;
+  legenda?: string;
+  /** segundos — só no áudio gravado, onde o webm não traz a duração no cabeçalho */
+  duracao?: number | null;
+}) {
+  const mime = args.arquivo.type || "application/octet-stream";
+  const tipo = tipoDoArquivo(mime);
+  const path = `enviados/${args.conversaId}/${Date.now()}_${nomeSeguro(args.nome)}`;
+
+  const { error: eUp } = await supabase.storage
+    .from("wa-midia").upload(path, args.arquivo, { contentType: mime, upsert: false });
+  if (eUp) throw new Error(`Não consegui subir o arquivo: ${eUp.message}`);
+
+  return pedirEnvio({
     conversa_id: args.conversaId,
-    direcao: "saida",
-    tipo: "texto",
-    texto: args.texto,
-    enviado_por: args.enviadoPor ?? null,
+    tipo,
+    texto: args.legenda?.trim() || null,
+    midia_path: path,
+    midia_nome: args.nome,
+    mime,
+    duracao: args.duracao ?? null,
   });
-  if (eIns) throw new Error(eIns.message);
 }
 
 export function useInvalidarWa() {
@@ -206,9 +243,18 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
     anterior = m.criada_em;
     conversa.push({
       de: m.direcao === "entrada" ? "lead" : "nos",
-      texto: m.texto ?? previaDe(m),
+      // Com anexo, `texto` é a LEGENDA — e legenda vazia é o normal. A etiqueta
+      // ("🎵 Áudio") só entra quando não há anexo pra desenhar, senão a bolha
+      // mostraria o rótulo e o player da mesma coisa.
+      texto: m.texto ?? (m.midia_path ? "" : previaDe(m)),
       hora: new Date(m.criada_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       ...(dia ? { dia } : {}),
+      id: m.id,
+      tipo: m.tipo,
+      midiaPath: m.midia_path,
+      midiaMime: m.midia_mime,
+      midiaNome: m.midia_nome,
+      duracao: m.duracao,
     });
   }
 

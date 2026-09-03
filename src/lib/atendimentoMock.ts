@@ -74,6 +74,15 @@ export interface Mensagem {
   hora: string;
   /** separador de dia; só na primeira mensagem daquele dia */
   dia?: string;
+  /* Anexo. Só existe nas mensagens que vêm do banco — a maquete é toda de
+     texto, e é por isso que tudo aqui é opcional: quem monta um Lead à mão
+     (teste, protótipo) não precisa saber que áudio existe. */
+  id?: string;
+  tipo?: string | null;
+  midiaPath?: string | null;
+  midiaMime?: string | null;
+  midiaNome?: string | null;
+  duracao?: number | null;
 }
 
 export interface Lead {
