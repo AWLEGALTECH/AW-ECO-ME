@@ -30,6 +30,8 @@ export interface Task {
   detalhe: string;
   /** YYYY-MM-DD — o dia em que ela aparece */
   data: string;
+  /** HH:MM, opcional. "Passar o extrato hoje" não tem hora; "ligar às 15h" tem. */
+  hora?: string | null;
   feita: boolean;
   /** só no follow-up: qual tentativa é essa */
   rodada?: number;
@@ -130,8 +132,30 @@ export function ordenarTasks(tasks: Task[]): Task[] {
       const ra = b.rodada ?? 0, rb = a.rodada ?? 0;
       if (ra !== rb) return ra - rb;
     }
+    // Entre lembretes, quem tem hora marcada vem primeiro e em ordem de
+    // relógio: "ligar às 9h" perde a validade às 9h05, "passar o extrato hoje"
+    // não perde. Sem hora, a ordem é a de criação (o id é sequencial no tempo).
+    if (a.tipo === "lembrete" && b.tipo === "lembrete") {
+      const ha = a.hora ?? "", hb = b.hora ?? "";
+      if (!!ha !== !!hb) return ha ? -1 : 1;
+      if (ha && hb && ha !== hb) return ha < hb ? -1 : 1;
+    }
     return a.id.localeCompare(b.id);
   });
+}
+
+/**
+ * A hora como a tela escreve: "15:00" vira "15h", "15:30" vira "15h30".
+ *
+ * Hora redonda sem os dois zeros porque é assim que se combina em voz alta —
+ * "ligo às 15h", não "às 15 e zero zero".
+ */
+export function horaBonita(hora: string | null | undefined): string {
+  const h = String(hora || "").trim();
+  const m = h.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  const hh = String(Number(m[1]));
+  return m[2] === "00" ? `${hh}h` : `${hh}h${m[2]}`;
 }
 
 export interface ProgressoTasks {

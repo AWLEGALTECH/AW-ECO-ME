@@ -131,15 +131,29 @@ Deno.serve(async (req: Request) => {
     const telefone = canonico(jid.replace(/@.*$/, ""));
     if (!telefone) continue;
 
+    // O NOME NÃO ENTRA NESTE UPSERT, e essa é a correção de um bug que já
+    // aconteceu: quando NÓS mandamos a mensagem, a Evolution devolve o evento
+    // com `pushName` = o nome do NOSSO perfil. Escrevendo direto, toda conversa
+    // iniciada por nós passava a se chamar "Portal Direito Aberto" — quatro
+    // leads na lista com o nome do escritório e nenhum jeito de distingui-los.
     const { data: conv, error: eConv } = await sb
       .from("wa_conversas")
       .upsert(
-        { instancia, telefone, jid, nome_wa: d.pushName ?? null },
+        { instancia, telefone, jid },
         { onConflict: "instancia,telefone", ignoreDuplicates: false },
       )
-      .select("id")
+      .select("id, nome_wa")
       .single();
     if (eConv || !conv) { console.error("[wa-webhook] conversa:", eConv?.message); continue; }
+
+    // O nome só é preenchido quando VEIO DELE e a conversa ainda não tem um.
+    // Não sobrescrever também protege o que a atendente digitou à mão no "+":
+    // "Dona Maria (mãe do José)" diz mais que "Maria" do perfil, e quem
+    // escreveu aquilo escreveu por um motivo.
+    const nomeDele = !fromMe ? String(d.pushName ?? "").trim() : "";
+    if (nomeDele && !conv.nome_wa) {
+      await sb.from("wa_conversas").update({ nome_wa: nomeDele }).eq("id", conv.id);
+    }
 
     const { data: linha, error: eMsg } = await sb
       .from("wa_mensagens")

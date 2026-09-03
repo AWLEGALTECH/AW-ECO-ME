@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   CADENCIA, rodadasDevidas, esfriou, proximaCobranca, followUpsDoDia,
-  ordenarTasks, progressoTasks, type LeadParado, type Task,
+  ordenarTasks, progressoTasks, horaBonita, type LeadParado, type Task,
 } from "./tasksAtendimento";
 
 const lead = (o: Partial<LeadParado> & Pick<LeadParado, "id">): LeadParado => ({
@@ -159,5 +159,48 @@ describe("a barra de conclusão", () => {
     const p = progressoTasks([task({ id: "1", tipo: "lembrete", feita: true })]);
     expect(p.pct).toBe(100);
     expect(p.concluido).toBe(true);
+  });
+});
+
+describe("a hora do lembrete", () => {
+  it("hora redonda sai sem os dois zeros", () => {
+    // é como se combina em voz alta: "ligo às 15h"
+    expect(horaBonita("15:00")).toBe("15h");
+    expect(horaBonita("15:00:00")).toBe("15h");
+    expect(horaBonita("09:00")).toBe("9h");
+  });
+
+  it("com minuto, mantém o minuto", () => {
+    expect(horaBonita("15:30")).toBe("15h30");
+    expect(horaBonita("08:05")).toBe("8h05");
+  });
+
+  it("sem hora não escreve nada", () => {
+    expect(horaBonita(null)).toBe("");
+    expect(horaBonita("")).toBe("");
+    expect(horaBonita("qualquer coisa")).toBe("");
+  });
+});
+
+describe("a ordem entre lembretes com hora", () => {
+  const lb = (id: string, hora: string | null): Task => ({
+    id, tipo: "lembrete", leadId: "l1", lead: "Fulano",
+    titulo: id, detalhe: "", data: "2026-09-03", hora, feita: false,
+  });
+
+  it("quem tem hora vem antes de quem não tem", () => {
+    const ordem = ordenarTasks([lb("b-sem", null), lb("a-com", "15:00")]).map((t) => t.id);
+    expect(ordem).toEqual(["a-com", "b-sem"]);
+  });
+
+  it("entre os que têm hora, vale o relógio e não o alfabeto", () => {
+    const ordem = ordenarTasks([lb("z", "09:00"), lb("a", "15:00")]).map((t) => t.id);
+    expect(ordem).toEqual(["z", "a"]);
+  });
+
+  it("feita continua indo pro fim, com hora ou sem", () => {
+    const feita = { ...lb("cedo", "07:00"), feita: true };
+    const ordem = ordenarTasks([feita, lb("tarde", "18:00")]).map((t) => t.id);
+    expect(ordem).toEqual(["tarde", "cedo"]);
   });
 });

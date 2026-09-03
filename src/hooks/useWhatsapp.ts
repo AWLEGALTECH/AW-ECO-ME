@@ -281,7 +281,9 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
 
   return {
     id: c.id,
-    nome: c.nome_wa?.trim() || c.telefone,
+    // Sem nome no WhatsApp, o telefone FORMATADO — "(92) 99165-3608" se lê como
+    // um número de telefone; "5592991653608" se lê como um código de erro.
+    nome: c.nome_wa?.trim() || telefoneBonito(c.telefone),
     telefone: c.telefone,
     origem,
     estagio: "chegou",

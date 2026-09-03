@@ -36,7 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
-  UserPlus, Phone,
+  UserPlus, Phone, Clock,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -45,7 +45,7 @@ import {
 } from "@/lib/atendimentoMock";
 import {
   followUpsDoDia, ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
-  CADENCIA, type Task, type TipoTask,
+  CADENCIA, horaBonita, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
@@ -53,6 +53,9 @@ import {
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta } from "@/lib/wa";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
+import {
+  useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
+} from "@/hooks/useTasksWa";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -95,7 +98,7 @@ export default function AtendimentoPage() {
   const [origem, setOrigem] = useState<"todos" | Origem>("todos");
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
-  const [lembretes, setLembretes] = useState<Task[]>(LEMBRETES);
+  const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
   const [dia, setDia] = useState(HOJE);
   const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
   const [feitasFollowUp, setFeitasFollowUp] = useState<string[]>([]);
@@ -108,6 +111,12 @@ export default function AtendimentoPage() {
   const [novoTelefone, setNovoTelefone] = useState("");
   const [novoNome, setNovoNome] = useState("");
   const [criandoConversa, setCriandoConversa] = useState(false);
+  const [taskAberta, setTaskAberta] = useState(false);
+  const [taskTitulo, setTaskTitulo] = useState("");
+  const [taskDetalhe, setTaskDetalhe] = useState("");
+  const [taskDia, setTaskDia] = useState(HOJE);
+  const [taskHora, setTaskHora] = useState("");
+  const [salvandoTask, setSalvandoTask] = useState(false);
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
   const [notas, setNotas] = useState<Record<string, string>>({});
@@ -203,6 +212,13 @@ export default function AtendimentoPage() {
       });
   }, [origem, busca, leadsBase]);
 
+  /* Ao vivo os lembretes vêm de `wa_tasks` e sobrevivem ao recarregar; na
+     maquete continuam em memória, pra ela seguir servindo pra discutir formato
+     sem escrever nada no banco. */
+  const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
+  const invalidarTasks = useInvalidarTasksWa();
+  const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
+
   const lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0];
   const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
 
@@ -246,20 +262,66 @@ export default function AtendimentoPage() {
   }, [lembretes, leadsBase]);
 
   const concluir = (id: string) => {
+    // Follow-up não é linha no banco — é conta feita a partir do tempo parado.
+    // O "feito" dele é do dia e mora aqui mesmo.
     if (id.startsWith("fu-")) {
       setFeitasFollowUp((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
       return;
     }
-    setLembretes((prev) => prev.map((t) => (t.id === id ? { ...t, feita: !t.feita } : t)));
+    if (aoVivo) {
+      const atual = lembretes.find((t) => t.id === id);
+      if (!atual) return;
+      alternarTaskWa(id, !atual.feita, user?.id ?? null)
+        .then(invalidarTasks)
+        .catch((e) => toast.error("Não consegui marcar: " + (e as Error).message));
+      return;
+    }
+    setLembretesMaquete((prev) => prev.map((t) => (t.id === id ? { ...t, feita: !t.feita } : t)));
   };
 
+  /* O `window.prompt` que estava aqui aceitava uma linha de texto e mais nada:
+     sem detalhe, sem dia, sem hora — e com a cara do sistema operacional no
+     meio de uma tela que não é dele. Agora abre um diálogo de verdade, já com
+     o dia que está sendo olhado no calendário. */
   const novoLembrete = () => {
-    const titulo = window.prompt(`Lembrete sobre ${lead.nome}:`);
-    if (!titulo?.trim()) return;
-    setLembretes((p) => [...p, {
-      id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
-      titulo: titulo.trim(), detalhe: "marcado agora", data: dia, feita: false,
-    }]);
+    setTaskTitulo("");
+    setTaskDetalhe("");
+    setTaskDia(dia);
+    setTaskHora("");
+    setTaskAberta(true);
+  };
+
+  const salvarTask = async () => {
+    const titulo = taskTitulo.trim();
+    if (!titulo) { toast.error("A task precisa de um título."); return; }
+    if (!aoVivo) {
+      setLembretesMaquete((p) => [...p, {
+        id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
+        titulo, detalhe: taskDetalhe.trim(), data: taskDia, hora: taskHora || null, feita: false,
+      }]);
+      setTaskAberta(false);
+      return;
+    }
+    setSalvandoTask(true);
+    try {
+      await criarTaskWa({
+        conversaId: lead.id,
+        titulo,
+        detalhe: taskDetalhe,
+        dia: taskDia,
+        hora: taskHora || null,
+        criadoPor: user?.id ?? null,
+      });
+      invalidarTasks();
+      setTaskAberta(false);
+      // Leva o calendário pro dia da task recém-criada: marcar algo pra quinta
+      // e continuar olhando a terça faz parecer que não salvou.
+      if (taskDia !== dia) setDia(taskDia);
+    } catch (e) {
+      toast.error("Não consegui salvar: " + (e as Error).message);
+    } finally {
+      setSalvandoTask(false);
+    }
   };
 
   /* ── ABRIR CONVERSA COM QUEM AINDA NÃO ESCREVEU ──
@@ -523,7 +585,10 @@ export default function AtendimentoPage() {
                           </span>
                           <span className={cn("block text-[11.5px] font-medium leading-tight truncate",
                             t.feita && "line-through")}>{t.titulo}</span>
-                          <span className="block text-[10px] text-muted-foreground truncate">{t.detalhe}</span>
+                          <span className="block text-[10px] text-muted-foreground truncate">
+                            {t.hora && <span className="text-primary font-semibold tabular-nums mr-1">{horaBonita(t.hora)}</span>}
+                            {t.detalhe}
+                          </span>
                         </span>
                         <button onClick={() => concluir(t.id)}
                           title={t.feita ? "Reabrir" : "Concluir"}
@@ -813,8 +878,13 @@ export default function AtendimentoPage() {
                           </div>
 
                           <button onClick={() => abrir(t.leadId)} className="text-left">
-                            <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2">
+                            <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2 flex items-center gap-1.5">
                               {ROTULO_TIPO[t.tipo]}
+                              {t.hora && (
+                                <span className="inline-flex items-center gap-1 rounded px-1 py-[1px] text-[9.5px] font-semibold tabular-nums normal-case tracking-normal bg-primary/15 text-primary">
+                                  <Clock className="h-2.5 w-2.5" />{horaBonita(t.hora)}
+                                </span>
+                              )}
                             </p>
                             <p className={cn("text-[12.5px] font-medium leading-tight mt-0.5 line-clamp-2",
                               t.feita && "line-through")}>
@@ -867,6 +937,79 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+
+      {/* ── NOVA TASK ──
+          Título, detalhe, dia e hora. A hora é opcional porque metade dos
+          lembretes não tem hora ("passar o extrato hoje") e obrigar um horário
+          faria a atendente inventar um — e um horário inventado vira alarme
+          falso na fila do dia. */}
+      <Dialog open={taskAberta} onOpenChange={(a) => { if (!salvandoTask) setTaskAberta(a); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <BellRing className="h-4 w-4" /> Nova task
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Sobre <span className="text-foreground/80">{lead.nome}</span>. Ela entra na fila do
+              dia que você escolher.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">O que fazer</span>
+              <Input
+                autoFocus
+                value={taskTitulo}
+                onChange={(e) => setTaskTitulo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarTask(); } }}
+                placeholder="Ligar pra confirmar o extrato"
+                className="h-9 text-[13px]"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">
+                Detalhe <span className="opacity-60">(opcional)</span>
+              </span>
+              <Textarea
+                value={taskDetalhe}
+                onChange={(e) => setTaskDetalhe(e.target.value)}
+                placeholder="o que ficou combinado, o que conferir"
+                className="text-[12.5px] min-h-[62px] resize-none"
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" /> Dia
+                </span>
+                <Input type="date" lang="pt-BR" value={taskDia} onChange={(e) => setTaskDia(e.target.value)}
+                  className="h-9 text-[13px]" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Hora <span className="opacity-60">(opcional)</span>
+                </span>
+                <Input type="time" lang="pt-BR" value={taskHora} onChange={(e) => setTaskHora(e.target.value)}
+                  className="h-9 text-[13px]" />
+              </label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setTaskAberta(false)} disabled={salvandoTask}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={salvarTask} disabled={salvandoTask || !taskTitulo.trim()}>
+              {salvandoTask
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
+                : <>Marcar task <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── NOVA CONVERSA ──
           Só o número é obrigatório: é o que o WhatsApp precisa. O nome é
@@ -1015,6 +1158,14 @@ function JornadaLead({ atual, puladas, tasksDoLead, onAvancar, onNovaTask, onCon
                         <span className="h-5 w-5 rounded-md bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
                           <Ico className="h-3 w-3 text-primary" />
                         </span>
+                        {/* A hora vem ANTES do título: numa faixa estreita ela
+                            é o que decide se a task é pra agora ou pra depois,
+                            e no fim da linha some no truncate. */}
+                        {t.hora && (
+                          <span className="shrink-0 rounded px-1 py-[1px] text-[9.5px] font-semibold tabular-nums bg-primary/15 text-primary">
+                            {horaBonita(t.hora)}
+                          </span>
+                        )}
                         <span className={cn("text-[11px] font-medium truncate flex-1", t.feita && "line-through")}>
                           {t.titulo}
                         </span>
