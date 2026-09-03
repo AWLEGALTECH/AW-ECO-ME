@@ -170,6 +170,21 @@ async function pedirEnvio(body: Record<string, unknown>) {
   return data as { ok: true; aviso?: string };
 }
 
+/**
+ * Abre conversa com quem ainda não escreveu — o "+" da caixa.
+ *
+ * Quem confere o número com o WhatsApp e cria a linha é a `wa-nova-conversa`:
+ * a checagem precisa da chave da Evolution, que não pode viver no navegador.
+ */
+export async function criarConversa(args: { instancia: string; telefone: string; nome?: string | null }) {
+  const { data, error } = await supabase.functions.invoke("wa-nova-conversa", {
+    body: { instancia: args.instancia, telefone: args.telefone, nome: args.nome ?? null },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || data.ok === false) throw new Error(String(data?.error || "Não consegui abrir a conversa"));
+  return data as { ok: true; conversa_id: string; ja_existia: boolean; aviso?: string | null };
+}
+
 export function enviarTexto(conversaId: string, texto: string) {
   return pedirEnvio({ conversa_id: conversaId, tipo: "texto", texto });
 }
@@ -278,6 +293,7 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
     diasParado,
     followUpsFeitos: 0,
     chegouEm: c.created_at.slice(0, 10),
+    previa: c.ultima_previa,
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

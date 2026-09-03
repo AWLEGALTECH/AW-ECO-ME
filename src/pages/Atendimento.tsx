@@ -36,6 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  UserPlus, Phone,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -48,9 +49,13 @@ import {
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
-  marcarLida, enviarTexto, enviarArquivo, useInvalidarWa,
+  marcarLida, enviarTexto, enviarArquivo, criarConversa, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta } from "@/lib/wa";
+import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { MidiaMensagem } from "@/components/atendimento/MidiaMensagem";
 import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
 import { useAuth } from "@/hooks/useAuth";
@@ -99,6 +104,10 @@ export default function AtendimentoPage() {
   const [mandandoAnexo, setMandandoAnexo] = useState(false);
   const [gravando, setGravando] = useState(false);
   const seletorArquivo = useRef<HTMLInputElement>(null);
+  const [novaAberta, setNovaAberta] = useState(false);
+  const [novoTelefone, setNovoTelefone] = useState("");
+  const [novoNome, setNovoNome] = useState("");
+  const [criandoConversa, setCriandoConversa] = useState(false);
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
   const [notas, setNotas] = useState<Record<string, string>>({});
@@ -253,6 +262,36 @@ export default function AtendimentoPage() {
     }]);
   };
 
+  /* ── ABRIR CONVERSA COM QUEM AINDA NÃO ESCREVEU ──
+     Metade do atendimento começa fora do WhatsApp: o lead ligou, deixou o
+     número num formulário, veio por indicação. A caixa só conhece quem mandou
+     mensagem, e esse "+" é a porta pro resto. */
+  const abrirNova = async () => {
+    const afere = aferirTelefone(novoTelefone);
+    if (!afere.ok) { toast.error(afere.erro ?? "Número inválido"); return; }
+    setCriandoConversa(true);
+    try {
+      const r = await criarConversa({
+        instancia: instancia.nome,
+        telefone: afere.canonico,
+        nome: nomeDaConversaNova(novoNome),
+      });
+      setSelecionadoId(r.conversa_id);
+      invalidarWa();
+      setNovaAberta(false);
+      setNovoTelefone("");
+      setNovoNome("");
+      // "Já existia" não é erro nenhum, mas precisa ser dito: senão a pessoa
+      // acha que criou uma conversa nova e fica procurando a antiga.
+      if (r.ja_existia) toast.info("Vocês já tinham conversa — abri ela.");
+      if (r.aviso) toast.warning(r.aviso);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setCriandoConversa(false);
+    }
+  };
+
   /* ── MANDAR ARQUIVO E ÁUDIO ──
      Os dois caem no mesmo caminho: sobe pro bucket, a wa-enviar assina a URL e
      a Evolution baixa. Quando dá erro, o anexo FICA na barra — apagar o que não
@@ -370,7 +409,16 @@ export default function AtendimentoPage() {
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
                     <MessageCircle className="h-3.5 w-3.5 text-muted-foreground" /> Caixa
                   </h2>
-                  <span className="text-[10.5px] text-muted-foreground tabular-nums">{lista.length}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10.5px] text-muted-foreground tabular-nums">{lista.length}</span>
+                    {/* O "+" fica no cabeçalho da caixa, e não perto do campo
+                        de digitar, porque o gesto é "arrumar mais um na lista"
+                        — não "responder alguém". */}
+                    <button type="button" title="Nova conversa" onClick={() => setNovaAberta(true)}
+                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {CHIPS_ORIGEM.map((c) => (
@@ -413,7 +461,7 @@ export default function AtendimentoPage() {
                         </span>
                         <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
                           {semResposta && <AlertTriangle className="inline h-3 w-3 text-amber-300 mr-1 -mt-px" />}
-                          {(l.conversa[l.conversa.length - 1]?.texto ?? "").slice(0, 40)}
+                          {(l.conversa[l.conversa.length - 1]?.texto || l.previa || "").slice(0, 40)}
                         </span>
                         <span className="flex items-center gap-1 mt-1">
                           <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
@@ -819,6 +867,65 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+
+      {/* ── NOVA CONVERSA ──
+          Só o número é obrigatório: é o que o WhatsApp precisa. O nome é
+          gentileza pra atendente reconhecer a linha na lista enquanto o
+          cliente não responde — quando ele responder, o webhook grava o nome
+          do perfil por cima. */}
+      <Dialog open={novaAberta} onOpenChange={(a) => { if (!criandoConversa) setNovaAberta(a); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <UserPlus className="h-4 w-4" /> Nova conversa
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Falando por <span className="text-foreground/80">{instancia.nome}</span>. O número é
+              conferido com o WhatsApp antes de a conversa aparecer na caixa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Telefone com DDD</span>
+              <div className="relative">
+                <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  autoFocus
+                  inputMode="numeric"
+                  value={novoTelefone}
+                  onChange={(e) => setNovoTelefone(mascaraTelefone(e.target.value))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); abrirNova(); } }}
+                  placeholder="(92) 98812-4471"
+                  className="h-9 pl-8 text-[13px]"
+                />
+              </div>
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Nome <span className="opacity-60">(opcional)</span></span>
+              <Input
+                value={novoNome}
+                onChange={(e) => setNovoNome(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); abrirNova(); } }}
+                placeholder="como você chama essa pessoa"
+                className="h-9 text-[13px]"
+              />
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setNovaAberta(false)} disabled={criandoConversa}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={abrirNova} disabled={criandoConversa || !novoTelefone.trim()}>
+              {criandoConversa
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Conferindo…</>
+                : <>Abrir conversa <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

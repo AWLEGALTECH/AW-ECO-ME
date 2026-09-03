@@ -104,6 +104,10 @@ export interface Lead {
   followUpsFeitos: number;
   /** quando a primeira mensagem dele caiu na caixa */
   chegouEm: string;
+  /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
+     porque a conversa inteira só é carregada pra aberta — sem isso, todo mundo
+     que não está aberto aparece com o nome e mais nada. */
+  previa?: string | null;
   dossie: {
     banco: string | null;
     descontos: string[];
