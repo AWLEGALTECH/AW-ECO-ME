@@ -46,8 +46,10 @@ export interface Instancia {
   sincronizadoEm: string;
   conversas: number;
   naoLidas: number;
-  /** iniciais no lugar da foto, enquanto é maquete */
+  /** iniciais, usadas quando não há foto */
   avatar: string;
+  /** foto do perfil do WhatsApp; null cai nas iniciais */
+  fotoUrl?: string | null;
 }
 
 export const INSTANCIAS: Instancia[] = [

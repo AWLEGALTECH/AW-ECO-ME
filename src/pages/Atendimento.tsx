@@ -47,7 +47,8 @@ import {
   CADENCIA, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
-  useConversas, useMensagens, conversaParaLead, marcarLida, enviarWhatsapp, useInvalidarWa,
+  useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
+  marcarLida, enviarWhatsapp, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -82,7 +83,7 @@ const CHIPS_ORIGEM: { chave: "todos" | Origem; rotulo: string }[] = [
 
 export default function AtendimentoPage() {
   const [aba, setAba] = useState<"atendimento" | "funil">("atendimento");
-  const [instanciaId, setInstanciaId] = useState(INSTANCIAS[0].id);
+  const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
   const [origem, setOrigem] = useState<"todos" | Origem>("todos");
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
@@ -96,10 +97,18 @@ export default function AtendimentoPage() {
   const [notas, setNotas] = useState<Record<string, string>>({});
   const [puladas, setPuladas] = useState<Record<string, Estagio[]>>({});
   const [origemDossie, setOrigemDossie] = useState<Record<string, "marketing" | "planilha" | "outros">>({});
-  const [tarefasAbertas, setTarefasAbertas] = useState(true);
+  /* Em janela estreita a coluna de tasks nasce RECOLHIDA. Com ela aberta, a
+     caixa (15,5rem) + tasks (16rem) + a barra lateral do app não deixavam nem
+     200px pra conversa — o balão quebrava uma palavra por linha. */
+  const [tarefasAbertas, setTarefasAbertas] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 1280);
 
-  const instancia = INSTANCIAS.find((i) => i.id === instanciaId) ?? INSTANCIAS[0];
   const { user } = useAuth();
+  /* As instâncias vêm da Evolution (nome, status, número e FOTO do perfil); a
+     maquete só assume quando ela não respondeu ainda. */
+  const { data: instRows = [] } = useInstancias();
+  const instancias: Instancia[] = instRows.length > 0 ? instRows.map((i) => instanciaParaCard(i)) : INSTANCIAS;
+  const instancia = instancias.find((i) => i.id === instanciaId) ?? instancias[0];
   const invalidarWa = useInvalidarWa();
 
   /* ── A FONTE DOS DADOS ──
@@ -281,7 +290,7 @@ export default function AtendimentoPage() {
         <>
           <CardInstancia
             instancia={instancia}
-            todas={INSTANCIAS}
+            todas={instancias}
             onTrocar={setInstanciaId}
           />
 
@@ -369,7 +378,7 @@ export default function AtendimentoPage() {
                 mais leve da bancada, que é a lista que muda o dia todo. Sem isso
                 os quatro painéis eram a mesma superfície repetida e o olho não
                 sabia onde estava. */}
-            <SpotlightCard sutil className="flex-1 min-w-0 flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+            <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
                   {iniciais(lead.nome)}
@@ -906,8 +915,11 @@ function CardInstancia({ instancia, todas, onTrocar }: {
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
           fazia o card inteiro parecer um alarme aceso. */}
-      <div className="h-11 w-11 shrink-0 rounded-full grid place-items-center text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
-        {instancia.avatar}
+      <div className="h-11 w-11 shrink-0 rounded-full overflow-hidden grid place-items-center text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+        {instancia.fotoUrl
+          ? <img src={instancia.fotoUrl} alt="" className="h-full w-full object-cover"
+                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+          : instancia.avatar}
       </div>
 
       <div className="min-w-0 flex-1 flex flex-col gap-1">
@@ -948,8 +960,11 @@ function CardInstancia({ instancia, todas, onTrocar }: {
                   onClick={() => { onTrocar(i.id); setAberto(false); }}
                   className={cn("flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors",
                     ativa ? "bg-white/[0.07]" : "hover:bg-white/[0.05]")}>
-                  <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
-                    {i.avatar}
+                  <span className="h-8 w-8 shrink-0 rounded-full overflow-hidden grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+                    {i.fotoUrl
+                      ? <img src={i.fotoUrl} alt="" className="h-full w-full object-cover"
+                             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                      : i.avatar}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12px] font-medium truncate">{i.nome}</span>

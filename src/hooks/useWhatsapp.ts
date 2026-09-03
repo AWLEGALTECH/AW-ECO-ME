@@ -11,15 +11,91 @@
 // estado que some quando o Wi-Fi pisca. Chat aberto recarrega a cada 5s, lista
 // a cada 10s — de sobra pra um atendimento humano, e sem peça nova.
 
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  horaDaLista, horasSemResposta, previaDe, separadorDeDia,
+  horaDaLista, horasSemResposta, previaDe, separadorDeDia, telefoneBonito,
   type ConversaRow, type MensagemRow,
 } from "@/lib/wa";
-import type { Lead, Mensagem, Origem } from "@/lib/atendimentoMock";
+import type { Instancia, Lead, Mensagem, Origem } from "@/lib/atendimentoMock";
+
+export interface InstanciaRow {
+  nome: string;
+  telefone: string | null;
+  jid: string | null;
+  perfil_nome: string | null;
+  foto_url: string | null;
+  status: string;
+  contatos: number | null;
+  conversas: number | null;
+  mensagens: number | null;
+  sincronizado_em: string;
+}
+
+/** Iniciais como reserva: instância sem foto não pode virar círculo vazio. */
+function iniciaisDe(nome: string): string {
+  const p = nome.trim().split(/\s+/).filter(Boolean);
+  if (p.length === 0) return "?";
+  if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+  return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+}
+
+/** A instância do banco no formato que o card do topo já desenha. */
+export function instanciaParaCard(i: InstanciaRow, agora = new Date()): Instancia {
+  const min = Math.max(0, Math.round((agora.getTime() - new Date(i.sincronizado_em).getTime()) / 60000));
+  return {
+    id: i.nome,
+    nome: i.nome,
+    curto: i.nome.length > 14 ? iniciaisDe(i.nome) : i.nome,
+    telefone: i.telefone ? telefoneBonito(i.telefone) : "—",
+    status: i.status === "conectado" ? "conectado" : "desconectado",
+    gateway: "Evolution API",
+    sincronizadoEm: min < 1 ? "agora" : `há ${min} min`,
+    conversas: i.conversas ?? 0,
+    naoLidas: 0,
+    avatar: iniciaisDe(i.perfil_nome || i.nome),
+    fotoUrl: i.foto_url,
+  };
+}
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
+
+/**
+ * As instâncias conectadas, lidas do espelho `wa_instancias`.
+ *
+ * Ao montar, pede uma sincronização com a Evolution: nome, status e FOTO do
+ * perfil mudam do lado de lá e a URL da foto do WhatsApp expira, então confiar
+ * no que está gravado de ontem daria imagem quebrada. Se a Evolution não
+ * responder, a tela segue com o que está no banco — degradar é melhor que
+ * mostrar erro por causa de uma foto.
+ */
+export function useInstancias() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["wa", "instancias"],
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<InstanciaRow[]> => {
+      const { data, error } = await tabela("wa_instancias")
+        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em")
+        .eq("ativa", true)
+        .order("nome");
+      if (error) throw error;
+      return (data || []) as InstanciaRow[];
+    },
+  });
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.functions
+      .invoke("wa-instancia", { body: {} })
+      .then(() => { if (vivo) qc.invalidateQueries({ queryKey: ["wa", "instancias"] }); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [qc]);
+
+  return q;
+}
 
 export function useConversas(instancia: string | null) {
   return useQuery({
