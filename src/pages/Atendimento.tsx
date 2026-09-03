@@ -46,6 +46,11 @@ import {
   followUpsDoDia, ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
   CADENCIA, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
+import {
+  useConversas, useMensagens, conversaParaLead, marcarLida, enviarWhatsapp, useInvalidarWa,
+} from "@/hooks/useWhatsapp";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 /* O "hoje" da maquete é fixo pra ela não mudar de comportamento amanhã e a
    gente perder a referência do que discutiu. Vira hojeISO() quando for real. */
@@ -94,7 +99,27 @@ export default function AtendimentoPage() {
   const [tarefasAbertas, setTarefasAbertas] = useState(true);
 
   const instancia = INSTANCIAS.find((i) => i.id === instanciaId) ?? INSTANCIAS[0];
+  const { user } = useAuth();
+  const invalidarWa = useInvalidarWa();
+
+  /* ── A FONTE DOS DADOS ──
+     Se a Evolution já está entregando, a tela usa o banco; enquanto não está,
+     usa a maquete. Não é gambiarra: é o mesmo formato dos dois lados (a
+     conversão mora em useWhatsapp.ts), e evita a tela vazia de "nenhuma
+     conversa" enquanto o número não foi conectado. O selo do cabeçalho diz em
+     qual dos dois modos ela está. */
+  const { data: conversas = [] } = useConversas(instancia.nome);
+  const aoVivo = conversas.length > 0;
+  const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? selecionadoId : null);
+
+  const leadsBase: Lead[] = aoVivo
+    ? conversas.map((c) => conversaParaLead(c, c.id === selecionadoId ? msgsDaAberta : []))
+    : LEADS;
   const estagioDe = (l: Lead): Estagio => estagios[l.id] ?? l.estagio;
+  const abrir = (id: string) => {
+    setSelecionadoId(id);
+    if (aoVivo) marcarLida(id).then(invalidarWa).catch(() => {});
+  };
   const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? [];
   /* A origem do dossiê é a do MARKETING (de que campanha veio), não o número
      que atendeu — este já está no card da instância. Nasce sugerida pelo canal
@@ -117,7 +142,7 @@ export default function AtendimentoPage() {
 
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return LEADS
+    return leadsBase
       .filter((l) => origem === "todos" || l.origem === origem)
       .filter((l) => !termo || l.nome.toLowerCase().includes(termo) || l.telefone.includes(termo))
       .sort((a, b) => {
@@ -126,9 +151,9 @@ export default function AtendimentoPage() {
         if (ra !== rb) return ra - rb;
         return b.horasSemResposta - a.horasSemResposta;
       });
-  }, [origem, busca]);
+  }, [origem, busca, leadsBase]);
 
-  const lead = LEADS.find((l) => l.id === selecionadoId) ?? lista[0] ?? LEADS[0];
+  const lead = leadsBase.find((l) => l.id === selecionadoId) ?? lista[0] ?? leadsBase[0];
   const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
 
   /* AS TASKS DO DIA ESCOLHIDO.
@@ -137,7 +162,7 @@ export default function AtendimentoPage() {
      precisar de cobrança amanhã, não só quem precisa hoje. */
   const tasksDoDia = useMemo(() => {
     const offset = diasEntre(HOJE, dia);
-    const parados = LEADS.map((l) => ({
+    const parados = leadsBase.map((l) => ({
       id: l.id,
       nome: l.nome,
       diasParado: l.diasParado + offset,
@@ -148,7 +173,7 @@ export default function AtendimentoPage() {
       .map((t) => ({ ...t, feita: feitasFollowUp.includes(t.id) }));
     const lb = lembretes.filter((t) => t.data === dia);
     return ordenarTasks([...fu, ...lb]);
-  }, [dia, lembretes, feitasFollowUp]);
+  }, [dia, lembretes, feitasFollowUp, leadsBase]);
 
   const tasksVisiveis = tasksDoDia.filter((t) => tipoTask === "todas" || t.tipo === tipoTask);
   const tasksDoLead = tasksDoDia.filter((t) => t.leadId === lead.id);
@@ -161,14 +186,14 @@ export default function AtendimentoPage() {
     const set = new Set(lembretes.map((t) => t.data));
     for (let i = -7; i <= 21; i++) {
       const d = somaDias(HOJE, i);
-      const parados = LEADS.map((l) => ({
+      const parados = leadsBase.map((l) => ({
         id: l.id, nome: l.nome, diasParado: l.diasParado + i,
         followUpsFeitos: l.followUpsFeitos, ativo: l.estagio !== "fechado",
       }));
       if (followUpsDoDia(parados, d).length > 0) set.add(d);
     }
     return set;
-  }, [lembretes]);
+  }, [lembretes, leadsBase]);
 
   const concluir = (id: string) => {
     if (id.startsWith("fu-")) {
@@ -187,9 +212,20 @@ export default function AtendimentoPage() {
     }]);
   };
 
-  const enviar = () => {
+  const enviar = async () => {
     const texto = rascunho.trim();
     if (!texto) return;
+    if (aoVivo) {
+      try {
+        await enviarWhatsapp({ conversaId: lead.id, telefone: lead.telefone, texto, enviadoPor: user?.id ?? null });
+        setRascunho("");
+        invalidarWa();
+      } catch (e) {
+        // a mensagem NÃO é gravada quando a Evolution recusa: ver useWhatsapp.ts
+        toast.error("Não consegui enviar: " + (e as Error).message);
+      }
+      return;
+    }
     const agora = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     setEnviadas((prev) => ({
       ...prev,
@@ -214,9 +250,17 @@ export default function AtendimentoPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2.5">
           <h1 className="font-display text-2xl font-medium leading-none">Atendimento</h1>
-          <span className="rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25">
-            maquete
-          </span>
+          {/* O selo diz de onde vêm os dados. Enquanto for maquete, quem abrir
+              a tela sem contexto precisa saber que aquelas pessoas não existem. */}
+          {aoVivo ? (
+            <span className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/25">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> ao vivo
+            </span>
+          ) : (
+            <span className="rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25">
+              maquete
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
           {([["atendimento", "Atendimento", Inbox], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
@@ -281,7 +325,7 @@ export default function AtendimentoPage() {
                   const semResposta = l.ultimaFoi === "lead";
                   const ativo = l.id === lead.id;
                   return (
-                    <button key={l.id} onClick={() => setSelecionadoId(l.id)}
+                    <button key={l.id} onClick={() => abrir(l.id)}
                       className={cn("w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
                         ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
                       {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
@@ -578,7 +622,7 @@ export default function AtendimentoPage() {
                             </button>
                           </div>
 
-                          <button onClick={() => setSelecionadoId(t.leadId)} className="text-left">
+                          <button onClick={() => abrir(t.leadId)} className="text-left">
                             <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2">
                               {ROTULO_TIPO[t.tipo]}
                             </p>
