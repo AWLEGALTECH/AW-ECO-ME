@@ -1,0 +1,17 @@
+-- O CRON MORREU HOJE POR UM OVERLOAD QUE EU CRIEI SEM QUERER.
+--
+--   ERROR: function public.fn_bom_dia_ajuizado() is not unique
+--   HINT:  Could not choose a best candidate function.
+--
+-- `create or replace function f(p uuid default null)` NÃO substitui `f()`:
+-- assinatura diferente é função NOVA. Ficaram as duas no banco — a velha sem
+-- argumento e a nova com um argumento que tem default. Aí `f()` passou a casar
+-- com as duas, o Postgres se recusou a escolher, e a notificação das 6h não
+-- saiu pra ninguém.
+--
+-- POR QUE EU NÃO PEGUEI. Testei `fn_bom_dia_ajuizado(<id do Luan>)`, que é
+-- inequívoca, e nunca chamei `fn_bom_dia_ajuizado()` — que é exatamente a
+-- linha que o cron executa. De novo testei o que eu tinha escrito em vez do
+-- caminho que o sistema percorre. O teste que vale aqui é ler o `command` do
+-- cron e executar aquilo, sem reescrever: foi o que fiz depois de corrigir.
+drop function if exists public.fn_bom_dia_ajuizado();
