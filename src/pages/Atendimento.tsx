@@ -26,7 +26,6 @@
 import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
-import { FundoWhatsapp } from "@/components/FundoWhatsapp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -464,14 +463,7 @@ export default function AtendimentoPage() {
                 </div>
               )}
 
-              {/* O rabisco fica no container que ROLA, não no card: preso ao
-                  card, ele andaria junto com as mensagens e o efeito de "mesa"
-                  se perderia. `sticky` mantém o desenho parado enquanto a
-                  conversa desliza por cima. */}
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2 relative">
-                <div className="sticky top-0 h-0 self-stretch -mx-4 -mt-3 pointer-events-none">
-                  <FundoWhatsapp className="h-[200vh]" />
-                </div>
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
                 {conversa.map((msg, i) => (
                   <div key={i} className="flex flex-col gap-2">
                     {msg.dia && (
