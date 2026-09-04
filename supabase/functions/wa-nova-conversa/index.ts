@@ -139,6 +139,12 @@ Deno.serve(async (req: Request) => {
     }).select("id").single();
 
     if (error) return json({ ok: false, error: error.message });
+
+    // Mesma regra da webhook: se esse telefone está numa base, a conversa
+    // guarda de qual, e o lead sai da fila bruta.
+    const { error: eVinc } = await sb.rpc("fn_wa_vincular_base", { p_conversa: nova.id });
+    if (eVinc) console.error("[wa-nova-conversa] vincular base:", eVinc.message);
+
     return json({ ok: true, conversa_id: nova.id, ja_existia: false, aviso });
   } catch (e) {
     console.error("[wa-nova-conversa]", e);

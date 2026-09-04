@@ -37,7 +37,7 @@ import {
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
-  Columns3, GripVertical,
+  Columns3, ArrowUpRight, ArrowDownLeft,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -181,6 +181,11 @@ export default function AtendimentoPage() {
   const { data: conversas = [] } = useConversas(instancia.nome);
   const aoVivo = conversas.length > 0;
 
+  /* As bases são lidas cedo porque a etiqueta do cartão precisa do NOME delas:
+     a conversa guarda o id da base, e id na tela é ruído. Inclui as desligadas
+     — a conversa que veio de uma base desligada continua tendo vindo dela. */
+  const { data: fontesTodas = [] } = useFontes(instancia.nome, { incluirInativas: true });
+
   /* QUAL CONVERSA ESTÁ ABERTA, DE VERDADE.
      `selecionadoId` nasce com o id da MAQUETE ("l1"), porque na primeira
      renderização ninguém sabe ainda se o WhatsApp respondeu. Quando ele
@@ -194,8 +199,12 @@ export default function AtendimentoPage() {
 
   const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? idAberto : null);
 
+  const nomeDaBase = useMemo(
+    () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
+    [fontesTodas]);
+
   const leadsBase: Lead[] = aoVivo
-    ? conversas.map((c) => conversaParaLead(c, c.id === idAberto ? msgsDaAberta : []))
+    ? conversas.map((c) => conversaParaLead(c, c.id === idAberto ? msgsDaAberta : [], new Date(), nomeDaBase))
     : LEADS;
 
   /* Os números do card da instância vêm da CAIXA, não da Evolution.
@@ -264,7 +273,7 @@ export default function AtendimentoPage() {
   const invalidarAnotacoes = useInvalidarAnotacoes();
 
   /* ── A OUTRA CAIXA: quem nunca escreveu ── */
-  const { data: fontes = [] } = useFontes(instancia.nome);
+  const fontes = useMemo(() => fontesTodas.filter((f) => f.ativa), [fontesTodas]);
   const { data: brutos = [] } = useLeadsBrutos(fontes.map((f) => f.id));
   const { data: resumoBases = {} } = useResumoBases(fontes.length > 0);
   const invalidarLeads = useInvalidarLeads();
@@ -1127,11 +1136,11 @@ export default function AtendimentoPage() {
                           {semResposta && <AlertTriangle className="inline h-3 w-3 text-amber-300 mr-1 -mt-px" />}
                           {(l.conversa[l.conversa.length - 1]?.texto || l.previa || "").slice(0, 40)}
                         </span>
-                        <span className="flex items-center gap-1 mt-1">
+                        <span className="flex items-center gap-1 mt-1 flex-wrap">
                           <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
                             {ESTAGIOS.find((e) => e.chave === estagioDe(l))?.rotulo}
                           </span>
-                          <span className="text-[9px] text-muted-foreground/70">{ORIGENS[l.origem].curto}</span>
+                          <SeloContato origem={l.origemContato} base={l.base} />
                           {l.naoLidas > 0 && (
                             <span className="ml-auto h-4 min-w-4 px-1 rounded-full bg-foreground/85 text-[9px] font-semibold text-background grid place-items-center">
                               {l.naoLidas}
@@ -1325,20 +1334,9 @@ export default function AtendimentoPage() {
                       saiu daqui, fomos nós até ele. Campo escolhido à mão vira
                       campo em branco — ou, pior, preenchido no chute e depois
                       usado pra decidir onde investir. */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
-                    {(() => {
-                      const ativa = lead.origemContato === "ativa";
-                      return (
-                        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] ring-1",
-                          ativa
-                            ? "bg-primary/10 text-primary ring-primary/25"
-                            : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-                          {ativa ? <ArrowRight className="h-2.5 w-2.5" /> : <Inbox className="h-2.5 w-2.5" />}
-                          {ativa ? "Prospecção ativa" : "Marketing"}
-                        </span>
-                      );
-                    })()}
+                    <SeloContato origem={lead.origemContato} base={lead.base} tamanho="grande" />
                   </div>
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
@@ -1903,6 +1901,56 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/* ── DE ONDE VEIO, E QUEM FALOU PRIMEIRO ──────────────────────────────────
+   Duas informações, dois selos, sempre juntos:
+
+     inbound   ele deu o primeiro passo — a seta entra
+     outbound  nós demos — a seta sai
+     base      de qual landing esse contato saiu
+
+   Elas não se deduzem uma da outra: o mesmo lead da LP Bradesco pode chegar
+   dos dois jeitos, preenchendo o formulário e depois chamando, ou preenchendo
+   e ficando quieto até a Adria chamar. É a mesma origem com dois começos, e a
+   conversa se abre diferente em cada caso.
+
+   TUDO EM AZUL, de propósito. Verde e vermelho, nesta tela, já querem dizer
+   "feito" e "atenção"; usá-los aqui faria "outbound" parecer um problema e
+   "inbound" parecer uma conquista, quando nenhum dos dois é julgamento — é só
+   de onde a conversa veio. Dois azuis vizinhos e ícones opostos separam os
+   dois sem inventar hierarquia. */
+function SeloContato({ origem, base, tamanho = "pequeno" }: {
+  origem?: "inbound" | "outbound";
+  base?: string | null;
+  tamanho?: "pequeno" | "grande";
+}) {
+  if (!origem && !base) return null;
+  const g = tamanho === "grande";
+  const caixa = g
+    ? "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] ring-1"
+    : "inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[9px] ring-1";
+  const ico = g ? "h-2.5 w-2.5" : "h-2.5 w-2.5";
+  const saiu = origem === "outbound";
+
+  return (
+    <>
+      {origem && (
+        <span className={cn(caixa, saiu
+          ? "bg-indigo-400/12 text-indigo-300 ring-indigo-400/25"
+          : "bg-sky-400/12 text-sky-300 ring-sky-400/25")}>
+          {saiu ? <ArrowUpRight className={ico} /> : <ArrowDownLeft className={ico} />}
+          {saiu ? "Outbound" : "Inbound"}
+        </span>
+      )}
+      {base && (
+        <span className={cn(caixa, "bg-blue-400/10 text-blue-200/90 ring-blue-400/20 max-w-[10rem]")}>
+          <Database className={cn(ico, "shrink-0")} />
+          <span className="truncate">{base}</span>
+        </span>
+      )}
+    </>
   );
 }
 

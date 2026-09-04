@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, etapa, etapas_puladas, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, fonte_id, etapa, etapas_puladas, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -264,7 +264,13 @@ export function useInvalidarWa() {
  * vazio, porque ninguém perguntou ainda — e a tela já mostra "não perguntado"
  * nesse caso. Inventar aqui seria pior que deixar em branco.
  */
-export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = new Date()): Lead {
+export function conversaParaLead(
+  c: ConversaRow,
+  msgs: MensagemRow[],
+  agora = new Date(),
+  /** nome da base pelo id, pra etiqueta não virar um uuid na tela */
+  basePorId?: Record<string, string>,
+): Lead {
   const conversa: Mensagem[] = [];
   let anterior: string | null = null;
   for (const m of msgs) {
@@ -310,8 +316,9 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
     followUpsFeitos: 0,
     chegouEm: c.created_at.slice(0, 10),
     previa: c.ultima_previa,
-    origemContato: c.origem === "ativa" ? "ativa" : "marketing",
+    origemContato: c.origem === "outbound" ? "outbound" : "inbound",
     etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
+    base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? null) : null,
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

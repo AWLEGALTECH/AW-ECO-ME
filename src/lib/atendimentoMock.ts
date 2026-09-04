@@ -107,7 +107,11 @@ export interface Lead {
   /* Quem falou primeiro. Definido na criação da conversa e nunca escolhido à
      mão: se o lead mandou a primeira mensagem ele veio até nós (marketing); se
      a primeira saiu daqui, foi prospecção ativa. */
-  origemContato?: "marketing" | "ativa";
+  /* Quem deu o primeiro passo: ele escreveu (inbound) ou fomos nós (outbound).
+     Definido na criação da conversa e nunca escolhido à mão. */
+  origemContato?: "inbound" | "outbound";
+  /** de qual base de leads essa pessoa veio, quando veio de alguma */
+  base?: string | null;
   /** etapas que ficaram pra trás quando alguém pulou direto pra frente */
   etapasPuladas?: Estagio[];
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,

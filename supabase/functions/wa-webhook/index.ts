@@ -142,7 +142,7 @@ Deno.serve(async (req: Request) => {
         { instancia, telefone, jid },
         { onConflict: "instancia,telefone", ignoreDuplicates: false },
       )
-      .select("id, nome_wa")
+      .select("id, nome_wa, fonte_id")
       .single();
     if (eConv || !conv) { console.error("[wa-webhook] conversa:", eConv?.message); continue; }
 
@@ -153,6 +153,18 @@ Deno.serve(async (req: Request) => {
     const nomeDele = !fromMe ? String(d.pushName ?? "").trim() : "";
     if (nomeDele && !conv.nome_wa) {
       await sb.from("wa_conversas").update({ nome_wa: nomeDele }).eq("id", conv.id);
+    }
+
+    // DE QUAL BASE ESSA PESSOA VEIO. Quem preencheu a landing e depois chamou
+    // no WhatsApp é inbound E é da base — as duas coisas ao mesmo tempo, e a
+    // segunda se perderia se ninguém procurasse o telefone na lista de leads.
+    // A regra mora no banco (fn_wa_vincular_base) porque a wa-nova-conversa
+    // chama a mesma: escrita duas vezes, uma ia ficar pra trás na primeira
+    // mudança, e o sintoma seria uma etiqueta errada que ninguém confere.
+    // Só na primeira vez: já vinculada, não há o que procurar.
+    if (!conv.fonte_id) {
+      const { error: eVinc } = await sb.rpc("fn_wa_vincular_base", { p_conversa: conv.id });
+      if (eVinc) console.error("[wa-webhook] vincular base:", eVinc.message);
     }
 
     const { data: linha, error: eMsg } = await sb

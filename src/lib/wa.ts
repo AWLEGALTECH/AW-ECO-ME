@@ -30,6 +30,7 @@ export interface ConversaRow {
   arquivada: boolean;
   cliente_id: string | null;
   origem: string;
+  fonte_id: string | null;
   etapa: string;
   etapas_puladas: string[] | null;
   created_at: string;

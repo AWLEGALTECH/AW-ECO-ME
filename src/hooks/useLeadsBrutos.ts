@@ -50,16 +50,26 @@ export interface LeadBruto {
   bruto: Record<string, string> | null;
 }
 
-export function useFontes(instancia: string | null) {
+/**
+ * As bases da instância.
+ *
+ * `incluirInativas` existe porque as duas perguntas são diferentes: a LISTA da
+ * aba Base só mostra as ligadas, mas a ETIQUETA do cartão de conversa precisa
+ * do nome de qualquer base — uma pessoa que veio de uma base desligada
+ * continua tendo vindo dela, e trocar o nome por um uuid na tela seria perder
+ * a informação por causa de um filtro.
+ */
+export function useFontes(instancia: string | null, opcoes?: { incluirInativas?: boolean }) {
+  const todas = !!opcoes?.incluirInativas;
   return useQuery({
-    queryKey: ["leads", "fontes", instancia],
+    queryKey: ["leads", "fontes", instancia, todas],
     enabled: !!instancia,
     queryFn: async (): Promise<Fonte[]> => {
-      const { data, error } = await tabela("leads_fontes")
+      let q = tabela("leads_fontes")
         .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas")
-        .ilike("instancia", instancia!)
-        .eq("ativa", true)
-        .order("nome");
+        .ilike("instancia", instancia!);
+      if (!todas) q = q.eq("ativa", true);
+      const { data, error } = await q.order("nome");
       if (error) throw error;
       return (data || []) as Fonte[];
     },
