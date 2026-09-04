@@ -29,12 +29,25 @@ const cors = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
-/** 55 + DDD + 9 dígitos. Mesma regra do fn_wa_canonico e do src/lib/phone.ts. */
-function canonico(raw: string): string {
-  let d = String(raw || "").replace(/\D/g, "");
+/** 55 + DDD + 9 dígitos, e `null` quando o identificador não é telefone.
+ *
+ *  As versões novas do Baileys identificam contato por LinkedID (`@lid`), um
+ *  número interno da conta. Ele é só dígitos, e a versão anterior desta função
+ *  devolvia os dígitos crus quando não fechavam em celular — então o `@lid`
+ *  passava batido e virava um "telefone" inventado. Foi assim que nasceu na
+ *  caixa uma conversa com o número 5523428626450, que não existe.
+ *
+ *  Aqui a pergunta é o DOMÍNIO, não o formato: `@s.whatsapp.net` e `@c.us`
+ *  dizem que é telefone; qualquer outro não diz, e na dúvida não é.
+ *  Espelho de `src/lib/jidWa.ts`, que tem os testes. */
+function telefoneDoJid(bruto: unknown): string | null {
+  const jid = String(bruto ?? "").trim().toLowerCase();
+  if (!jid) return null;
+  if (jid.includes("@") && !(jid.endsWith("@s.whatsapp.net") || jid.endsWith("@c.us"))) return null;
+  let d = jid.replace(/@.*$/, "").split(":")[0].replace(/\D/g, "");
   if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
   if (d.length === 10) d = d.slice(0, 2) + "9" + d.slice(2);
-  return d.length === 11 ? "55" + d : String(raw || "").replace(/\D/g, "");
+  return d.length === 11 ? "55" + d : null;
 }
 
 /** O tipo sai da chave presente em `message`, não do `messageType`: aquele
@@ -139,7 +152,7 @@ Deno.serve(async (req: Request) => {
       composing: "digitando", recording: "gravando",
     };
     const presenca = mapa[bruta];
-    const telP = canonico(String(jidP).replace(/@.*$/, ""));
+    const telP = telefoneDoJid(jidP);
     // Presença que não vira nada é anotada com o corpo cru. Nem toda instância
     // manda no mesmo formato, e sem ver o que chegou a investigação vira
     // adivinhação — foi assim que eu já errei um diagnóstico nesta integração.
@@ -209,8 +222,25 @@ Deno.serve(async (req: Request) => {
       ? new Date(Number(d.messageTimestamp) * 1000).toISOString()
       : new Date().toISOString();
 
-    const telefone = canonico(jid.replace(/@.*$/, ""));
-    if (!telefone) continue;
+    // O `remoteJid` pode vir como `@lid`, que NÃO é telefone. Quando vem, o
+    // telefone de verdade costuma estar num campo ao lado — o Baileys novo
+    // manda `senderPn` / `remoteJidAlt` justamente porque o `@lid` sozinho não
+    // serve pra nada de fora. Procura nos dois antes de desistir.
+    const telefone =
+      telefoneDoJid(jid) ??
+      telefoneDoJid(d.key.senderPn ?? d.key.remoteJidAlt ?? d.key.participantPn ?? d.senderPn ?? null);
+
+    if (!telefone) {
+      // Desistir CALADO aqui é o defeito, não a mensagem perdida: "a caixa não
+      // atualiza" sem nenhum registro é exatamente o buraco que fez este
+      // diagnóstico demorar. A linha em wa_eventos guarda o corpo cru pra que
+      // dê pra ver o formato que chegou em vez de deduzir da ausência.
+      const { error } = await sb.from("wa_eventos").insert({
+        instancia, evento: "messages.upsert.sem-telefone", corpo: d ?? null,
+      });
+      if (error) console.error("[wa-webhook] wa_eventos sem-telefone:", error.message);
+      continue;
+    }
 
     // O NOME NÃO ENTRA NESTE UPSERT, e essa é a correção de um bug que já
     // aconteceu: quando NÓS mandamos a mensagem, a Evolution devolve o evento

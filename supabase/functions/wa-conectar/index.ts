@@ -18,6 +18,8 @@
 //   qr           novo QR de uma instância que existe e está desconectada
 //   estado       "conectado" / "conectando" / "desconectado"
 //   webhook      reaplica a configuração de webhook numa instância existente
+//   diagnostico  LÊ o webhook que está gravado lá e compara com o exigido aqui
+//   importar     traz a lista de conversas do aparelho pra caixa
 //   desconectar  derruba a sessão (a instância continua existindo)
 //
 // DUAS CHAVES, DOIS NÍVEIS. A Evolution tem a chave GLOBAL do servidor (a que
@@ -237,6 +239,81 @@ Deno.serve(async (req: Request) => {
         : { ok: true, instancia: nome, eventos: EVENTOS });
     }
 
+    // ─────────────────────────── diagnostico ───────────────────────────
+    //
+    // "Conectou mas não chega mensagem" tem quatro causas que se parecem na
+    // tela: URL errada, token errado, evento desmarcado, ou `webhookByEvents`
+    // ligado (que faz a Evolution postar em URL/messages-upsert). Nenhuma delas
+    // aparece de fora — e eu já perdi tempo inferindo de ausência de log, que é
+    // o pior instrumento possível.
+    //
+    // Então em vez de adivinhar, PERGUNTA. Esta ação lê o webhook que está
+    // gravado na Evolution para esta instância e compara com o que este código
+    // exige. O que ela devolve é a configuração real, não a que deveria estar
+    // lá — inclusive a URL, pra dar pra ver se aponta pra este Supabase.
+    if (acao === "diagnostico") {
+      const esconde = (u: string) => u.replace(/token=[^&]*/, "token=•••");
+
+      let webhook: any = null;
+      let erroWebhook: string | null = null;
+      // `find` é o nome atual; algumas 2.x expõem `webhook/{instancia}`.
+      for (const caminho of [`webhook/find/${encodeURIComponent(nome)}`, `webhook/${encodeURIComponent(nome)}`]) {
+        const r = await fetch(`${base}/${caminho}`, { headers: cab });
+        const bruto = await r.text();
+        if (!r.ok) { erroWebhook = explica401(r.status, bruto); continue; }
+        try { webhook = JSON.parse(bruto); erroWebhook = null; break; }
+        catch { erroWebhook = `resposta ilegível: ${bruto.slice(0, 150)}`; }
+      }
+
+      const w = webhook?.webhook ?? webhook ?? {};
+      const eventos: string[] = (Array.isArray(w.events) ? w.events : [])
+        .map((e: unknown) => String(e).toUpperCase().replace(/[.-]/g, "_"));
+      const faltando = EVENTOS.filter((e) => !eventos.includes(e));
+      const urlLa = String(w.url ?? "");
+      const porEvento = !!(w.webhookByEvents ?? w.webhook_by_events ?? w.byEvents);
+
+      // Estado da conexão junto: webhook perfeito em instância caída também
+      // resulta em caixa parada, e são consertos diferentes.
+      let estado = "desconhecido";
+      const rEst = await fetch(`${base}/instance/connectionState/${encodeURIComponent(nome)}`, { headers: cab });
+      if (rEst.ok) {
+        const t = await rEst.text();
+        const d = (() => { try { return JSON.parse(t); } catch { return {}; } })();
+        estado = traduzEstado(d?.instance?.state ?? d?.state);
+      }
+
+      // Últimos eventos que ESTA instância mandou pra cá. É a prova de entrega:
+      // se `connection.update` chegou e `messages.upsert` nunca, a URL e o token
+      // estão certos e o que falta é o evento — conclusão que não dá pra tirar
+      // olhando só a configuração.
+      const { data: recebidos } = await sb
+        .from("wa_eventos").select("evento, criado_em")
+        .eq("instancia", nome).order("criado_em", { ascending: false }).limit(10);
+      const { count: mensagens } = await sb
+        .from("wa_conversas").select("id", { count: "exact", head: true }).eq("instancia", nome);
+
+      return json({
+        ok: true,
+        instancia: nome,
+        estado,
+        webhook: erroWebhook ? null : {
+          configurado: !!urlLa,
+          ativo: w.enabled !== false,
+          url: esconde(urlLa),
+          apontaPraCa: urlLa.startsWith(`${URL_SB}/functions/v1/wa-webhook`),
+          tokenConfere: urlLa.includes(`token=${tokenWebhook}`),
+          porEvento,
+          eventos,
+          faltando,
+        },
+        erroWebhook,
+        recebidos: recebidos ?? [],
+        conversas: mensagens ?? 0,
+        exigidos: EVENTOS,
+        urlEsperada: esconde(urlWebhook),
+      });
+    }
+
     // ─────────────────────────── importar ───────────────────────────
     //
     // Número novo conecta e a caixa nasce vazia: o sistema só conhece quem
@@ -266,21 +343,42 @@ Deno.serve(async (req: Request) => {
       }
       if (!lista) return json({ ok: false, error: `Não consegui ler as conversas. ${ultimoErro}` });
 
-      const canonicoTel = (raw: string) => {
-        let d = String(raw || "").replace(/\D/g, "");
+      // A LEITURA DO JID É A REGRA INTEIRA, e ela já custou caro: a versão
+      // anterior tirava o "@", apagava o que não era dígito e chamava aquilo de
+      // telefone. A Evolution devolveu `86930255515862@lid` — LinkedID, um
+      // identificador interno da conta, não um número — e nasceu na caixa uma
+      // conversa com o telefone 5523428626450, que não existe, com botão de
+      // mandar mensagem. Espelho de `src/lib/jidWa.ts`, que tem os testes.
+      const leituraJid = (bruto: unknown): { tipo: string; telefone?: string } => {
+        const jid = String(bruto ?? "").trim().toLowerCase();
+        if (!jid) return { tipo: "vazio" };
+        if (jid.endsWith("@g.us")) return { tipo: "grupo" };
+        if (jid.startsWith("status@") || jid.includes("@broadcast") || jid.endsWith("@newsletter")) {
+          return { tipo: "status" };
+        }
+        if (jid.endsWith("@lid")) return { tipo: "lid" };
+        const temDominio = jid.includes("@");
+        if (temDominio && !(jid.endsWith("@s.whatsapp.net") || jid.endsWith("@c.us"))) {
+          return { tipo: "invalido" };
+        }
+        let d = jid.replace(/@.*$/, "").split(":")[0].replace(/\D/g, "");
         if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
         if (d.length === 10) d = d.slice(0, 2) + "9" + d.slice(2);
-        return d.length === 11 ? "55" + d : "";
+        return d.length === 11 ? { tipo: "telefone", telefone: "55" + d } : { tipo: "invalido" };
       };
 
       const linhas: Record<string, unknown>[] = [];
       const vistos = new Set<string>();
+      const descarte: Record<string, number> = {};
       for (const c of lista) {
         const jid = String(c?.remoteJid ?? c?.id ?? c?.jid ?? "");
-        // Grupo e status não são atendimento — mesma regra da webhook.
-        if (!jid || jid.endsWith("@g.us") || jid.startsWith("status@") || jid.includes("@broadcast")) continue;
-        const tel = canonicoTel(jid.replace(/@.*$/, ""));
-        if (!tel || vistos.has(tel)) continue;
+        const leitura = leituraJid(jid);
+        if (leitura.tipo !== "telefone") {
+          descarte[leitura.tipo] = (descarte[leitura.tipo] ?? 0) + 1;
+          continue;
+        }
+        const tel = leitura.telefone!;
+        if (vistos.has(tel)) continue;
         vistos.add(tel);
 
         const quando = c?.updatedAt ?? c?.lastMessageTimestamp ?? c?.conversationTimestamp ?? null;
@@ -300,7 +398,25 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      if (linhas.length === 0) return json({ ok: true, instancia: nome, importadas: 0, total: lista.length });
+      // "Importei 0 de 14" sem dizer por quê é o mesmo silêncio que já custou
+      // dois diagnósticos errados nesta integração. A frase vai junto SEMPRE,
+      // inclusive quando a importação deu certo em parte.
+      const motivos: string[] = [];
+      if ((descarte.lid ?? 0) > 0) {
+        motivos.push(
+          `${descarte.lid} com identificador interno (@lid) — o WhatsApp novo esconde o telefone desses contatos, `
+          + `e eles só entram na caixa quando mandarem mensagem`,
+        );
+      }
+      if ((descarte.grupo ?? 0) > 0) motivos.push(`${descarte.grupo} de grupo`);
+      if ((descarte.status ?? 0) > 0) motivos.push(`${descarte.status} de status/transmissão`);
+      if ((descarte.invalido ?? 0) > 0) motivos.push(`${descarte.invalido} sem telefone brasileiro válido`);
+      if ((descarte.vazio ?? 0) > 0) motivos.push(`${descarte.vazio} sem identificador`);
+      const ignoradas = motivos.length === 0 ? null : `Ignoradas: ${motivos.join("; ")}.`;
+
+      if (linhas.length === 0) {
+        return json({ ok: true, instancia: nome, importadas: 0, total: lista.length, ignoradas });
+      }
 
       // Mais recentes primeiro, e um teto: trazer dois mil chats de um celular
       // antigo transformaria a fila de atendimento numa agenda telefônica.
@@ -314,7 +430,7 @@ Deno.serve(async (req: Request) => {
         .upsert(recorte, { onConflict: "instancia,telefone", ignoreDuplicates: true });
       if (error) return json({ ok: false, error: error.message });
 
-      return json({ ok: true, instancia: nome, importadas: recorte.length, total: lista.length });
+      return json({ ok: true, instancia: nome, importadas: recorte.length, total: lista.length, ignoradas });
     }
 
     // ─────────────────────────── desconectar ───────────────────────────

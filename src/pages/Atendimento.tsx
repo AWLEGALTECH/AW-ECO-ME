@@ -37,7 +37,7 @@ import {
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
-  Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone,
+  Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -53,7 +53,9 @@ import {
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, useInvalidarWa,
+  diagnosticarInstancia, type Diagnostico,
 } from "@/hooks/useWhatsapp";
+import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import { situacaoDoContato, estaOnline, vistoDaMensagem, rotuloDoStatus } from "@/lib/presencaWa";
@@ -472,6 +474,26 @@ export default function AtendimentoPage() {
      dele é o que alguém marcou naquele dia. Aqui ela passa a ser a que este
      código diz — que é o caminho pra descobrir se a presença não chega por
      configuração ou por outro motivo. */
+  /* PERGUNTAR EM VEZ DE DEDUZIR. Este botão existe porque eu já errei o
+     diagnóstico desta integração duas vezes inferindo de ausência ("não tem
+     log, logo não chegou"). Ele lê o webhook que está gravado na Evolution
+     para este número e mostra a configuração real — inclusive quais eventos
+     estão marcados, que é a coisa que nunca dá pra ver de fora. */
+  const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
+  const [diagnosticando, setDiagnosticando] = useState(false);
+
+  const rodarDiagnostico = async () => {
+    setDiagnosticando(true);
+    setDiagnostico(null);
+    try {
+      setDiagnostico(await diagnosticarInstancia(instancia.nome));
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 12_000 });
+    } finally {
+      setDiagnosticando(false);
+    }
+  };
+
   const reconfigurarEventos = async () => {
     try {
       const r = await reaplicarWebhook(instancia.nome);
@@ -498,9 +520,14 @@ export default function AtendimentoPage() {
           : "Nenhuma conversa nova pra trazer.",
         {
           id: t,
-          description: r.total > r.importadas
-            ? `A Evolution listou ${r.total}; grupos e conversas já conhecidas ficaram de fora.`
-            : "As mensagens antigas não vêm — o WhatsApp não entrega histórico por API.",
+          duration: r.ignoradas ? 15_000 : 6_000,
+          // O QUE FICOU DE FORA, E POR QUÊ. "Importei 0 de 14" sem motivo é o
+          // mesmo silêncio que já custou dois diagnósticos errados aqui — e o
+          // motivo mais comum hoje é o @lid, que não é telefone.
+          description: r.ignoradas
+            ?? (r.total > r.importadas
+              ? `A Evolution listou ${r.total}; conversas já conhecidas ficaram de fora.`
+              : "As mensagens antigas não vêm — o WhatsApp não entrega histórico por API."),
         },
       );
     } catch (e) {
@@ -930,6 +957,7 @@ export default function AtendimentoPage() {
             onConectar={abrirConexao}
             onReaplicar={reconfigurarEventos}
             onImportar={importarDoAparelho}
+            onDiagnosticar={rodarDiagnostico}
           />
 
           {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
@@ -1891,6 +1919,89 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── POR QUE NÃO CHEGA MENSAGEM ──
+          A tela mostra a configuração que a Evolution TEM, não a que deveria
+          ter, e traduz cada divergência em uma frase com conserto junto.
+          Existe porque este mesmo sintoma já me levou a inferir de ausência
+          duas vezes — e as duas vezes a causa era outra. */}
+      <Dialog open={diagnosticando || !!diagnostico} onOpenChange={(a) => { if (!a) setDiagnostico(null); }}>
+        <DialogContent className="max-w-lg [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Stethoscope className="h-4 w-4" /> {instancia.nome}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {diagnosticando
+                ? "Perguntando pra Evolution o que ela tem configurado…"
+                : diagnostico
+                  ? resumoDoDiagnostico(acharProblemas(diagnostico))
+                  : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {diagnosticando && (
+            <div className="py-6 grid place-items-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {diagnostico && (
+            <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto scrollbar-thin">
+              {acharProblemas(diagnostico).map((a, i) => (
+                <div key={i}
+                  className={cn("rounded-lg border p-2.5",
+                    a.nivel === "erro" ? "border-amber-400/25 bg-amber-400/[0.06]"
+                      : a.nivel === "alerta" ? "border-sky-400/25 bg-sky-400/[0.06]"
+                        : "border-white/[0.08] bg-white/[0.03]")}>
+                  <p className="text-[12.5px] font-medium leading-snug">{a.titulo}</p>
+                  <p className="text-[11.5px] text-muted-foreground leading-snug mt-1">{a.conserto}</p>
+                </div>
+              ))}
+
+              {/* O CRU, embaixo. Quem já sabe o que procura não deveria ter que
+                  confiar na minha tradução — e quando a tradução estiver
+                  errada, é isto aqui que mostra. */}
+              <details className="mt-1 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
+                <summary className="text-[11px] text-muted-foreground cursor-pointer select-none">
+                  O que a Evolution respondeu
+                </summary>
+                <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-muted-foreground">estado</dt>
+                  <dd className="truncate">{diagnostico.estado}</dd>
+                  <dt className="text-muted-foreground">webhook</dt>
+                  <dd className="break-all">{diagnostico.webhook?.url || diagnostico.erroWebhook || "—"}</dd>
+                  <dt className="text-muted-foreground">eventos</dt>
+                  <dd className="break-words">{diagnostico.webhook?.eventos.join(", ") || "—"}</dd>
+                  <dt className="text-muted-foreground">conversas</dt>
+                  <dd className="tabular-nums">{diagnostico.conversas}</dd>
+                  <dt className="text-muted-foreground">últimos eventos</dt>
+                  <dd className="break-words">
+                    {diagnostico.recebidos.length === 0
+                      ? "nenhum"
+                      : diagnostico.recebidos.map((r) => r.evento).join(", ")}
+                  </dd>
+                </dl>
+                <p className="mt-2 text-[10.5px] text-muted-foreground/70 leading-snug">
+                  “Últimos eventos” não inclui mensagem nova: mensagem vira conversa, não linha de evento.
+                  Então não ver “messages.upsert” aqui não prova nada — mas ver qualquer outro prova que a
+                  Evolution consegue entregar nesta URL.
+                </p>
+              </details>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" className="h-8 text-[12px]"
+              onClick={() => setDiagnostico(null)}>Fechar</Button>
+            <Button size="sm" className="h-8 text-[12px] gap-1.5"
+              disabled={diagnosticando}
+              onClick={async () => { await reconfigurarEventos(); await rodarDiagnostico(); }}>
+              <RefreshCw className="h-3.5 w-3.5" /> Reconfigurar e conferir de novo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── DESLIGAR UMA BASE ──
           A pergunta diz o TAMANHO do que sai da tela (quantos leads, quantos
           já foram abordados) e que dá pra voltar. Sem esse número, "desligar a
@@ -2741,12 +2852,13 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, onImportar }: {
+function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
   instancia: Instancia; todas: Instancia[];
   onTrocar: (id: string) => void;
   onConectar: () => void;
   onReaplicar: () => void;
   onImportar: () => void;
+  onDiagnosticar: () => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
@@ -2827,6 +2939,15 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, on
               onClick={() => { setAberto(false); onConectar(); }}
               className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
               <Plus className="h-3.5 w-3.5 shrink-0" /> Adicionar número da Evolution
+            </button>
+            {/* ANTES DE CONSERTAR, PERGUNTAR. "Conectou mas não chega mensagem"
+                tem seis causas que se parecem na tela, e reconfigurar às cegas
+                acerta em algumas e esconde as outras. Isto lê o que a Evolution
+                TEM gravado e diz qual é. */}
+            <button
+              onClick={() => { setAberto(false); onDiagnosticar(); }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+              <Stethoscope className="h-3.5 w-3.5 shrink-0" /> Por que não chega mensagem?
             </button>
             {/* Reapontar o webhook de um número que já existe. Ele foi criado à
                 mão no painel da Evolution, e a lista de eventos dele é o que

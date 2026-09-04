@@ -297,7 +297,33 @@ export const qrDaInstancia = (nome: string) => pedirConexao({ acao: "qr", instan
 export const estadoDaInstancia = (nome: string) => pedirConexao({ acao: "estado", instancia: nome });
 export const reaplicarWebhook = (nome: string) => pedirConexao({ acao: "webhook", instancia: nome });
 export const importarConversas = (nome: string) =>
-  pedirConexao({ acao: "importar", instancia: nome }) as Promise<{ ok: true; importadas: number; total: number }>;
+  pedirConexao({ acao: "importar", instancia: nome }) as Promise<{
+    ok: true; importadas: number; total: number; ignoradas: string | null;
+  }>;
+
+/** O que a Evolution TEM configurado, não o que deveria ter.
+ *
+ *  "Conectou mas não chega mensagem" tem quatro causas que se parecem na tela:
+ *  URL errada, token errado, evento desmarcado, ou `webhookByEvents` ligado.
+ *  Nenhuma aparece de fora, e deduzir de "não tem log" já me fez errar o
+ *  diagnóstico aqui mais de uma vez — então em vez de inferir, pergunta. */
+export type Diagnostico = {
+  ok: true;
+  instancia: string;
+  estado: string;
+  webhook: {
+    configurado: boolean; ativo: boolean; url: string;
+    apontaPraCa: boolean; tokenConfere: boolean; porEvento: boolean;
+    eventos: string[]; faltando: string[];
+  } | null;
+  erroWebhook: string | null;
+  recebidos: { evento: string; criado_em: string }[];
+  conversas: number;
+  exigidos: string[];
+  urlEsperada: string;
+};
+export const diagnosticarInstancia = (nome: string) =>
+  pedirConexao({ acao: "diagnostico", instancia: nome }) as unknown as Promise<Diagnostico>;
 export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desconectar", instancia: nome });
 
 export function useInvalidarWa() {
