@@ -15,6 +15,14 @@
 // planilha com esse endereço, e adivinhar qual é seria a primeira coisa que
 // alguém ia precisar procurar.
 //
+// AS ABAS SÃO LISTADAS ANTES DE LER. Parece rodeio e não é: pedir direto uma
+// aba pelo nome, quando o nome está errado, devolve um 400 de "range inválido"
+// — e "range inválido" não diz à pessoa que o problema é o nome da aba, nem
+// qual nome seria o certo. Planilha de respostas de formulário quase nunca se
+// chama como a gente imagina ("Respostas ao formulário 1"), então errar aqui é
+// o caso comum, não a exceção. Listando primeiro, a aba errada vira aviso com
+// a lista de abas de verdade, e a leitura acontece assim mesmo na primeira.
+//
 // Env (secrets): GOOGLE_SA_JSON.
 
 import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
@@ -63,6 +71,11 @@ async function token(sa: ContaServico): Promise<string> {
   return (await r.json()).access_token as string;
 }
 
+/** Nome de aba dentro de um range A1 precisa de aspas simples, e as internas dobram. */
+function aspasA1(nome: string): string {
+  return `'${nome.replace(/'/g, "''")}'`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   if (req.method !== "POST") return json({ ok: false, error: "Método não permitido" });
@@ -71,38 +84,85 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json().catch(() => ({}));
     const planilha = String(body.planilha_id || "").trim();
-    const aba = String(body.aba || "").trim();
+    const abaPedida = String(body.aba || "").trim();
     if (!planilha) return json({ ok: false, error: "planilha_id é obrigatório" });
 
     const sa = conta();
     email = sa.client_email;
     const acesso = await token(sa);
+    const auth = { Authorization: `Bearer ${acesso}` };
 
-    // Sem aba especificada, a primeira. `values.get` com o nome da aba pega a
-    // grade toda; sem nome, o A1 padrão é justamente a primeira aba.
-    const alvo = aba ? `${encodeURIComponent(aba)}` : "A1:ZZ100000";
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(planilha)}/values/${alvo}`
-      + "?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE";
-
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${acesso}` } });
-    if (!r.ok) {
-      const detalhe = (await r.text()).slice(0, 300);
-      if (r.status === 403 || r.status === 404) {
+    // ── 1. que abas existem ──
+    const rMeta = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(planilha)}`
+      + "?fields=properties.title,sheets.properties.title",
+      { headers: auth },
+    );
+    if (!rMeta.ok) {
+      const detalhe = (await rMeta.text()).slice(0, 300);
+      if (rMeta.status === 403 || rMeta.status === 404) {
         return json({
           ok: false,
           error: `A conta de serviço não enxerga essa planilha. Compartilhe com ${email} (leitor).`,
           conta: email,
         });
       }
-      return json({ ok: false, error: `Sheets ${r.status}: ${detalhe}`, conta: email });
+      return json({ ok: false, error: `Sheets ${rMeta.status}: ${detalhe}`, conta: email });
+    }
+    const meta = await rMeta.json();
+    const abas: string[] = (meta?.sheets ?? [])
+      .map((s: { properties?: { title?: string } }) => s?.properties?.title)
+      .filter((t: unknown): t is string => typeof t === "string" && t.length > 0);
+
+    if (abas.length === 0) {
+      return json({ ok: false, error: "A planilha não tem nenhuma aba.", conta: email });
     }
 
-    const dados = await r.json();
+    // ── 2. qual aba usar ──
+    let aba = abas[0];
+    let aviso: string | null = null;
+    if (abaPedida) {
+      const achada = abas.find((a) => a.toLowerCase() === abaPedida.toLowerCase());
+      if (achada) {
+        aba = achada;
+      } else {
+        // Ler a primeira em vez de falhar: quem digitou o nome da aba errado
+        // quer os leads, não uma lição sobre nomes de aba. O aviso conta o que
+        // aconteceu e mostra as opções reais.
+        aviso = `A aba "${abaPedida}" não existe. Li "${aba}". Abas da planilha: ${abas.join(", ")}.`;
+      }
+    }
+
+    // ── 3. ler ──
+    const range = `${aspasA1(aba)}!A1:ZZ100000`;
+    const rVal = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(planilha)}/values/${encodeURIComponent(range)}`
+      + "?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE",
+      { headers: auth },
+    );
+    if (!rVal.ok) {
+      return json({
+        ok: false,
+        error: `Sheets ${rVal.status} ao ler "${aba}": ${(await rVal.text()).slice(0, 200)}`,
+        conta: email, abas,
+      });
+    }
+
+    const dados = await rVal.json();
     const linhas: string[][] = Array.isArray(dados?.values) ? dados.values : [];
-    if (linhas.length === 0) return json({ ok: true, cabecalho: [], linhas: [], conta: email });
+    if (linhas.length === 0) {
+      return json({
+        ok: true, cabecalho: [], linhas: [], conta: email, abas, aba,
+        aviso: aviso ?? `A aba "${aba}" está vazia.`,
+      });
+    }
 
     return json({
       ok: true,
+      titulo: meta?.properties?.title ?? null,
+      aba,
+      abas,
+      aviso,
       cabecalho: linhas[0].map((c) => String(c ?? "")),
       // A linha 1 é o cabeçalho, então a primeira de dados é a 2 da planilha —
       // e é esse número que volta, pra quem for conferir achar a linha certa

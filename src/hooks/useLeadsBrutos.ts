@@ -100,6 +100,8 @@ export interface ResultadoSync {
   lidos: number;
   novos: number;
   ignoradas: number;
+  /** o que atrapalhou sem impedir — aba errada, planilha vazia, linhas sem telefone */
+  aviso: string | null;
 }
 
 /**
@@ -121,6 +123,23 @@ export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
   }
 
   const { leads, ignoradas } = lerPlanilha(data.cabecalho ?? [], data.linhas ?? []);
+
+  /* O QUE ATRAPALHOU FICA GRAVADO, NÃO SÓ NO TOAST.
+     Fila vazia é indistinguível de "não tem ninguém aqui" — foi exatamente
+     isso que aconteceu com a planilha do Bradesco. Cada motivo de a fila sair
+     vazia (ou menor do que a planilha) vira uma frase que sobrevive ao
+     recarregar, no cabeçalho da fonte. */
+  const avisos: string[] = [];
+  if (data.aviso) avisos.push(String(data.aviso));
+  if (leads.length === 0 && (data.linhas ?? []).length > 0) {
+    avisos.push(
+      `Li ${(data.linhas ?? []).length} linha(s) da aba "${data.aba ?? "?"}", mas nenhuma tinha telefone`
+      + ` reconhecível. Colunas encontradas: ${(data.cabecalho ?? []).join(", ") || "(nenhuma)"}.`,
+    );
+  } else if (ignoradas > 0) {
+    avisos.push(`${ignoradas} linha(s) sem telefone válido ficaram de fora.`);
+  }
+  const aviso = avisos.length > 0 ? avisos.join(" ") : null;
 
   let novos = 0;
   if (leads.length > 0) {
@@ -147,10 +166,17 @@ export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
   }
 
   await tabela("leads_fontes")
-    .update({ ultimo_sync: new Date().toISOString(), ultimo_erro: null })
+    .update({
+      ultimo_sync: new Date().toISOString(),
+      ultimo_erro: aviso,
+      // A aba que foi lida DE VERDADE volta pra fonte. Se o nome digitado não
+      // existia, a próxima leitura já vai direto na certa em vez de repetir o
+      // mesmo engano toda vez.
+      ...(data.aba ? { aba: data.aba } : {}),
+    })
     .eq("id", fonte.id);
 
-  return { lidos: leads.length, novos, ignoradas };
+  return { lidos: leads.length, novos, ignoradas, aviso };
 }
 
 /** O lead saiu da fila bruta: virou conversa. */

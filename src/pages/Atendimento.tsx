@@ -407,9 +407,12 @@ export default function AtendimentoPage() {
       // torto some da fila em silêncio, e alguém precisa saber que sumiu pra
       // ir consertar na planilha.
       toast.success(
-        `${r.lidos} lead${r.lidos === 1 ? "" : "s"} na planilha · ${r.novos} novo${r.novos === 1 ? "" : "s"}`
-        + (r.ignoradas > 0 ? ` · ${r.ignoradas} linha${r.ignoradas === 1 ? "" : "s"} sem telefone válido` : ""),
+        `${r.lidos} lead${r.lidos === 1 ? "" : "s"} na planilha · ${r.novos} novo${r.novos === 1 ? "" : "s"}`,
       );
+      // O aviso vai num toast separado e mais demorado: ele explica por que a
+      // fila pode ter saído menor do que a planilha, e some junto do "deu
+      // certo" faria a pessoa ler só a metade boa.
+      if (r.aviso) toast.warning(r.aviso, { duration: 12_000 });
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
