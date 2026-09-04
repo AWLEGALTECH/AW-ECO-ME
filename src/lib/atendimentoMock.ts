@@ -112,6 +112,9 @@ export interface Lead {
   /* Quem deu o primeiro passo: ele escreveu (inbound) ou fomos nós (outbound).
      Definido na criação da conversa e nunca escolhido à mão. */
   origemContato?: "inbound" | "outbound";
+  /* Conversa que veio da lista do aparelho, não de uma mensagem: ninguém sabe
+     quem falou primeiro, e a etiqueta some até chegar a primeira mensagem. */
+  importada?: boolean;
   /** de qual base de leads essa pessoa veio, quando veio de alguma */
   base?: string | null;
   /* O que o WhatsApp contou sobre ele. Tudo opcional e frequentemente ausente:

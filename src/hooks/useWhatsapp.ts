@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -290,6 +290,8 @@ export const criarInstancia = (nome: string) => pedirConexao({ acao: "criar", in
 export const qrDaInstancia = (nome: string) => pedirConexao({ acao: "qr", instancia: nome });
 export const estadoDaInstancia = (nome: string) => pedirConexao({ acao: "estado", instancia: nome });
 export const reaplicarWebhook = (nome: string) => pedirConexao({ acao: "webhook", instancia: nome });
+export const importarConversas = (nome: string) =>
+  pedirConexao({ acao: "importar", instancia: nome }) as Promise<{ ok: true; importadas: number; total: number }>;
 export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desconectar", instancia: nome });
 
 export function useInvalidarWa() {
@@ -359,6 +361,7 @@ export function conversaParaLead(
     chegouEm: c.created_at.slice(0, 10),
     previa: c.ultima_previa,
     origemContato: c.origem === "outbound" ? "outbound" : "inbound",
+    importada: !!c.importada,
     etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
     base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? null) : null,
     presenca: c.presenca,

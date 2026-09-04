@@ -203,6 +203,86 @@ Deno.serve(async (req: Request) => {
         : { ok: true, instancia: nome, eventos: EVENTOS });
     }
 
+    // ─────────────────────────── importar ───────────────────────────
+    //
+    // Número novo conecta e a caixa nasce vazia: o sistema só conhece quem
+    // manda mensagem daqui pra frente. Mas o aparelho já tem conversas, e ver
+    // caixa vazia num WhatsApp cheio parece que a conexão não funcionou.
+    //
+    // O que se importa é a LISTA de conversas, não o histórico: o WhatsApp não
+    // entrega mensagem antiga por API, e fingir que entregou seria pior que a
+    // caixa vazia. Cada linha vira uma conversa que já se pode abrir e
+    // responder — as mensagens começam a existir na primeira que chegar.
+    if (acao === "importar") {
+      // Duas formas entre versões: POST com corpo (atual) e GET (antiga).
+      let lista: any[] | null = null;
+      let ultimoErro = "";
+      for (const tentativa of [
+        () => fetch(`${base}/chat/findChats/${encodeURIComponent(nome)}`, { method: "POST", headers: cab, body: "{}" }),
+        () => fetch(`${base}/chat/findChats/${encodeURIComponent(nome)}`, { headers: cab }),
+      ]) {
+        const r = await tentativa();
+        const bruto = await r.text();
+        if (!r.ok) { ultimoErro = explica401(r.status, bruto); continue; }
+        try {
+          const d = JSON.parse(bruto);
+          lista = Array.isArray(d) ? d : Array.isArray(d?.chats) ? d.chats : Array.isArray(d?.data) ? d.data : null;
+          if (lista) break;
+        } catch { ultimoErro = `resposta ilegível: ${bruto.slice(0, 150)}`; }
+      }
+      if (!lista) return json({ ok: false, error: `Não consegui ler as conversas. ${ultimoErro}` });
+
+      const canonicoTel = (raw: string) => {
+        let d = String(raw || "").replace(/\D/g, "");
+        if (d.startsWith("55") && (d.length === 12 || d.length === 13)) d = d.slice(2);
+        if (d.length === 10) d = d.slice(0, 2) + "9" + d.slice(2);
+        return d.length === 11 ? "55" + d : "";
+      };
+
+      const linhas: Record<string, unknown>[] = [];
+      const vistos = new Set<string>();
+      for (const c of lista) {
+        const jid = String(c?.remoteJid ?? c?.id ?? c?.jid ?? "");
+        // Grupo e status não são atendimento — mesma regra da webhook.
+        if (!jid || jid.endsWith("@g.us") || jid.startsWith("status@") || jid.includes("@broadcast")) continue;
+        const tel = canonicoTel(jid.replace(/@.*$/, ""));
+        if (!tel || vistos.has(tel)) continue;
+        vistos.add(tel);
+
+        const quando = c?.updatedAt ?? c?.lastMessageTimestamp ?? c?.conversationTimestamp ?? null;
+        const emIso = quando
+          ? (typeof quando === "number"
+              ? new Date(quando > 1e12 ? quando : quando * 1000).toISOString()
+              : new Date(quando).toISOString())
+          : null;
+
+        linhas.push({
+          instancia: nome,
+          telefone: tel,
+          jid,
+          nome_wa: (c?.pushName ?? c?.name ?? null) || null,
+          importada: true,
+          ultima_em: emIso && !Number.isNaN(Date.parse(emIso)) ? emIso : null,
+        });
+      }
+
+      if (linhas.length === 0) return json({ ok: true, instancia: nome, importadas: 0, total: lista.length });
+
+      // Mais recentes primeiro, e um teto: trazer dois mil chats de um celular
+      // antigo transformaria a fila de atendimento numa agenda telefônica.
+      linhas.sort((a, b) => String(b.ultima_em ?? "").localeCompare(String(a.ultima_em ?? "")));
+      const recorte = linhas.slice(0, 300);
+
+      // `ignoreDuplicates` porque conversa que JÁ existe não pode ser
+      // sobrescrita: ela tem etapa, anotações e histórico de verdade, e a
+      // lista do aparelho não sabe nada disso.
+      const { error } = await sb.from("wa_conversas")
+        .upsert(recorte, { onConflict: "instancia,telefone", ignoreDuplicates: true });
+      if (error) return json({ ok: false, error: error.message });
+
+      return json({ ok: true, instancia: nome, importadas: recorte.length, total: lista.length });
+    }
+
     // ─────────────────────────── desconectar ───────────────────────────
     if (acao === "desconectar") {
       const r = await fetch(`${base}/instance/logout/${encodeURIComponent(nome)}`, {

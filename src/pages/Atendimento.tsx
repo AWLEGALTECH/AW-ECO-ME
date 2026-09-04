@@ -52,7 +52,7 @@ import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
-  reaplicarWebhook, useInvalidarWa,
+  reaplicarWebhook, importarConversas, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
@@ -458,6 +458,30 @@ export default function AtendimentoPage() {
       });
     } catch (e) {
       toast.error((e as Error).message, { duration: 12_000 });
+    }
+  };
+
+  /* A lista de conversas do aparelho. NÃO traz histórico: o WhatsApp não
+     entrega mensagem antiga por API, e fingir que entregou seria pior que a
+     caixa vazia. O que vem é quem existe — já dá pra abrir e responder. */
+  const importarDoAparelho = async () => {
+    const t = toast.loading(`Lendo as conversas de ${instancia.nome}…`);
+    try {
+      const r = await importarConversas(instancia.nome);
+      invalidarWa();
+      toast.success(
+        r.importadas > 0
+          ? `${r.importadas} conversa${r.importadas === 1 ? "" : "s"} na caixa.`
+          : "Nenhuma conversa nova pra trazer.",
+        {
+          id: t,
+          description: r.total > r.importadas
+            ? `A Evolution listou ${r.total}; grupos e conversas já conhecidas ficaram de fora.`
+            : "As mensagens antigas não vêm — o WhatsApp não entrega histórico por API.",
+        },
+      );
+    } catch (e) {
+      toast.error((e as Error).message, { id: t, duration: 12_000 });
     }
   };
 
@@ -872,6 +896,7 @@ export default function AtendimentoPage() {
             onTrocar={setInstanciaId}
             onConectar={abrirConexao}
             onReaplicar={reconfigurarEventos}
+            onImportar={importarDoAparelho}
           />
 
           {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
@@ -1269,7 +1294,7 @@ export default function AtendimentoPage() {
                             <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
                               {ESTAGIOS.find((e) => e.chave === estagioDe(l))?.rotulo}
                             </span>
-                            <SeloContato origem={l.origemContato} base={l.base} />
+                            <SeloContato origem={l.importada ? undefined : l.origemContato} base={l.base} />
                           </span>
                           {l.naoLidas > 0 && (
                             <span className="ml-auto shrink-0 h-4 min-w-4 px-1 rounded-full bg-foreground/85 text-[9px] font-semibold text-background grid place-items-center">
@@ -1523,7 +1548,7 @@ export default function AtendimentoPage() {
                       usado pra decidir onde investir. */}
                   <div className="flex flex-col gap-1 items-start">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
-                    <SeloContato origem={lead.origemContato} base={lead.base} tamanho="grande" />
+                    <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base} tamanho="grande" />
                   </div>
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
@@ -2641,11 +2666,12 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar }: {
+function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, onImportar }: {
   instancia: Instancia; todas: Instancia[];
   onTrocar: (id: string) => void;
   onConectar: () => void;
   onReaplicar: () => void;
+  onImportar: () => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
@@ -2734,7 +2760,16 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar }: 
             <button
               onClick={() => { setAberto(false); onReaplicar(); }}
               className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
-              <RefreshCw className="h-3.5 w-3.5 shrink-0" /> Reconfigurar eventos de {instancia.nome}
+              <RefreshCw className="h-3.5 w-3.5 shrink-0" /> Reconfigurar eventos
+            </button>
+            {/* Trazer as conversas que já existem no aparelho. Número recém
+                conectado tem caixa vazia porque o sistema só conhece quem
+                escreve daqui pra frente — e caixa vazia num WhatsApp cheio
+                parece que a conexão não funcionou. */}
+            <button
+              onClick={() => { setAberto(false); onImportar(); }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+              <Inbox className="h-3.5 w-3.5 shrink-0" /> Importar conversas do aparelho
             </button>
           </div>
         </PopoverContent>

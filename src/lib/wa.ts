@@ -30,6 +30,7 @@ export interface ConversaRow {
   arquivada: boolean;
   cliente_id: string | null;
   origem: string;
+  importada: boolean;
   fonte_id: string | null;
   presenca: string | null;
   presenca_em: string | null;
