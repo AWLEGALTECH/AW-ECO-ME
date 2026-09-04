@@ -141,7 +141,20 @@ export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
      recarregar, no cabeçalho da fonte. */
   const avisos: string[] = [];
   if (data.aviso) avisos.push(String(data.aviso));
-  if (leads.length === 0 && planilha.linhas.length > 0) {
+
+  /* ZERO LINHA TAMBÉM PRECISA DE FRASE.
+     Este era o buraco que sobrou: eu avisava quando havia linhas e nenhuma
+     servia, mas quando a aba lida não tinha NENHUMA linha de dados a fila
+     ficava vazia calada — de novo indistinguível de "não tem ninguém aqui".
+     Foi o que aconteceu ao ler a primeira aba de uma planilha cujos leads
+     estão em outra. */
+  if (planilha.linhas.length === 0) {
+    avisos.push(
+      planilha.cabecalho.length > 0
+        ? `A aba lida ("${data.aba ?? "primeira"}") só tem o cabeçalho (${planilha.cabecalho.join(", ")}) e nenhuma linha de dados.`
+        : `A aba lida ("${data.aba ?? "primeira"}") está vazia.`,
+    );
+  } else if (leads.length === 0 && planilha.linhas.length > 0) {
     avisos.push(
       `Li ${planilha.linhas.length} linha(s) da aba "${data.aba ?? "primeira"}", mas nenhuma tinha`
       + ` telefone reconhecível. Colunas encontradas: ${planilha.cabecalho.join(", ") || "(nenhuma)"}.`,

@@ -4,21 +4,22 @@
 // navegador, com teste. Aqui fica só o que só pode ser feito aqui: falar com o
 // Google usando a chave da conta de serviço, que não pode viver no navegador.
 //
-// DOIS CAMINHOS, E ISSO NÃO É EXCESSO.
+// TRÊS CAMINHOS, E ISSO NÃO É EXCESSO.
 //
-//   1. API do Sheets — devolve as abas pelo nome e lê a que se pede.
-//   2. Export do Drive — devolve a PRIMEIRA aba em CSV.
+//   1.   API do Sheets  — lista as abas e lê a que se pede.
+//   1.5  gviz           — CSV de uma aba ESCOLHIDA PELO NOME, sem a API do Sheets.
+//   2.   Export do Drive — CSV da PRIMEIRA aba.
 //
-// O caminho 2 existe porque Sheets e Drive são APIs SEPARADAS no Google Cloud,
-// habilitadas separadamente. Este projeto usa o Drive há meses (as pastas de
-// cliente), então o Drive está ligado; o Sheets pode nunca ter sido. Quando é
-// esse o caso, a API do Sheets responde 403 — o MESMO código de "você não tem
-// acesso ao arquivo" — e foi exatamente aí que eu errei o diagnóstico: mandei
-// compartilhar a planilha com a conta de serviço, o Matheus compartilhou, e o
-// erro continuou igual, porque nunca tinha sido sobre compartilhamento.
+// Sheets e Drive são APIs SEPARADAS no Google Cloud, habilitadas separadamente.
+// Este projeto usa o Drive há meses (as pastas de cliente), então o Drive está
+// ligado; o Sheets nunca foi. Quando é esse o caso, a API do Sheets responde
+// 403 — o MESMO código de "você não tem acesso ao arquivo" — e foi aí que eu
+// errei o diagnóstico: mandei compartilhar a planilha, o Matheus compartilhou,
+// e o erro continuou igual, porque nunca tinha sido sobre compartilhamento.
 //
-// Então: tenta o Sheets; se ele estiver desligado no projeto, cai pro Drive e
-// segue funcionando. E o motivo real vem escrito, com a frase do Google junto.
+// O caminho 1.5 existe por causa do buraco entre os outros dois: o export do
+// Drive escolhe o arquivo mas não a aba, e a aba é justamente o que estava
+// errado — os leads estão numa aba que não é a primeira.
 //
 // Env (secrets): GOOGLE_SA_JSON.
 
@@ -167,6 +168,39 @@ Deno.serve(async (req: Request) => {
         ok: false, conta: email,
         error: `Planilha não encontrada. Confira o link. (Google: ${falhaSheets.frase})`,
       });
+    }
+
+    // ──────────── caminho 1.5: gviz, que aceita o NOME da aba ────────────
+    //
+    // Endpoint antigo do Google Visualization. Ele exporta CSV de uma aba
+    // ESCOLHIDA PELO NOME e não passa pela API do Sheets — que é exatamente o
+    // buraco entre os dois caminhos: o export do Drive escolhe o arquivo mas
+    // não a aba, e é justamente a aba que estava errada aqui (os leads estão
+    // numa aba que não é a primeira).
+    //
+    // Só é tentado quando alguém pediu uma aba: sem nome pra passar, ele não
+    // faz nada que o export do Drive já não faça.
+    if (abaPedida) {
+      try {
+        const acesso = await token(sa, "https://www.googleapis.com/auth/drive.readonly");
+        const r = await fetch(
+          `https://docs.google.com/spreadsheets/d/${encodeURIComponent(planilha)}/gviz/tq`
+          + `?tqx=out:csv&sheet=${encodeURIComponent(abaPedida)}`,
+          { headers: { Authorization: `Bearer ${acesso}` } },
+        );
+        const texto = r.ok ? await r.text() : "";
+        // Sem sessão, esse endpoint devolve a página de login com 200. CSV de
+        // verdade não começa com "<": é a checagem que separa os dois.
+        const eCsv = texto.length > 0 && !texto.trimStart().startsWith("<");
+        if (eCsv) {
+          return json({
+            ok: true, via: "gviz", conta: email, csv: texto, aba: abaPedida,
+            aviso: falhaSheets?.apiDesligada
+              ? `A API do Google Sheets está desligada no projeto da conta de serviço; li a aba "${abaPedida}" por um caminho alternativo. Habilitá-la deixa a leitura mais direta. (Google: ${falhaSheets.frase})`
+              : null,
+          });
+        }
+      } catch { /* segue pro export do Drive */ }
     }
 
     // ───────────────── caminho 2: export do Drive ─────────────────
