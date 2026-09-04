@@ -50,7 +50,8 @@ import {
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
-  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, useInvalidarWa,
+  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
+  usePresencaDaConversa, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
@@ -121,6 +122,7 @@ export default function AtendimentoPage() {
   const [mandandoAnexo, setMandandoAnexo] = useState(false);
   const [gravando, setGravando] = useState(false);
   const seletorArquivo = useRef<HTMLInputElement>(null);
+  const campoResposta = useRef<HTMLTextAreaElement>(null);
   const [novaAberta, setNovaAberta] = useState(false);
   const [novoTelefone, setNovoTelefone] = useState("");
   const [novoNome, setNovoNome] = useState("");
@@ -199,6 +201,25 @@ export default function AtendimentoPage() {
   const idAberto = idDaConversaAberta(selecionadoId, conversas);
 
   const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? idAberto : null);
+  /* A presença da conversa aberta é olhada de perto (3s): "digitando" dura
+     três segundos, e a lista, que recarrega a cada dez, nunca pegaria. */
+  const { data: presencaViva } = usePresencaDaConversa(idAberto, aoVivo);
+
+  /* O campo cresce com o texto e volta ao tamanho de uma linha quando esvazia.
+     Sem isso, uma resposta de quatro linhas rolaria dentro de uma caixa de uma
+     — e quem escreve não vê o que escreveu. */
+  useEffect(() => {
+    const el = campoResposta.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [rascunho]);
+  /* Só "digitando" e "gravando" acendem o balão — "online" não: alguém pode
+     ficar horas com o app aberto sem escrever nada, e um balão eterno de
+     reticências faria a tela mentir a tarde inteira. */
+  const digitandoAgora = ["digitando", "gravando"].includes(presencaViva?.presenca ?? "")
+    && !!presencaViva?.presenca_em
+    && Date.now() - new Date(presencaViva.presenca_em).getTime() < 15_000;
 
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
@@ -1196,7 +1217,9 @@ export default function AtendimentoPage() {
                       inventar um fato sobre uma pessoa real. */}
                   {(() => {
                     const sit = situacaoDoContato({
-                      presenca: lead.presenca, presencaEm: lead.presencaEm, vistoEm: lead.vistoEm,
+                      presenca: presencaViva?.presenca ?? lead.presenca,
+                      presencaEm: presencaViva?.presenca_em ?? lead.presencaEm,
+                      vistoEm: presencaViva?.visto_em ?? lead.vistoEm,
                     });
                     if (!sit) return <p className="text-[10.5px] text-muted-foreground truncate">{lead.telefone}</p>;
                     return (
@@ -1292,6 +1315,24 @@ export default function AtendimentoPage() {
                     </div>
                   </div>
                 ))}
+
+                {/* O BALÃO DE DIGITANDO FICA NO FIM DA CONVERSA, onde a próxima
+                    mensagem vai nascer — e não num rótulo no cabeçalho. É onde
+                    o olho já está, e é o que ele significa: tem coisa vindo,
+                    espera antes de mandar outra. */}
+                {digitandoAgora && (
+                  <div className="flex flex-col gap-2">
+                    <div className="self-start max-w-[70%] rounded-2xl rounded-tl-sm bg-white/[0.05] px-3.5 py-2.5">
+                      <span className="flex items-center gap-1">
+                        {[0, 150, 300].map((atraso) => (
+                          <span key={atraso}
+                            style={{ animationDelay: `${atraso}ms` }}
+                            className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce" />
+                        ))}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
@@ -1329,10 +1370,26 @@ export default function AtendimentoPage() {
                   )}
 
                   {!gravando && (
-                    <Input value={rascunho} onChange={(e) => setRascunho(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+                    /* ENTER MANDA; Ctrl+Shift+Enter (e Shift+Enter) quebra a
+                       linha. Virou Textarea por causa disso: num Input de uma
+                       linha só, "quebrar linha" não existe — a tecla não teria
+                       o que fazer. Ele cresce até cinco linhas e depois rola,
+                       pra um recado longo não empurrar a conversa pra fora da
+                       tela enquanto se escreve. */
+                    <Textarea
+                      ref={campoResposta}
+                      value={rascunho}
+                      rows={1}
+                      onChange={(e) => setRascunho(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        if (e.shiftKey || e.ctrlKey || e.metaKey) return;  // deixa quebrar a linha
+                        e.preventDefault();
+                        enviar();
+                      }}
                       placeholder={anexo ? "Legenda (opcional)…" : `Responder ${lead.nome.split(" ")[0]}…`}
-                      className="h-9 text-[12.5px]" />
+                      className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
+                    />
                   )}
 
                   {aoVivo && !anexo && (

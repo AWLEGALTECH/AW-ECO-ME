@@ -136,6 +136,28 @@ export function useMensagens(conversaId: string | null) {
   });
 }
 
+/**
+ * A presença de UMA conversa, olhada de perto.
+ *
+ * A lista inteira recarrega a cada 10 segundos, e "digitando" dura três: o
+ * indicador nunca apareceria. Esta consulta pega uma linha só, a cada 3s, e
+ * apenas enquanto a conversa está aberta — é barata porque é uma linha, e é
+ * curta porque ninguém escreve por dez segundos sem parar.
+ */
+export function usePresencaDaConversa(conversaId: string | null, ligado: boolean) {
+  return useQuery({
+    queryKey: ["wa", "presenca", conversaId],
+    enabled: !!conversaId && ligado,
+    refetchInterval: 3_000,
+    queryFn: async (): Promise<{ presenca: string | null; presenca_em: string | null; visto_em: string | null } | null> => {
+      const { data, error } = await tabela("wa_conversas")
+        .select("presenca, presenca_em, visto_em").eq("id", conversaId).maybeSingle();
+      if (error) throw error;
+      return data ?? null;
+    },
+  });
+}
+
 /** O bucket é privado: a tela precisa de link assinado, que vale uma hora. */
 export function useMidiaUrl(path: string | null) {
   return useQuery({
