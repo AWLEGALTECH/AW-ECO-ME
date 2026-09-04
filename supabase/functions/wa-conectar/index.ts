@@ -19,7 +19,18 @@
 //   webhook      reaplica a configuração de webhook numa instância existente
 //   desconectar  derruba a sessão (a instância continua existindo)
 //
-// Env (secrets): EVOLUTION_URL, EVOLUTION_APIKEY, WA_WEBHOOK_TOKEN.
+// DUAS CHAVES, DOIS NÍVEIS. A Evolution tem a chave GLOBAL do servidor (a que
+// abre o manager) e a chave de cada INSTÂNCIA. Mandar mensagem e baixar mídia
+// funciona com a da instância; CRIAR instância, não — isso é operação do
+// servidor, e com a chave errada volta 401 Unauthorized, que é o mesmo erro de
+// "chave inválida". Foi o que aconteceu na primeira tentativa.
+//
+// Por isso a chave global é um secret PRÓPRIO (EVOLUTION_APIKEY_GLOBAL). Se ele
+// não existir, cai na EVOLUTION_APIKEY — e o 401 que vier vai explicar isso em
+// vez de repetir "Unauthorized", que não diz a ninguém o que fazer.
+//
+// Env (secrets): EVOLUTION_URL, EVOLUTION_APIKEY, EVOLUTION_APIKEY_GLOBAL,
+//                WA_WEBHOOK_TOKEN.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -75,13 +86,25 @@ Deno.serve(async (req: Request) => {
   const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
   const base = (Deno.env.get("EVOLUTION_URL") || "").replace(/\/+$/, "");
   const apikey = Deno.env.get("EVOLUTION_APIKEY") || "";
+  // Gerenciar instância é operação de SERVIDOR: pede a chave global.
+  const chaveGlobal = Deno.env.get("EVOLUTION_APIKEY_GLOBAL") || apikey;
+  const temGlobal = !!Deno.env.get("EVOLUTION_APIKEY_GLOBAL");
   const tokenWebhook = Deno.env.get("WA_WEBHOOK_TOKEN") || "";
 
   if (!base || !apikey) return json({ ok: false, error: "EVOLUTION_URL/EVOLUTION_APIKEY não configurados" });
   if (!tokenWebhook) return json({ ok: false, error: "WA_WEBHOOK_TOKEN não configurado" });
 
   const urlWebhook = `${URL_SB}/functions/v1/wa-webhook?token=${encodeURIComponent(tokenWebhook)}`;
-  const cab = { "Content-Type": "application/json", apikey };
+  const cab = { "Content-Type": "application/json", apikey: chaveGlobal };
+
+  /** 401 aqui quase sempre é chave do nível errado, não chave inválida. */
+  const explica401 = (status: number, corpo: string) =>
+    status !== 401
+      ? `Evolution ${status}: ${corpo.slice(0, 250)}`
+      : temGlobal
+        ? "A Evolution recusou a chave global (401). Confira o valor de EVOLUTION_APIKEY_GLOBAL — é a chave do SERVIDOR, a mesma que abre o manager."
+        : "A Evolution recusou a chave (401). Criar e configurar instância exige a chave GLOBAL do servidor, e o sistema está usando a da instância. "
+          + "Cadastre o secret EVOLUTION_APIKEY_GLOBAL no Supabase com a chave que abre o manager da Evolution.";
 
   try {
     // ── só quem cuida do atendimento liga número ──
@@ -115,7 +138,7 @@ Deno.serve(async (req: Request) => {
           method: "POST", headers: cab, body: JSON.stringify(corpo),
         });
         if (r.ok) return null;
-        ultimo = `${r.status}: ${(await r.text()).slice(0, 200)}`;
+        ultimo = explica401(r.status, await r.text());
       }
       return ultimo;
     };
@@ -131,9 +154,7 @@ Deno.serve(async (req: Request) => {
         }),
       });
       const bruto = await r.text();
-      if (!r.ok) {
-        return json({ ok: false, error: `Evolution ${r.status}: ${bruto.slice(0, 300)}` });
-      }
+      if (!r.ok) return json({ ok: false, error: explica401(r.status, bruto) });
       const dados = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
 
       const erroWebhook = await apontarWebhook();
@@ -156,7 +177,7 @@ Deno.serve(async (req: Request) => {
     if (acao === "qr") {
       const r = await fetch(`${base}/instance/connect/${encodeURIComponent(nome)}`, { headers: cab });
       const bruto = await r.text();
-      if (!r.ok) return json({ ok: false, error: `Evolution ${r.status}: ${bruto.slice(0, 300)}` });
+      if (!r.ok) return json({ ok: false, error: explica401(r.status, bruto) });
       const dados = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
       return json({ ok: true, instancia: nome, qr: acharQr(dados) });
     }
@@ -165,7 +186,7 @@ Deno.serve(async (req: Request) => {
     if (acao === "estado") {
       const r = await fetch(`${base}/instance/connectionState/${encodeURIComponent(nome)}`, { headers: cab });
       const bruto = await r.text();
-      if (!r.ok) return json({ ok: false, error: `Evolution ${r.status}: ${bruto.slice(0, 200)}` });
+      if (!r.ok) return json({ ok: false, error: explica401(r.status, bruto) });
       const dados = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
       const estado = traduzEstado(dados?.instance?.state ?? dados?.state);
       await sb.from("wa_instancias")
@@ -187,7 +208,7 @@ Deno.serve(async (req: Request) => {
       const r = await fetch(`${base}/instance/logout/${encodeURIComponent(nome)}`, {
         method: "DELETE", headers: cab,
       });
-      if (!r.ok) return json({ ok: false, error: `Evolution ${r.status}: ${(await r.text()).slice(0, 200)}` });
+      if (!r.ok) return json({ ok: false, error: explica401(r.status, await r.text()) });
       await sb.from("wa_instancias").update({ status: "desconectado" }).eq("nome", nome);
       return json({ ok: true, instancia: nome, estado: "desconectado" });
     }
