@@ -36,7 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
-  UserPlus, Phone, Clock,
+  UserPlus, Phone, Clock, Table2, Trash2,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -51,7 +51,12 @@ import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
-import { idDaConversaAberta } from "@/lib/wa";
+import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
+import { resumoDasRespostas } from "@/lib/planilhaLeads";
+import {
+  useFontes, useLeadsBrutos, criarFonte, sincronizarFonte, marcarAbordado,
+  descartarLead, useInvalidarLeads, type Fonte, type LeadBruto,
+} from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
@@ -125,6 +130,16 @@ export default function AtendimentoPage() {
   const [rascunhoNota, setRascunhoNota] = useState("");
   const [postandoNota, setPostandoNota] = useState(false);
   const [etapaAberta, setEtapaAberta] = useState(false);
+  const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
+  const [fonteAberta, setFonteAberta] = useState(false);
+  const [novaFonteNome, setNovaFonteNome] = useState("");
+  const [novaFonteLink, setNovaFonteLink] = useState("");
+  const [novaFonteAba, setNovaFonteAba] = useState("");
+  const [salvandoFonte, setSalvandoFonte] = useState(false);
+  const [sincronizando, setSincronizando] = useState<string | null>(null);
+  const [abordar, setAbordar] = useState<LeadBruto | null>(null);
+  const [msgAbordagem, setMsgAbordagem] = useState("");
+  const [abordando, setAbordando] = useState(false);
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
   const [puladas, setPuladas] = useState<Record<string, Estagio[]>>({});
@@ -232,6 +247,18 @@ export default function AtendimentoPage() {
   const invalidarTasks = useInvalidarTasksWa();
   const { data: anotacoes = [] } = useAnotacoes(idAberto, aoVivo);
   const invalidarAnotacoes = useInvalidarAnotacoes();
+
+  /* ── A OUTRA CAIXA: quem nunca escreveu ── */
+  const { data: fontes = [] } = useFontes(instancia.nome);
+  const { data: brutos = [] } = useLeadsBrutos(fontes.map((f) => f.id));
+  const invalidarLeads = useInvalidarLeads();
+  const brutosNovos = brutos.filter((b) => b.situacao === "novo");
+  const brutosVisiveis = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return brutosNovos;
+    return brutosNovos.filter((b) =>
+      (b.nome ?? "").toLowerCase().includes(termo) || b.telefone.includes(termo.replace(/\D/g, "")));
+  }, [brutosNovos, busca]);
   const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
 
   const lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0];
@@ -336,6 +363,95 @@ export default function AtendimentoPage() {
       toast.error("Não consegui salvar: " + (e as Error).message);
     } finally {
       setSalvandoTask(false);
+    }
+  };
+
+  /* ── A PLANILHA DA LANDING ──
+     O link inteiro serve como entrada: ninguém decora que o id da planilha é o
+     pedaço entre /d/ e /edit, e pedir "cole o id" é pedir que a pessoa faça
+     manualmente o recorte que o código faz sem errar. */
+  const idDaPlanilha = (linkOuId: string): string => {
+    const t = linkOuId.trim();
+    const m = t.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return m ? m[1] : t;
+  };
+
+  const salvarFonte = async () => {
+    const planilhaId = idDaPlanilha(novaFonteLink);
+    if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
+    setSalvandoFonte(true);
+    try {
+      await criarFonte({
+        nome: novaFonteNome.trim() || "Leads da landing",
+        planilhaId,
+        aba: novaFonteAba,
+        instancia: instancia.nome,
+      });
+      invalidarLeads();
+      setFonteAberta(false);
+      setNovaFonteNome(""); setNovaFonteLink(""); setNovaFonteAba("");
+      toast.success("Planilha ligada. Puxe os leads no ícone de atualizar.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSalvandoFonte(false);
+    }
+  };
+
+  const puxarPlanilha = async (f: Fonte) => {
+    setSincronizando(f.id);
+    try {
+      const r = await sincronizarFonte(f);
+      invalidarLeads();
+      // O número de linhas IGNORADAS é dito, não escondido: linha com telefone
+      // torto some da fila em silêncio, e alguém precisa saber que sumiu pra
+      // ir consertar na planilha.
+      toast.success(
+        `${r.lidos} lead${r.lidos === 1 ? "" : "s"} na planilha · ${r.novos} novo${r.novos === 1 ? "" : "s"}`
+        + (r.ignoradas > 0 ? ` · ${r.ignoradas} linha${r.ignoradas === 1 ? "" : "s"} sem telefone válido` : ""),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSincronizando(null);
+    }
+  };
+
+  const abrirAbordagem = (b: LeadBruto) => {
+    setAbordar(b);
+    setMsgAbordagem("");
+  };
+
+  /* Abrir a conversa e (se houver texto) já mandar a primeira mensagem — que é
+     o ponto todo: hoje isso custa abrir a planilha, achar a linha, copiar o
+     número, colar no WhatsApp e escrever. */
+  const abordarLead = async (enviar: boolean) => {
+    const b = abordar;
+    if (!b) return;
+    setAbordando(true);
+    try {
+      const r = await criarConversa({
+        instancia: instancia.nome,
+        telefone: b.telefone,
+        nome: b.nome ?? null,
+      });
+      if (enviar && msgAbordagem.trim()) {
+        await enviarTexto(r.conversa_id, msgAbordagem.trim());
+      }
+      await marcarAbordado(b.id, r.conversa_id, user?.id ?? null);
+      invalidarLeads();
+      invalidarWa();
+      setAbordar(null);
+      setMsgAbordagem("");
+      // Vai junto pra conversa: quem abordou quer ver a resposta chegar, não
+      // voltar pra fila e procurar a pessoa de novo.
+      setCaixa("inbound");
+      setSelecionadoId(r.conversa_id);
+      if (r.aviso) toast.warning(r.aviso);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAbordando(false);
     }
   };
 
@@ -503,17 +619,44 @@ export default function AtendimentoPage() {
                     <MessageCircle className="h-3.5 w-3.5 text-muted-foreground" /> Caixa
                   </h2>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10.5px] text-muted-foreground tabular-nums">{lista.length}</span>
+                    <span className="text-[10.5px] text-muted-foreground tabular-nums">
+                      {caixa === "inbound" ? lista.length : brutosNovos.length}
+                    </span>
                     {/* O "+" fica no cabeçalho da caixa, e não perto do campo
                         de digitar, porque o gesto é "arrumar mais um na lista"
                         — não "responder alguém". */}
-                    <button type="button" title="Nova conversa" onClick={() => setNovaAberta(true)}
+                    <button type="button"
+                      title={caixa === "inbound" ? "Nova conversa" : "Ligar uma planilha"}
+                      onClick={() => (caixa === "inbound" ? setNovaAberta(true) : setFonteAberta(true))}
                       className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
                       <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-1">
+
+                {/* DUAS CAIXAS, UM CARTÃO SÓ.
+                    Inbound é quem escreveu; base é quem deixou o número na
+                    landing e nunca chamou. São dois trabalhos diferentes —
+                    responder e prospectar — mas a mesma fila de pessoas: quem
+                    sai da base entra no inbound assim que recebe a primeira
+                    mensagem. Separar em duas telas faria a atendente perder de
+                    vista metade do funil enquanto trabalha a outra. */}
+                <div className="flex rounded-lg bg-white/[0.03] ring-1 ring-white/[0.06] p-[2px]">
+                  {([
+                    { chave: "inbound" as const, rotulo: "Inbound", n: leadsBase.length },
+                    { chave: "base" as const, rotulo: "Base", n: brutosNovos.length },
+                  ]).map((t) => (
+                    <button key={t.chave} onClick={() => setCaixa(t.chave)}
+                      className={cn("flex-1 rounded-md px-2 py-1 text-[10.5px] transition-colors flex items-center justify-center gap-1.5",
+                        caixa === t.chave
+                          ? "bg-white/[0.10] text-foreground"
+                          : "text-muted-foreground hover:text-foreground")}>
+                      {t.rotulo}
+                      {t.n > 0 && <span className="tabular-nums opacity-60">{t.n}</span>}
+                    </button>
+                  ))}
+                </div>
+                {caixa === "inbound" && <div className="flex flex-wrap gap-1">
                   {CHIPS_ETAPA.map((c) => {
                     const n = c.chave === "todos"
                       ? leadsBase.length
@@ -534,7 +677,7 @@ export default function AtendimentoPage() {
                       </button>
                     );
                   })}
-                </div>
+                </div>}
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input value={busca} onChange={(e) => setBusca(e.target.value)}
@@ -542,6 +685,72 @@ export default function AtendimentoPage() {
                 </div>
               </div>
 
+              {caixa === "base" ? (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+                  {fontes.length === 0 ? (
+                    <div className="px-3 py-8 text-center flex flex-col items-center gap-2">
+                      <Table2 className="h-5 w-5 text-muted-foreground/50" />
+                      <p className="text-[11.5px] text-muted-foreground leading-snug">
+                        Nenhuma planilha ligada ainda.
+                      </p>
+                      <Button size="sm" variant="outline" className="h-7 text-[11px]"
+                        onClick={() => setFonteAberta(true)}>
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Ligar planilha
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {fontes.map((f) => (
+                        <div key={f.id}
+                          className="px-2.5 py-1.5 border-b border-white/[0.06] flex items-center gap-1.5 bg-white/[0.02]">
+                          <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span className="text-[10.5px] truncate flex-1" title={f.nome}>{f.nome}</span>
+                          <button type="button" title="Puxar da planilha"
+                            onClick={() => puxarPlanilha(f)}
+                            disabled={sincronizando === f.id}
+                            className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                            <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
+                          </button>
+                        </div>
+                      ))}
+
+                      {brutosVisiveis.length === 0 ? (
+                        <p className="text-[12px] text-muted-foreground text-center py-8">
+                          Ninguém esperando aqui.
+                        </p>
+                      ) : brutosVisiveis.map((b) => (
+                        <button key={b.id} onClick={() => abrirAbordagem(b)}
+                          className="w-full text-left px-2.5 py-2 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2">
+                          <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
+                            {iniciais(b.nome || telefoneBonito(b.telefone))}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-baseline gap-1.5">
+                              <span className="text-[12px] font-medium truncate flex-1">
+                                {b.nome || telefoneBonito(b.telefone)}
+                              </span>
+                              <span className="text-[9.5px] text-muted-foreground shrink-0">
+                                {horaDaLista(b.chegou_em)}
+                              </span>
+                            </span>
+                            <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
+                              {resumoDasRespostas(b.respostas, 44) || telefoneBonito(b.telefone)}
+                            </span>
+                            <span className="flex items-center gap-1 mt-1">
+                              <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
+                                Nunca escreveu
+                              </span>
+                              {b.cidade && (
+                                <span className="text-[9px] text-muted-foreground/70 truncate">{b.cidade}</span>
+                              )}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              ) : (
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
                 {lista.length === 0 ? (
                   <p className="text-[12px] text-muted-foreground text-center py-8">Nenhuma conversa aqui.</p>
@@ -583,6 +792,7 @@ export default function AtendimentoPage() {
                   );
                 })}
               </div>
+              )}
             </SpotlightCard>
 
             {/* ═══ conversa — só a conversa ═══ */}
@@ -1013,6 +1223,120 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+
+      {/* ── LIGAR UMA PLANILHA ── */}
+      <Dialog open={fonteAberta} onOpenChange={(a) => { if (!salvandoFonte) setFonteAberta(a); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Table2 className="h-4 w-4" /> Ligar planilha da landing
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Os leads dela entram na aba <span className="text-foreground/80">Base</span> de{" "}
+              <span className="text-foreground/80">{instancia.nome}</span>. A planilha continua sendo
+              a dona dos dados — o sistema só guarda quem já foi abordado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Link da planilha</span>
+              <Input value={novaFonteLink} onChange={(e) => setNovaFonteLink(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/…"
+                className="h-9 text-[12px]" />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Apelido</span>
+                <Input value={novaFonteNome} onChange={(e) => setNovaFonteNome(e.target.value)}
+                  placeholder="LP Bradesco" className="h-9 text-[13px]" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Aba <span className="opacity-60">(opcional)</span></span>
+                <Input value={novaFonteAba} onChange={(e) => setNovaFonteAba(e.target.value)}
+                  placeholder="Leads" className="h-9 text-[13px]" />
+              </label>
+            </div>
+            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+              A planilha precisa estar compartilhada com a conta de serviço do sistema (a mesma do
+              Drive). Se não estiver, o erro ao puxar diz o e-mail exato pra compartilhar.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setFonteAberta(false)} disabled={salvandoFonte}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={salvarFonte} disabled={salvandoFonte || !novaFonteLink.trim()}>
+              {salvandoFonte
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Ligando…</>
+                : <>Ligar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── ABORDAR UM LEAD DA BASE ──
+          As respostas do formulário ficam VISÍVEIS enquanto se escreve. É a
+          diferença entre "Olá, tudo bem?" e uma primeira mensagem que já cita
+          o desconto que a pessoa marcou — e é por isso que o dossiê aparece
+          aqui e não depois. */}
+      <Dialog open={!!abordar} onOpenChange={(a) => { if (!a && !abordando) setAbordar(null); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <ArrowRight className="h-4 w-4" /> {abordar?.nome || telefoneBonito(abordar?.telefone ?? "")}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {telefoneBonito(abordar?.telefone ?? "")}
+              {abordar?.cidade ? ` · ${abordar.cidade}` : ""}
+              {abordar?.chegou_em ? ` · chegou ${horaDaLista(abordar.chegou_em)}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {abordar?.respostas && (
+            <div className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2">
+              <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1">
+                O que respondeu na landing
+              </p>
+              <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">
+                {abordar.respostas}
+              </p>
+              {abordar.origem_texto && (
+                <p className="text-[10px] text-muted-foreground/60 mt-1.5">{abordar.origem_texto}</p>
+              )}
+            </div>
+          )}
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Primeira mensagem</span>
+            <Textarea value={msgAbordagem} onChange={(e) => setMsgAbordagem(e.target.value)}
+              rows={4} placeholder="Olá! Aqui é a Adria, do Portal Direito Aberto…"
+              className="text-[12.5px] resize-none" />
+          </label>
+
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" size="sm" disabled={abordando}
+              onClick={async () => {
+                const b = abordar;
+                if (!b) return;
+                setAbordar(null);
+                try { await descartarLead(b.id); invalidarLeads(); }
+                catch (e) { toast.error((e as Error).message); }
+              }}>
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Descartar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => abordarLead(false)} disabled={abordando}>
+              Só abrir a conversa
+            </Button>
+            <Button size="sm" onClick={() => abordarLead(true)} disabled={abordando || !msgAbordagem.trim()}>
+              {abordando
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Enviando…</>
+                : <>Enviar <Send className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── ESCOLHER A ETAPA ──
           Antes cada etapa à frente tinha seu próprio "pular pra cá" de dez
