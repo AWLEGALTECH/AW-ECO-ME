@@ -54,7 +54,7 @@ import {
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
-  useFontes, useLeadsBrutos, criarFonte, sincronizarFonte, marcarAbordado,
+  useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
   descartarLead, apagarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
@@ -257,8 +257,20 @@ export default function AtendimentoPage() {
   /* ── A OUTRA CAIXA: quem nunca escreveu ── */
   const { data: fontes = [] } = useFontes(instancia.nome);
   const { data: brutos = [] } = useLeadsBrutos(fontes.map((f) => f.id));
+  const { data: resumoBases = {} } = useResumoBases(fontes.length > 0);
   const invalidarLeads = useInvalidarLeads();
-  const brutosNovos = brutos.filter((b) => b.situacao === "novo");
+  /* Mostrar também os anteriores ao corte, por base. Eles não somem da base —
+     só não contam como fila. Esconder 612 pessoas sem oferecer o caminho de
+     volta seria o mesmo defeito que essa tela já teve três vezes. */
+  const [verAntigos, setVerAntigos] = useState<Record<string, boolean>>({});
+
+  /** O lead conta como novo? Antes do corte da base, não — já foi trabalhado. */
+  const contaComoNovo = (b: LeadBruto): boolean => {
+    const f = fontes.find((x) => x.id === b.fonte_id);
+    if (!f?.novos_desde || !b.chegou_em) return true;
+    return b.chegou_em >= f.novos_desde;
+  };
+  const brutosNovos = brutos.filter((b) => b.situacao === "novo" && contaComoNovo(b));
   const brutosVisiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     if (!termo) return brutosNovos;
@@ -757,49 +769,73 @@ export default function AtendimentoPage() {
                     <>
                       {fontes.map((f) => {
                         const aberta = baseAberta === f.id;
-                        const daBase = brutosVisiveis.filter((b) => b.fonte_id === f.id);
-                        const total = brutosNovos.filter((b) => b.fonte_id === f.id).length;
+                        const r = resumoBases[f.id];
+                        const mostrandoAntigos = !!verAntigos[f.id];
+                        const daBase = brutosVisiveis.filter(
+                          (b) => b.fonte_id === f.id && (mostrandoAntigos || contaComoNovo(b)));
                         return (
                           <div key={f.id} className="border-b border-white/[0.06]">
                             {/* O NOME É O BOTÃO, e o sinal à esquerda diz o que
                                 o clique faz: + abre, − fecha. Um "v" de seta
                                 diria "tem mais coisa"; o par +/− diz que é uma
                                 gaveta, e gaveta é o que isto é. */}
-                            <div className={cn("px-2.5 py-2 flex items-center gap-1.5 transition-colors",
+                            {/* UMA BASE NÃO É UMA LINHA. São 635 pessoas atrás
+                                desse nome; num item de lista fininho ela pesa o
+                                mesmo que um contato solto, e o olho passa
+                                batido. Duas alturas de texto, o número grande do
+                                que espera, e o total logo abaixo — é um bloco,
+                                porque é um bloco de trabalho. */}
+                            <div className={cn("px-2.5 py-2.5 transition-colors",
                               aberta ? "bg-white/[0.06]" : "bg-white/[0.02] hover:bg-white/[0.04]")}>
-                              <button type="button"
-                                onClick={() => setBaseAberta(aberta ? null : f.id)}
-                                className="flex items-center gap-1.5 min-w-0 flex-1 text-left">
-                                <span className={cn("h-4 w-4 shrink-0 rounded grid place-items-center ring-1 transition-colors",
-                                  aberta
-                                    ? "bg-primary/15 text-primary ring-primary/25"
-                                    : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-                                  {aberta ? <Minus className="h-2.5 w-2.5" /> : <Plus className="h-2.5 w-2.5" />}
-                                </span>
-                                <span className={cn("text-[11.5px] truncate", aberta && "font-medium")}
-                                  title={f.nome}>{f.nome}</span>
-                                {total > 0 && (
-                                  <span className="text-[9.5px] tabular-nums text-muted-foreground/70 shrink-0">
-                                    {total}
+                              <div className="flex items-start gap-2">
+                                <button type="button"
+                                  onClick={() => setBaseAberta(aberta ? null : f.id)}
+                                  className="flex items-start gap-2 min-w-0 flex-1 text-left">
+                                  <span className={cn("h-5 w-5 mt-[1px] shrink-0 rounded grid place-items-center ring-1 transition-colors",
+                                    aberta
+                                      ? "bg-primary/15 text-primary ring-primary/25"
+                                      : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+                                    {aberta ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                                   </span>
-                                )}
-                              </button>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-[12.5px] font-medium truncate" title={f.nome}>
+                                      {f.nome}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 mt-1">
+                                      <span className={cn(
+                                        "rounded px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ring-1",
+                                        (r?.novos ?? 0) > 0
+                                          ? "bg-primary/15 text-primary ring-primary/25"
+                                          : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
+                                        {r?.novos ?? 0} novo{(r?.novos ?? 0) === 1 ? "" : "s"}
+                                      </span>
+                                      <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                                        {r?.total ?? 0} na base
+                                      </span>
+                                    </span>
+                                  </span>
+                                </button>
 
-                              <span className="text-[9px] text-muted-foreground/60 shrink-0">
-                                {sincronizando === f.id ? "puxando…"
-                                  : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
-                              </span>
-                              <button type="button" title="Puxar da planilha"
-                                onClick={() => puxarPlanilha(f)}
-                                disabled={sincronizando === f.id}
-                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
-                                <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
-                              </button>
-                              <button type="button" title="Desligar base"
-                                onClick={() => desligarFonte(f)}
-                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
-                                <X className="h-3 w-3" />
-                              </button>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  <div className="flex items-center gap-0.5">
+                                    <button type="button" title="Puxar da planilha"
+                                      onClick={() => puxarPlanilha(f)}
+                                      disabled={sincronizando === f.id}
+                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                                      <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
+                                    </button>
+                                    <button type="button" title="Desligar base"
+                                      onClick={() => desligarFonte(f)}
+                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                  <span className="text-[9px] text-muted-foreground/60 whitespace-nowrap">
+                                    {sincronizando === f.id ? "puxando…"
+                                      : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
 
                             {/* O ERRO FICA NA TELA, NÃO SÓ NO TOAST. Toast some;
@@ -882,6 +918,21 @@ export default function AtendimentoPage() {
                                 </PopoverContent>
                               </Popover>
                             )))}
+
+                            {/* OS ANTERIORES AO CORTE CONTINUAM ALCANÇÁVEIS.
+                                Eles não contam como fila porque já foram
+                                trabalhados, mas some-los sem dizer nada seria
+                                esconder 612 pessoas — e esta tela já teve esse
+                                defeito três vezes. */}
+                            {aberta && (r?.antigos ?? 0) > 0 && (
+                              <button type="button"
+                                onClick={() => setVerAntigos((p) => ({ ...p, [f.id]: !mostrandoAntigos }))}
+                                className="w-full px-2.5 py-2 border-t border-white/[0.04] text-[10.5px] text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.03] transition-colors text-center">
+                                {mostrandoAntigos
+                                  ? "esconder os anteriores"
+                                  : `mostrar ${r!.antigos} anteriores ao corte (base já trabalhada)`}
+                              </button>
+                            )}
                           </div>
                         );
                       })}

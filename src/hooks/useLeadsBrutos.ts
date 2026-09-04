@@ -26,6 +26,8 @@ export interface Fonte {
   ativa: boolean;
   ultimo_sync: string | null;
   ultimo_erro: string | null;
+  /** antes disso o lead não conta como novo (base já trabalhada); nulo = tudo conta */
+  novos_desde: string | null;
 }
 
 export interface LeadBruto {
@@ -52,7 +54,7 @@ export function useFontes(instancia: string | null) {
     enabled: !!instancia,
     queryFn: async (): Promise<Fonte[]> => {
       const { data, error } = await tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde")
         .ilike("instancia", instancia!)
         .order("nome");
       if (error) throw error;
@@ -71,14 +73,48 @@ export function useLeadsBrutos(fonteIds: string[]) {
       const { data, error } = await tabela("leads_brutos")
         .select("id, fonte_id, telefone, nome, cidade, respostas, origem_texto, chegou_em, linha, situacao, conversa_id, bruto")
         .in("fonte_id", fonteIds)
-        .neq("situacao", "descartado")
+        // Só os que ainda esperam. Trazer os já abordados custava metade do
+        // limite: a LP Bradesco sozinha tem 635 linhas, e o teto de 500 cortava
+        // a fila sem avisar.
+        .eq("situacao", "novo")
         // Mais recente primeiro: lead da landing esfria rápido, e quem chegou
         // hoje de manhã tem chance muito maior de responder que o de semana
         // passada.
         .order("chegou_em", { ascending: false, nullsFirst: false })
-        .limit(500);
+        .limit(2000);
       if (error) throw error;
       return (data || []) as LeadBruto[];
+    },
+  });
+}
+
+export interface ResumoBase {
+  fonte_id: string;
+  total: number;
+  novos: number;
+  antigos: number;
+}
+
+/**
+ * Quantos leads cada base tem, e quantos contam como novos.
+ *
+ * Vem de uma função no banco em vez de ser contado no navegador porque o
+ * navegador só recebe a fila (os que esperam) — contar "total da base" com ela
+ * daria o número dos que sobraram, não o da base.
+ */
+export function useResumoBases(ligado: boolean) {
+  return useQuery({
+    queryKey: ["leads", "resumo"],
+    enabled: ligado,
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<Record<string, ResumoBase>> => {
+      const { data, error } = await (supabase.rpc as never as any)("fn_leads_resumo");
+      if (error) throw error;
+      const mapa: Record<string, ResumoBase> = {};
+      for (const r of (data || []) as ResumoBase[]) {
+        mapa[r.fonte_id] = { ...r, total: Number(r.total), novos: Number(r.novos), antigos: Number(r.antigos) };
+      }
+      return mapa;
     },
   });
 }
