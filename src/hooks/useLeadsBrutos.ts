@@ -13,6 +13,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { lerPlanilha } from "@/lib/planilhaLeads";
+import { csvParaPlanilha } from "@/lib/csv";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
@@ -122,7 +123,16 @@ export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
     throw new Error(String(data?.error || "Não consegui ler a planilha"));
   }
 
-  const { leads, ignoradas } = lerPlanilha(data.cabecalho ?? [], data.linhas ?? []);
+  /* A função lê por dois caminhos: pela API do Sheets (que devolve as células
+     já separadas) ou, quando ela está desligada no projeto, pelo export do
+     Drive (que devolve CSV). O CSV é convertido AQUI, com o mesmo leitor
+     testado — a alternativa seria um segundo interpretador dentro do Deno, e
+     duas cópias da mesma regra é o jeito conhecido de elas discordarem. */
+  const planilha = data.csv
+    ? csvParaPlanilha(String(data.csv))
+    : { cabecalho: (data.cabecalho ?? []) as string[], linhas: (data.linhas ?? []) as { linha: number; celulas: string[] }[] };
+
+  const { leads, ignoradas } = lerPlanilha(planilha.cabecalho, planilha.linhas);
 
   /* O QUE ATRAPALHOU FICA GRAVADO, NÃO SÓ NO TOAST.
      Fila vazia é indistinguível de "não tem ninguém aqui" — foi exatamente
@@ -131,10 +141,10 @@ export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
      recarregar, no cabeçalho da fonte. */
   const avisos: string[] = [];
   if (data.aviso) avisos.push(String(data.aviso));
-  if (leads.length === 0 && (data.linhas ?? []).length > 0) {
+  if (leads.length === 0 && planilha.linhas.length > 0) {
     avisos.push(
-      `Li ${(data.linhas ?? []).length} linha(s) da aba "${data.aba ?? "?"}", mas nenhuma tinha telefone`
-      + ` reconhecível. Colunas encontradas: ${(data.cabecalho ?? []).join(", ") || "(nenhuma)"}.`,
+      `Li ${planilha.linhas.length} linha(s) da aba "${data.aba ?? "primeira"}", mas nenhuma tinha`
+      + ` telefone reconhecível. Colunas encontradas: ${planilha.cabecalho.join(", ") || "(nenhuma)"}.`,
     );
   } else if (ignoradas > 0) {
     avisos.push(`${ignoradas} linha(s) sem telefone válido ficaram de fora.`);
