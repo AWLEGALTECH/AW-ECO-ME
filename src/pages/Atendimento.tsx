@@ -52,7 +52,7 @@ import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
-  reaplicarWebhook, importarConversas, useInvalidarWa,
+  reaplicarWebhook, importarConversas, registrarInstancia, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
@@ -485,19 +485,29 @@ export default function AtendimentoPage() {
     }
   };
 
+  /* REGISTRAR, NÃO CRIAR. O número nasce no painel da Evolution — é o fluxo
+     que o escritório escolheu manter. Aqui ele só entra na lista deste
+     sistema, e o webhook é apontado de quebra: é o passo que falta quando a
+     instância nasce pelo painel, e o único que quebra em silêncio. */
   const criarNumero = async () => {
     const nome = nomeNovaInst.trim();
-    if (!nome) { toast.error("Dê um nome pra essa instância."); return; }
+    if (!nome) { toast.error("Digite o nome exato da instância na Evolution."); return; }
     setConectando(true);
     try {
-      const r = await criarInstancia(nome);
+      const r = await registrarInstancia(nome);
       setInstConectando(r.instancia);
-      setQr(r.qr ?? null);
-      setPassoConexao("qr");
+      invalidarWa();
       if (r.aviso) toast.warning(r.aviso, { duration: 12_000 });
-      if (!r.qr) toast.info("A instância foi criada, mas o QR não veio. Use o botão de gerar outro.");
+      if (r.estado === "conectado") {
+        setPassoConexao("pronto");
+      } else {
+        // Existe na Evolution mas não está de pé. O QR resolve sem sair daqui.
+        const q = await qrDaInstancia(r.instancia).catch(() => null);
+        setQr(q?.qr ?? null);
+        setPassoConexao("qr");
+      }
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error((e as Error).message, { duration: 12_000 });
     } finally {
       setConectando(false);
     }
@@ -1861,10 +1871,10 @@ export default function AtendimentoPage() {
         <DialogContent className="max-w-sm [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <Smartphone className="h-4 w-4" /> Conectar um número
+              <Smartphone className="h-4 w-4" /> Adicionar número
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              {passoConexao === "nome" && "Dê um nome pra esse número — é como ele vai aparecer aqui na caixa."}
+              {passoConexao === "nome" && "O número já precisa existir na Evolution. Digite o nome EXATO da instância lá."}
               {passoConexao === "qr" && "No celular: WhatsApp → Aparelhos conectados → Conectar aparelho."}
               {passoConexao === "pronto" && "Pronto. As mensagens desse número já entram na caixa."}
             </DialogDescription>
@@ -1876,11 +1886,13 @@ export default function AtendimentoPage() {
                 autoFocus value={nomeNovaInst}
                 onChange={(e) => setNomeNovaInst(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); criarNumero(); } }}
-                placeholder="Escritório, PDA 2, Comercial…"
+                placeholder="PORTAL DIREITO ABERTO 2"
                 className="h-9 text-[13px]" />
               <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
-                O sistema já aponta o webhook desse número pra cá com os eventos certos — é o
-                passo que costuma ser esquecido, e sem ele o número aparece conectado sem
+                Só aparecem aqui os números que você adicionar: o servidor da Evolution é
+                compartilhado com outros projetos, e existir lá não pode significar existir
+                aqui. Ao adicionar, o webhook é apontado pra cá com os eventos certos — o
+                passo que costuma ser esquecido, e sem o qual o número fica conectado sem
                 entregar mensagem nenhuma.
               </p>
             </div>
@@ -1932,8 +1944,8 @@ export default function AtendimentoPage() {
                 </Button>
                 <Button size="sm" onClick={criarNumero} disabled={conectando || !nomeNovaInst.trim()}>
                   {conectando
-                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Criando…</>
-                    : <>Gerar QR <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Procurando…</>
+                    : <>Adicionar <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
                 </Button>
               </>
             )}
@@ -2751,7 +2763,7 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, on
             <button
               onClick={() => { setAberto(false); onConectar(); }}
               className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
-              <Plus className="h-3.5 w-3.5 shrink-0" /> Conectar outro número
+              <Plus className="h-3.5 w-3.5 shrink-0" /> Adicionar número da Evolution
             </button>
             {/* Reapontar o webhook de um número que já existe. Ele foi criado à
                 mão no painel da Evolution, e a lista de eventos dele é o que

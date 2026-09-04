@@ -14,6 +14,7 @@
 //
 // AÇÕES
 //   criar        cria a instância, aponta o webhook e devolve o QR
+//   registrar    traz pra lista daqui um número criado no painel da Evolution
 //   qr           novo QR de uma instância que existe e está desconectada
 //   estado       "conectado" / "conectando" / "desconectado"
 //   webhook      reaplica a configuração de webhook numa instância existente
@@ -170,6 +171,39 @@ Deno.serve(async (req: Request) => {
       return json({
         ok: true, instancia: nome, qr: acharQr(dados),
         aviso: erroWebhook ? `Instância criada, mas o webhook não foi aceito (${erroWebhook}). Sem ele, nenhuma mensagem chega.` : null,
+      });
+    }
+
+    // ─────────────────────────── registrar ───────────────────────────
+    //
+    // O número já foi criado no painel da Evolution — este passo só o traz pra
+    // lista deste sistema. Existe porque `wa_instancias` é lista de permissão:
+    // o servidor da Evolution é compartilhado com outros projetos, e aparecer
+    // lá não pode significar aparecer aqui.
+    //
+    // Aproveita e aponta o webhook, que é o passo que costuma faltar quando a
+    // instância nasce pelo painel.
+    if (acao === "registrar") {
+      const r = await fetch(`${base}/instance/connectionState/${encodeURIComponent(nome)}`, { headers: cab });
+      const bruto = await r.text();
+      if (r.status === 404) {
+        return json({ ok: false, error: `A Evolution não tem instância chamada "${nome}". Confira o nome exato no painel — ele diferencia espaço e acento.` });
+      }
+      if (!r.ok) return json({ ok: false, error: explica401(r.status, bruto) });
+      const dados = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
+      const estado = traduzEstado(dados?.instance?.state ?? dados?.state);
+
+      const erroWebhook = await apontarWebhook();
+
+      const { error } = await sb.from("wa_instancias").upsert(
+        { nome, status: estado, ativa: true, sincronizado_em: new Date().toISOString() },
+        { onConflict: "nome" },
+      );
+      if (error) return json({ ok: false, error: error.message });
+
+      return json({
+        ok: true, instancia: nome, estado,
+        aviso: erroWebhook ? `Número registrado, mas o webhook não foi aceito (${erroWebhook}). Sem ele, nenhuma mensagem chega.` : null,
       });
     }
 

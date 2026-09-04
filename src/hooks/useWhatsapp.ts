@@ -286,6 +286,12 @@ async function pedirConexao(body: Record<string, unknown>) {
   return data as { ok: true; instancia: string; qr?: string | null; estado?: string; aviso?: string | null };
 }
 
+/* O número nasce no painel da Evolution; aqui ele só é REGISTRADO. A tabela
+   `wa_instancias` é lista de permissão porque o servidor da Evolution é
+   compartilhado com outros projetos — aparecer lá não pode significar
+   aparecer aqui. Registrar também aponta o webhook, que é o passo que
+   costuma faltar quando a instância nasce pelo painel. */
+export const registrarInstancia = (nome: string) => pedirConexao({ acao: "registrar", instancia: nome });
 export const criarInstancia = (nome: string) => pedirConexao({ acao: "criar", instancia: nome });
 export const qrDaInstancia = (nome: string) => pedirConexao({ acao: "qr", instancia: nome });
 export const estadoDaInstancia = (nome: string) => pedirConexao({ acao: "estado", instancia: nome });

@@ -11,6 +11,15 @@
 // existia na Evolution, mas a chave usada pra perguntar não o enxergava.
 // "Conectado mas vazio" parecia problema da conexão e era problema de escopo.
 //
+// MAS A CHAVE GLOBAL ENXERGA DEMAIS. O servidor da Evolution é compartilhado:
+// nele moram os números do Martins Pontes, do Resolva Já, e os do escritório.
+// Trocar pra ela encheu o seletor com treze instâncias, das quais duas são
+// deste sistema — uma regressão que eu causei ao consertar a outra coisa.
+//
+// Por isso `wa_instancias` virou LISTA DE PERMISSÃO: esta função só ATUALIZA
+// linhas que já existem, e nunca insere uma nova. Estar na tabela é uma decisão
+// de quem cuida do atendimento, não uma consequência de existir no servidor.
+//
 // A FOTO DO WHATSAPP EXPIRA. A URL do pps.whatsapp.net tem validade; por isso a
 // tabela guarda `sincronizado_em` junto, e a tela chama esta função ao abrir em
 // vez de confiar numa URL de ontem.
@@ -93,11 +102,32 @@ Deno.serve(async (req: Request) => {
 
   // grava com a service role: a tabela é espelho e só esta função escreve nela
   const admin = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const { error } = await admin.from("wa_instancias").upsert(
-    lista.map((i) => ({ ...i, sincronizado_em: new Date().toISOString(), ativa: true })),
-    { onConflict: "nome" },
-  );
-  if (error) return json({ ok: false, error: error.message }, 500);
 
-  return json({ ok: true, instancias: lista });
+  // Só as que ALGUÉM já registrou aqui. A comparação é sem caixa e sem espaço
+  // sobrando porque nome de instância é digitado à mão no painel da Evolution —
+  // "Escritório Martins Pontes " com espaço no fim é uma instância diferente lá
+  // e a mesma coisa pra qualquer humano.
+  const { data: registradas, error: eLer } = await admin
+    .from("wa_instancias").select("nome");
+  if (eLer) return json({ ok: false, error: eLer.message }, 500);
+
+  const chave = (s: string) => String(s || "").trim().toLowerCase();
+  const permitidas = new Map(((registradas || []) as { nome: string }[]).map((r) => [chave(r.nome), r.nome]));
+
+  const atualizar = lista
+    .filter((i) => permitidas.has(chave(i.nome!)))
+    .map((i) => ({ ...i, nome: permitidas.get(chave(i.nome!))!, sincronizado_em: new Date().toISOString() }));
+
+  if (atualizar.length > 0) {
+    const { error } = await admin.from("wa_instancias").upsert(atualizar, { onConflict: "nome" });
+    if (error) return json({ ok: false, error: error.message }, 500);
+  }
+
+  return json({
+    ok: true,
+    instancias: atualizar,
+    // Quantas o servidor tem e a gente ignorou. Útil pra quem for registrar uma
+    // nova saber que ela existe do outro lado.
+    ignoradas: lista.length - atualizar.length,
+  });
 });
