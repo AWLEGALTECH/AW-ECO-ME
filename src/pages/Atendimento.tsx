@@ -36,7 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
-  UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Minus,
+  UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -450,6 +450,13 @@ export default function AtendimentoPage() {
   };
   const copiarEmail = (e: string) => copiarTexto(e, "E-mail copiado — compartilhe a planilha com ele.");
 
+  /** Como está a leitura dessa base — o pingo ao lado do nome. */
+  const saudeDaFonte = (f: Fonte): { cor: string; titulo: string } => {
+    if (!f.ultimo_sync) return { cor: "bg-muted-foreground/40", titulo: "Nunca puxou desta planilha" };
+    if (f.ultimo_erro) return { cor: "bg-amber-400", titulo: f.ultimo_erro };
+    return { cor: "bg-emerald-400", titulo: `Leitura ok — último puxão ${horaDaLista(f.ultimo_sync)}` };
+  };
+
   const desligarFonte = async (f: Fonte) => {
     try { await apagarFonte(f.id); invalidarLeads(); toast.success("Planilha desligada."); }
     catch (e) { toast.error((e as Error).message); }
@@ -673,7 +680,15 @@ export default function AtendimentoPage() {
           <div className="flex-1 min-h-0 flex gap-2">
 
             {/* ═══ caixa ═══ */}
-            <SpotlightCard sutil className="w-[15.5rem] shrink-0 flex flex-col min-h-0 p-0 overflow-hidden">
+            {/* A CAIXA ALARGA QUANDO UMA BASE ABRE.
+                Na largura de sempre, o que o lead respondeu na landing cabe em
+                quarenta caracteres — e é justamente esse texto que decide como
+                abrir a conversa. Com a base aberta a coluna vai a 24rem e as
+                respostas passam a caber na própria fila, sem precisar abrir
+                cada ficha pra descobrir se vale falar com aquela pessoa. */}
+            <SpotlightCard sutil className={cn(
+              "shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
+              caixa === "base" && baseAberta ? "w-[24rem]" : "w-[15.5rem]")}>
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -791,11 +806,16 @@ export default function AtendimentoPage() {
                                 <button type="button"
                                   onClick={() => setBaseAberta(aberta ? null : f.id)}
                                   className="flex items-start gap-2 min-w-0 flex-1 text-left">
-                                  <span className={cn("h-5 w-5 mt-[1px] shrink-0 rounded grid place-items-center ring-1 transition-colors",
+                                  {/* O ícone é o de BANCO DE DADOS, e não um
+                                      +/−: ele diz o que a linha É, não o que o
+                                      clique faz. O que o clique faz já está
+                                      dito pelo fundo aceso e pela fila que
+                                      aparece embaixo. */}
+                                  <span className={cn("h-6 w-6 mt-[1px] shrink-0 rounded-md grid place-items-center ring-1 transition-colors",
                                     aberta
                                       ? "bg-primary/15 text-primary ring-primary/25"
                                       : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-                                    {aberta ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                                    <Database className="h-3.5 w-3.5" />
                                   </span>
                                   <span className="min-w-0 flex-1">
                                     <span className="block text-[12.5px] font-medium truncate" title={f.nome}>
@@ -818,6 +838,18 @@ export default function AtendimentoPage() {
 
                                 <div className="flex flex-col items-end gap-1 shrink-0">
                                   <div className="flex items-center gap-0.5">
+                                    {/* O PINGO DIZ SE A LEITURA ESTÁ DE PÉ.
+                                        Verde = último puxão trouxe os leads;
+                                        âmbar = trouxe com ressalva (é o texto
+                                        logo abaixo); cinza = nunca puxou. Sem
+                                        ele, "635 na base" continuaria escrito
+                                        igual no dia em que a planilha parar de
+                                        responder — o número velho é o disfarce
+                                        perfeito pra uma integração quebrada. */}
+                                    <span title={saudeDaFonte(f).titulo}
+                                      className={cn("h-1.5 w-1.5 rounded-full mr-1 shrink-0",
+                                        saudeDaFonte(f).cor,
+                                        sincronizando === f.id && "animate-pulse")} />
                                     <button type="button" title="Puxar da planilha"
                                       onClick={() => puxarPlanilha(f)}
                                       disabled={sincronizando === f.id}
@@ -880,8 +912,13 @@ export default function AtendimentoPage() {
                                           {horaDaLista(b.chegou_em)}
                                         </span>
                                       </span>
-                                      <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
-                                        {resumoDasRespostas(b.respostas, 44) || resumoDoDossie(b.bruto, 44) || telefoneBonito(b.telefone)}
+                                      {/* Duas linhas, não uma cortada: a coluna
+                                          alargou pra isto — ver o que a pessoa
+                                          respondeu sem ter que abrir a ficha de
+                                          cada uma pra descobrir se vale falar
+                                          com ela. */}
+                                      <span className="block text-[10.5px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
+                                        {resumoDasRespostas(b.respostas, 150) || resumoDoDossie(b.bruto, 150) || telefoneBonito(b.telefone)}
                                       </span>
                                       <span className="flex items-center gap-1 mt-1">
                                         <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
