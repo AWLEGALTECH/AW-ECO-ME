@@ -1982,9 +1982,9 @@ export default function AtendimentoPage() {
                   </dd>
                 </dl>
                 <p className="mt-2 text-[10.5px] text-muted-foreground/70 leading-snug">
-                  “Últimos eventos” não inclui mensagem nova: mensagem vira conversa, não linha de evento.
-                  Então não ver “messages.upsert” aqui não prova nada — mas ver qualquer outro prova que a
-                  Evolution consegue entregar nesta URL.
+                  “Últimos eventos” inclui tudo que entra por esta porta, mensagem nova junto. Então
+                  “messages.upsert” aparecer aqui e a conversa não existir significa que o defeito é
+                  nosso; não aparecer significa que a Evolution não mandou.
                 </p>
               </details>
             </div>

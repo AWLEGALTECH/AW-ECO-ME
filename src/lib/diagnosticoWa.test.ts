@@ -83,14 +83,34 @@ describe("acharProblemas", () => {
     expect(a[0].titulo).toContain("desligado");
   });
 
-  // A armadilha: `wa_eventos` NÃO guarda mensagem nova, então a ausência dela
-  // ali nunca pode virar acusação. Só a caixa vazia levanta a mão, e como
-  // alerta, não como erro.
-  it("levanta alerta — não erro — quando está tudo certo e a caixa está vazia", () => {
+  // Configuração certa + só eventos que não são mensagem = a sessão da
+  // instância não está recebendo. É alerta, não erro de configuração.
+  it("aponta a sessão quando ela fala de tudo menos de mensagem", () => {
     const a = acharProblemas(bom({ conversas: 0 }));
     expect(a.filter((x) => x.nivel === "erro")).toHaveLength(0);
     expect(a[1].nivel).toBe("alerta");
-    expect(a[1].conserto).toContain("entrega");
+    expect(a[1].conserto).toContain("QR");
+  });
+
+  // O achado que só existe porque o wa_eventos passou a guardar upsert: a
+  // mensagem chegou e a conversa não nasceu. Aí a culpa é nossa, e dizer isso
+  // em voz alta vale mais do que qualquer outra frase da tela.
+  it("acusa o próprio sistema quando o upsert chegou e nada nasceu", () => {
+    const a = acharProblemas(bom({
+      conversas: 0,
+      recebidos: [{ evento: "messages.upsert", criado_em: "2026-09-04T23:40:00Z" }],
+    }));
+    expect(a).toHaveLength(1);
+    expect(a[0].nivel).toBe("erro");
+    expect(a[0].titulo).toContain("descartada");
+  });
+
+  it("não acusa o sistema quando a conversa nasceu normalmente", () => {
+    const a = acharProblemas(bom({
+      conversas: 4,
+      recebidos: [{ evento: "messages.upsert", criado_em: "2026-09-04T23:40:00Z" }],
+    }));
+    expect(a[0].nivel).toBe("ok");
   });
 
   it("não fala em entrega comprovada quando nada chegou ainda", () => {

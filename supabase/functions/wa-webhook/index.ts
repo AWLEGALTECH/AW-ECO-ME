@@ -120,14 +120,19 @@ Deno.serve(async (req: Request) => {
   const instancia = corpo?.instance ?? corpo?.instanceName ?? "desconhecida";
   const evento = String(corpo?.event ?? "").toLowerCase();
 
-  // TUDO QUE NÃO É MENSAGEM NOVA VIRA LINHA NUMA TABELA, com o corpo cru.
+  // TODO EVENTO QUE ENTRA POR ESTA PORTA VIRA LINHA NUMA TABELA, com o corpo
+  // cru. Inclusive `messages.upsert`.
   //
-  // Não é log de depuração esquecido: é o único instrumento que eu controlo.
-  // O log da função só mostrou boot e shutdown, então "não tem log" não
-  // distingue "o evento não chegou" de "o log não foi capturado" — e inferir
-  // de uma ausência que eu não controlo é exatamente como eu errei o
-  // diagnóstico da planilha. A tabela guarda 200 linhas e se apara sozinha.
-  if (!evento.startsWith("messages.upsert")) {
+  // A versão anterior excluía justamente o upsert, com o argumento de que
+  // mensagem nova já vira conversa e a linha seria redundante. Estava errado, e
+  // o erro cobrou caro: quando a caixa da instância 2 ficou parada, eu não
+  // tinha como distinguir "a Evolution nunca mandou" de "mandou e a gente
+  // descartou em silêncio" — e as duas exigem consertos opostos. Fiquei
+  // deduzindo de uma ausência que eu mesmo tinha fabricado.
+  //
+  // Uma linha por mensagem recebida é barato. Não conseguir responder "chegou
+  // ou não chegou?" custou horas.
+  {
     const { error } = await sb.from("wa_eventos").insert({
       instancia, evento, corpo: corpo?.data ?? corpo ?? null,
     });

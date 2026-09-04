@@ -12,12 +12,18 @@
 // ordem de gravidade, o que está errado E o que fazer. Cada achado tem conserto
 // junto, porque diagnóstico sem conserto é só uma forma educada de silêncio.
 //
-// A REGRA MAIS SUTIL É A DO `wa_eventos`. Aquela tabela guarda tudo MENOS
-// mensagem nova (mensagem nova vira conversa, não linha de evento). Então a
-// ausência de "messages.upsert" ali não prova nada — mas a presença de qualquer
-// outro evento prova muito: prova que a URL e o token estão certos, porque a
-// Evolution conseguiu entregar. Confundir as duas leituras foi exatamente o
-// erro que motivou escrever isto.
+// O `wa_eventos` AGORA GUARDA TUDO, inclusive `messages.upsert`. Antes ele
+// excluía justamente o upsert, e essa exclusão me cegou no momento em que eu
+// mais precisava enxergar: com a caixa parada, "não tem messages.upsert na
+// tabela" não distinguia "a Evolution nunca mandou" de "mandou e a gente
+// descartou" — dois problemas com consertos opostos. Com o registro completo,
+// as três leituras passam a ser distintas e cada uma tem um achado próprio:
+//
+//   nenhum evento             → a Evolution não alcança esta URL
+//   só eventos que não são    → ela alcança, mas não manda mensagem
+//     mensagem
+//   upsert chegou e conversa  → chegou e NÓS derrubamos; o defeito é daqui
+//     não nasceu
 
 export type Achado = {
   nivel: "erro" | "alerta" | "ok";
@@ -113,10 +119,25 @@ export function acharProblemas(d: EntradaDiagnostico): Achado[] {
   }
 
   if (achados.length === 0) {
-    // Só aqui a leitura do `wa_eventos` entra, e com o cuidado de sempre: a
-    // ausência de "messages.upsert" naquela tabela não significa nada, porque
-    // mensagem nova nunca é gravada lá.
+    // A configuração está certa e a caixa continua parada. Agora a pergunta
+    // não é mais "está configurado?" e sim "chegou?" — e desde que o
+    // `wa_eventos` guarda tudo, essa pergunta tem resposta.
     const entregou = d.recebidos.length > 0;
+    const chegouMensagem = d.recebidos.some((r) => r.evento.startsWith("messages.upsert"));
+
+    if (chegouMensagem && d.conversas === 0) {
+      // O caso mais informativo de todos: a Evolution ENTREGOU a mensagem e
+      // nenhuma conversa nasceu. O defeito é nosso, não dela.
+      achados.push({
+        nivel: "erro",
+        titulo: "A mensagem chegou aqui e foi descartada — o defeito é do nosso lado.",
+        conserto:
+          "A Evolution entregou um `messages.upsert` e nenhuma conversa nasceu. O corpo cru está guardado; "
+          + "o motivo mais provável é o identificador do contato vir num formato que ainda não sabemos ler.",
+      });
+      return achados;
+    }
+
     achados.push({
       nivel: "ok",
       titulo: "A configuração está certa.",
@@ -125,13 +146,17 @@ export function acharProblemas(d: EntradaDiagnostico): Achado[] {
           + "então URL e token funcionam. Mande uma mensagem de teste pra este número e ela deve aparecer na caixa."
         : "Ainda não chegou evento nenhum desta instância. Mande uma mensagem de teste pra este número e volte aqui.",
     });
-    if (d.conversas === 0 && entregou) {
+
+    // Só quando a caixa está VAZIA. Com conversa já existente, o caminho
+    // inteiro já se provou uma vez, e apontar a sessão seria alarme falso.
+    if (entregou && !chegouMensagem && d.conversas === 0) {
       achados.push({
         nivel: "alerta",
-        titulo: "Configuração certa e mesmo assim a caixa está vazia.",
+        titulo: "A Evolution fala com a gente, mas nunca sobre mensagem.",
         conserto:
-          "Se depois de uma mensagem de teste ela continuar vazia, o problema não é configuração e sim entrega — "
-          + "o próximo passo é olhar o que a Evolution mandou (a tela guarda o corpo cru dos eventos).",
+          "Ela já entregou outros eventos nesta mesma URL, e nenhum `messages.upsert` — com a lista de eventos certa, "
+          + "isso aponta pra sessão desta instância: ela figura como conectada mas não está recebendo do WhatsApp. "
+          + "O caminho é desconectar e ler o QR de novo.",
       });
     }
   }
