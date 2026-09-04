@@ -107,6 +107,20 @@ Deno.serve(async (req: Request) => {
   const instancia = corpo?.instance ?? corpo?.instanceName ?? "desconhecida";
   const evento = String(corpo?.event ?? "").toLowerCase();
 
+  // TUDO QUE NÃO É MENSAGEM NOVA VIRA LINHA NUMA TABELA, com o corpo cru.
+  //
+  // Não é log de depuração esquecido: é o único instrumento que eu controlo.
+  // O log da função só mostrou boot e shutdown, então "não tem log" não
+  // distingue "o evento não chegou" de "o log não foi capturado" — e inferir
+  // de uma ausência que eu não controlo é exatamente como eu errei o
+  // diagnóstico da planilha. A tabela guarda 200 linhas e se apara sozinha.
+  if (!evento.startsWith("messages.upsert")) {
+    const { error } = await sb.from("wa_eventos").insert({
+      instancia, evento, corpo: corpo?.data ?? corpo ?? null,
+    });
+    if (error) console.error("[wa-webhook] wa_eventos:", error.message);
+  }
+
   // ── PRESENÇA: online, digitando, gravando ──
   //
   // Vem noutro evento, com formato próprio. Nem todo contato manda: quem
