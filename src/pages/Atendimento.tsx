@@ -37,7 +37,7 @@ import {
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
-  Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck,
+  Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -51,7 +51,8 @@ import {
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
-  usePresencaDaConversa, useInvalidarWa,
+  usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
+  reaplicarWebhook, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
@@ -142,6 +143,12 @@ export default function AtendimentoPage() {
      sem fim, e a pessoa perde de vista em qual base estava trabalhando. */
   const [baseAberta, setBaseAberta] = useState<string | null>(null);
   const [desligando, setDesligando] = useState<Fonte | null>(null);
+  const [conexaoAberta, setConexaoAberta] = useState(false);
+  const [nomeNovaInst, setNomeNovaInst] = useState("");
+  const [qr, setQr] = useState<string | null>(null);
+  const [instConectando, setInstConectando] = useState<string | null>(null);
+  const [passoConexao, setPassoConexao] = useState<"nome" | "qr" | "pronto">("nome");
+  const [conectando, setConectando] = useState(false);
   /* Colunas: as disponíveis vêm da planilha; as escolhidas guardam a ORDEM,
      que é o que decide a ordem das linhas no cartão do lead. */
   const [colunasDisponiveis, setColunasDisponiveis] = useState<string[] | null>(null);
@@ -423,6 +430,87 @@ export default function AtendimentoPage() {
       setSalvandoTask(false);
     }
   };
+
+  /* ── LIGAR UM NÚMERO NOVO ──
+     Três passos numa tela só: nomear, apontar a câmera, esperar conectar. O
+     quarto passo — apontar o webhook pra cá com a lista certa de eventos —
+     acontece sozinho na criação, porque é o único que quebra em silêncio:
+     instância conectada com webhook errado mostra "conectado" no painel e não
+     entrega mensagem nenhuma. */
+  const abrirConexao = () => {
+    setNomeNovaInst("");
+    setQr(null);
+    setInstConectando(null);
+    setPassoConexao("nome");
+    setConexaoAberta(true);
+  };
+
+  /* O número que já existe foi criado à mão no painel, e a lista de eventos
+     dele é o que alguém marcou naquele dia. Aqui ela passa a ser a que este
+     código diz — que é o caminho pra descobrir se a presença não chega por
+     configuração ou por outro motivo. */
+  const reconfigurarEventos = async () => {
+    try {
+      const r = await reaplicarWebhook(instancia.nome);
+      toast.success(`Eventos reconfigurados em ${instancia.nome}.`, {
+        description: (r as { eventos?: string[] }).eventos?.join(", "),
+        duration: 10_000,
+      });
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 12_000 });
+    }
+  };
+
+  const criarNumero = async () => {
+    const nome = nomeNovaInst.trim();
+    if (!nome) { toast.error("Dê um nome pra essa instância."); return; }
+    setConectando(true);
+    try {
+      const r = await criarInstancia(nome);
+      setInstConectando(r.instancia);
+      setQr(r.qr ?? null);
+      setPassoConexao("qr");
+      if (r.aviso) toast.warning(r.aviso, { duration: 12_000 });
+      if (!r.qr) toast.info("A instância foi criada, mas o QR não veio. Use o botão de gerar outro.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setConectando(false);
+    }
+  };
+
+  const novoQr = async () => {
+    if (!instConectando) return;
+    setConectando(true);
+    try {
+      const r = await qrDaInstancia(instConectando);
+      setQr(r.qr ?? null);
+      if (!r.qr) toast.info("A Evolution não devolveu QR — talvez já esteja conectada.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setConectando(false);
+    }
+  };
+
+  /* Enquanto o QR está na tela, perguntamos a cada 3s se já conectou. O QR do
+     WhatsApp expira em menos de um minuto, então saber na hora é a diferença
+     entre "pronto" e "por que não funcionou". */
+  useEffect(() => {
+    if (passoConexao !== "qr" || !instConectando) return;
+    let vivo = true;
+    const id = setInterval(async () => {
+      try {
+        const r = await estadoDaInstancia(instConectando);
+        if (!vivo) return;
+        if (r.estado === "conectado") {
+          setPassoConexao("pronto");
+          invalidarWa();
+        }
+      } catch { /* tentar de novo no próximo tique */ }
+    }, 3_000);
+    return () => { vivo = false; clearInterval(id); };
+  }, [passoConexao, instConectando, invalidarWa]);
 
   /* ── A PLANILHA DA LANDING ──
      O link inteiro serve como entrada: ninguém decora que o id da planilha é o
@@ -782,6 +870,8 @@ export default function AtendimentoPage() {
             instancia={cartaoDaInstancia}
             todas={instancias}
             onTrocar={setInstanciaId}
+            onConectar={abrirConexao}
+            onReaplicar={reconfigurarEventos}
           />
 
           {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
@@ -1741,6 +1831,104 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── CONECTAR UM NÚMERO ── */}
+      <Dialog open={conexaoAberta} onOpenChange={(a) => { if (!conectando) setConexaoAberta(a); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Smartphone className="h-4 w-4" /> Conectar um número
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {passoConexao === "nome" && "Dê um nome pra esse número — é como ele vai aparecer aqui na caixa."}
+              {passoConexao === "qr" && "No celular: WhatsApp → Aparelhos conectados → Conectar aparelho."}
+              {passoConexao === "pronto" && "Pronto. As mensagens desse número já entram na caixa."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {passoConexao === "nome" && (
+            <div className="flex flex-col gap-3">
+              <Input
+                autoFocus value={nomeNovaInst}
+                onChange={(e) => setNomeNovaInst(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); criarNumero(); } }}
+                placeholder="Escritório, PDA 2, Comercial…"
+                className="h-9 text-[13px]" />
+              <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+                O sistema já aponta o webhook desse número pra cá com os eventos certos — é o
+                passo que costuma ser esquecido, e sem ele o número aparece conectado sem
+                entregar mensagem nenhuma.
+              </p>
+            </div>
+          )}
+
+          {passoConexao === "qr" && (
+            <div className="flex flex-col items-center gap-3">
+              {/* Fundo branco atrás do QR: câmera não lê código escuro, e num
+                  tema escuro é exatamente isso que ele vira. */}
+              {qr ? (
+                <div className="rounded-xl bg-white p-3">
+                  <img src={qr} alt="QR code para conectar o WhatsApp" className="h-52 w-52" />
+                </div>
+              ) : (
+                <div className="h-52 w-52 rounded-xl bg-white/[0.05] grid place-items-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" /> esperando você apontar a câmera…
+              </p>
+              <Button variant="outline" size="sm" className="h-7 text-[11px]"
+                onClick={novoQr} disabled={conectando}>
+                <RefreshCw className={cn("h-3 w-3 mr-1.5", conectando && "animate-spin")} /> Gerar outro QR
+              </Button>
+              <p className="text-[10px] text-muted-foreground/60 text-center leading-snug">
+                O QR do WhatsApp expira em menos de um minuto. Se demorar, gere outro.
+              </p>
+            </div>
+          )}
+
+          {passoConexao === "pronto" && (
+            <div className="flex flex-col items-center gap-2 py-4">
+              <span className="h-11 w-11 rounded-full grid place-items-center bg-sky-400/12 text-sky-300 ring-1 ring-sky-400/25">
+                <Check className="h-5 w-5" />
+              </span>
+              <p className="text-[13px] font-medium">{instConectando} conectado</p>
+              <p className="text-[11.5px] text-muted-foreground text-center leading-snug">
+                Ele já aparece no seletor de instâncias, com o webhook apontado pra cá.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            {passoConexao === "nome" && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setConexaoAberta(false)} disabled={conectando}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={criarNumero} disabled={conectando || !nomeNovaInst.trim()}>
+                  {conectando
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Criando…</>
+                    : <>Gerar QR <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
+                </Button>
+              </>
+            )}
+            {passoConexao === "qr" && (
+              <Button variant="ghost" size="sm" onClick={() => setConexaoAberta(false)}>
+                Fecho depois
+              </Button>
+            )}
+            {passoConexao === "pronto" && (
+              <Button size="sm" onClick={() => {
+                setConexaoAberta(false);
+                if (instConectando) setInstanciaId(instConectando);
+              }}>
+                Abrir esse número <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── LIGAR UMA PLANILHA ── */}
       <Dialog open={fonteAberta} onOpenChange={(a) => { if (!salvandoFonte) setFonteAberta(a); }}>
         <DialogContent className="max-w-md [&>*]:min-w-0">
@@ -2453,8 +2641,11 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, onTrocar }: {
-  instancia: Instancia; todas: Instancia[]; onTrocar: (id: string) => void;
+function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar }: {
+  instancia: Instancia; todas: Instancia[];
+  onTrocar: (id: string) => void;
+  onConectar: () => void;
+  onReaplicar: () => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
@@ -2530,12 +2721,22 @@ function CardInstancia({ instancia, todas, onTrocar }: {
               );
             })}
           </div>
-          {/* Onde entra o terceiro número. Fica visível e desligado pra dizer
-              que a lista cresce — é justamente por isso que não é segmentado. */}
-          <button disabled
-            className="mt-1 w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground/50 cursor-not-allowed border-t border-white/[0.06] pt-2">
-            <Plus className="h-3.5 w-3.5 shrink-0" /> Conectar outro número
-          </button>
+          <div className="mt-1 border-t border-white/[0.06] pt-1.5 flex flex-col gap-0.5">
+            <button
+              onClick={() => { setAberto(false); onConectar(); }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+              <Plus className="h-3.5 w-3.5 shrink-0" /> Conectar outro número
+            </button>
+            {/* Reapontar o webhook de um número que já existe. Ele foi criado à
+                mão no painel da Evolution, e a lista de eventos dele é o que
+                alguém marcou naquele dia — não o que este sistema precisa.
+                Aqui a lista passa a ser a do código. */}
+            <button
+              onClick={() => { setAberto(false); onReaplicar(); }}
+              className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+              <RefreshCw className="h-3.5 w-3.5 shrink-0" /> Reconfigurar eventos de {instancia.nome}
+            </button>
+          </div>
         </PopoverContent>
       </Popover>
     </SpotlightCard>

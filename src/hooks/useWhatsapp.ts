@@ -273,6 +273,25 @@ export async function enviarArquivo(args: {
   });
 }
 
+/* ── LIGAR UM NÚMERO NOVO ──
+   Uma função só, com ações, porque as quatro chamadas são passos da MESMA
+   conversa com a Evolution: criar, mostrar o QR, perguntar se já conectou,
+   e (o passo que ninguém lembra) apontar o webhook. Separadas em quatro
+   funções, a quarta seria a que alguém esqueceria de chamar — e é justamente a
+   que quebra em silêncio. */
+async function pedirConexao(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("wa-conectar", { body });
+  if (error) throw new Error(error.message);
+  if (!data || data.ok === false) throw new Error(String(data?.error || "Falhou"));
+  return data as { ok: true; instancia: string; qr?: string | null; estado?: string; aviso?: string | null };
+}
+
+export const criarInstancia = (nome: string) => pedirConexao({ acao: "criar", instancia: nome });
+export const qrDaInstancia = (nome: string) => pedirConexao({ acao: "qr", instancia: nome });
+export const estadoDaInstancia = (nome: string) => pedirConexao({ acao: "estado", instancia: nome });
+export const reaplicarWebhook = (nome: string) => pedirConexao({ acao: "webhook", instancia: nome });
+export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desconectar", instancia: nome });
+
 export function useInvalidarWa() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["wa"] });
