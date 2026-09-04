@@ -108,6 +108,16 @@ const CHIPS_ETAPA: { chave: "todos" | Estagio; rotulo: string }[] = [
   ...ESTAGIOS.map((e) => ({ chave: e.chave, rotulo: e.rotulo })),
 ];
 
+/* Espaço-reservado pra quando não há conversa nenhuma. Não aparece na tela:
+   existe pra `lead` nunca ser undefined enquanto a caixa está vazia. */
+const LEAD_VAZIO: Lead = {
+  id: "", nome: "", telefone: "", origem: "pda", estagio: "chegou",
+  ultimaFoi: "nos", horasSemResposta: 0, ultimaHora: "", naoLidas: 0,
+  temProximaAcao: false, diasParado: 0, followUpsFeitos: 0, chegouEm: HOJE,
+  dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
+  conversa: [],
+};
+
 export default function AtendimentoPage() {
   const [aba, setAba] = useState<"atendimento" | "funil">("atendimento");
   const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
@@ -189,7 +199,15 @@ export default function AtendimentoPage() {
      conversa" enquanto o número não foi conectado. O selo do cabeçalho diz em
      qual dos dois modos ela está. */
   const { data: conversas = [] } = useConversas(instancia.nome);
-  const aoVivo = conversas.length > 0;
+  /* AO VIVO É TER NÚMERO REGISTRADO — não é ter conversa.
+     Antes era `conversas.length > 0`, e isso fazia um WhatsApp de verdade,
+     conectado e configurado, mostrar as conversas INVENTADAS da maquete
+     enquanto ninguém tivesse escrito. Caixa vazia é um estado legítimo de um
+     número novo; encher a tela de gente que não existe pra disfarçar é o tipo
+     de mentira que faz alguém abrir uma conversa e não entender por que o
+     telefone não bate. A maquete volta a ser só o que ela sempre foi: o que
+     se vê quando NENHUM número está ligado. */
+  const aoVivo = instRows.length > 0;
 
   /* As bases são lidas cedo porque a etiqueta do cartão precisa do NOME delas:
      a conversa guarda o id da base, e id na tela é ruído. Inclui as desligadas
@@ -326,7 +344,12 @@ export default function AtendimentoPage() {
   }, [brutosNovos, busca]);
   const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
 
-  const lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0];
+  /* Sem conversa nenhuma, `lead` viraria undefined e a tela quebraria em vinte
+     lugares que leem `lead.` — inclusive dentro de diálogos fechados, cujo
+     conteúdo é montado junto com o resto. O lead vazio segura isso, e
+     `semConversas` é quem decide o que aparece. */
+  const semConversas = aoVivo && leadsBase.length === 0;
+  const lead: Lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0] ?? LEAD_VAZIO;
   const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
 
   /* AS TASKS DO DIA ESCOLHIDO.
@@ -1320,6 +1343,44 @@ export default function AtendimentoPage() {
               )}
             </SpotlightCard>
 
+            {semConversas ? (
+              /* CAIXA VAZIA DE VERDADE, e não maquete disfarçando.
+                 Número novo começa sem conversa: o sistema só conhece quem
+                 escreve daqui pra frente. Dizer isso, com os dois caminhos pra
+                 sair do zero, vale mais que uma tela cheia de gente que não
+                 existe. */
+              <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+                <div className="flex-1 grid place-items-center p-8">
+                  <div className="max-w-sm text-center flex flex-col items-center gap-3">
+                    <span className="h-12 w-12 rounded-full grid place-items-center bg-white/[0.05] ring-1 ring-white/10">
+                      <Inbox className="h-5 w-5 text-muted-foreground" />
+                    </span>
+                    <div>
+                      <p className="text-[14px] font-medium">Nenhuma conversa em {instancia.nome}</p>
+                      <p className="text-[12px] text-muted-foreground leading-snug mt-1">
+                        {instancia.status === "conectado"
+                          ? "O número está conectado. As conversas aparecem aqui assim que alguém escrever — o sistema só conhece quem passa por ele daqui pra frente."
+                          : "Esse número está desconectado na Evolution. Enquanto ele estiver fora, nenhuma mensagem chega."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                      <Button size="sm" variant="outline" className="h-8 text-[11.5px]"
+                        onClick={importarDoAparelho}>
+                        <Inbox className="h-3.5 w-3.5 mr-1.5" /> Trazer conversas do aparelho
+                      </Button>
+                      <Button size="sm" className="h-8 text-[11.5px]" onClick={() => setNovaAberta(true)}>
+                        <Plus className="h-3.5 w-3.5 mr-1.5" /> Começar uma conversa
+                      </Button>
+                    </div>
+                    <p className="text-[10.5px] text-muted-foreground/60 leading-snug mt-1">
+                      Trazer do aparelho traz a LISTA de quem já conversa com esse número — não o
+                      histórico. O WhatsApp não entrega mensagem antiga por API.
+                    </p>
+                  </div>
+                </div>
+              </SpotlightCard>
+            ) : (
+              <>
             {/* ═══ conversa — só a conversa ═══ */}
             {/* Três profundidades de propósito: a caixa e as tasks no nível base, a
                 conversa REBAIXADA (é a mesa onde os balões pousam, e escurecer o
@@ -1791,6 +1852,8 @@ export default function AtendimentoPage() {
                 </button>
               )}
             </SpotlightCard>
+              </>
+            )}
           </div>
         </>
       )}
