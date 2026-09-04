@@ -37,6 +37,7 @@ import {
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
+  Columns3, GripVertical,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -55,7 +56,8 @@ import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
-  descartarLead, desativarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
+  descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
+  type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
@@ -137,6 +139,12 @@ export default function AtendimentoPage() {
      sem fim, e a pessoa perde de vista em qual base estava trabalhando. */
   const [baseAberta, setBaseAberta] = useState<string | null>(null);
   const [desligando, setDesligando] = useState<Fonte | null>(null);
+  /* Colunas: as disponíveis vêm da planilha; as escolhidas guardam a ORDEM,
+     que é o que decide a ordem das linhas no cartão do lead. */
+  const [colunasDisponiveis, setColunasDisponiveis] = useState<string[] | null>(null);
+  const [colunasEscolhidas, setColunasEscolhidas] = useState<string[]>([]);
+  const [lendoColunas, setLendoColunas] = useState(false);
+  const [colunasDe, setColunasDe] = useState<Fonte | null>(null);
   const [fonteAberta, setFonteAberta] = useState(false);
   const [novaFonteNome, setNovaFonteNome] = useState("");
   const [novaFonteLink, setNovaFonteLink] = useState("");
@@ -395,6 +403,61 @@ export default function AtendimentoPage() {
     return m ? m[1] : t;
   };
 
+  /* LER O CABEÇALHO ANTES DE SALVAR.
+     A escolha de colunas só existe se a pessoa souber quais são — e quem sabe
+     é a planilha. Uma leitura só, na mesma função que lê os leads: se ela
+     consegue trazer as linhas, consegue trazer o cabeçalho. */
+  const puxarColunas = async () => {
+    const planilhaId = idDaPlanilha(novaFonteLink);
+    if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
+    setLendoColunas(true);
+    try {
+      const cols = await lerColunas(planilhaId, novaFonteAba);
+      setColunasDisponiveis(cols);
+      // Nenhuma marcada de saída: marcar tudo faria a escolha virar
+      // desmarcação, e é justamente o excesso que a pessoa quer evitar.
+      setColunasEscolhidas([]);
+      if (cols.length === 0) toast.info("A planilha não tem colunas além do contato.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLendoColunas(false);
+    }
+  };
+
+  /** Marcar/desmarcar preservando a ORDEM em que foram marcadas. */
+  const alternarColuna = (c: string) => {
+    setColunasEscolhidas((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
+  };
+
+  const abrirColunasDe = async (f: Fonte) => {
+    setColunasDe(f);
+    setColunasEscolhidas(f.colunas_exibidas ?? []);
+    setColunasDisponiveis(null);
+    setLendoColunas(true);
+    try {
+      setColunasDisponiveis(await lerColunas(f.planilha_id, f.aba));
+    } catch (e) {
+      toast.error((e as Error).message);
+      setColunasDe(null);
+    } finally {
+      setLendoColunas(false);
+    }
+  };
+
+  const salvarColunasDaFonte = async () => {
+    const f = colunasDe;
+    if (!f) return;
+    try {
+      await salvarColunas(f.id, colunasEscolhidas);
+      invalidarLeads();
+      setColunasDe(null);
+      toast.success("Colunas atualizadas.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
   const salvarFonte = async () => {
     const planilhaId = idDaPlanilha(novaFonteLink);
     if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
@@ -405,10 +468,12 @@ export default function AtendimentoPage() {
         planilhaId,
         aba: novaFonteAba,
         instancia: instancia.nome,
+        colunas: colunasEscolhidas,
       });
       invalidarLeads();
       setFonteAberta(false);
       setNovaFonteNome(""); setNovaFonteLink(""); setNovaFonteAba("");
+      setColunasDisponiveis(null); setColunasEscolhidas([]);
       toast.success("Planilha ligada. Puxe os leads no ícone de atualizar.");
     } catch (e) {
       toast.error((e as Error).message);
@@ -865,6 +930,11 @@ export default function AtendimentoPage() {
                                       className={cn("h-1.5 w-1.5 rounded-full mr-1 shrink-0",
                                         saudeDaFonte(f).cor,
                                         sincronizando === f.id && "animate-pulse")} />
+                                    <button type="button" title="Colunas que aparecem"
+                                      onClick={() => abrirColunasDe(f)}
+                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                                      <Columns3 className="h-3 w-3" />
+                                    </button>
                                     <button type="button" title="Puxar da planilha"
                                       onClick={() => puxarPlanilha(f)}
                                       disabled={sincronizando === f.id}
@@ -933,14 +1003,39 @@ export default function AtendimentoPage() {
                                           {horaDaLista(b.chegou_em)}
                                         </span>
                                       </span>
-                                      {/* Duas linhas, não uma cortada: a coluna
-                                          alargou pra isto — ver o que a pessoa
-                                          respondeu sem ter que abrir a ficha de
-                                          cada uma pra descobrir se vale falar
-                                          com ela. */}
-                                      <span className="block text-[10.5px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
-                                        {resumoDasRespostas(b.respostas, 150) || resumoDoDossie(b.bruto, 150) || telefoneBonito(b.telefone)}
-                                      </span>
+                                      {/* UMA COLUNA POR LINHA, com o rótulo à
+                                          esquerda. Emendadas com "·" numa
+                                          linha só, o olho tinha que procurar
+                                          onde um campo acabava e o outro
+                                          começava; em coluna, os rótulos se
+                                          alinham e a leitura vira varredura
+                                          vertical — que é como se compara um
+                                          lead com o de baixo. */}
+                                      {(() => {
+                                        const f2 = fontes.find((x) => x.id === b.fonte_id);
+                                        const campos = dossieExtra(b.bruto, f2?.colunas_exibidas);
+                                        if (campos.length === 0) {
+                                          return (
+                                            <span className="block text-[10.5px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
+                                              {resumoDasRespostas(b.respostas, 150) || telefoneBonito(b.telefone)}
+                                            </span>
+                                          );
+                                        }
+                                        return (
+                                          <span className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-[1px] mt-1">
+                                            {campos.slice(0, 5).map((c) => (
+                                              <span key={c.rotulo} className="contents">
+                                                <span className="text-[9.5px] uppercase tracking-wide text-muted-foreground/55 whitespace-nowrap pt-[1px]">
+                                                  {c.rotulo}
+                                                </span>
+                                                <span className="text-[10.5px] text-muted-foreground truncate">
+                                                  {c.valor}
+                                                </span>
+                                              </span>
+                                            ))}
+                                          </span>
+                                        );
+                                      })()}
                                       <span className="flex items-center gap-1 mt-1">
                                         <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
                                           Nunca escreveu
@@ -961,6 +1056,7 @@ export default function AtendimentoPage() {
                                   className="w-[31rem] p-0 overflow-hidden">
                                   <FichaDoLead
                                     lead={b}
+                                    colunas={f.colunas_exibidas}
                                     mensagem={msgAbordagem}
                                     onMensagem={setMsgAbordagem}
                                     ocupado={abordando}
@@ -1479,6 +1575,39 @@ export default function AtendimentoPage() {
         </>
       )}
 
+      {/* ── COLUNAS DE UMA BASE JÁ LIGADA ── */}
+      <Dialog open={!!colunasDe} onOpenChange={(a) => { if (!a) setColunasDe(null); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Columns3 className="h-4 w-4" /> Colunas de {colunasDe?.nome}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              O que aparece no cartão de cada lead, na ordem em que você marcar.
+            </DialogDescription>
+          </DialogHeader>
+
+          {lendoColunas ? (
+            <p className="text-[12px] text-muted-foreground flex items-center gap-2 py-4">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Lendo a planilha…
+            </p>
+          ) : (
+            <SeletorDeColunas
+              disponiveis={colunasDisponiveis ?? []}
+              escolhidas={colunasEscolhidas}
+              onAlternar={alternarColuna}
+            />
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setColunasDe(null)}>Cancelar</Button>
+            <Button size="sm" onClick={salvarColunasDaFonte} disabled={lendoColunas}>
+              Salvar <Check className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── DESLIGAR UMA BASE ──
           A pergunta diz o TAMANHO do que sai da tela (quantos leads, quantos
           já foram abordados) e que dá pra voltar. Sem esse número, "desligar a
@@ -1550,6 +1679,26 @@ export default function AtendimentoPage() {
                   placeholder="Leads" className="h-9 text-[13px]" />
               </label>
             </div>
+            {/* AS COLUNAS QUE VÃO APARECER NA FILA.
+                Nem tudo que a landing pergunta ajuda a abrir a conversa: SCORE
+                diz algo pro marketing, DESCONTOS diz o que escrever. Escolher
+                aqui evita que o cartão do lead vire despejo de planilha — e
+                escolher POR MIM seria adivinhar qual metade importa. */}
+            {colunasDisponiveis === null ? (
+              <Button variant="outline" size="sm" className="h-8 text-[11.5px]"
+                onClick={puxarColunas} disabled={lendoColunas || !novaFonteLink.trim()}>
+                {lendoColunas
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Lendo a planilha…</>
+                  : <><Columns3 className="h-3.5 w-3.5 mr-1.5" /> Escolher colunas</>}
+              </Button>
+            ) : (
+              <SeletorDeColunas
+                disponiveis={colunasDisponiveis}
+                escolhidas={colunasEscolhidas}
+                onAlternar={alternarColuna}
+              />
+            )}
+
             <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
               A planilha precisa estar compartilhada com a conta de serviço do sistema (a mesma do
               Drive). Se não estiver, o erro ao puxar diz o e-mail exato pra compartilhar.
@@ -1757,6 +1906,59 @@ export default function AtendimentoPage() {
   );
 }
 
+/* ── ESCOLHER AS COLUNAS ─────────────────────────────────────────────────
+   Lista de marcar, com o NÚMERO da ordem em vez de um check: a ordem é o que
+   decide a sequência das linhas no cartão do lead, e um check idêntico em
+   todas esconderia justamente isso. Marcar de novo desmarca e as outras se
+   renumeram sozinhas. */
+function SeletorDeColunas({ disponiveis, escolhidas, onAlternar }: {
+  disponiveis: string[];
+  escolhidas: string[];
+  onAlternar: (c: string) => void;
+}) {
+  if (disponiveis.length === 0) {
+    return (
+      <p className="text-[11.5px] text-muted-foreground/70 py-2">
+        Essa planilha não tem colunas além do contato — o cartão vai mostrar só nome e telefone.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[11px] text-muted-foreground">
+        Colunas no cartão do lead
+        {escolhidas.length > 0 && <span className="opacity-60"> · {escolhidas.length} marcada{escolhidas.length === 1 ? "" : "s"}</span>}
+      </p>
+      <div className="flex flex-col gap-1 max-h-[42vh] overflow-y-auto scrollbar-thin pr-0.5">
+        {disponiveis.map((c) => {
+          const i = escolhidas.indexOf(c);
+          const marcada = i >= 0;
+          return (
+            <button key={c} type="button" onClick={() => onAlternar(c)}
+              className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ring-1 transition-colors",
+                marcada
+                  ? "bg-primary/10 ring-primary/25"
+                  : "bg-white/[0.03] ring-white/[0.07] hover:bg-white/[0.06]")}>
+              <span className={cn("h-4.5 w-4.5 shrink-0 rounded grid place-items-center text-[9.5px] font-semibold tabular-nums ring-1",
+                marcada
+                  ? "bg-primary/20 text-primary ring-primary/30"
+                  : "bg-white/[0.04] text-muted-foreground/50 ring-white/[0.08]")}>
+                {marcada ? i + 1 : ""}
+              </span>
+              <span className={cn("text-[12px] truncate", marcada ? "text-foreground" : "text-muted-foreground")}>
+                {c}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-muted-foreground/60 leading-snug">
+        Sem nenhuma marcada, o cartão mostra tudo que a planilha trouxe.
+      </p>
+    </div>
+  );
+}
+
 /* ── A FICHA DO LEAD DA BASE ──────────────────────────────────────────────
    O que ela precisa responder, nessa ordem: quem é (nome), como falar com ele
    (número, copiável), o que ele já contou (as respostas da landing) e o que
@@ -1766,8 +1968,10 @@ export default function AtendimentoPage() {
    As respostas ficam VISÍVEIS enquanto se escreve: é a diferença entre "Olá,
    tudo bem?" e uma primeira mensagem que já cita o desconto que a pessoa
    marcou. */
-function FichaDoLead({ lead, mensagem, onMensagem, ocupado, onCopiar, onEnviar, onSoAbrir, onDescartar }: {
+function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, onEnviar, onSoAbrir, onDescartar }: {
   lead: LeadBruto;
+  /** as colunas escolhidas na base; nulo = todas */
+  colunas: string[] | null;
   mensagem: string;
   onMensagem: (v: string) => void;
   ocupado: boolean;
@@ -1777,7 +1981,7 @@ function FichaDoLead({ lead, mensagem, onMensagem, ocupado, onCopiar, onEnviar, 
   onDescartar: () => void;
 }) {
   const nome = lead.nome?.trim() || telefoneBonito(lead.telefone);
-  const extras = dossieExtra(lead.bruto);
+  const extras = dossieExtra(lead.bruto, colunas);
   return (
     <div className="flex flex-col max-h-[70vh]">
       <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.07] flex items-start gap-3">

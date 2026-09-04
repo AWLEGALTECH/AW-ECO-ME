@@ -12,7 +12,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { lerPlanilha } from "@/lib/planilhaLeads";
+import { lerPlanilha, colunasEscolhiveis } from "@/lib/planilhaLeads";
 import { csvParaPlanilha } from "@/lib/csv";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
@@ -28,6 +28,8 @@ export interface Fonte {
   ultimo_erro: string | null;
   /** antes disso o lead não conta como novo (base já trabalhada); nulo = tudo conta */
   novos_desde: string | null;
+  /** colunas da planilha que aparecem no cartão, na ordem escolhida; nulo = todas */
+  colunas_exibidas: string[] | null;
 }
 
 export interface LeadBruto {
@@ -54,7 +56,7 @@ export function useFontes(instancia: string | null) {
     enabled: !!instancia,
     queryFn: async (): Promise<Fonte[]> => {
       const { data, error } = await tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas")
         .ilike("instancia", instancia!)
         .eq("ativa", true)
         .order("nome");
@@ -87,6 +89,32 @@ export function useLeadsBrutos(fonteIds: string[]) {
       return (data || []) as LeadBruto[];
     },
   });
+}
+
+/**
+ * Só o cabeçalho da planilha, pra montar a lista de colunas na hora de ligar.
+ *
+ * Usa a mesma função de leitura — se ela consegue ler os leads, consegue ler o
+ * cabeçalho, e um segundo caminho só pra isso seria mais uma coisa pra
+ * discordar da primeira.
+ */
+export async function lerColunas(planilhaId: string, aba?: string | null): Promise<string[]> {
+  const { data, error } = await supabase.functions.invoke("leads-planilha", {
+    body: { planilha_id: planilhaId, aba: aba || null },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || data.ok === false) throw new Error(String(data?.error || "Não consegui ler a planilha"));
+  const cabecalho: string[] = data.csv
+    ? csvParaPlanilha(String(data.csv)).cabecalho
+    : ((data.cabecalho ?? []) as string[]);
+  return colunasEscolhiveis(cabecalho);
+}
+
+export async function salvarColunas(fonteId: string, colunas: string[]) {
+  const { error } = await tabela("leads_fontes")
+    .update({ colunas_exibidas: colunas.length > 0 ? colunas : null })
+    .eq("id", fonteId);
+  if (error) throw new Error(error.message);
 }
 
 export interface ResumoBase {
@@ -130,6 +158,7 @@ export function useResumoBases(ligado: boolean) {
  */
 export async function criarFonte(args: {
   nome: string; planilhaId: string; aba?: string | null; instancia: string;
+  colunas?: string[] | null;
 }) {
   const planilhaId = args.planilhaId.trim();
   const aba = args.aba?.trim() || null;
@@ -145,7 +174,10 @@ export async function criarFonte(args: {
     ?? ((doArquivo || []) as { id: string }[])[0];
   if (jaTem) {
     const { error } = await tabela("leads_fontes")
-      .update({ ativa: true, nome: args.nome.trim(), instancia: args.instancia })
+      .update({
+        ativa: true, nome: args.nome.trim(), instancia: args.instancia,
+        ...(args.colunas ? { colunas_exibidas: args.colunas.length > 0 ? args.colunas : null } : {}),
+      })
       .eq("id", jaTem.id);
     if (error) throw new Error(error.message);
     return jaTem.id as string;
@@ -156,6 +188,7 @@ export async function criarFonte(args: {
     planilha_id: planilhaId,
     aba,
     instancia: args.instancia,
+    colunas_exibidas: args.colunas && args.colunas.length > 0 ? args.colunas : null,
   }).select("id").single();
   if (error) throw new Error(error.message);
   return data.id as string;

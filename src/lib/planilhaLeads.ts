@@ -189,9 +189,34 @@ const JA_MOSTRADO = [
 
 export interface CampoExtra { rotulo: string; valor: string }
 
-export function dossieExtra(bruto: Record<string, string> | null | undefined): CampoExtra[] {
+/**
+ * Os campos que o cartão do lead mostra.
+ *
+ * Com `escolhidas`, valem só essas e NA ORDEM DELAS — a ordem é a única coisa
+ * que a escolha carrega além do sim/não, e reordenar alfabeticamente jogaria
+ * fora o que a pessoa quer ler primeiro. Sem escolha, mostra tudo que sobrou
+ * depois do que a ficha já exibe em cima (nome, telefone, data, origem).
+ */
+export function dossieExtra(
+  bruto: Record<string, string> | null | undefined,
+  escolhidas?: string[] | null,
+): CampoExtra[] {
+  const dados = bruto ?? {};
+
+  if (escolhidas && escolhidas.length > 0) {
+    const saida: CampoExtra[] = [];
+    for (const rotulo of escolhidas) {
+      // A comparação é pela chave normalizada: a planilha pode ganhar um acento
+      // ou virar caixa alta sem que a escolha de ontem pare de valer.
+      const achado = Object.keys(dados).find((k) => chaveDeColuna(k) === chaveDeColuna(rotulo));
+      const v = achado ? String(dados[achado] ?? "").trim() : "";
+      if (v) saida.push({ rotulo: achado ?? rotulo, valor: v });
+    }
+    return saida;
+  }
+
   const saida: CampoExtra[] = [];
-  for (const [rotulo, valor] of Object.entries(bruto ?? {})) {
+  for (const [rotulo, valor] of Object.entries(dados)) {
     const v = String(valor ?? "").trim();
     if (!v) continue;
     if (JA_MOSTRADO.includes(chaveDeColuna(rotulo))) continue;
@@ -200,9 +225,20 @@ export function dossieExtra(bruto: Record<string, string> | null | undefined): C
   return saida;
 }
 
+/** As colunas que faz sentido oferecer pra escolha (as que a ficha já não mostra). */
+export function colunasEscolhiveis(cabecalho: string[]): string[] {
+  return cabecalho
+    .map((c) => String(c ?? "").trim())
+    .filter((c) => c.length > 0 && !JA_MOSTRADO.includes(chaveDeColuna(c)));
+}
+
 /** A linha de baixo do cartão da fila: os dois primeiros campos que importam. */
-export function resumoDoDossie(bruto: Record<string, string> | null | undefined, limite = 44): string {
-  const campos = dossieExtra(bruto);
+export function resumoDoDossie(
+  bruto: Record<string, string> | null | undefined,
+  limite = 44,
+  escolhidas?: string[] | null,
+): string {
+  const campos = dossieExtra(bruto, escolhidas);
   if (campos.length === 0) return "";
   const t = campos.slice(0, 2).map((c) => `${c.rotulo}: ${c.valor}`).join(" · ");
   return t.length <= limite ? t : t.slice(0, limite - 1).trimEnd() + "…";

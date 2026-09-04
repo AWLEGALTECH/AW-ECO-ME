@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   chaveDeColuna, mapearColunas, dataDaPlanilha, leadDaLinha, lerPlanilha, resumoDasRespostas,
-  dossieExtra, resumoDoDossie,
+  dossieExtra, resumoDoDossie, colunasEscolhiveis,
 } from "./planilhaLeads";
 
 /* O cabeçalho real da planilha da LP (LEADS BANCARIOS): */
@@ -188,5 +188,48 @@ describe("o que a planilha trouxe além do contato", () => {
 
   it("sem campo extra, o resumo é vazio e o cartão cai no telefone", () => {
     expect(resumoDoDossie({})).toBe("");
+  });
+});
+
+describe("escolher quais colunas aparecem", () => {
+  const bruto = {
+    "NOME": "Gilson", "WHATSAPP": "92995072858", "ORIGEM": "LP BRADESCO",
+    "DESCONTOS": "Seguro de vida", "TEMPO DE CONTA": "Mais de 5 anos",
+    "USO DA CONTA": "Só recebo salário", "SCORE": "93,1",
+  };
+
+  it("mostra só as escolhidas", () => {
+    expect(dossieExtra(bruto, ["DESCONTOS", "SCORE"]).map((c) => c.rotulo))
+      .toEqual(["DESCONTOS", "SCORE"]);
+  });
+
+  it("a ordem é a da escolha, não a da planilha nem o alfabeto", () => {
+    // é a única informação que a escolha carrega além do sim/não
+    expect(dossieExtra(bruto, ["SCORE", "DESCONTOS"]).map((c) => c.rotulo))
+      .toEqual(["SCORE", "DESCONTOS"]);
+  });
+
+  it("escolha continua valendo se a planilha mudar o acento ou a caixa", () => {
+    expect(dossieExtra({ "Tempo de Conta": "3 anos" }, ["TEMPO DE CONTA"]))
+      .toEqual([{ rotulo: "Tempo de Conta", valor: "3 anos" }]);
+  });
+
+  it("coluna escolhida que veio vazia não vira linha em branco", () => {
+    expect(dossieExtra({ "SCORE": "  " }, ["SCORE", "DESCONTOS"])).toEqual([]);
+  });
+
+  it("sem escolha, o comportamento de antes continua", () => {
+    expect(dossieExtra(bruto).map((c) => c.rotulo))
+      .toEqual(["DESCONTOS", "TEMPO DE CONTA", "USO DA CONTA", "SCORE"]);
+    expect(dossieExtra(bruto, []).map((c) => c.rotulo)).toHaveLength(4);
+  });
+
+  it("a lista oferecida esconde o que a ficha já mostra em cima", () => {
+    expect(colunasEscolhiveis(["Data/Hora", "Nome", "Telefone", "Origem", "DESCONTOS", "SCORE"]))
+      .toEqual(["DESCONTOS", "SCORE"]);
+  });
+
+  it("coluna sem nome não entra na lista de escolha", () => {
+    expect(colunasEscolhiveis(["DESCONTOS", "  ", ""])).toEqual(["DESCONTOS"]);
   });
 });
