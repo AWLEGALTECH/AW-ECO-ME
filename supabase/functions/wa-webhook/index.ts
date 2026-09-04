@@ -126,6 +126,12 @@ Deno.serve(async (req: Request) => {
     };
     const presenca = mapa[bruta];
     const telP = canonico(String(jidP).replace(/@.*$/, ""));
+    // Presença que não vira nada é anotada com o corpo cru. Nem toda instância
+    // manda no mesmo formato, e sem ver o que chegou a investigação vira
+    // adivinhação — foi assim que eu já errei um diagnóstico nesta integração.
+    if (!presenca || !telP) {
+      console.log("[wa-webhook] presenca sem leitura:", JSON.stringify(d).slice(0, 500));
+    }
     if (presenca && telP) {
       const { error } = await sb.rpc("fn_wa_presenca", {
         p_instancia: instancia, p_telefone: telP, p_presenca: presenca,
@@ -163,9 +169,14 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, status: mexidas });
   }
 
-  // Conexão, chamada, etc. Ignorar em silêncio com 200 — devolver erro faria a
-  // Evolution reentregar pra sempre.
-  if (evento && !evento.includes("messages")) return json({ ok: true, ignorado: evento });
+  // Conexão, chamada, etc. Ignorar com 200 — devolver erro faria a Evolution
+  // reentregar pra sempre. Mas ANOTAR o nome: é a única forma de descobrir que
+  // ela começou a mandar algo que a gente ainda não trata, e o silêncio aqui
+  // seria mais um caso de "a tela não mostra e ninguém sabe por quê".
+  if (evento && !evento.includes("messages")) {
+    console.log("[wa-webhook] evento sem tratamento:", evento);
+    return json({ ok: true, ignorado: evento });
+  }
 
   const gravadas: string[] = [];
 

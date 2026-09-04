@@ -142,6 +142,10 @@ Deno.serve(async (req: Request) => {
       // `id_whatsapp` faz esse eco virar no-op em vez de mensagem repetida.
       id_whatsapp: retorno?.key?.id ?? null,
       direcao: "saida",
+      // Nasce "enviada": a Evolution acabou de aceitar. Sem isso a mensagem
+      // ficava sem vistinho nenhum até o WhatsApp confirmar a entrega — e
+      // "sem confirmação" na tela quer dizer "não saiu", que é o oposto.
+      status: "enviada",
       tipo,
       texto,
       midia_path: midiaPath,
