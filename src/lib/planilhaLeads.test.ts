@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   chaveDeColuna, mapearColunas, dataDaPlanilha, leadDaLinha, lerPlanilha, resumoDasRespostas,
+  dossieExtra, resumoDoDossie,
 } from "./planilhaLeads";
 
 /* O cabeçalho real da planilha da LP (LEADS BANCARIOS): */
@@ -137,5 +138,55 @@ describe("o resumo das respostas", () => {
   });
   it("sem resposta, não escreve nada", () => {
     expect(resumoDasRespostas(null)).toBe("");
+  });
+});
+
+describe("o que a planilha trouxe além do contato", () => {
+  /* cabeçalho REAL da LP Bradesco — ela não tem coluna "Respostas": o que
+     interessa está espalhado em colunas próprias */
+  const bruto = {
+    "Carimbo de data/hora": "04/09/2026 00:22:55",
+    "NOME": "Gilson",
+    "WHATSAPP": "92995072858",
+    "DATA": "04/09/2026",
+    "HORA": "00:22",
+    "ORIGEM": "LP BRADESCO",
+    "DESCONTOS": "Seguro, cesta de serviços",
+    "TEMPO DE CONTA": "Mais de 5 anos",
+    "USO DA CONTA": "Só recebo salário",
+    "APP BRADESCO": "Sim",
+    "SCORE": "8",
+  };
+
+  it("sobram as colunas que a ficha ainda não mostrou", () => {
+    expect(dossieExtra(bruto).map((c) => c.rotulo)).toEqual([
+      "DESCONTOS", "TEMPO DE CONTA", "USO DA CONTA", "APP BRADESCO", "SCORE",
+    ]);
+  });
+
+  it("nome, telefone, data, hora e origem não se repetem", () => {
+    const rotulos = dossieExtra(bruto).map((c) => c.rotulo);
+    for (const r of ["NOME", "WHATSAPP", "DATA", "HORA", "ORIGEM", "Carimbo de data/hora"]) {
+      expect(rotulos).not.toContain(r);
+    }
+  });
+
+  it("coluna vazia não vira linha vazia na ficha", () => {
+    expect(dossieExtra({ "SCORE": "   ", "DESCONTOS": "Seguro" }).map((c) => c.rotulo)).toEqual(["DESCONTOS"]);
+  });
+
+  it("sem nada extra, devolve lista vazia em vez de estourar", () => {
+    expect(dossieExtra(null)).toEqual([]);
+    expect(dossieExtra({})).toEqual([]);
+  });
+
+  it("o resumo do cartão pega os dois primeiros e cabe na linha", () => {
+    const r = resumoDoDossie(bruto, 44);
+    expect(r.startsWith("DESCONTOS:")).toBe(true);
+    expect(r.length).toBeLessThanOrEqual(44);
+  });
+
+  it("sem campo extra, o resumo é vazio e o cartão cai no telefone", () => {
+    expect(resumoDoDossie({})).toBe("");
   });
 });

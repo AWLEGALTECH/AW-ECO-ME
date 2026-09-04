@@ -17,7 +17,8 @@ const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 export interface Anotacao {
   id: string;
   texto: string;
-  autor: string | null;
+  /** id do autor — o nome vem do mapa de profiles, na tela */
+  autorId: string | null;
   quando: string;
 }
 
@@ -26,7 +27,6 @@ interface AnotacaoRow {
   texto: string;
   created_at: string;
   autor_id: string | null;
-  profiles: { nome: string | null } | null;
 }
 
 /** "hoje 15:12", "ontem 09:40", "28/08 17:03" — data curta e hora sempre. */
@@ -46,8 +46,17 @@ export function useAnotacoes(conversaId: string | null, ligado: boolean) {
     queryKey: ["wa", "anotacoes", conversaId],
     enabled: !!conversaId && ligado,
     queryFn: async (): Promise<Anotacao[]> => {
+      /* SEM EMBED DE PROFILES, E ESSE FOI O BUG.
+         `profiles:autor_id(nome)` só funciona se existir uma chave estrangeira
+         de `autor_id` PARA `public.profiles` — e a daqui aponta pra
+         `auth.users`, que é o certo. O PostgREST não consegue resolver o
+         vínculo, a consulta inteira falha, e a lista fica vazia: o Matheus
+         postava, nada aparecia, e parecia que a nota não tinha sido salva.
+         Estava salva — as duas primeiras estão no banco até hoje.
+         O nome do autor vem do mesmo mapa que o resto do sistema já usa
+         (useUserDisplayNames), que lê profiles numa consulta só e em cache. */
       const { data, error } = await tabela("wa_anotacoes")
-        .select("id, texto, created_at, autor_id, profiles:autor_id(nome)")
+        .select("id, texto, created_at, autor_id")
         .eq("conversa_id", conversaId)
         // Mais nova primeiro: o que ficou combinado da última vez é a primeira
         // coisa que alguém procura ao abrir a conversa.
@@ -57,7 +66,7 @@ export function useAnotacoes(conversaId: string | null, ligado: boolean) {
       return ((data || []) as AnotacaoRow[]).map((r) => ({
         id: r.id,
         texto: r.texto,
-        autor: r.profiles?.nome ?? null,
+        autorId: r.autor_id,
         quando: r.created_at,
       }));
     },

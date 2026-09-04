@@ -40,6 +40,10 @@ export interface LeadBruto {
   linha: number | null;
   situacao: "novo" | "abordado" | "descartado";
   conversa_id: string | null;
+  /* A linha inteira da planilha, coluna por coluna. É aqui que mora o que cada
+     landing pergunta do seu jeito — DESCONTOS, TEMPO DE CONTA, SCORE — e é
+     justamente esse conteúdo que decide como abrir a conversa. */
+  bruto: Record<string, string> | null;
 }
 
 export function useFontes(instancia: string | null) {
@@ -65,7 +69,7 @@ export function useLeadsBrutos(fonteIds: string[]) {
     refetchInterval: 60_000,
     queryFn: async (): Promise<LeadBruto[]> => {
       const { data, error } = await tabela("leads_brutos")
-        .select("id, fonte_id, telefone, nome, cidade, respostas, origem_texto, chegou_em, linha, situacao, conversa_id")
+        .select("id, fonte_id, telefone, nome, cidade, respostas, origem_texto, chegou_em, linha, situacao, conversa_id, bruto")
         .in("fonte_id", fonteIds)
         .neq("situacao", "descartado")
         // Mais recente primeiro: lead da landing esfria rápido, e quem chegou

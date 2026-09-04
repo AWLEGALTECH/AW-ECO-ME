@@ -36,7 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
-  UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus,
+  UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Minus,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -52,7 +52,7 @@ import {
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
-import { resumoDasRespostas } from "@/lib/planilhaLeads";
+import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   useFontes, useLeadsBrutos, criarFonte, sincronizarFonte, marcarAbordado,
   descartarLead, apagarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { MidiaMensagem } from "@/components/atendimento/MidiaMensagem";
 import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
+import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -131,6 +132,10 @@ export default function AtendimentoPage() {
   const [postandoNota, setPostandoNota] = useState(false);
   const [etapaAberta, setEtapaAberta] = useState(false);
   const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
+  /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
+     de uma base já ocupa a altura inteira — duas abertas juntas viram rolagem
+     sem fim, e a pessoa perde de vista em qual base estava trabalhando. */
+  const [baseAberta, setBaseAberta] = useState<string | null>(null);
   const [fonteAberta, setFonteAberta] = useState(false);
   const [novaFonteNome, setNovaFonteNome] = useState("");
   const [novaFonteLink, setNovaFonteLink] = useState("");
@@ -150,6 +155,7 @@ export default function AtendimentoPage() {
     () => typeof window === "undefined" || window.innerWidth >= 1280);
 
   const { user } = useAuth();
+  const { display: nomeDoAutor } = useUserDisplayNames();
   /* As instâncias vêm da Evolution (nome, status, número e FOTO do perfil); a
      maquete só assume quando ela não respondeu ainda. */
   const { data: instRows = [] } = useInstancias();
@@ -729,12 +735,18 @@ export default function AtendimentoPage() {
               </div>
 
               {caixa === "base" ? (
+                /* AS BASES VÊM ANTES DOS CONTATOS.
+                   Cada landing é uma base — LP Bradesco, LP concessionárias — e
+                   elas não se misturam: a abordagem de quem veio de uma é
+                   diferente da de quem veio da outra, e a fila só faz sentido
+                   dentro de uma delas. Então a aba abre com a LISTA DE BASES, e
+                   uma se expande por vez. */
                 <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
                   {fontes.length === 0 ? (
                     <div className="px-3 py-8 text-center flex flex-col items-center gap-2">
                       <Table2 className="h-5 w-5 text-muted-foreground/50" />
                       <p className="text-[11.5px] text-muted-foreground leading-snug">
-                        Nenhuma planilha ligada ainda.
+                        Nenhuma base ligada ainda.
                       </p>
                       <Button size="sm" variant="outline" className="h-7 text-[11px]"
                         onClick={() => setFonteAberta(true)}>
@@ -743,117 +755,144 @@ export default function AtendimentoPage() {
                     </div>
                   ) : (
                     <>
-                      {fontes.map((f) => (
-                        <div key={f.id} className="border-b border-white/[0.06] bg-white/[0.02]">
-                          <div className="px-2.5 py-1.5 flex items-center gap-1.5">
-                            <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                            <span className="text-[10.5px] truncate flex-1" title={f.nome}>{f.nome}</span>
-                            <span className="text-[9px] text-muted-foreground/60 shrink-0">
-                              {sincronizando === f.id ? "puxando…"
-                                : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
-                            </span>
-                            <button type="button" title="Puxar da planilha"
-                              onClick={() => puxarPlanilha(f)}
-                              disabled={sincronizando === f.id}
-                              className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
-                              <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
-                            </button>
-                            <button type="button" title="Desligar planilha"
-                              onClick={() => desligarFonte(f)}
-                              className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-
-                          {/* O ERRO FICA NA TELA, NÃO SÓ NO TOAST.
-                              Foi o que faltou: o Matheus ligou a planilha, o
-                              sistema soube exatamente o que estava errado
-                              (a conta de serviço não tinha acesso), gravou isso
-                              no banco — e a tela mostrou uma lista vazia, que é
-                              indistinguível de "não tem ninguém aqui". Toast
-                              some; o motivo de a fila estar vazia não pode. */}
-                          {f.ultimo_erro && (
-                            <div className="px-2.5 pb-2 pt-0.5">
-                              <div className="rounded-md bg-amber-400/10 ring-1 ring-amber-400/25 px-2 py-1.5">
-                                <p className="text-[10px] text-amber-200/90 leading-snug break-words">
-                                  {f.ultimo_erro}
-                                </p>
-                                {emailDaConta(f.ultimo_erro) && (
-                                  <button type="button"
-                                    onClick={() => copiarEmail(emailDaConta(f.ultimo_erro)!)}
-                                    className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[9.5px] bg-amber-400/15 text-amber-200 hover:bg-amber-400/25 transition-colors">
-                                    <Copy className="h-2.5 w-2.5" /> Copiar e-mail
-                                  </button>
+                      {fontes.map((f) => {
+                        const aberta = baseAberta === f.id;
+                        const daBase = brutosVisiveis.filter((b) => b.fonte_id === f.id);
+                        const total = brutosNovos.filter((b) => b.fonte_id === f.id).length;
+                        return (
+                          <div key={f.id} className="border-b border-white/[0.06]">
+                            {/* O NOME É O BOTÃO, e o sinal à esquerda diz o que
+                                o clique faz: + abre, − fecha. Um "v" de seta
+                                diria "tem mais coisa"; o par +/− diz que é uma
+                                gaveta, e gaveta é o que isto é. */}
+                            <div className={cn("px-2.5 py-2 flex items-center gap-1.5 transition-colors",
+                              aberta ? "bg-white/[0.06]" : "bg-white/[0.02] hover:bg-white/[0.04]")}>
+                              <button type="button"
+                                onClick={() => setBaseAberta(aberta ? null : f.id)}
+                                className="flex items-center gap-1.5 min-w-0 flex-1 text-left">
+                                <span className={cn("h-4 w-4 shrink-0 rounded grid place-items-center ring-1 transition-colors",
+                                  aberta
+                                    ? "bg-primary/15 text-primary ring-primary/25"
+                                    : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+                                  {aberta ? <Minus className="h-2.5 w-2.5" /> : <Plus className="h-2.5 w-2.5" />}
+                                </span>
+                                <span className={cn("text-[11.5px] truncate", aberta && "font-medium")}
+                                  title={f.nome}>{f.nome}</span>
+                                {total > 0 && (
+                                  <span className="text-[9.5px] tabular-nums text-muted-foreground/70 shrink-0">
+                                    {total}
+                                  </span>
                                 )}
-                              </div>
+                              </button>
+
+                              <span className="text-[9px] text-muted-foreground/60 shrink-0">
+                                {sincronizando === f.id ? "puxando…"
+                                  : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
+                              </span>
+                              <button type="button" title="Puxar da planilha"
+                                onClick={() => puxarPlanilha(f)}
+                                disabled={sincronizando === f.id}
+                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                                <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
+                              </button>
+                              <button type="button" title="Desligar base"
+                                onClick={() => desligarFonte(f)}
+                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
+                                <X className="h-3 w-3" />
+                              </button>
                             </div>
-                          )}
-                        </div>
-                      ))}
 
-                      {brutosVisiveis.length === 0 ? (
-                        <p className="text-[12px] text-muted-foreground text-center py-8">
-                          Ninguém esperando aqui.
-                        </p>
-                      ) : brutosVisiveis.map((b) => (
-                        <Popover key={b.id}
-                          open={abordar?.id === b.id}
-                          onOpenChange={(a) => { if (!abordando) { if (a) abrirAbordagem(b); else setAbordar(null); } }}>
-                        <PopoverTrigger asChild>
-                        <button
-                          className="w-full text-left px-2.5 py-2 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2 data-[state=open]:bg-white/[0.06]">
-                          <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
-                            {iniciais(b.nome || telefoneBonito(b.telefone))}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-baseline gap-1.5">
-                              <span className="text-[12px] font-medium truncate flex-1">
-                                {b.nome || telefoneBonito(b.telefone)}
-                              </span>
-                              <span className="text-[9.5px] text-muted-foreground shrink-0">
-                                {horaDaLista(b.chegou_em)}
-                              </span>
-                            </span>
-                            <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
-                              {resumoDasRespostas(b.respostas, 44) || telefoneBonito(b.telefone)}
-                            </span>
-                            <span className="flex items-center gap-1 mt-1">
-                              <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
-                                Nunca escreveu
-                              </span>
-                              {b.cidade && (
-                                <span className="text-[9px] text-muted-foreground/70 truncate">{b.cidade}</span>
-                              )}
-                            </span>
-                          </span>
-                        </button>
-                        </PopoverTrigger>
+                            {/* O ERRO FICA NA TELA, NÃO SÓ NO TOAST. Toast some;
+                                o motivo de a fila estar vazia não pode. */}
+                            {f.ultimo_erro && (
+                              <div className="px-2.5 pb-2 pt-0.5">
+                                <div className="rounded-md bg-amber-400/10 ring-1 ring-amber-400/25 px-2 py-1.5">
+                                  <p className="text-[10px] text-amber-200/90 leading-snug break-words">
+                                    {f.ultimo_erro}
+                                  </p>
+                                  {emailDaConta(f.ultimo_erro) && (
+                                    <button type="button"
+                                      onClick={() => copiarEmail(emailDaConta(f.ultimo_erro)!)}
+                                      className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[9.5px] bg-amber-400/15 text-amber-200 hover:bg-amber-400/25 transition-colors">
+                                      <Copy className="h-2.5 w-2.5" /> Copiar e-mail
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
-                        {/* O DOBRO DA LARGURA DA CAIXA (15,5rem → 31rem), e
-                            aberto AO LADO da linha, não no meio da tela: o
-                            gesto é "abrir esse lead", e um modal centralizado
-                            faz a fila desaparecer atrás dele — quem aborda
-                            trabalha a fila em sequência e precisa dela à vista
-                            pra saber quanto falta. */}
-                        <PopoverContent side="right" align="start" sideOffset={8}
-                          className="w-[31rem] p-0 overflow-hidden">
-                          <FichaDoLead
-                            lead={b}
-                            mensagem={msgAbordagem}
-                            onMensagem={setMsgAbordagem}
-                            ocupado={abordando}
-                            onCopiar={() => copiarTexto(telefoneBonito(b.telefone), "Número copiado")}
-                            onEnviar={() => abordarLead(true)}
-                            onSoAbrir={() => abordarLead(false)}
-                            onDescartar={async () => {
-                              setAbordar(null);
-                              try { await descartarLead(b.id); invalidarLeads(); }
-                              catch (e) { toast.error((e as Error).message); }
-                            }}
-                          />
-                        </PopoverContent>
-                        </Popover>
-                      ))}
+                            {aberta && (daBase.length === 0 ? (
+                              <p className="text-[11.5px] text-muted-foreground/70 text-center py-6">
+                                {busca.trim() ? "Ninguém com esse nome aqui." : "Ninguém esperando nessa base."}
+                              </p>
+                            ) : daBase.map((b) => (
+                              <Popover key={b.id}
+                                open={abordar?.id === b.id}
+                                onOpenChange={(a) => { if (!abordando) { if (a) abrirAbordagem(b); else setAbordar(null); } }}>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    className="w-full text-left pl-4 pr-2.5 py-2 border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2 data-[state=open]:bg-white/[0.06]">
+                                    <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
+                                      {iniciais(b.nome || telefoneBonito(b.telefone))}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="flex items-baseline gap-1.5">
+                                        <span className="text-[12px] font-medium truncate flex-1">
+                                          {b.nome || telefoneBonito(b.telefone)}
+                                        </span>
+                                        <span className="text-[9.5px] text-muted-foreground shrink-0">
+                                          {horaDaLista(b.chegou_em)}
+                                        </span>
+                                      </span>
+                                      <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
+                                        {resumoDasRespostas(b.respostas, 44) || resumoDoDossie(b.bruto, 44) || telefoneBonito(b.telefone)}
+                                      </span>
+                                      <span className="flex items-center gap-1 mt-1">
+                                        <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
+                                          Nunca escreveu
+                                        </span>
+                                        {b.cidade && (
+                                          <span className="text-[9px] text-muted-foreground/70 truncate">{b.cidade}</span>
+                                        )}
+                                      </span>
+                                    </span>
+                                  </button>
+                                </PopoverTrigger>
+
+                                {/* O DOBRO DA LARGURA DA CAIXA (15,5rem → 31rem),
+                                    e ao LADO da linha: um modal centralizado faz
+                                    a fila sumir atrás dele, e quem prospecta
+                                    trabalha a fila em sequência. */}
+                                <PopoverContent side="right" align="start" sideOffset={8}
+                                  className="w-[31rem] p-0 overflow-hidden">
+                                  <FichaDoLead
+                                    lead={b}
+                                    mensagem={msgAbordagem}
+                                    onMensagem={setMsgAbordagem}
+                                    ocupado={abordando}
+                                    onCopiar={() => copiarTexto(telefoneBonito(b.telefone), "Número copiado")}
+                                    onEnviar={() => abordarLead(true)}
+                                    onSoAbrir={() => abordarLead(false)}
+                                    onDescartar={async () => {
+                                      setAbordar(null);
+                                      try { await descartarLead(b.id); invalidarLeads(); }
+                                      catch (e) { toast.error((e as Error).message); }
+                                    }}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            )))}
+                          </div>
+                        );
+                      })}
+
+                      {/* Adicionar outra base fica no FIM da lista, e não no
+                          cabeçalho: é o gesto mais raro desta coluna, e no topo
+                          ele ficaria do lado do que se faz todo dia. */}
+                      <button type="button" onClick={() => setFonteAberta(true)}
+                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/[0.04] transition-colors">
+                        <Plus className="h-3.5 w-3.5" /> Adicionar base
+                      </button>
                     </>
                   )}
                 </div>
@@ -1153,7 +1192,7 @@ export default function AtendimentoPage() {
                       <div key={n.id} className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2">
                         <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{n.texto}</p>
                         <p className="text-[9.5px] text-muted-foreground/60 mt-1">
-                          {n.autor ?? "alguém"} · {quandoDaNota(n.quando)}
+                          {n.autorId ? nomeDoAutor({ id: n.autorId }) : "alguém"} · {quandoDaNota(n.quando)}
                         </p>
                       </div>
                     ))}
@@ -1591,6 +1630,7 @@ function FichaDoLead({ lead, mensagem, onMensagem, ocupado, onCopiar, onEnviar, 
   onDescartar: () => void;
 }) {
   const nome = lead.nome?.trim() || telefoneBonito(lead.telefone);
+  const extras = dossieExtra(lead.bruto);
   return (
     <div className="flex flex-col max-h-[70vh]">
       <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.07] flex items-start gap-3">
@@ -1613,19 +1653,38 @@ function FichaDoLead({ lead, mensagem, onMensagem, ocupado, onCopiar, onEnviar, 
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-3">
-        {lead.respostas ? (
+        {/* CADA LANDING PERGUNTA DO SEU JEITO. Uma junta tudo numa coluna
+            "Respostas"; a do Bradesco espalha em DESCONTOS, TEMPO DE CONTA,
+            USO DA CONTA, SCORE. Em vez de escolher um formato e ignorar o
+            outro, a ficha mostra o que existir — as colunas que o leitor não
+            soube nomear já vêm guardadas inteiras. */}
+        {(lead.respostas || extras.length > 0) ? (
           <div className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2">
-            <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1">
+            <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1.5">
               O que respondeu na landing
             </p>
-            <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{lead.respostas}</p>
+            {lead.respostas && (
+              <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{lead.respostas}</p>
+            )}
+            {extras.length > 0 && (
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                {extras.map((c) => (
+                  <div key={c.rotulo} className="contents">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60 whitespace-nowrap pt-[1px]">
+                      {c.rotulo}
+                    </span>
+                    <span className="text-[11.5px] leading-snug break-words">{c.valor}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {lead.origem_texto && (
               <p className="text-[10px] text-muted-foreground/60 mt-1.5">{lead.origem_texto}</p>
             )}
           </div>
         ) : (
           <p className="text-[11.5px] text-muted-foreground/70">
-            A planilha não trouxe respostas — só o contato.
+            A planilha não trouxe nada além do contato.
           </p>
         )}
 

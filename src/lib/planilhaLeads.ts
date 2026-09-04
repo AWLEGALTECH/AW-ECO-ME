@@ -168,3 +168,42 @@ export function resumoDasRespostas(respostas: string | null, limite = 90): strin
   if (t.length <= limite) return t;
   return t.slice(0, limite - 1).trimEnd() + "…";
 }
+
+/* ── O QUE A PLANILHA TROUXE ALÉM DO CONTATO ──────────────────────────────
+   Cada landing pergunta o que quer. A do Bradesco pergunta DESCONTOS, TEMPO DE
+   CONTA, USO DA CONTA, APP BRADESCO e SCORE; a de descontos bancários junta
+   tudo numa coluna "Respostas". Não dá pra escolher um formato e exigir que as
+   outras se encaixem — e não precisa: as colunas que eu não sei nomear já vêm
+   inteiras no `bruto`, e é justamente esse conteúdo que decide como abrir a
+   conversa. Aqui elas viram pares rótulo/valor, sem as que a ficha já mostra
+   em cima (nome, telefone, data, origem). */
+
+const JA_MOSTRADO = [
+  "nome", "nome completo", "cliente", "lead",
+  "telefone", "whatsapp", "whatsapp com ddd", "telefone whatsapp", "celular", "fone", "contato",
+  "data hora", "data e hora", "carimbo de data hora", "data", "hora", "timestamp", "criado em",
+  "origem", "funil", "campanha", "fonte",
+  "cidade", "municipio", "cidade uf", "localidade",
+  "respostas",
+];
+
+export interface CampoExtra { rotulo: string; valor: string }
+
+export function dossieExtra(bruto: Record<string, string> | null | undefined): CampoExtra[] {
+  const saida: CampoExtra[] = [];
+  for (const [rotulo, valor] of Object.entries(bruto ?? {})) {
+    const v = String(valor ?? "").trim();
+    if (!v) continue;
+    if (JA_MOSTRADO.includes(chaveDeColuna(rotulo))) continue;
+    saida.push({ rotulo, valor: v });
+  }
+  return saida;
+}
+
+/** A linha de baixo do cartão da fila: os dois primeiros campos que importam. */
+export function resumoDoDossie(bruto: Record<string, string> | null | undefined, limite = 44): string {
+  const campos = dossieExtra(bruto);
+  if (campos.length === 0) return "";
+  const t = campos.slice(0, 2).map((c) => `${c.rotulo}: ${c.valor}`).join(" · ");
+  return t.length <= limite ? t : t.slice(0, limite - 1).trimEnd() + "…";
+}
