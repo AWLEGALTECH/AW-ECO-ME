@@ -55,7 +55,7 @@ import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
-  descartarLead, apagarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
+  descartarLead, desativarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
@@ -136,6 +136,7 @@ export default function AtendimentoPage() {
      de uma base já ocupa a altura inteira — duas abertas juntas viram rolagem
      sem fim, e a pessoa perde de vista em qual base estava trabalhando. */
   const [baseAberta, setBaseAberta] = useState<string | null>(null);
+  const [desligando, setDesligando] = useState<Fonte | null>(null);
   const [fonteAberta, setFonteAberta] = useState(false);
   const [novaFonteNome, setNovaFonteNome] = useState("");
   const [novaFonteLink, setNovaFonteLink] = useState("");
@@ -457,9 +458,23 @@ export default function AtendimentoPage() {
     return { cor: "bg-emerald-400", titulo: `Leitura ok — último puxão ${horaDaLista(f.ultimo_sync)}` };
   };
 
-  const desligarFonte = async (f: Fonte) => {
-    try { await apagarFonte(f.id); invalidarLeads(); toast.success("Planilha desligada."); }
-    catch (e) { toast.error((e as Error).message); }
+  /* DESLIGAR PASSA A PERGUNTAR ANTES.
+     O X ficava do mesmo tamanho do botão de atualizar, a um pixel dele, e
+     apagava a base inteira num clique — foi o que aconteceu. Um gesto que
+     desfaz semanas de trabalho não pode ter o mesmo custo do gesto que se faz
+     dez vezes por dia. */
+  const confirmarDesligar = async () => {
+    const f = desligando;
+    if (!f) return;
+    try {
+      await desativarFonte(f.id);
+      if (baseAberta === f.id) setBaseAberta(null);
+      setDesligando(null);
+      invalidarLeads();
+      toast.success(`${f.nome} desligada. Religar a mesma planilha traz tudo de volta.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   /* PLANILHA LIGADA JÁ NASCE PUXADA.
@@ -856,9 +871,15 @@ export default function AtendimentoPage() {
                                       className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
                                       <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
                                     </button>
+                                    {/* Separado do atualizar e apagado até o
+                                        mouse chegar. A confirmação evita o
+                                        estrago, mas o estrago começou na
+                                        vizinhança: dois botões colados, um que
+                                        se usa dez vezes por dia e outro que
+                                        tira a base da tela. */}
                                     <button type="button" title="Desligar base"
-                                      onClick={() => desligarFonte(f)}
-                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
+                                      onClick={() => setDesligando(f)}
+                                      className="h-5 w-5 ml-1.5 rounded-full grid place-items-center text-muted-foreground/40 hover:text-destructive hover:bg-white/[0.10] transition-colors">
                                       <X className="h-3 w-3" />
                                     </button>
                                   </div>
@@ -1457,6 +1478,44 @@ export default function AtendimentoPage() {
           </div>
         </>
       )}
+
+      {/* ── DESLIGAR UMA BASE ──
+          A pergunta diz o TAMANHO do que sai da tela (quantos leads, quantos
+          já foram abordados) e que dá pra voltar. Sem esse número, "desligar a
+          base?" soa como fechar uma aba; com ele, soa como o que é. */}
+      <Dialog open={!!desligando} onOpenChange={(a) => { if (!a) setDesligando(null); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Database className="h-4 w-4" /> Desligar {desligando?.nome}?
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {(() => {
+                const r = desligando ? resumoBases[desligando.id] : undefined;
+                const total = r?.total ?? 0;
+                const novos = r?.novos ?? 0;
+                return total > 0
+                  ? `${total} lead${total === 1 ? "" : "s"} saem da caixa${novos > 0 ? `, ${novos} deles esperando abordagem` : ""}.`
+                  : "Essa base ainda não tinha leads na caixa.";
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <p className="text-[11.5px] text-muted-foreground/80 leading-snug">
+            Nada é apagado: a planilha continua sendo a dona dos dados, e religar a mesma
+            planilha traz a base de volta com o registro de quem já foi abordado.
+          </p>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setDesligando(null)}>
+              Cancelar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={confirmarDesligar}>
+              Desligar base
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── LIGAR UMA PLANILHA ── */}
       <Dialog open={fonteAberta} onOpenChange={(a) => { if (!salvandoFonte) setFonteAberta(a); }}>

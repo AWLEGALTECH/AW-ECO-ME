@@ -56,6 +56,7 @@ export function useFontes(instancia: string | null) {
       const { data, error } = await tabela("leads_fontes")
         .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde")
         .ilike("instancia", instancia!)
+        .eq("ativa", true)
         .order("nome");
       if (error) throw error;
       return (data || []) as Fonte[];
@@ -119,21 +120,60 @@ export function useResumoBases(ligado: boolean) {
   });
 }
 
+/**
+ * Liga a planilha — ou RELIGA a que já esteve ligada.
+ *
+ * Religar em vez de criar de novo é o que faz o "desligar" ser reversível de
+ * verdade: a base volta com o registro de quem já foi abordado, em vez de
+ * ressuscitar a fila inteira e mandar a atendente falar de novo com quem já
+ * respondeu.
+ */
 export async function criarFonte(args: {
   nome: string; planilhaId: string; aba?: string | null; instancia: string;
 }) {
+  const planilhaId = args.planilhaId.trim();
+  const aba = args.aba?.trim() || null;
+
+  // A comparação de aba é feita aqui, e não na consulta, porque no Postgres
+  // NULL não é igual a NULL: `eq("aba", null)` não acha a fonte sem aba.
+  const { data: doArquivo } = await tabela("leads_fontes")
+    .select("id, aba").eq("planilha_id", planilhaId);
+  const jaTem = ((doArquivo || []) as { id: string; aba: string | null }[])
+    .find((f) => (f.aba ?? null) === aba)
+    // Sem aba igual, vale qualquer fonte da mesma planilha: quem religa está
+    // apontando pro mesmo arquivo, e criar uma segunda duplicaria a fila.
+    ?? ((doArquivo || []) as { id: string }[])[0];
+  if (jaTem) {
+    const { error } = await tabela("leads_fontes")
+      .update({ ativa: true, nome: args.nome.trim(), instancia: args.instancia })
+      .eq("id", jaTem.id);
+    if (error) throw new Error(error.message);
+    return jaTem.id as string;
+  }
+
   const { data, error } = await tabela("leads_fontes").insert({
     nome: args.nome.trim(),
-    planilha_id: args.planilhaId.trim(),
-    aba: args.aba?.trim() || null,
+    planilha_id: planilhaId,
+    aba,
     instancia: args.instancia,
   }).select("id").single();
   if (error) throw new Error(error.message);
   return data.id as string;
 }
 
-export async function apagarFonte(id: string) {
-  const { error } = await tabela("leads_fontes").delete().eq("id", id);
+/**
+ * Desligar NÃO apaga.
+ *
+ * A tabela de leads tem `on delete cascade` na fonte: apagar a linha da
+ * planilha levava junto os 635 leads E o registro de quem já tinha sido
+ * abordado — e foi o que aconteceu num clique sem querer. Um botão que destrói
+ * meses de trabalho não devia ser do mesmo tamanho do que atualiza a lista.
+ *
+ * Agora ele só marca a fonte como inativa: ela some da tela, e religar a mesma
+ * planilha traz tudo de volta como estava.
+ */
+export async function desativarFonte(id: string) {
+  const { error } = await tabela("leads_fontes").update({ ativa: false }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
