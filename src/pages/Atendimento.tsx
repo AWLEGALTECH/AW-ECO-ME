@@ -37,7 +37,7 @@ import {
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
-  Columns3, ArrowUpRight, ArrowDownLeft,
+  Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -54,6 +54,7 @@ import {
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
+import { situacaoDoContato, estaOnline, vistoDaMensagem, rotuloDoStatus } from "@/lib/presencaWa";
 import {
   useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
@@ -910,15 +911,20 @@ export default function AtendimentoPage() {
                                     <span className="block text-[12.5px] font-medium truncate" title={f.nome}>
                                       {f.nome}
                                     </span>
-                                    <span className="flex items-center gap-1.5 mt-1">
+                                    {/* Um número por linha. Lado a lado, "635 na
+                                        base" não cabia junto do selo e quebrava
+                                        no meio ("635 na / base") — número
+                                        partido em duas linhas deixa de ser
+                                        número e vira texto. */}
+                                    <span className="flex flex-col items-start gap-1 mt-1">
                                       <span className={cn(
-                                        "rounded px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ring-1",
+                                        "rounded px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ring-1 whitespace-nowrap",
                                         (r?.novos ?? 0) > 0
                                           ? "bg-primary/15 text-primary ring-primary/25"
                                           : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
                                         {r?.novos ?? 0} novo{(r?.novos ?? 0) === 1 ? "" : "s"}
                                       </span>
-                                      <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                                      <span className="text-[10px] tabular-nums text-muted-foreground/70 whitespace-nowrap">
                                         {r?.total ?? 0} na base
                                       </span>
                                     </span>
@@ -1129,6 +1135,9 @@ export default function AtendimentoPage() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-1.5">
+                          {estaOnline(l.presenca, l.presencaEm) && (
+                            <span title="online agora" className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 self-center" />
+                          )}
                           <span className="text-[12px] font-medium truncate flex-1">{l.nome}</span>
                           <span className="text-[9.5px] text-muted-foreground shrink-0">{l.ultimaHora}</span>
                         </span>
@@ -1180,7 +1189,25 @@ export default function AtendimentoPage() {
                 </span>
                 <div className="min-w-0">
                   <p className="text-[13px] font-semibold truncate leading-tight">{lead.nome}</p>
-                  <p className="text-[10.5px] text-muted-foreground truncate">{lead.telefone}</p>
+                  {/* O QUE ELE ESTÁ FAZENDO AGORA, quando o WhatsApp conta.
+                      Quando não conta — e é o caso da maioria, que esconde o
+                      status — fica só o telefone. A tela NÃO escreve "offline":
+                      ausência de evento é "não sei", e dizer offline seria
+                      inventar um fato sobre uma pessoa real. */}
+                  {(() => {
+                    const sit = situacaoDoContato({
+                      presenca: lead.presenca, presencaEm: lead.presencaEm, vistoEm: lead.vistoEm,
+                    });
+                    if (!sit) return <p className="text-[10.5px] text-muted-foreground truncate">{lead.telefone}</p>;
+                    return (
+                      <p className="text-[10.5px] truncate flex items-center gap-1.5">
+                        {sit.aoVivo && <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 animate-pulse" />}
+                        <span className={sit.aoVivo ? "text-sky-300" : "text-muted-foreground"}>{sit.texto}</span>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="text-muted-foreground truncate">{lead.telefone}</span>
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1257,8 +1284,11 @@ export default function AtendimentoPage() {
                       {msg.texto && (
                         <span className={cn("block", msg.midiaPath && "mt-1.5 px-2")}>{msg.texto}</span>
                       )}
-                      <span className={cn("block text-[9.5px] text-muted-foreground/70 mt-1 text-right tabular-nums",
-                        msg.midiaPath && "px-2 pb-0.5")}>{msg.hora}</span>
+                      <span className={cn("flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground/70 mt-1 tabular-nums",
+                        msg.midiaPath && "px-2 pb-0.5")}>
+                        {msg.hora}
+                        {msg.de === "nos" && <VistoDaMensagem status={msg.status} />}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -1911,6 +1941,28 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/* ── OS VISTINHOS ─────────────────────────────────────────────────────────
+   Um risco: saiu daqui. Dois cinzas: chegou no aparelho dele. Dois azuis: ele
+   abriu. É o vocabulário que todo mundo já sabe ler do próprio WhatsApp, e
+   reproduzi-lo aqui poupa a única explicação que essa informação precisaria.
+
+   SEM CONFIRMAÇÃO, NÃO DESENHA NADA. A tentação é pôr um risco cinza de
+   consolo, mas ele afirmaria "saiu do servidor" sem ninguém ter dito isso — e
+   a diferença entre "não respondeu" e "não recebeu" é justamente o que essa
+   marca existe pra mostrar. */
+function VistoDaMensagem({ status }: { status?: string | null }) {
+  const v = vistoDaMensagem(status);
+  if (!v) return null;
+  return (
+    <span title={rotuloDoStatus(status)}
+      className={cn("inline-flex shrink-0", v.lida ? "text-sky-400" : "text-muted-foreground/60")}>
+      {v.riscos === 1
+        ? <Check className="h-3 w-3" />
+        : <CheckCheck className="h-3 w-3" />}
+    </span>
   );
 }
 

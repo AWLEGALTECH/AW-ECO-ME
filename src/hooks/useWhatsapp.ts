@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, fonte_id, etapa, etapas_puladas, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -126,7 +126,7 @@ export function useMensagens(conversaId: string | null) {
     refetchInterval: 5_000,
     queryFn: async (): Promise<MensagemRow[]> => {
       const { data, error } = await tabela("wa_mensagens")
-        .select("id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, criada_em")
+        .select("id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, criada_em")
         .eq("conversa_id", conversaId)
         .order("criada_em", { ascending: true })
         .limit(300);
@@ -290,6 +290,7 @@ export function conversaParaLead(
       midiaMime: m.midia_mime,
       midiaNome: m.midia_nome,
       duracao: m.duracao,
+      status: m.status,
     });
   }
 
@@ -319,6 +320,9 @@ export function conversaParaLead(
     origemContato: c.origem === "outbound" ? "outbound" : "inbound",
     etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
     base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? null) : null,
+    presenca: c.presenca,
+    presencaEm: c.presenca_em,
+    vistoEm: c.visto_em,
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

@@ -107,8 +107,64 @@ Deno.serve(async (req: Request) => {
   const instancia = corpo?.instance ?? corpo?.instanceName ?? "desconhecida";
   const evento = String(corpo?.event ?? "").toLowerCase();
 
-  // Presença e conexão chegam no mesmo webhook. Ignorar em silêncio com 200 —
-  // devolver erro faria a Evolution reentregar pra sempre.
+  // ── PRESENÇA: online, digitando, gravando ──
+  //
+  // Vem noutro evento, com formato próprio. Nem todo contato manda: quem
+  // esconde o status simplesmente não gera evento — e por isso a ausência
+  // significa "não sei", nunca "está offline". A tela respeita isso.
+  if (evento.startsWith("presence")) {
+    const d = corpo?.data ?? {};
+    const jidP: string = d.id ?? d.remoteJid ?? "";
+    const bruta: string = String(
+      d.presences?.[jidP]?.lastKnownPresence ??
+      Object.values(d.presences ?? {})[0]?.lastKnownPresence ??
+      d.presence ?? "",
+    ).toLowerCase();
+    const mapa: Record<string, string> = {
+      available: "disponivel", unavailable: "indisponivel",
+      composing: "digitando", recording: "gravando",
+    };
+    const presenca = mapa[bruta];
+    const telP = canonico(String(jidP).replace(/@.*$/, ""));
+    if (presenca && telP) {
+      const { error } = await sb.rpc("fn_wa_presenca", {
+        p_instancia: instancia, p_telefone: telP, p_presenca: presenca,
+      });
+      if (error) console.error("[wa-webhook] presenca:", error.message);
+    }
+    return json({ ok: true, presenca: presenca ?? "ignorada" });
+  }
+
+  // ── LEITURA: enviada → entregue → lida ──
+  //
+  // "Ele não respondeu" e "ele não recebeu" se parecem na tela e são problemas
+  // completamente diferentes. O status vem em `messages.update`, um evento
+  // separado do que traz mensagem nova.
+  if (evento === "messages.update" || evento === "messages.edit") {
+    const lista = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];
+    const mapa: Record<string, string> = {
+      SERVER_ACK: "enviada", DELIVERY_ACK: "entregue", READ: "lida", PLAYED: "tocada",
+    };
+    let mexidas = 0;
+    for (const u of lista) {
+      const idWa: string | null = u?.key?.id ?? u?.keyId ?? null;
+      const bruto = String(u?.update?.status ?? u?.status ?? "").toUpperCase();
+      const status = mapa[bruto];
+      if (!idWa || !status) continue;
+      // A função no banco só deixa o status ANDAR PRA FRENTE: a Evolution
+      // reentrega fora de ordem, e um "entregue" atrasado chegando depois do
+      // "lida" faria a mensagem deslerse na cara de quem está olhando.
+      const { error } = await sb.rpc("fn_wa_status_mensagem", {
+        p_id_whatsapp: idWa, p_status: status,
+      });
+      if (error) console.error("[wa-webhook] status:", error.message);
+      else mexidas++;
+    }
+    return json({ ok: true, status: mexidas });
+  }
+
+  // Conexão, chamada, etc. Ignorar em silêncio com 200 — devolver erro faria a
+  // Evolution reentregar pra sempre.
   if (evento && !evento.includes("messages")) return json({ ok: true, ignorado: evento });
 
   const gravadas: string[] = [];
@@ -180,6 +236,10 @@ Deno.serve(async (req: Request) => {
         midia_bytes: midia?.bytes ?? null,
         duracao: midia?.duracao ?? null,
         criada_em: quando,
+        // Nossa mensagem nasce "enviada" — a Evolution aceitou. Os passos
+        // seguintes chegam em `messages.update`. Recebida não tem status: o
+        // que se acompanha é o caminho do que a gente manda.
+        status: fromMe ? "enviada" : null,
         bruto: d,
       })
       .select("id")

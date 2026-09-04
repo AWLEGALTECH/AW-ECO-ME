@@ -31,6 +31,9 @@ export interface ConversaRow {
   cliente_id: string | null;
   origem: string;
   fonte_id: string | null;
+  presenca: string | null;
+  presenca_em: string | null;
+  visto_em: string | null;
   etapa: string;
   etapas_puladas: string[] | null;
   created_at: string;
@@ -46,6 +49,8 @@ export interface MensagemRow {
   midia_mime: string | null;
   midia_nome: string | null;
   duracao: number | null;
+  /** só nas nossas: enviada → entregue → lida → tocada */
+  status: string | null;
   criada_em: string;
 }
 

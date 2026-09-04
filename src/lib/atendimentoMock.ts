@@ -83,6 +83,8 @@ export interface Mensagem {
   midiaMime?: string | null;
   midiaNome?: string | null;
   duracao?: number | null;
+  /** só nas nossas: enviada → entregue → lida → tocada */
+  status?: string | null;
 }
 
 export interface Lead {
@@ -112,6 +114,11 @@ export interface Lead {
   origemContato?: "inbound" | "outbound";
   /** de qual base de leads essa pessoa veio, quando veio de alguma */
   base?: string | null;
+  /* O que o WhatsApp contou sobre ele. Tudo opcional e frequentemente ausente:
+     quem esconde o status não gera evento, e ausência é "não sei". */
+  presenca?: string | null;
+  presencaEm?: string | null;
+  vistoEm?: string | null;
   /** etapas que ficaram pra trás quando alguém pulou direto pra frente */
   etapasPuladas?: Estagio[];
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
