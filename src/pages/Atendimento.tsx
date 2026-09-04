@@ -23,7 +23,7 @@
 // placar, e volta inteira com um clique. A fila em si (ordem de culpa, pontos,
 // cadência de follow-up) mora em src/lib/tasksAtendimento.ts, testada.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ import {
   PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
-  UserPlus, Phone, Clock, Table2, Trash2,
+  UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -55,7 +55,7 @@ import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas } from "@/lib/planilhaLeads";
 import {
   useFontes, useLeadsBrutos, criarFonte, sincronizarFonte, marcarAbordado,
-  descartarLead, useInvalidarLeads, type Fonte, type LeadBruto,
+  descartarLead, apagarFonte, useInvalidarLeads, type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
@@ -417,6 +417,46 @@ export default function AtendimentoPage() {
     }
   };
 
+  /** O e-mail da conta de serviço que o erro cita — pra dar um botão de copiar. */
+  const emailDaConta = (erro: string | null): string | null => {
+    const m = String(erro || "").match(/[\w.+-]+@[\w-]+\.iam\.gserviceaccount\.com/);
+    return m ? m[0] : null;
+  };
+
+  const copiarTexto = async (texto: string, aviso: string) => {
+    try { await navigator.clipboard.writeText(texto); toast.success(aviso); }
+    catch { toast.error("Não consegui copiar."); }
+  };
+  const copiarEmail = (e: string) => copiarTexto(e, "E-mail copiado — compartilhe a planilha com ele.");
+
+  const desligarFonte = async (f: Fonte) => {
+    try { await apagarFonte(f.id); invalidarLeads(); toast.success("Planilha desligada."); }
+    catch (e) { toast.error((e as Error).message); }
+  };
+
+  /* PLANILHA LIGADA JÁ NASCE PUXADA.
+     Ligar a fonte e ver uma lista vazia é indistinguível de "não tem ninguém
+     aqui" — foi exatamente o que aconteceu na primeira vez. Fonte que nunca
+     sincronizou é puxada sozinha ao abrir a tela, uma por vez pra não brigarem
+     pelo mesmo indicador; se der erro, o aviso fica no cabeçalho dela e a
+     próxima abertura tenta de novo (que é o que se quer depois de compartilhar
+     a planilha com a conta de serviço). */
+  const jaTentou = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const pendentes = fontes.filter((f) => f.ativa && !f.ultimo_sync && !jaTentou.current.has(f.id));
+    if (pendentes.length === 0) return;
+    let vivo = true;
+    (async () => {
+      for (const f of pendentes) {
+        if (!vivo) return;
+        jaTentou.current.add(f.id);
+        try { await sincronizarFonte(f); } catch { /* o aviso já foi gravado na fonte */ }
+      }
+      if (vivo) invalidarLeads();
+    })();
+    return () => { vivo = false; };
+  }, [fontes, invalidarLeads]);
+
   const abrirAbordagem = (b: LeadBruto) => {
     setAbordar(b);
     setMsgAbordagem("");
@@ -701,16 +741,50 @@ export default function AtendimentoPage() {
                   ) : (
                     <>
                       {fontes.map((f) => (
-                        <div key={f.id}
-                          className="px-2.5 py-1.5 border-b border-white/[0.06] flex items-center gap-1.5 bg-white/[0.02]">
-                          <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          <span className="text-[10.5px] truncate flex-1" title={f.nome}>{f.nome}</span>
-                          <button type="button" title="Puxar da planilha"
-                            onClick={() => puxarPlanilha(f)}
-                            disabled={sincronizando === f.id}
-                            className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
-                            <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
-                          </button>
+                        <div key={f.id} className="border-b border-white/[0.06] bg-white/[0.02]">
+                          <div className="px-2.5 py-1.5 flex items-center gap-1.5">
+                            <Table2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            <span className="text-[10.5px] truncate flex-1" title={f.nome}>{f.nome}</span>
+                            <span className="text-[9px] text-muted-foreground/60 shrink-0">
+                              {sincronizando === f.id ? "puxando…"
+                                : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
+                            </span>
+                            <button type="button" title="Puxar da planilha"
+                              onClick={() => puxarPlanilha(f)}
+                              disabled={sincronizando === f.id}
+                              className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
+                              <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
+                            </button>
+                            <button type="button" title="Desligar planilha"
+                              onClick={() => desligarFonte(f)}
+                              className="h-5 w-5 shrink-0 rounded-full grid place-items-center text-muted-foreground hover:text-destructive hover:bg-white/[0.10] transition-colors">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+
+                          {/* O ERRO FICA NA TELA, NÃO SÓ NO TOAST.
+                              Foi o que faltou: o Matheus ligou a planilha, o
+                              sistema soube exatamente o que estava errado
+                              (a conta de serviço não tinha acesso), gravou isso
+                              no banco — e a tela mostrou uma lista vazia, que é
+                              indistinguível de "não tem ninguém aqui". Toast
+                              some; o motivo de a fila estar vazia não pode. */}
+                          {f.ultimo_erro && (
+                            <div className="px-2.5 pb-2 pt-0.5">
+                              <div className="rounded-md bg-amber-400/10 ring-1 ring-amber-400/25 px-2 py-1.5">
+                                <p className="text-[10px] text-amber-200/90 leading-snug break-words">
+                                  {f.ultimo_erro}
+                                </p>
+                                {emailDaConta(f.ultimo_erro) && (
+                                  <button type="button"
+                                    onClick={() => copiarEmail(emailDaConta(f.ultimo_erro)!)}
+                                    className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[9.5px] bg-amber-400/15 text-amber-200 hover:bg-amber-400/25 transition-colors">
+                                    <Copy className="h-2.5 w-2.5" /> Copiar e-mail
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
 
@@ -719,8 +793,12 @@ export default function AtendimentoPage() {
                           Ninguém esperando aqui.
                         </p>
                       ) : brutosVisiveis.map((b) => (
-                        <button key={b.id} onClick={() => abrirAbordagem(b)}
-                          className="w-full text-left px-2.5 py-2 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2">
+                        <Popover key={b.id}
+                          open={abordar?.id === b.id}
+                          onOpenChange={(a) => { if (!abordando) { if (a) abrirAbordagem(b); else setAbordar(null); } }}>
+                        <PopoverTrigger asChild>
+                        <button
+                          className="w-full text-left px-2.5 py-2 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2 data-[state=open]:bg-white/[0.06]">
                           <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
                             {iniciais(b.nome || telefoneBonito(b.telefone))}
                           </span>
@@ -746,6 +824,32 @@ export default function AtendimentoPage() {
                             </span>
                           </span>
                         </button>
+                        </PopoverTrigger>
+
+                        {/* O DOBRO DA LARGURA DA CAIXA (15,5rem → 31rem), e
+                            aberto AO LADO da linha, não no meio da tela: o
+                            gesto é "abrir esse lead", e um modal centralizado
+                            faz a fila desaparecer atrás dele — quem aborda
+                            trabalha a fila em sequência e precisa dela à vista
+                            pra saber quanto falta. */}
+                        <PopoverContent side="right" align="start" sideOffset={8}
+                          className="w-[31rem] p-0 overflow-hidden">
+                          <FichaDoLead
+                            lead={b}
+                            mensagem={msgAbordagem}
+                            onMensagem={setMsgAbordagem}
+                            ocupado={abordando}
+                            onCopiar={() => copiarTexto(telefoneBonito(b.telefone), "Número copiado")}
+                            onEnviar={() => abordarLead(true)}
+                            onSoAbrir={() => abordarLead(false)}
+                            onDescartar={async () => {
+                              setAbordar(null);
+                              try { await descartarLead(b.id); invalidarLeads(); }
+                              catch (e) { toast.error((e as Error).message); }
+                            }}
+                          />
+                        </PopoverContent>
+                        </Popover>
                       ))}
                     </>
                   )}
@@ -1276,68 +1380,6 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── ABORDAR UM LEAD DA BASE ──
-          As respostas do formulário ficam VISÍVEIS enquanto se escreve. É a
-          diferença entre "Olá, tudo bem?" e uma primeira mensagem que já cita
-          o desconto que a pessoa marcou — e é por isso que o dossiê aparece
-          aqui e não depois. */}
-      <Dialog open={!!abordar} onOpenChange={(a) => { if (!a && !abordando) setAbordar(null); }}>
-        <DialogContent className="max-w-md [&>*]:min-w-0">
-          <DialogHeader>
-            <DialogTitle className="text-[15px] flex items-center gap-2">
-              <ArrowRight className="h-4 w-4" /> {abordar?.nome || telefoneBonito(abordar?.telefone ?? "")}
-            </DialogTitle>
-            <DialogDescription className="text-[12px]">
-              {telefoneBonito(abordar?.telefone ?? "")}
-              {abordar?.cidade ? ` · ${abordar.cidade}` : ""}
-              {abordar?.chegou_em ? ` · chegou ${horaDaLista(abordar.chegou_em)}` : ""}
-            </DialogDescription>
-          </DialogHeader>
-
-          {abordar?.respostas && (
-            <div className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2">
-              <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1">
-                O que respondeu na landing
-              </p>
-              <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">
-                {abordar.respostas}
-              </p>
-              {abordar.origem_texto && (
-                <p className="text-[10px] text-muted-foreground/60 mt-1.5">{abordar.origem_texto}</p>
-              )}
-            </div>
-          )}
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] text-muted-foreground">Primeira mensagem</span>
-            <Textarea value={msgAbordagem} onChange={(e) => setMsgAbordagem(e.target.value)}
-              rows={4} placeholder="Olá! Aqui é a Adria, do Portal Direito Aberto…"
-              className="text-[12.5px] resize-none" />
-          </label>
-
-          <DialogFooter className="gap-2">
-            <Button variant="ghost" size="sm" disabled={abordando}
-              onClick={async () => {
-                const b = abordar;
-                if (!b) return;
-                setAbordar(null);
-                try { await descartarLead(b.id); invalidarLeads(); }
-                catch (e) { toast.error((e as Error).message); }
-              }}>
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Descartar
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => abordarLead(false)} disabled={abordando}>
-              Só abrir a conversa
-            </Button>
-            <Button size="sm" onClick={() => abordarLead(true)} disabled={abordando || !msgAbordagem.trim()}>
-              {abordando
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Enviando…</>
-                : <>Enviar <Send className="h-3.5 w-3.5 ml-1.5" /></>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* ── ESCOLHER A ETAPA ──
           Antes cada etapa à frente tinha seu próprio "pular pra cá" de dez
           pixels, cinco vezes na mesma coluna: o clique errado era do mesmo
@@ -1522,6 +1564,92 @@ export default function AtendimentoPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/* ── A FICHA DO LEAD DA BASE ──────────────────────────────────────────────
+   O que ela precisa responder, nessa ordem: quem é (nome), como falar com ele
+   (número, copiável), o que ele já contou (as respostas da landing) e o que
+   dizer agora. Nome e número em cima e grandes porque é o que se confere antes
+   de mandar — mandar mensagem pra número errado é o erro caro aqui, e ele
+   acontece justamente quando o número está em corpo 10 no meio de um parágrafo.
+   As respostas ficam VISÍVEIS enquanto se escreve: é a diferença entre "Olá,
+   tudo bem?" e uma primeira mensagem que já cita o desconto que a pessoa
+   marcou. */
+function FichaDoLead({ lead, mensagem, onMensagem, ocupado, onCopiar, onEnviar, onSoAbrir, onDescartar }: {
+  lead: LeadBruto;
+  mensagem: string;
+  onMensagem: (v: string) => void;
+  ocupado: boolean;
+  onCopiar: () => void;
+  onEnviar: () => void;
+  onSoAbrir: () => void;
+  onDescartar: () => void;
+}) {
+  const nome = lead.nome?.trim() || telefoneBonito(lead.telefone);
+  return (
+    <div className="flex flex-col max-h-[70vh]">
+      <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.07] flex items-start gap-3">
+        <span className="h-9 w-9 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
+          {iniciais(nome)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold leading-tight truncate" title={nome}>{nome}</p>
+          <button type="button" onClick={onCopiar}
+            title="Copiar número"
+            className="mt-0.5 inline-flex items-center gap-1.5 text-[12.5px] tabular-nums text-muted-foreground hover:text-foreground transition-colors">
+            <Phone className="h-3 w-3" /> {telefoneBonito(lead.telefone)}
+            <Copy className="h-2.5 w-2.5 opacity-60" />
+          </button>
+        </div>
+        <span className="text-[10px] text-muted-foreground/70 shrink-0 text-right leading-snug">
+          {lead.cidade && <>{lead.cidade}<br /></>}
+          {lead.chegou_em ? `chegou ${horaDaLista(lead.chegou_em)}` : ""}
+        </span>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-3">
+        {lead.respostas ? (
+          <div className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2">
+            <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1">
+              O que respondeu na landing
+            </p>
+            <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{lead.respostas}</p>
+            {lead.origem_texto && (
+              <p className="text-[10px] text-muted-foreground/60 mt-1.5">{lead.origem_texto}</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-muted-foreground/70">
+            A planilha não trouxe respostas — só o contato.
+          </p>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] text-muted-foreground">Primeira mensagem</span>
+          <Textarea value={mensagem} onChange={(e) => onMensagem(e.target.value)}
+            rows={5} placeholder="Olá! Aqui é a Adria, do Portal Direito Aberto…"
+            className="text-[12.5px] resize-none" />
+        </label>
+      </div>
+
+      <div className="px-4 py-3 border-t border-white/[0.07] flex items-center gap-2">
+        <Button variant="ghost" size="sm" className="h-8 text-[11px] text-muted-foreground hover:text-destructive"
+          onClick={onDescartar} disabled={ocupado}>
+          <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Descartar
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 text-[11px] ml-auto"
+          onClick={onSoAbrir} disabled={ocupado}>
+          Só abrir
+        </Button>
+        <Button size="sm" className="h-8 text-[11px]"
+          onClick={onEnviar} disabled={ocupado || !mensagem.trim()}>
+          {ocupado
+            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Enviando…</>
+            : <><MessageSquarePlus className="h-3.5 w-3.5 mr-1.5" /> Mandar mensagem</>}
+        </Button>
+      </div>
     </div>
   );
 }
