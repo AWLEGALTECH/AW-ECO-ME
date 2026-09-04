@@ -18,7 +18,7 @@ import {
   horaDaLista, horasSemResposta, previaDe, separadorDeDia, telefoneBonito,
   type ConversaRow, type MensagemRow,
 } from "@/lib/wa";
-import type { Instancia, Lead, Mensagem, Origem } from "@/lib/atendimentoMock";
+import type { Estagio, Instancia, Lead, Mensagem, Origem } from "@/lib/atendimentoMock";
 
 export interface InstanciaRow {
   nome: string;
@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, etapa, etapas_puladas, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -176,6 +176,20 @@ async function pedirEnvio(body: Record<string, unknown>) {
  * Quem confere o número com o WhatsApp e cria a linha é a `wa-nova-conversa`:
  * a checagem precisa da chave da Evolution, que não pode viver no navegador.
  */
+/**
+ * Move a etapa do lead.
+ *
+ * `puladas` vai junto porque a jornada desenha o que foi pulado: quem foi de
+ * "Chegou" direto pra "Proposta" tem uma história diferente de quem passou por
+ * triagem e extrato, e é essa diferença que se olha depois pra entender o que
+ * funcionou.
+ */
+export async function moverEtapaWa(conversaId: string, etapa: string, puladas: string[]) {
+  const { error } = await tabela("wa_conversas")
+    .update({ etapa, etapas_puladas: puladas }).eq("id", conversaId);
+  if (error) throw new Error(error.message);
+}
+
 export async function criarConversa(args: { instancia: string; telefone: string; nome?: string | null }) {
   const { data, error } = await supabase.functions.invoke("wa-nova-conversa", {
     body: { instancia: args.instancia, telefone: args.telefone, nome: args.nome ?? null },
@@ -286,7 +300,7 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
     nome: c.nome_wa?.trim() || telefoneBonito(c.telefone),
     telefone: c.telefone,
     origem,
-    estagio: "chegou",
+    estagio: (c.etapa || "chegou") as Estagio,
     ultimaFoi: ultima?.direcao === "entrada" ? "lead" : "nos",
     horasSemResposta: horasSemResposta(msgs, agora),
     ultimaHora: horaDaLista(c.ultima_em, agora),
@@ -296,6 +310,8 @@ export function conversaParaLead(c: ConversaRow, msgs: MensagemRow[], agora = ne
     followUpsFeitos: 0,
     chegouEm: c.created_at.slice(0, 10),
     previa: c.ultima_previa,
+    origemContato: c.origem === "ativa" ? "ativa" : "marketing",
+    etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

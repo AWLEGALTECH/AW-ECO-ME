@@ -104,6 +104,12 @@ export interface Lead {
   followUpsFeitos: number;
   /** quando a primeira mensagem dele caiu na caixa */
   chegouEm: string;
+  /* Quem falou primeiro. Definido na criação da conversa e nunca escolhido à
+     mão: se o lead mandou a primeira mensagem ele veio até nós (marketing); se
+     a primeira saiu daqui, foi prospecção ativa. */
+  origemContato?: "marketing" | "ativa";
+  /** etapas que ficaram pra trás quando alguém pulou direto pra frente */
+  etapasPuladas?: Estagio[];
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
      porque a conversa inteira só é carregada pra aberta — sem isso, todo mundo
      que não está aberto aparece com o nome e mais nada. */

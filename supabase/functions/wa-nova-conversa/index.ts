@@ -126,6 +126,10 @@ Deno.serve(async (req: Request) => {
       jid: `${numero}@s.whatsapp.net`,
       nome_wa: nome,
       nao_lidas: 0,
+      // Conversa que começa aqui é PROSPECÇÃO ATIVA por definição: fomos nós
+      // que fomos até a pessoa. A origem é gravada agora e nunca mais muda —
+      // ela continua sendo ativa depois que o lead responde.
+      origem: "ativa",
       // `ultima_em` é "quando essa conversa se mexeu pela última vez" — e abrir
       // a conversa é ela se mexendo. Sem isso ela nasceria no fim da lista,
       // ordenada por nulo, e quem acabou de adicionar o contato teria que

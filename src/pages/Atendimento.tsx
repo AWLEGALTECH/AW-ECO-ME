@@ -49,13 +49,16 @@ import {
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
-  marcarLida, enviarTexto, enviarArquivo, criarConversa, useInvalidarWa,
+  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, useInvalidarWa,
 } from "@/hooks/useWhatsapp";
 import { idDaConversaAberta } from "@/lib/wa";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
 } from "@/hooks/useTasksWa";
+import {
+  useAnotacoes, postarAnotacao, useInvalidarAnotacoes, quandoDaNota,
+} from "@/hooks/useAnotacoesWa";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -119,11 +122,12 @@ export default function AtendimentoPage() {
   const [taskDia, setTaskDia] = useState(HOJE);
   const [taskHora, setTaskHora] = useState("");
   const [salvandoTask, setSalvandoTask] = useState(false);
+  const [rascunhoNota, setRascunhoNota] = useState("");
+  const [postandoNota, setPostandoNota] = useState(false);
+  const [etapaAberta, setEtapaAberta] = useState(false);
   const [enviadas, setEnviadas] = useState<Record<string, Mensagem[]>>({});
   const [estagios, setEstagios] = useState<Record<string, Estagio>>({});
-  const [notas, setNotas] = useState<Record<string, string>>({});
   const [puladas, setPuladas] = useState<Record<string, Estagio[]>>({});
-  const [origemDossie, setOrigemDossie] = useState<Record<string, "marketing" | "planilha" | "outros">>({});
   /* Em janela estreita a coluna de tasks nasce RECOLHIDA. Com ela aberta, a
      caixa (15,5rem) + tasks (16rem) + a barra lateral do app não deixavam nem
      200px pra conversa — o balão quebrava uma palavra por linha. */
@@ -181,24 +185,31 @@ export default function AtendimentoPage() {
     setSelecionadoId(id);
     if (aoVivo) marcarLida(id).then(invalidarWa).catch(() => {});
   };
-  const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? [];
-  /* A origem do dossiê é a do MARKETING (de que campanha veio), não o número
-     que atendeu — este já está no card da instância. Nasce sugerida pelo canal
-     de entrada e a atendente corrige quando souber. */
-  const origemDossieDe = (l: Lead): "marketing" | "planilha" | "outros" =>
-    origemDossie[l.id] ?? (l.origem === "planilha" ? "planilha" : l.origem === "pda" ? "marketing" : "outros");
+  const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? l.etapasPuladas ?? [];
 
   /* Avançar etapa, com a mesma regra da linha do tempo do processo: o que fica
      entre a atual e o destino vira PULADA — não some, e não vira concluída. */
   const avancarEtapa = (l: Lead, alvo: Estagio) => {
     const i = ESTAGIOS.findIndex((e) => e.chave === estagioDe(l));
     const j = ESTAGIOS.findIndex((e) => e.chave === alvo);
-    if (j <= i) return;
+    if (j === i) return;
+
+    const antes = puladasDe(l);
+    // Indo pra frente, o que fica no meio vira pulada. VOLTANDO, some a marca
+    // de pulada de tudo que voltou a estar à frente: uma etapa que o lead ainda
+    // vai atravessar não pode continuar carimbada como "pulei essa".
+    const puladasNovas = j > i
+      ? [...new Set([...antes, ...ESTAGIOS.slice(i + 1, j).map((e) => e.chave)])]
+      : antes.filter((c) => ESTAGIOS.findIndex((e) => e.chave === c) < j);
+
     setEstagios((p) => ({ ...p, [l.id]: alvo }));
-    setPuladas((p) => ({
-      ...p,
-      [l.id]: [...(p[l.id] ?? []), ...ESTAGIOS.slice(i + 1, j).map((e) => e.chave)],
-    }));
+    setPuladas((p) => ({ ...p, [l.id]: puladasNovas }));
+
+    if (aoVivo) {
+      moverEtapaWa(l.id, alvo, puladasNovas)
+        .then(invalidarWa)
+        .catch((e) => toast.error("Não consegui mover a etapa: " + (e as Error).message));
+    }
   };
 
   const lista = useMemo(() => {
@@ -219,6 +230,8 @@ export default function AtendimentoPage() {
      sem escrever nada no banco. */
   const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
   const invalidarTasks = useInvalidarTasksWa();
+  const { data: anotacoes = [] } = useAnotacoes(idAberto, aoVivo);
+  const invalidarAnotacoes = useInvalidarAnotacoes();
   const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
 
   const lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0];
@@ -323,6 +336,22 @@ export default function AtendimentoPage() {
       toast.error("Não consegui salvar: " + (e as Error).message);
     } finally {
       setSalvandoTask(false);
+    }
+  };
+
+  const postarNota = async () => {
+    const texto = rascunhoNota.trim();
+    if (!texto) return;
+    if (!aoVivo) { toast.info("Sem WhatsApp conectado, a anotação não é gravada."); return; }
+    setPostandoNota(true);
+    try {
+      await postarAnotacao(lead.id, texto, user?.id ?? null);
+      setRascunhoNota("");
+      invalidarAnotacoes();
+    } catch (e) {
+      toast.error("Não consegui postar: " + (e as Error).message);
+    } finally {
+      setPostandoNota(false);
     }
   };
 
@@ -729,29 +758,29 @@ export default function AtendimentoPage() {
                 {/* dossiê */}
                 <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-2">
                   <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">Dossiê</p>
-                  <div className="flex flex-col gap-0.5">
+                  {/* A ORIGEM NÃO SE ESCOLHE. Ela responde "quem falou
+                      primeiro", e disso o sistema sabe mais que qualquer um:
+                      se a primeira mensagem foi dele, ele veio até nós; se
+                      saiu daqui, fomos nós até ele. Campo escolhido à mão vira
+                      campo em branco — ou, pior, preenchido no chute e depois
+                      usado pra decidir onde investir. */}
+                  <div className="flex items-center gap-1.5">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
-                    <div className="flex gap-1">
-                      {(["marketing", "planilha", "outros"] as const).map((o) => (
-                        <button key={o}
-                          onClick={() => setOrigemDossie((p) => ({ ...p, [lead.id]: o }))}
-                          className={cn("rounded-full px-2 py-[2px] text-[10px] capitalize transition-colors ring-1",
-                            origemDossieDe(lead) === o
-                              ? "bg-white/[0.10] text-foreground ring-white/20"
-                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
-                          {o}
-                        </button>
-                      ))}
-                    </div>
+                    {(() => {
+                      const ativa = lead.origemContato === "ativa";
+                      return (
+                        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] ring-1",
+                          ativa
+                            ? "bg-primary/10 text-primary ring-primary/25"
+                            : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+                          {ativa ? <ArrowRight className="h-2.5 w-2.5" /> : <Inbox className="h-2.5 w-2.5" />}
+                          {ativa ? "Prospecção ativa" : "Marketing"}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
-                  <Campo icone={<Landmark className="h-3 w-3" />} rotulo="Banco" valor={lead.dossie.banco} />
-                  <Campo rotulo="Descontos"
-                    valor={lead.dossie.descontos.length ? lead.dossie.descontos.join(", ") : null} />
-                  <Campo rotulo="Perfil"
-                    valor={lead.dossie.inss === null ? null
-                      : `${lead.dossie.inss ? "INSS" : "não é INSS"}${lead.dossie.consignado ? ` · ${lead.dossie.consignado}` : ""}`} />
                 </div>
 
                 {/* jornada */}
@@ -761,23 +790,57 @@ export default function AtendimentoPage() {
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
                     tasksDoLead={tasksDoLead}
-                    onAvancar={(alvo) => avancarEtapa(lead, alvo)}
+                    onEscolherEtapa={() => setEtapaAberta(true)}
                     onNovaTask={novoLembrete}
                     onConcluirTask={concluir}
                   />
                 </div>
 
-                {/* anotações */}
-                <div className="px-3 py-2.5 flex flex-col gap-1.5">
+                {/* ANOTAÇÕES — MURAL, NÃO CAMPO.
+                    Escrever a segunda coisa num campo único obriga a decidir
+                    onde enfiá-la no meio da primeira, e ninguém sabe quem
+                    escreveu o quê. Aqui cada nota é uma linha com autor e hora,
+                    a mais nova em cima: "o que ficou combinado da última vez" é
+                    a pergunta que se faz toda vez que essa conversa reabre. */}
+                <div className="px-3 py-2.5 flex flex-col gap-2">
                   <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
                     <StickyNote className="h-3 w-3" /> Anotações
+                    {anotacoes.length > 0 && (
+                      <span className="ml-auto tabular-nums opacity-70">{anotacoes.length}</span>
+                    )}
                   </p>
+
                   <Textarea
-                    value={notas[lead.id] ?? lead.dossie.obs ?? ""}
-                    onChange={(e) => setNotas((p) => ({ ...p, [lead.id]: e.target.value }))}
-                    rows={4}
+                    value={rascunhoNota}
+                    onChange={(e) => setRascunhoNota(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter quebra linha (nota é texto de recado). Ctrl+Enter
+                      // posta — o atalho de quem escreve muitas por dia.
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); postarNota(); }
+                    }}
+                    rows={3}
                     placeholder="O que ficou combinado, o que ela contou, o que conferir depois…"
                     className="text-[11.5px] resize-none" />
+                  <Button size="sm" className="h-7 text-[11px] self-end"
+                    onClick={postarNota} disabled={postandoNota || !rascunhoNota.trim()}>
+                    {postandoNota
+                      ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Postando…</>
+                      : <>Postar <Plus className="h-3 w-3 ml-1" /></>}
+                  </Button>
+
+                  <div className="flex flex-col gap-1.5">
+                    {anotacoes.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground/60 py-1">Nenhuma anotação ainda.</p>
+                    )}
+                    {anotacoes.map((n) => (
+                      <div key={n.id} className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2">
+                        <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{n.texto}</p>
+                        <p className="text-[9.5px] text-muted-foreground/60 mt-1">
+                          {n.autor ?? "alguém"} · {quandoDaNota(n.quando)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </SpotlightCard>
@@ -951,6 +1014,59 @@ export default function AtendimentoPage() {
         </>
       )}
 
+      {/* ── ESCOLHER A ETAPA ──
+          Antes cada etapa à frente tinha seu próprio "pular pra cá" de dez
+          pixels, cinco vezes na mesma coluna: o clique errado era do mesmo
+          tamanho do certo, e ninguém via o estrago antes de fazer. Aqui a
+          escolha é uma lista, e o que vai virar PULADA aparece escrito antes
+          de virar. */}
+      <Dialog open={etapaAberta} onOpenChange={setEtapaAberta}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <ArrowRight className="h-4 w-4" /> Mover etapa
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              <span className="text-foreground/80">{lead.nome}</span> está em{" "}
+              <span className="text-foreground/80">
+                {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+              </span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-1.5">
+            {ESTAGIOS.map((e, i) => {
+              const iAtual = ESTAGIOS.findIndex((x) => x.chave === estagioDe(lead));
+              const eAtual = e.chave === estagioDe(lead);
+              const puladas = i > iAtual + 1 ? i - iAtual - 1 : 0;
+              return (
+                <button
+                  key={e.chave}
+                  disabled={eAtual}
+                  onClick={() => { avancarEtapa(lead, e.chave); setEtapaAberta(false); }}
+                  className={cn(
+                    "text-left rounded-lg px-3 py-2 ring-1 transition-colors",
+                    eAtual
+                      ? "bg-primary/10 ring-primary/25 cursor-default"
+                      : "bg-white/[0.03] ring-white/[0.07] hover:bg-white/[0.07] hover:ring-white/[0.14]")}>
+                  <span className="flex items-center gap-2">
+                    <span className={cn("text-[12.5px] font-medium", eAtual && "text-primary")}>{e.rotulo}</span>
+                    {eAtual && <span className="text-[9.5px] text-primary/70">atual</span>}
+                    {i < iAtual && <span className="text-[9.5px] text-muted-foreground/60 ml-auto">voltar</span>}
+                    {puladas > 0 && (
+                      <span className="text-[9.5px] text-amber-300/80 ml-auto">
+                        pula {puladas} etapa{puladas > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-[10.5px] text-muted-foreground/70 mt-0.5">{e.descricao}</span>
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── NOVA TASK ──
           Título, detalhe, dia e hora. A hora é opcional porque metade dos
           lembretes não tem hora ("passar o extrato hoje") e obrigar um horário
@@ -1096,11 +1212,11 @@ export default function AtendimentoPage() {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ atual, puladas, tasksDoLead, onAvancar, onNovaTask, onConcluirTask }: {
+function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask, onConcluirTask }: {
   atual: Estagio;
   puladas: Estagio[];
   tasksDoLead: Task[];
-  onAvancar: (alvo: Estagio) => void;
+  onEscolherEtapa: () => void;
   onNovaTask: () => void;
   onConcluirTask: (id: string) => void;
 }) {
@@ -1199,21 +1315,18 @@ function JornadaLead({ atual, puladas, tasksDoLead, onAvancar, onNovaTask, onCon
 
                   {proxima && (
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
-                      onClick={() => onAvancar(proxima.chave)}>
+                      onClick={onEscolherEtapa}>
                       <ArrowRight className="h-3.5 w-3.5" /> Avançar etapa
                     </Button>
                   )}
                 </motion.div>
               )}
 
-              {/* Pular direto pra uma etapa lá na frente, como no processo: o
-                  que fica no meio vira pulada. */}
-              {!eAtual && i > iAtual && (
-                <button onClick={() => onAvancar(e.chave)}
-                  className="mt-1 text-[10px] text-muted-foreground/60 hover:text-primary transition-colors">
-                  pular pra cá
-                </button>
-              )}
+              {/* O "pular pra cá" saiu daqui: pular etapa é decisão, e decisão
+                  não deveria caber num link de dez pixels espalhado cinco vezes
+                  pela coluna, onde o clique errado é do tamanho do certo. Agora
+                  é um botão só, que abre a escolha e mostra o que vai virar
+                  pulada antes de virar. */}
             </div>
           </div>
         );

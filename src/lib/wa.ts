@@ -29,6 +29,9 @@ export interface ConversaRow {
   ultima_previa: string | null;
   arquivada: boolean;
   cliente_id: string | null;
+  origem: string;
+  etapa: string;
+  etapas_puladas: string[] | null;
   created_at: string;
 }
 
