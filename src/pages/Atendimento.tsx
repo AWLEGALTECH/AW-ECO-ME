@@ -1136,13 +1136,23 @@ export default function AtendimentoPage() {
                           {semResposta && <AlertTriangle className="inline h-3 w-3 text-amber-300 mr-1 -mt-px" />}
                           {(l.conversa[l.conversa.length - 1]?.texto || l.previa || "").slice(0, 40)}
                         </span>
-                        <span className="flex items-center gap-1 mt-1 flex-wrap">
-                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
-                            {ESTAGIOS.find((e) => e.chave === estagioDe(l))?.rotulo}
+                        {/* AS ETIQUETAS EMPILHADAS, uma por linha.
+                            Lado a lado elas competiam pela mesma largura: o
+                            nome da base é longo, a etapa é curta, e a fileira
+                            quebrava em lugares diferentes de cartão pra cartão
+                            — o que fazia a mesma informação aparecer em alturas
+                            diferentes e o olho ter que caçá-la. Empilhadas, a
+                            etapa está sempre na primeira linha, o inbound
+                            sempre na segunda, a base sempre na terceira. */}
+                        <span className="flex items-end gap-1 mt-1">
+                          <span className="flex flex-col items-start gap-1 min-w-0">
+                            <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
+                              {ESTAGIOS.find((e) => e.chave === estagioDe(l))?.rotulo}
+                            </span>
+                            <SeloContato origem={l.origemContato} base={l.base} />
                           </span>
-                          <SeloContato origem={l.origemContato} base={l.base} />
                           {l.naoLidas > 0 && (
-                            <span className="ml-auto h-4 min-w-4 px-1 rounded-full bg-foreground/85 text-[9px] font-semibold text-background grid place-items-center">
+                            <span className="ml-auto shrink-0 h-4 min-w-4 px-1 rounded-full bg-foreground/85 text-[9px] font-semibold text-background grid place-items-center">
                               {l.naoLidas}
                             </span>
                           )}
@@ -1334,7 +1344,7 @@ export default function AtendimentoPage() {
                       saiu daqui, fomos nós até ele. Campo escolhido à mão vira
                       campo em branco — ou, pior, preenchido no chute e depois
                       usado pra decidir onde investir. */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex flex-col gap-1 items-start">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
                     <SeloContato origem={lead.origemContato} base={lead.base} tamanho="grande" />
                   </div>
