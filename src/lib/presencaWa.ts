@@ -29,9 +29,30 @@ export function vistoDaMensagem(status: string | null | undefined):
   }
 }
 
+/**
+ * A marca de quem ainda não chegou ao servidor.
+ *
+ * Existe porque a mensagem passou a aparecer na conversa no ENTER, antes da
+ * Evolution confirmar. Nesse intervalo ela não tem nenhum dos status de cima —
+ * e não desenhar nada faria a bolha parecer confirmada, que é exatamente a
+ * mentira que os riscos existem pra não contar.
+ *
+ * Separada de `vistoDaMensagem` de propósito: aquela fala do que o WhatsApp
+ * respondeu, esta fala do que ainda está na nossa mão. Misturar as duas faria
+ * um estado local ser lido como notícia do servidor.
+ */
+export function marcaDeEnvio(status: string | null | undefined):
+  "relogio" | "erro" | null {
+  if (status === "pendente") return "relogio";
+  if (status === "falhou") return "erro";
+  return null;
+}
+
 /** O que a etiqueta diz sobre o status. Vazio quando não há status. */
 export function rotuloDoStatus(status: string | null | undefined): string {
   switch (status) {
+    case "pendente": return "enviando…";
+    case "falhou":   return "não saiu — toque para tentar de novo";
     case "enviada":  return "enviada";
     case "entregue": return "entregue no aparelho";
     case "lida":     return "lida";

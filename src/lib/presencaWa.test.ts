@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
-  vistoDaMensagem, rotuloDoStatus, situacaoDoContato, quandoFoi, estaOnline,
+  vistoDaMensagem, rotuloDoStatus, marcaDeEnvio, situacaoDoContato, quandoFoi, estaOnline,
 } from "./presencaWa";
 
 const AGORA = new Date(2026, 8, 4, 15, 0);          // 04/09/2026 15:00
@@ -27,6 +27,28 @@ describe("os vistinhos da mensagem", () => {
   it("o rótulo explica o que o desenho quer dizer", () => {
     expect(rotuloDoStatus("entregue")).toBe("entregue no aparelho");
     expect(rotuloDoStatus(null)).toBe("");
+  });
+});
+
+describe("a marca de quem ainda não saiu", () => {
+  it("pendente é relógio, falha é erro", () => {
+    expect(marcaDeEnvio("pendente")).toBe("relogio");
+    expect(marcaDeEnvio("falhou")).toBe("erro");
+  });
+
+  // O estado local não pode invadir o vocabulário do servidor, nem o contrário:
+  // "enviada" já é notícia da Evolution e merece risco, não relógio.
+  it("não se mistura com o que o servidor respondeu", () => {
+    expect(marcaDeEnvio("enviada")).toBeNull();
+    expect(marcaDeEnvio("lida")).toBeNull();
+    expect(marcaDeEnvio(null)).toBeNull();
+    expect(vistoDaMensagem("pendente")).toBeNull();
+    expect(vistoDaMensagem("falhou")).toBeNull();
+  });
+
+  it("os dois estados locais têm rótulo em português", () => {
+    expect(rotuloDoStatus("pendente")).toBe("enviando…");
+    expect(rotuloDoStatus("falhou")).toContain("não saiu");
   });
 });
 

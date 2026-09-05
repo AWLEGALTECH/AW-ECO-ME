@@ -38,6 +38,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
+  RotateCcw,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -58,7 +59,11 @@ import {
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
-import { situacaoDoContato, estaOnline, vistoDaMensagem, rotuloDoStatus } from "@/lib/presencaWa";
+import { situacaoDoContato, estaOnline, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio } from "@/lib/presencaWa";
+import {
+  novaPendente, aindaPendentes, daConversa, marcarFalha, remover, bolhaDaPendente,
+  type Pendente,
+} from "@/lib/envioOtimista";
 import {
   useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
@@ -352,7 +357,25 @@ export default function AtendimentoPage() {
      `semConversas` é quem decide o que aparece. */
   const semConversas = aoVivo && leadsBase.length === 0;
   const lead: Lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0] ?? LEAD_VAZIO;
-  const conversa = [...lead.conversa, ...(enviadas[lead.id] ?? [])];
+  /* RECONCILIAÇÃO. A lista recarrega a cada 5s; quando a mensagem confirmada
+     chega do banco, a bolha otimista precisa sumir no MESMO instante, senão o
+     texto fica duplicado na tela — pior que o problema original. A regra de
+     casamento (que consome a linha, pra dois "ok" iguais não casarem com a
+     mesma) mora em envioOtimista.ts, testada. */
+  useEffect(() => {
+    setPendentes((ps) => {
+      if (ps.length === 0) return ps;
+      const vivas = aindaPendentes(ps, msgsDaAberta);
+      return vivas.length === ps.length ? ps : vivas;
+    });
+  }, [msgsDaAberta]);
+
+  const pendentesDaAberta = daConversa(pendentes, lead.id);
+  const conversa = [
+    ...lead.conversa,
+    ...(enviadas[lead.id] ?? []),
+    ...pendentesDaAberta.map(bolhaDaPendente),
+  ];
 
   /* AS TASKS DO DIA ESCOLHIDO.
      Lembrete é dado: tem data própria. Follow-up é conta: a cadência lê o tempo
@@ -882,19 +905,45 @@ export default function AtendimentoPage() {
     await mandarArquivo(audio, `audio-${Date.now()}.${ext}`, undefined, segundos);
   };
 
+  /* ENVIO OTIMISTA: a bolha nasce no enter, não no OK da Evolution.
+     Antes o texto ficava preso no campo até a resposta chegar, e quem digita
+     via a mensagem parada ali e apertava enter de novo — duas mensagens iguais
+     no WhatsApp do cliente. O cuidado com a verdade estava causando o erro que
+     queria evitar.
+     A verdade continua dita, só que por um símbolo: relógio enquanto está na
+     nossa mão, risco quando o servidor confirma. A reconciliação (fazer a bolha
+     otimista sumir quando a de verdade chega do banco) mora em
+     src/lib/envioOtimista.ts, que é onde estão os testes. */
+  const [pendentes, setPendentes] = useState<Pendente[]>([]);
+
+  const dispararTexto = async (p: Pendente) => {
+    try {
+      await enviarTexto(p.conversaId, p.texto);
+      invalidarWa();
+      // NÃO removo aqui: quem tira a bolha é a chegada da linha do banco. Tirar
+      // agora abriria uma janela de meio segundo com a mensagem fora da tela.
+    } catch (e) {
+      const msg = (e as Error).message;
+      setPendentes((ps) => marcarFalha(ps, p.id, msg));
+      toast.error("Não consegui enviar: " + msg);
+    }
+  };
+
+  const reenviar = (p: Pendente) => {
+    const nova = { ...p, estado: "pendente" as const, erro: undefined };
+    setPendentes((ps) => ps.map((x) => (x.id === p.id ? nova : x)));
+    void dispararTexto(nova);
+  };
+
   const enviar = async () => {
     if (anexo) { await mandarArquivo(anexo, anexo.name, rascunho.trim() || undefined); return; }
     const texto = rascunho.trim();
     if (!texto) return;
     if (aoVivo) {
-      try {
-        await enviarTexto(lead.id, texto);
-        setRascunho("");
-        invalidarWa();
-      } catch (e) {
-        // a mensagem NÃO é gravada quando a Evolution recusa: ver useWhatsapp.ts
-        toast.error("Não consegui enviar: " + (e as Error).message);
-      }
+      const p = novaPendente(lead.id, texto);
+      setPendentes((ps) => [...ps, p]);
+      setRascunho("");            // o campo esvazia AGORA
+      void dispararTexto(p);
       return;
     }
     const agora = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -1526,6 +1575,28 @@ export default function AtendimentoPage() {
                         {msg.hora}
                         {msg.de === "nos" && <VistoDaMensagem status={msg.status} />}
                       </span>
+
+                      {/* A QUE NÃO SAIU CONTINUA NA TELA, com o botão do lado.
+                          Sumir com a bolha e mostrar um toast faria o texto
+                          morrer junto — quem escreveu teria que lembrar de
+                          cabeça o que tinha escrito pra digitar de novo. */}
+                      {msg.status === "falhou" && (
+                        <span className="flex items-center justify-end gap-2 mt-1">
+                          <button
+                            onClick={() => {
+                              const p = pendentesDaAberta.find((x) => x.id === msg.id);
+                              if (p) reenviar(p);
+                            }}
+                            className="inline-flex items-center gap-1 text-[10px] text-foreground/80 hover:text-foreground underline underline-offset-2">
+                            <RotateCcw className="h-3 w-3" /> tentar de novo
+                          </button>
+                          <button
+                            onClick={() => setPendentes((ps) => remover(ps, String(msg.id)))}
+                            className="text-[10px] text-muted-foreground/70 hover:text-foreground">
+                            descartar
+                          </button>
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2410,6 +2481,26 @@ export default function AtendimentoPage() {
    a diferença entre "não respondeu" e "não recebeu" é justamente o que essa
    marca existe pra mostrar. */
 function VistoDaMensagem({ status }: { status?: string | null }) {
+  // ANTES DOS RISCOS, O RELÓGIO. A bolha nasce no enter, sem nenhuma notícia da
+  // Evolution ainda — e não desenhar nada nesse intervalo faria ela parecer
+  // confirmada, que é a única coisa que essa marca existe pra não deixar
+  // acontecer. O relógio diz "está na minha mão", o risco diz "saiu".
+  const marca = marcaDeEnvio(status);
+  if (marca === "relogio") {
+    return (
+      <span title={rotuloDoStatus(status)} className="inline-flex shrink-0 text-muted-foreground/50">
+        <Clock className="h-3 w-3" />
+      </span>
+    );
+  }
+  if (marca === "erro") {
+    return (
+      <span title={rotuloDoStatus(status)} className="inline-flex shrink-0 text-amber-400">
+        <AlertTriangle className="h-3 w-3" />
+      </span>
+    );
+  }
+
   const v = vistoDaMensagem(status);
   if (!v) return null;
   return (
