@@ -993,13 +993,11 @@ export default function AtendimentoPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2.5">
           <h1 className="font-display text-2xl font-medium leading-none">Atendimento</h1>
-          {/* O selo diz de onde vêm os dados. Enquanto for maquete, quem abrir
-              a tela sem contexto precisa saber que aquelas pessoas não existem. */}
-          {aoVivo ? (
-            <span className="flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/25">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> ao vivo
-            </span>
-          ) : (
+          {/* O selo só aparece quando é MAQUETE. Quem abre a tela sem contexto
+              precisa saber que aquelas pessoas não existem — mas o contrário
+              não precisa de aviso: dado real é o esperado, e um selo verde
+              permanente ao lado do título vira enfeite que ninguém mais lê. */}
+          {!aoVivo && (
             <span className="rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25">
               maquete
             </span>
