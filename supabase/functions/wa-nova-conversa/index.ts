@@ -73,7 +73,9 @@ Deno.serve(async (req: Request) => {
   const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
   const base = (Deno.env.get("EVOLUTION_URL") || "").replace(/\/+$/, "");
-  const apikey = Deno.env.get("EVOLUTION_APIKEY") || "";
+  // Global primeiro: chave de instância morre quando a instância é recriada, e
+  // aí todo envio volta 401. Mesma razão da wa-enviar.
+  const apikey = Deno.env.get("EVOLUTION_APIKEY_GLOBAL") || Deno.env.get("EVOLUTION_APIKEY") || "";
 
   try {
     const auth = req.headers.get("Authorization") || "";

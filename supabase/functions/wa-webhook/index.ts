@@ -17,6 +17,26 @@
 // responde, e baixa a mídia depois em segundo plano. O índice único em
 // `id_whatsapp` cobre a reentrega que escapar.
 //
+// ⚠️ ESTA FUNÇÃO PRECISA DE `verify_jwt = false`. A Evolution é um servidor de
+// fora: ela manda `apikey` própria e token na URL, e nunca um JWT do Supabase.
+// Com o `verify_jwt` ligado, o PORTÃO do Supabase responde 401 antes do código
+// aqui acordar — a Evolution desiste em silêncio e a caixa simplesmente para.
+//
+// Isso já aconteceu, e custou uma noite: um deploy pela API de gerenciamento
+// ligou o `verify_jwt` sozinho (é o padrão dela), e a partir daquele minuto
+// nenhum evento entrou mais. Por fora parecia problema da Evolution — a
+// configuração dela estava certa, a sessão sincronizada, e um teste apontando
+// pro webhook.site recebia tudo. O 401 não aparece em log nenhum daqui, porque
+// o código daqui não chega a rodar.
+//
+// ENTÃO: depois de QUALQUER deploy desta função pela API, conferir o
+// `verify_jwt` no painel (Edge Functions → wa-webhook → Settings) e desligar.
+// As outras funções que recebem chamada de fora — zapsign-webhook,
+// landing-socioeconomico, send-push — estão todas com ele desligado.
+//
+// A porta não fica aberta: a autenticação real é o `?token=` conferido logo
+// abaixo, contra o secret WA_WEBHOOK_TOKEN.
+//
 // Env (secrets): WA_WEBHOOK_TOKEN, EVOLUTION_URL, EVOLUTION_APIKEY.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";

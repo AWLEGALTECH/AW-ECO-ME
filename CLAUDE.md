@@ -41,4 +41,9 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
    tipos e erro de escopo/tipo passa direto pro deploy
 3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
 4. **Push:** nunca fazer push sem pedir permissão
+5. **Edge Functions chamadas de fora** (`wa-webhook`, `zapsign-webhook`,
+   `landing-socioeconomico`, `send-push`) exigem `verify_jwt = false`. Deploy
+   pela API de gerenciamento **liga isso sozinho** e o portão do Supabase passa
+   a responder 401 antes da função rodar — sem log, sem erro visível, só a
+   integração parando. Depois de todo deploy dessas, conferir no painel.
 5. **Fidelidade à planilha:** nomes de campos espelham a aba ADV da planilha original — não renomear sem combinar

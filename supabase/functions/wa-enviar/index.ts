@@ -71,7 +71,15 @@ Deno.serve(async (req: Request) => {
   const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
   const base = (Deno.env.get("EVOLUTION_URL") || "").replace(/\/+$/, "");
-  const apikey = Deno.env.get("EVOLUTION_APIKEY") || "";
+  // A CHAVE GLOBAL PRIMEIRO, e isso é conserto de um 401 que aconteceu de
+  // verdade: `EVOLUTION_APIKEY` guarda a chave de UMA instância, e chave de
+  // instância morre junto com ela. Quando o número foi recriado no painel da
+  // Evolution, a chave velha passou a devolver "Unauthorized" em todo envio —
+  // um erro que não fala de instância nenhuma e não sugere o que fazer.
+  //
+  // A chave global é do SERVIDOR: vale pra qualquer instância, inclusive as que
+  // ainda não existem. Trocar de número deixa de exigir mexer em secret.
+  const apikey = Deno.env.get("EVOLUTION_APIKEY_GLOBAL") || Deno.env.get("EVOLUTION_APIKEY") || "";
 
   if (!base || !apikey) {
     return json({ ok: false, error: "EVOLUTION_URL/EVOLUTION_APIKEY não configurados nos secrets" });
