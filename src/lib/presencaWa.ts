@@ -121,7 +121,7 @@ export function quandoFoi(quando: number | string, agora = new Date()): string {
 /**
  * Está digitando AGORA?
  *
- * Validade curta de propósito — quinze segundos. "Digitando" é o estado mais
+ * Validade curta de propósito — cinco segundos. "Digitando" é o estado mais
  * perecível que existe nesta tela: o WhatsApp manda `composing` e só volta a
  * falar quando a pessoa para, e se ela largar o celular no meio da frase o
  * último evento fica pendurado. Com validade longa, o balão de reticências
@@ -138,7 +138,7 @@ export function estaDigitando(
 ): boolean {
   if (!presenca || !["digitando", "gravando"].includes(presenca)) return false;
   const t = presencaEm ? new Date(presencaEm).getTime() : NaN;
-  return Number.isFinite(t) && agora.getTime() - t <= 15_000;
+  return Number.isFinite(t) && agora.getTime() - t <= 5_000;
 }
 
 /**

@@ -125,17 +125,17 @@ describe("está digitando agora", () => {
   const segAtras = (s: number) => new Date(AGORA.getTime() - s * 1000).toISOString();
 
   it("acende com composing e gravando frescos", () => {
-    expect(estaDigitando("digitando", segAtras(2), AGORA)).toBe(true);
-    expect(estaDigitando("gravando", segAtras(10), AGORA)).toBe(true);
+    expect(estaDigitando("digitando", segAtras(1), AGORA)).toBe(true);
+    expect(estaDigitando("gravando", segAtras(3), AGORA)).toBe(true);
   });
 
   // O estado mais perecível da tela: o WhatsApp manda `composing` e só volta a
   // falar quando a pessoa PARA. Se ela largar o celular no meio da frase, o
   // último evento fica pendurado — e um balão pulando eternamente faria quem
   // olha esperar uma mensagem que não vem.
-  it("apaga depois de quinze segundos", () => {
-    expect(estaDigitando("digitando", segAtras(14), AGORA)).toBe(true);
-    expect(estaDigitando("digitando", segAtras(16), AGORA)).toBe(false);
+  it("apaga depois de cinco segundos", () => {
+    expect(estaDigitando("digitando", segAtras(4), AGORA)).toBe(true);
+    expect(estaDigitando("digitando", segAtras(6), AGORA)).toBe(false);
     expect(estaDigitando("digitando", segAtras(3600), AGORA)).toBe(false);
   });
 
