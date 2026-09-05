@@ -36,9 +36,18 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
 ## Regras
 
 1. **DB:** sempre via `supabase/migrations/` — nunca SQL manual
-2. **Testes:** `bun test` (lógica) e `bun run build` (typecheck + build).
-   O build roda `tsc --noEmit` antes do Vite — sem isso o esbuild só apaga os
-   tipos e erro de escopo/tipo passa direto pro deploy
+2. **Testes:** `bun test` (lógica), `bun run typecheck` (tipos) e `bun run build`.
+   ⚠️ **O build NÃO checa tipos.** O `tsc --noEmit` que ficava ali checava ZERO
+   arquivos: o `tsconfig.json` tem `"files": []` e só referências, e `tsc
+   --noEmit` ignora referências (isso é `tsc -b`). Duas quebras em produção
+   passaram por esse buraco — `cartaoDaInstancia is not defined` e `Cannot
+   access 'pendentes' before initialization`, as duas uso antes da declaração,
+   as duas invisíveis para o esbuild, que só apaga os tipos.
+   O `bun run typecheck` é o de verdade (`tsc -p tsconfig.app.json`). Ele hoje
+   acusa 41 erros HERDADOS, quase todos de `src/integrations/supabase/types.ts`
+   desatualizado (não tem `sentencas`, `processo_fixados`, `wa_*`, `leads_*`).
+   Enquanto esse passivo existir ele não pode entrar no build — mas **rode-o
+   antes de entregar** e não deixe erro NOVO no arquivo que você mexeu
 3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
 4. **Push:** nunca fazer push sem pedir permissão
 5. **Edge Functions chamadas de fora** (`wa-webhook`, `zapsign-webhook`,

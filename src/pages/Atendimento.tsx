@@ -402,7 +402,10 @@ export default function AtendimentoPage() {
   }, [msgsDaAberta]);
 
   const pendentesDaAberta = daConversa(pendentes, lead.id);
-  const conversa = [
+  /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
+     Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
+     opcional (dia, midiaPath, duracao) some do que dá pra ler. */
+  const conversa: Mensagem[] = [
     ...lead.conversa,
     ...(enviadas[lead.id] ?? []),
     ...pendentesDaAberta.map(bolhaDaPendente),

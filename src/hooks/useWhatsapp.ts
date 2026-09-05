@@ -297,7 +297,7 @@ export const qrDaInstancia = (nome: string) => pedirConexao({ acao: "qr", instan
 export const estadoDaInstancia = (nome: string) => pedirConexao({ acao: "estado", instancia: nome });
 export const reaplicarWebhook = (nome: string) => pedirConexao({ acao: "webhook", instancia: nome });
 export const importarConversas = (nome: string) =>
-  pedirConexao({ acao: "importar", instancia: nome }) as Promise<{
+  pedirConexao({ acao: "importar", instancia: nome }) as unknown as Promise<{
     ok: true; importadas: number; total: number; ignoradas: string | null;
   }>;
 
