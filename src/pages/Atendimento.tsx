@@ -370,11 +370,29 @@ export default function AtendimentoPage() {
      `semConversas` é quem decide o que aparece. */
   const semConversas = aoVivo && leadsBase.length === 0;
   const lead: Lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0] ?? LEAD_VAZIO;
-  /* RECONCILIAÇÃO. A lista recarrega a cada 5s; quando a mensagem confirmada
-     chega do banco, a bolha otimista precisa sumir no MESMO instante, senão o
-     texto fica duplicado na tela — pior que o problema original. A regra de
-     casamento (que consome a linha, pra dois "ok" iguais não casarem com a
-     mesma) mora em envioOtimista.ts, testada. */
+  /* ENVIO OTIMISTA: a bolha nasce no enter, não no OK da Evolution.
+     Antes o texto ficava preso no campo até a resposta chegar, e quem digita
+     via a mensagem parada ali e apertava enter de novo — duas mensagens iguais
+     no WhatsApp do cliente. O cuidado com a verdade estava causando o erro que
+     queria evitar. A verdade continua dita, só que por um símbolo: relógio
+     enquanto está na nossa mão, risco quando o servidor confirma.
+
+     A DECLARAÇÃO MORA AQUI, e não junto das funções de envio lá embaixo, por um
+     motivo que já me pegou duas vezes nesta tela: `const` não é içado como
+     `var`. Declarado depois e usado aqui em cima, o componente quebra inteiro
+     com "Cannot access before initialization" — e o `tsc` não pega quando o uso
+     está dentro de um callback. Estado usado no corpo do componente se declara
+     antes do primeiro uso, ponto.
+
+     A reconciliação (fazer a bolha otimista sumir quando a de verdade chega do
+     banco) mora em src/lib/envioOtimista.ts, que é onde estão os testes. */
+  const [pendentes, setPendentes] = useState<Pendente[]>([]);
+
+  /* A lista recarrega a cada 5s; quando a mensagem confirmada chega do banco, a
+     bolha otimista precisa sumir no MESMO instante, senão o texto fica
+     duplicado na tela — pior que o problema original. A regra de casamento
+     (que consome a linha, pra dois "ok" iguais não casarem com a mesma) é
+     testada. */
   useEffect(() => {
     setPendentes((ps) => {
       if (ps.length === 0) return ps;
@@ -917,17 +935,6 @@ export default function AtendimentoPage() {
     const ext = audio.type.includes("mp4") ? "m4a" : "webm";
     await mandarArquivo(audio, `audio-${Date.now()}.${ext}`, undefined, segundos);
   };
-
-  /* ENVIO OTIMISTA: a bolha nasce no enter, não no OK da Evolution.
-     Antes o texto ficava preso no campo até a resposta chegar, e quem digita
-     via a mensagem parada ali e apertava enter de novo — duas mensagens iguais
-     no WhatsApp do cliente. O cuidado com a verdade estava causando o erro que
-     queria evitar.
-     A verdade continua dita, só que por um símbolo: relógio enquanto está na
-     nossa mão, risco quando o servidor confirma. A reconciliação (fazer a bolha
-     otimista sumir quando a de verdade chega do banco) mora em
-     src/lib/envioOtimista.ts, que é onde estão os testes. */
-  const [pendentes, setPendentes] = useState<Pendente[]>([]);
 
   const dispararTexto = async (p: Pendente) => {
     try {
