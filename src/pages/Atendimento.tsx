@@ -38,7 +38,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw,
+  RotateCcw, Volume2, VolumeX,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -85,6 +85,7 @@ import { MidiaMensagem } from "@/components/atendimento/MidiaMensagem";
 import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useAuth } from "@/hooks/useAuth";
+import { useSomAtendimento } from "@/hooks/useSomAtendimento";
 import { toast } from "sonner";
 
 /* O "hoje" da maquete é fixo pra ela não mudar de comportamento amanhã e a
@@ -294,6 +295,26 @@ export default function AtendimentoPage() {
     const id = setInterval(() => setAgoraTique(new Date()), 1500);
     return () => clearInterval(id);
   }, [alguemDigitando]);
+
+  /* OS SONS DA CAIXA.
+     A direção da última mensagem sai de dois lugares, e por um motivo: na
+     conversa ABERTA ela vem da própria mensagem, que a gente já tem em mãos.
+     Nas outras, vem do contador de NÃO LIDAS — que é exatamente "chegou algo
+     que ninguém viu". Sem esse cuidado, uma mensagem enviada de outra aba ou do
+     celular do escritório faria a caixa apitar como se fosse o cliente
+     falando. */
+  const { mudo, alternarMudo, aoAtualizar } = useSomAtendimento(idAberto);
+  const sinaisDeSom = useMemo(
+    () => conversas.map((c) => ({
+      conversaId: c.id,
+      em: c.ultima_em,
+      direcao: c.id === idAberto
+        ? (msgsDaAberta[msgsDaAberta.length - 1]?.direcao ?? null)
+        : ((c.nao_lidas ?? 0) > 0 ? "entrada" : "saida"),
+    })),
+    [conversas, idAberto, msgsDaAberta],
+  );
+  useEffect(() => { aoAtualizar(sinaisDeSom); }, [sinaisDeSom, aoAtualizar]);
 
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
@@ -1611,6 +1632,20 @@ export default function AtendimentoPage() {
                     );
                   })()}
                 </div>
+
+                {/* O MUDO FICA À MÃO, e isso não é capricho. Quem atende de
+                    fone e quem atende numa sala com cliente na frente querem
+                    coisas opostas, e a segunda pessoa precisa resolver isso em
+                    um clique — não caçando uma tela de configuração. Fica no
+                    navegador, não na conta: é preferência da mesa, do momento. */}
+                <button
+                  onClick={alternarMudo}
+                  title={mudo ? "Sons desligados" : "Sons ligados"}
+                  className={cn("ml-auto shrink-0 h-7 w-7 grid place-items-center rounded-lg transition-colors",
+                    mudo ? "text-muted-foreground/40 hover:text-muted-foreground"
+                         : "text-muted-foreground hover:text-foreground hover:bg-white/[0.05]")}>
+                  {mudo ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
               </div>
 
               {/* AS TASKS DO LEAD, ANTES DAS MENSAGENS.
