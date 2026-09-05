@@ -10,21 +10,15 @@
 // Sem a assinatura o servidor não manda nada, e a ausência se parece exatamente
 // com "o evento está desmarcado" — que foi onde eu procurei primeiro, errado.
 //
-// O QUE JÁ SE SABE DESTE SERVIDOR: na primeira rodada, `presenceSubscribe`,
-// `subscribePresence` e `presence` responderam 404 nas duas formas de corpo.
-// A lista abaixo esgota as variações de nome que as v2 usaram, pra a conclusão
-// ser "esta build não tem a rota" e não "eu não achei o nome dela".
+// O QUE JÁ SE SABE DESTE SERVIDOR: oito grafias de assinatura, todas 404. E a
+// 2.3.7 é a última estável — "sobe de versão" deixou de ser saída, porque o que
+// existe adiante é release candidate, e o WhatsApp inteiro do escritório não vai
+// pra cima de versão de teste.
 //
-// E ELA PARA DE BATER NA PORTA. Depois de uma rodada em que TUDO deu 404, a
-// função não repete as chamadas por 24h para aquela instância — abrir conversa
-// disparava oito requisições condenadas a cada clique. As 24h existem pra que um
-// upgrade da Evolution seja descoberto sozinho, sem ninguém lembrar de voltar
-// aqui.
-//
-// O que ela NÃO faz: mandar a NOSSA presença. `sendPresence` existe e em
-// algumas builds assina de quebra, mas ele anuncia o escritório como "online"
-// ou "digitando" no aparelho do cliente — efeito visível para outra pessoa, que
-// ninguém pediu. Isso se decide com quem responde pelo escritório, não aqui.
+// E ELA PARA DE BATER NA PORTA. Depois de uma rodada em que tudo deu 404, a
+// função não repete por 24h naquela instância — abrir conversa disparava oito
+// requisições condenadas a cada clique. As 24h existem pra que uma mudança no
+// servidor seja descoberta sozinha, sem ninguém lembrar de voltar aqui.
 //
 // Env: EVOLUTION_URL, EVOLUTION_APIKEY, EVOLUTION_APIKEY_GLOBAL.
 
@@ -53,11 +47,10 @@ const ROTAS = [
 
 /** INVENTÁRIO DE ROTAS, quando a assinatura não existe.
  *
- *  Com a 2.3.7 sendo a última estável, "sobe de versão" deixou de ser saída — e
- *  a pergunta virou o que ESTA build tem. Dá pra descobrir sem efeito colateral:
- *  POST com corpo VAZIO. Rota que existe reclama do corpo (400/500); rota que
- *  não existe responde 404 "Cannot POST". Nenhuma mensagem sai, nenhuma
- *  presença é anunciada, nada muda no aparelho de ninguém.
+ *  Dá pra descobrir o que a build tem sem efeito colateral nenhum: POST com
+ *  corpo VAZIO. Rota que existe reclama do corpo (400/500); rota que não existe
+ *  responde 404 "Cannot POST". Nenhuma mensagem sai, nenhuma presença é
+ *  anunciada, nada muda no aparelho de ninguém.
  *
  *  As duas primeiras são controle: sei que existem, e servem pra confirmar que
  *  o método de sondagem está lendo certo antes de eu concluir qualquer coisa
@@ -106,8 +99,22 @@ Deno.serve(async (req: Request) => {
       .from("wa_conversas").select("instancia, telefone, jid").eq("id", conversaId).maybeSingle();
     if (!conversa) return json({ ok: false, error: "Conversa não encontrada" });
 
-    // Já sabemos que esta instância não tem a rota? Então não gasta oito
-    // requisições de novo. Vale por 24h, pra um upgrade ser descoberto sozinho.
+    const inst = encodeURIComponent(conversa.instancia);
+    const numero = conversa.telefone;
+    const jid = conversa.jid || `${numero}@s.whatsapp.net`;
+
+    // O GATILHO É LIDO ANTES DO ATALHO DE 24H. Senão, ligar a chave no banco não
+    // teria efeito nenhum até o dia seguinte, e eu passaria a testar uma coisa
+    // que nem chegou a rodar — exatamente o tipo de ausência que já me enganou
+    // três vezes nesta integração.
+    const { data: cfg } = await sb
+      .from("app_config").select("valor").eq("chave", "wa_presenca_gatilho").maybeSingle();
+    const modo = String(cfg?.valor ?? "off").trim();
+    const valeAqui = modo === "on" || (modo.startsWith("teste:") && modo.slice(6) === numero);
+
+    // Já sabemos que esta instância não tem a rota? Então não gasta as
+    // requisições de novo — a não ser que o gatilho valha aqui, porque aí a
+    // chamada tem um propósito novo.
     const desde = new Date(Date.now() - DIA_MS).toISOString();
     const { data: jaSabido } = await sb
       .from("wa_eventos").select("criado_em")
@@ -115,42 +122,35 @@ Deno.serve(async (req: Request) => {
       .eq("evento", "presenca.assinatura.sem-rota")
       .gte("criado_em", desde)
       .limit(1);
-    if (jaSabido && jaSabido.length > 0) {
-      return json({
-        ok: true, assinou: false, rota: null, jaSabido: true,
-        diagnostico: "Esta instância já respondeu 404 em todas as rotas de assinatura nas últimas 24h.",
-      });
-    }
-
-    const inst = encodeURIComponent(conversa.instancia);
-    const numero = conversa.telefone;
-    const jid = conversa.jid || `${numero}@s.whatsapp.net`;
 
     const tentativas: { rota: string; status: number; corpo: string }[] = [];
     let aceita: string | null = null;
+    const pular = !!(jaSabido && jaSabido.length > 0);
 
-    for (const rota of ROTAS) {
-      // Duas formas de corpo entre versões: `number` puro e `jid` completo. Mas
-      // só insiste na segunda quando a primeira NÃO foi 404 — 404 é a rota que
-      // não existe, e o corpo não muda isso.
-      for (const corpo of [{ number: numero }, { number: jid }]) {
-        const r = await fetch(`${base}/${rota}/${inst}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey },
-          body: JSON.stringify(corpo),
-        });
-        const txt = (await r.text()).slice(0, 200);
-        tentativas.push({ rota, status: r.status, corpo: txt });
-        if (r.ok) { aceita = rota; break; }
-        if (r.status === 404) break;
+    if (!pular) {
+      for (const rota of ROTAS) {
+        // Duas formas de corpo entre versões: `number` puro e `jid` completo.
+        // Mas só insiste na segunda quando a primeira NÃO foi 404 — 404 é a
+        // rota que não existe, e o corpo não muda isso.
+        for (const corpo of [{ number: numero }, { number: jid }]) {
+          const r = await fetch(`${base}/${rota}/${inst}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey },
+            body: JSON.stringify(corpo),
+          });
+          const txt = (await r.text()).slice(0, 200);
+          tentativas.push({ rota, status: r.status, corpo: txt });
+          if (r.ok) { aceita = rota; break; }
+          if (r.status === 404) break;
+        }
+        if (aceita) break;
       }
-      if (aceita) break;
     }
 
     // Sem assinatura, levanta o inventário: o que ESTA build tem. Corpo vazio
     // de propósito — quero saber se a rota existe, não usá-la.
     const inventario: { rota: string; status: number; existe: boolean; corpo: string }[] = [];
-    if (!aceita) {
+    if (!aceita && !pular) {
       for (const rota of SONDAR) {
         const r = await fetch(`${base}/${rota}/${inst}`, {
           method: "POST",
@@ -162,13 +162,42 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ─────────────────────── o último gatilho que resta ───────────────────────
+    //
+    // O inventário mostrou que `chat/sendPresence` EXISTE nesta build. Ele não
+    // assina nada por contrato: ele anuncia a NOSSA presença. Mas em algumas
+    // versões do Baileys esse anúncio abre a via de mão dupla e o servidor passa
+    // a mandar a presença do contato de volta. É a única porta que sobrou, e a
+    // única forma de saber se ela abre é bater nela.
+    //
+    // POR ISSO ELE É DESLIGADO POR PADRÃO, E MORA NUMA CHAVE DO BANCO. Isto tem
+    // efeito FORA daqui: o escritório passa a aparecer "online" no celular do
+    // lead toda vez que alguém abre a conversa dele. Não é mentira — o atendente
+    // está mesmo ali — mas é informação nova saindo pra fora, e ligar isso é
+    // decisão de quem responde pelo escritório, não minha nem do código.
+    //
+    //   off                    não faz nada  (padrão)
+    //   teste:<telefone>       só naquele número, pra medir sem expor ninguém
+    //   on                     em todas as conversas
+    let gatilho: { tentou: boolean; status?: number; corpo?: string } = { tentou: false };
+    if (!aceita && valeAqui) {
+      const r = await fetch(`${base}/chat/sendPresence/${inst}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey },
+        // "available" é o mínimo: diz que estamos com a conversa aberta, sem
+        // fingir que alguém está digitando quando ninguém está.
+        body: JSON.stringify({ number: numero, presence: "available", delay: 0 }),
+      });
+      gatilho = { tentou: true, status: r.status, corpo: (await r.text()).slice(0, 200) };
+    }
+
     // O resultado vira linha, sempre — inclusive o fracasso. É a diferença entre
     // "a presença não funciona" e "a presença não funciona PORQUE esta build não
     // tem a rota", e só a segunda dá pra agir em cima.
     await sb.from("wa_eventos").insert({
       instancia: conversa.instancia,
       evento: aceita ? "presenca.assinatura.ok" : "presenca.assinatura.sem-rota",
-      corpo: { telefone: numero, aceita, tentativas, inventario },
+      corpo: { telefone: numero, aceita, pular, tentativas, inventario, gatilho, modo },
     });
 
     return json({
@@ -178,9 +207,11 @@ Deno.serve(async (req: Request) => {
       diagnostico: aceita
         ? null
         : "Nenhuma das grafias conhecidas de assinatura de presença existe nesta Evolution (todas 404). "
-          + "Sem `presenceSubscribe` o WhatsApp nunca envia 'digitando' nem 'online', e o indicador não tem "
-          + "como existir — não é configuração, é ausência de recurso na versão instalada.",
+          + "Sem `presenceSubscribe` o WhatsApp nunca envia 'digitando' nem 'online' por conta própria.",
       tentativas,
+      inventario,
+      gatilho,
+      modo,
     });
   } catch (e) {
     return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
