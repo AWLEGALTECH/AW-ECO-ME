@@ -128,10 +128,18 @@ Deno.serve(async (req: Request) => {
       jid: `${numero}@s.whatsapp.net`,
       nome_wa: nome,
       nao_lidas: 0,
-      // Conversa que começa aqui é PROSPECÇÃO ATIVA por definição: fomos nós
-      // que fomos até a pessoa. A origem é gravada agora e nunca mais muda —
-      // ela continua sendo ativa depois que o lead responde.
-      origem: "ativa",
+      // Conversa que começa aqui é OUTBOUND por definição: fomos nós que fomos
+      // até a pessoa. A origem é gravada agora e nunca mais muda — quem deu o
+      // primeiro passo não muda depois que o lead responde.
+      //
+      // O valor tem que ser exatamente um dos dois que o banco aceita
+      // (`wa_conversas_origem_check`: inbound | outbound). Aqui estava "ativa",
+      // nome que esse campo tinha ANTES das etiquetas de inbound/outbound — a
+      // renomeação parou no meio e ninguém percebeu, porque o único caminho que
+      // passa por esta linha é o "Começar uma conversa". Ele batia no check
+      // constraint e devolvia a mensagem crua do Postgres na cara de quem só
+      // queria abrir uma conversa.
+      origem: "outbound",
       // `ultima_em` é "quando essa conversa se mexeu pela última vez" — e abrir
       // a conversa é ela se mexendo. Sem isso ela nasceria no fim da lista,
       // ordenada por nulo, e quem acabou de adicionar o contato teria que
