@@ -269,6 +269,24 @@ export default function AtendimentoPage() {
      usa — duas cópias iam divergir na primeira mudança. */
   const digitandoAgora = estaDigitando(presencaViva?.presenca, presencaViva?.presenca_em);
 
+  /* AS RETICÊNCIAS DA LISTA PRECISAM DE UM RELÓGIO PRÓPRIO.
+     "Está digitando" é uma conta contra o AGORA, mas o React só refaz a conta
+     quando alguma coisa manda ele repintar — e a lista de conversas recarrega a
+     cada dez segundos. Resultado: as reticências ficavam pulando até dez
+     segundos depois de a pessoa ter parado, enquanto o balão de dentro da
+     conversa (que tem consulta própria de três em três segundos) apagava na
+     hora. Era essa a diferença que você viu: o balão fiel, a lista não.
+     O tique só existe enquanto ALGUÉM está digitando — sem ninguém, nenhum
+     temporizador roda e a página não repinta à toa. */
+  const alguemDigitando = digitandoAgora
+    || conversas.some((c) => ["digitando", "gravando"].includes(c.presenca ?? ""));
+  const [agoraTique, setAgoraTique] = useState(() => new Date());
+  useEffect(() => {
+    if (!alguemDigitando) return;
+    const id = setInterval(() => setAgoraTique(new Date()), 1500);
+    return () => clearInterval(id);
+  }, [alguemDigitando]);
+
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
     [fontesTodas]);
@@ -416,9 +434,14 @@ export default function AtendimentoPage() {
   useEffect(() => {
     fimDaConversa.current?.scrollIntoView({ block: "end" });
   }, [lead.id]);
+  /* SÓ MENSAGEM PUXA A TELA PRA BAIXO. Digitando não entra na conta: o balão
+     de reticências acende e apaga o tempo todo enquanto a pessoa pensa, e cada
+     piscada arrastaria a conversa — quem estivesse lendo uma mensagem mais
+     acima seria jogado pro fim a cada dois segundos. Rolar é interrupção, e só
+     mensagem nova justifica. */
   useEffect(() => {
     fimDaConversa.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgsDaAberta.length, pendentesDaAberta.length, digitandoAgora]);
+  }, [msgsDaAberta.length, pendentesDaAberta.length]);
   /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
      Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
      opcional (dia, midiaPath, duracao) some do que dá pra ler. */
@@ -1442,14 +1465,13 @@ export default function AtendimentoPage() {
                             é notícia mais nova que a última mensagem, e é a
                             informação que muda a decisão de quem lê a fila:
                             espera esse antes de cobrar aquele outro. */}
-                        {estaDigitando(l.presenca, l.presencaEm) ? (
-                          <span className="flex items-center gap-[3px] text-[10.5px] text-emerald-300 mt-0.5">
+                        {estaDigitando(l.presenca, l.presencaEm, agoraTique) ? (
+                          <span className="flex items-center gap-[3px] h-[15px] mt-0.5">
                             {[0, 150, 300].map((atraso) => (
                               <span key={atraso}
                                 style={{ animationDelay: `${atraso}ms` }}
                                 className="h-[3px] w-[3px] rounded-full bg-emerald-400 animate-bounce" />
                             ))}
-                            <span className="ml-1">digitando…</span>
                           </span>
                         ) : (
                           <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
@@ -1552,23 +1574,31 @@ export default function AtendimentoPage() {
                       status — fica só o telefone. A tela NÃO escreve "offline":
                       ausência de evento é "não sei", e dizer offline seria
                       inventar um fato sobre uma pessoa real. */}
+                  {/* NADA DE "ONLINE" NEM DE "DIGITANDO" ESCRITO AQUI.
+                      O pingo verde no avatar já diz que está online, e o balão
+                      de reticências no fim da conversa já diz que está
+                      escrevendo — dizer de novo em palavra é o mesmo recado
+                      duas vezes, e é o tipo de repetição que faz o olho parar
+                      de ler a linha inteira.
+                      Sobra o que NÃO tem outro lugar pra aparecer: o "visto por
+                      último", que só faz sentido justamente quando a pessoa não
+                      está online. */}
                   {(() => {
                     const sit = situacaoDoContato({
                       presenca: presencaViva?.presenca ?? lead.presenca,
                       presencaEm: presencaViva?.presenca_em ?? lead.presencaEm,
                       vistoEm: presencaViva?.visto_em ?? lead.vistoEm,
                     });
-                    if (!sit) return <p className="text-[10.5px] text-muted-foreground truncate">{lead.telefone}</p>;
+                    const visto = sit && !sit.aoVivo ? sit.texto : null;
                     return (
-                      <p className="text-[10.5px] truncate flex items-center gap-1.5">
-                        {/* VERDE, e não azul: é o mesmo verde do pingo sobre a
-                            foto, e presença é a única coisa nesta tela que fala
-                            do agora. O pingo já está no avatar, então aqui fica
-                            só a palavra — dois pontinhos verdes lado a lado
-                            seriam o mesmo recado dado duas vezes. */}
-                        <span className={sit.aoVivo ? "text-emerald-300" : "text-muted-foreground"}>{sit.texto}</span>
-                        <span className="text-muted-foreground/50">·</span>
-                        <span className="text-muted-foreground truncate">{lead.telefone}</span>
+                      <p className="text-[10.5px] truncate flex items-center gap-1.5 text-muted-foreground">
+                        {visto && (
+                          <>
+                            <span>{visto}</span>
+                            <span className="text-muted-foreground/50">·</span>
+                          </>
+                        )}
+                        <span className="truncate">{lead.telefone}</span>
                       </p>
                     );
                   })()}
