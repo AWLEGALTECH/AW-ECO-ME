@@ -51,6 +51,29 @@ const ROTAS = [
   "instance/presenceSubscribe",
 ];
 
+/** INVENTÁRIO DE ROTAS, quando a assinatura não existe.
+ *
+ *  Com a 2.3.7 sendo a última estável, "sobe de versão" deixou de ser saída — e
+ *  a pergunta virou o que ESTA build tem. Dá pra descobrir sem efeito colateral:
+ *  POST com corpo VAZIO. Rota que existe reclama do corpo (400/500); rota que
+ *  não existe responde 404 "Cannot POST". Nenhuma mensagem sai, nenhuma
+ *  presença é anunciada, nada muda no aparelho de ninguém.
+ *
+ *  As duas primeiras são controle: sei que existem, e servem pra confirmar que
+ *  o método de sondagem está lendo certo antes de eu concluir qualquer coisa
+ *  sobre as outras. Sondagem sem controle é como inferir de ausência — o erro
+ *  que essa integração já me cobrou três vezes. */
+const SONDAR = [
+  "chat/whatsappNumbers",        // controle: existe
+  "chat/findChats",              // controle: existe
+  "chat/sendPresence",           // manda a NOSSA presença — o único gatilho que sobrou
+  "chat/fetchProfile",
+  "chat/fetchProfilePictureUrl",
+  "chat/markMessageAsRead",
+  "chat/findContacts",
+  "chat/findStatusMessage",
+];
+
 const DIA_MS = 24 * 60 * 60 * 1000;
 
 Deno.serve(async (req: Request) => {
@@ -124,13 +147,28 @@ Deno.serve(async (req: Request) => {
       if (aceita) break;
     }
 
+    // Sem assinatura, levanta o inventário: o que ESTA build tem. Corpo vazio
+    // de propósito — quero saber se a rota existe, não usá-la.
+    const inventario: { rota: string; status: number; existe: boolean; corpo: string }[] = [];
+    if (!aceita) {
+      for (const rota of SONDAR) {
+        const r = await fetch(`${base}/${rota}/${inst}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey },
+          body: "{}",
+        });
+        const txt = (await r.text()).slice(0, 160);
+        inventario.push({ rota, status: r.status, existe: r.status !== 404, corpo: txt });
+      }
+    }
+
     // O resultado vira linha, sempre — inclusive o fracasso. É a diferença entre
     // "a presença não funciona" e "a presença não funciona PORQUE esta build não
     // tem a rota", e só a segunda dá pra agir em cima.
     await sb.from("wa_eventos").insert({
       instancia: conversa.instancia,
       evento: aceita ? "presenca.assinatura.ok" : "presenca.assinatura.sem-rota",
-      corpo: { telefone: numero, aceita, tentativas },
+      corpo: { telefone: numero, aceita, tentativas, inventario },
     });
 
     return json({
