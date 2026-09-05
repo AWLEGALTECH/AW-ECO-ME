@@ -1,30 +1,30 @@
 // wa-presenca — pedir ao WhatsApp que nos conte quando o contato está digitando.
 //
 // POR QUE ISSO PRECISA EXISTIR. O evento `PRESENCE_UPDATE` está marcado no
-// painel da Evolution e mesmo assim nunca chegou uma linha sequer — enquanto
+// painel da Evolution e nunca chegou uma linha sequer, enquanto o
 // `MESSAGES_UPSERT` chega normalmente. Não é webhook, não é token, não é a
 // lista de eventos: é o protocolo.
 //
 // Presença no WhatsApp é ASSINADA POR CONTATO. O Baileys só recebe
 // `presence.update` de um JID depois de chamar `presenceSubscribe` naquele JID.
-// Sem a assinatura o servidor simplesmente não manda, e a ausência se parece
-// exatamente com "o evento está desmarcado" — que foi onde eu procurei
-// primeiro, e errado.
+// Sem a assinatura o servidor não manda nada, e a ausência se parece exatamente
+// com "o evento está desmarcado" — que foi onde eu procurei primeiro, errado.
 //
-// E POR QUE ELA TENTA VÁRIAS ROTAS. Eu não consigo alcançar a documentação da
-// Evolution daqui, e o nome dessa rota mudou entre versões da v2. Chutar uma e
-// deixar o resto quieto reproduziria o defeito que essa integração já teve três
-// vezes: falhar em silêncio e parecer que funcionou.
+// O QUE JÁ SE SABE DESTE SERVIDOR: na primeira rodada, `presenceSubscribe`,
+// `subscribePresence` e `presence` responderam 404 nas duas formas de corpo.
+// A lista abaixo esgota as variações de nome que as v2 usaram, pra a conclusão
+// ser "esta build não tem a rota" e não "eu não achei o nome dela".
 //
-// Então ela tenta as candidatas conhecidas, GRAVA qual respondeu o quê em
-// `wa_eventos`, e devolve o nome da que funcionou. Na primeira chamada real, a
-// dúvida vira fato — e se nenhuma existir, isso também fica escrito, que é uma
-// resposta legítima: esta build não expõe assinatura de presença.
+// E ELA PARA DE BATER NA PORTA. Depois de uma rodada em que TUDO deu 404, a
+// função não repete as chamadas por 24h para aquela instância — abrir conversa
+// disparava oito requisições condenadas a cada clique. As 24h existem pra que um
+// upgrade da Evolution seja descoberto sozinho, sem ninguém lembrar de voltar
+// aqui.
 //
-// O que ela NÃO faz: mandar a NOSSA presença. `sendPresence` existe e seria
-// tentador incluir na lista, mas ele anuncia o escritório como "online" ou
-// "digitando" no aparelho do cliente — efeito visível para outra pessoa, que
-// ninguém pediu.
+// O que ela NÃO faz: mandar a NOSSA presença. `sendPresence` existe e em
+// algumas builds assina de quebra, mas ele anuncia o escritório como "online"
+// ou "digitando" no aparelho do cliente — efeito visível para outra pessoa, que
+// ninguém pediu. Isso se decide com quem responde pelo escritório, não aqui.
 //
 // Env: EVOLUTION_URL, EVOLUTION_APIKEY, EVOLUTION_APIKEY_GLOBAL.
 
@@ -38,13 +38,20 @@ const cors = {
 const json = (b: unknown) =>
   new Response(JSON.stringify(b), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
 
-/** Candidatas, em ordem de probabilidade. Só assinatura — nada que anuncie a
+/** Todas as grafias que as v2 já usaram. Só assinatura — nada que anuncie a
  *  nossa presença para o contato. */
 const ROTAS = [
   "chat/presenceSubscribe",
   "chat/subscribePresence",
   "chat/presence",
+  "chat/presence-subscribe",
+  "chat/subscribe-presence",
+  "chat/updatePresence",
+  "chat/fetchPresence",
+  "instance/presenceSubscribe",
 ];
+
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -76,6 +83,22 @@ Deno.serve(async (req: Request) => {
       .from("wa_conversas").select("instancia, telefone, jid").eq("id", conversaId).maybeSingle();
     if (!conversa) return json({ ok: false, error: "Conversa não encontrada" });
 
+    // Já sabemos que esta instância não tem a rota? Então não gasta oito
+    // requisições de novo. Vale por 24h, pra um upgrade ser descoberto sozinho.
+    const desde = new Date(Date.now() - DIA_MS).toISOString();
+    const { data: jaSabido } = await sb
+      .from("wa_eventos").select("criado_em")
+      .eq("instancia", conversa.instancia)
+      .eq("evento", "presenca.assinatura.sem-rota")
+      .gte("criado_em", desde)
+      .limit(1);
+    if (jaSabido && jaSabido.length > 0) {
+      return json({
+        ok: true, assinou: false, rota: null, jaSabido: true,
+        diagnostico: "Esta instância já respondeu 404 em todas as rotas de assinatura nas últimas 24h.",
+      });
+    }
+
     const inst = encodeURIComponent(conversa.instancia);
     const numero = conversa.telefone;
     const jid = conversa.jid || `${numero}@s.whatsapp.net`;
@@ -84,7 +107,9 @@ Deno.serve(async (req: Request) => {
     let aceita: string | null = null;
 
     for (const rota of ROTAS) {
-      // Duas formas de corpo entre versões: `number` puro e `jid` completo.
+      // Duas formas de corpo entre versões: `number` puro e `jid` completo. Mas
+      // só insiste na segunda quando a primeira NÃO foi 404 — 404 é a rota que
+      // não existe, e o corpo não muda isso.
       for (const corpo of [{ number: numero }, { number: jid }]) {
         const r = await fetch(`${base}/${rota}/${inst}`, {
           method: "POST",
@@ -94,13 +119,14 @@ Deno.serve(async (req: Request) => {
         const txt = (await r.text()).slice(0, 200);
         tentativas.push({ rota, status: r.status, corpo: txt });
         if (r.ok) { aceita = rota; break; }
+        if (r.status === 404) break;
       }
       if (aceita) break;
     }
 
-    // O resultado vira linha, sempre — inclusive o fracasso. É a diferença
-    // entre "a presença não funciona" e "a presença não funciona PORQUE esta
-    // build não tem a rota", e só a segunda dá pra agir em cima.
+    // O resultado vira linha, sempre — inclusive o fracasso. É a diferença entre
+    // "a presença não funciona" e "a presença não funciona PORQUE esta build não
+    // tem a rota", e só a segunda dá pra agir em cima.
     await sb.from("wa_eventos").insert({
       instancia: conversa.instancia,
       evento: aceita ? "presenca.assinatura.ok" : "presenca.assinatura.sem-rota",
@@ -111,11 +137,11 @@ Deno.serve(async (req: Request) => {
       ok: true,
       assinou: !!aceita,
       rota: aceita,
-      // 404 em todas quer dizer uma coisa só, e ela merece frase.
       diagnostico: aceita
         ? null
-        : "Nenhuma rota de assinatura de presença respondeu. Esta versão da Evolution provavelmente não expõe "
-          + "`presenceSubscribe` — sem ela o WhatsApp nunca envia 'digitando', e o indicador não tem como existir.",
+        : "Nenhuma das grafias conhecidas de assinatura de presença existe nesta Evolution (todas 404). "
+          + "Sem `presenceSubscribe` o WhatsApp nunca envia 'digitando' nem 'online', e o indicador não tem "
+          + "como existir — não é configuração, é ausência de recurso na versão instalada.",
       tentativas,
     });
   } catch (e) {
