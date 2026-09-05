@@ -54,7 +54,16 @@ const EVENTOS = [
   "CONNECTION_UPDATE", // caiu, reconectou
 ];
 
-/** Nome de instância aceito pela Evolution: sem espaço, sem acento. */
+/** Nome aceito pela Evolution AO CRIAR uma instância: sem espaço, sem acento.
+ *
+ *  SÓ VALE PRA CRIAR. Aplicar isto num nome que JÁ existe é o oposto de ajudar:
+ *  a instância do escritório se chama `PORTAL DIREITO ABERTO 2`, com espaços, e
+ *  normalizar transformava a pergunta em `PORTAL-DIREITO-ABERTO-2` — um nome
+ *  que a Evolution não conhece. Toda ação daqui (diagnóstico, reconfigurar,
+ *  importar) batia num 404 silencioso e parecia não fazer efeito nenhum.
+ *
+ *  Foi um estrago sem sintoma próprio: o "Reconfigurar eventos" dizia que tinha
+ *  reconfigurado, e tinha reconfigurado o nada. */
 function nomeDeInstancia(bruto: string): string {
   return String(bruto || "")
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -121,7 +130,10 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     const acao = String(body.acao || "").trim();
-    const nome = nomeDeInstancia(String(body.instancia || ""));
+    // O nome vai COMO ESTÁ pra Evolution. Só a criação normaliza, porque aí o
+    // nome ainda não existe do outro lado e quem escolhe o formato somos nós.
+    const nomeCru = String(body.instancia || "").trim();
+    const nome = acao === "criar" ? nomeDeInstancia(nomeCru) : nomeCru;
     if (!nome) return json({ ok: false, error: "Nome da instância é obrigatório" });
 
     const sb = createClient(URL_SB, SERVICE);
