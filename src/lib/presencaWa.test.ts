@@ -129,13 +129,24 @@ describe("está digitando agora", () => {
     expect(estaDigitando("gravando", segAtras(3), AGORA)).toBe(true);
   });
 
-  // O estado mais perecível da tela: o WhatsApp manda `composing` e só volta a
-  // falar quando a pessoa PARA. Se ela largar o celular no meio da frase, o
-  // último evento fica pendurado — e um balão pulando eternamente faria quem
-  // olha esperar uma mensagem que não vem.
-  it("apaga depois de cinco segundos", () => {
-    expect(estaDigitando("digitando", segAtras(4), AGORA)).toBe(true);
-    expect(estaDigitando("digitando", segAtras(6), AGORA)).toBe(false);
+  // O WhatsApp REENVIA `composing` a cada ~10s enquanto a pessoa digita — não é
+  // sinal contínuo. Com janela de 5s o balão apagava ENTRE dois reenvios, com o
+  // contato ainda escrevendo. O maior intervalo medido na conversa real foi
+  // 17,8s; vinte cobre com folga.
+  it("aguenta o intervalo entre dois `composing`", () => {
+    expect(estaDigitando("digitando", segAtras(10), AGORA)).toBe(true);
+    expect(estaDigitando("digitando", segAtras(18), AGORA)).toBe(true);
+  });
+
+  // A janela longa não deixa o balão pendurado porque não é ela quem apaga: o
+  // `available` chega ~1s depois da pausa e troca o estado. A validade é só a
+  // rede de segurança pra quando evento nenhum chega.
+  it("quem apaga é o evento de pausa, não o relógio", () => {
+    expect(estaDigitando("disponivel", segAtras(1), AGORA)).toBe(false);
+  });
+
+  it("mas o relógio segura quem sumiu sem avisar", () => {
+    expect(estaDigitando("digitando", segAtras(21), AGORA)).toBe(false);
     expect(estaDigitando("digitando", segAtras(3600), AGORA)).toBe(false);
   });
 

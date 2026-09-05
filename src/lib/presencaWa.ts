@@ -121,12 +121,23 @@ export function quandoFoi(quando: number | string, agora = new Date()): string {
 /**
  * Está digitando AGORA?
  *
- * Validade curta de propósito — cinco segundos. "Digitando" é o estado mais
- * perecível que existe nesta tela: o WhatsApp manda `composing` e só volta a
- * falar quando a pessoa para, e se ela largar o celular no meio da frase o
- * último evento fica pendurado. Com validade longa, o balão de reticências
- * ficaria pulando eternamente para alguém que saiu — e quem olha a tela
- * esperaria uma mensagem que não vem.
+ * A JANELA É DE VINTE SEGUNDOS, e o número saiu de medição, não de gosto. O
+ * WhatsApp REENVIA `composing` a cada ~10 segundos enquanto a pessoa digita —
+ * não é um sinal contínuo. Medido na conversa real:
+ *
+ *   20:57:06  composing
+ *   20:57:16  composing   (+10,0s)
+ *   20:57:33  composing   (+17,8s)   ← o maior intervalo observado
+ *   20:57:43  composing   (+10,0s)
+ *   20:57:44  available               ← ele pausou; chega em ~1s
+ *
+ * Com cinco segundos o balão apagava ENTRE dois reenvios, com a pessoa ainda
+ * escrevendo. Vinte cobre o pior intervalo visto com folga.
+ *
+ * E a janela longa não deixa o balão pendurado, porque ela não é quem apaga: o
+ * `available` chega um segundo depois da pausa e derruba o estado na hora. A
+ * validade aqui é só a rede de segurança pra quando evento nenhum chegar —
+ * celular que perdeu sinal no meio da frase.
  *
  * Vale pro balão dentro da conversa E pro aviso no cartão da caixa: é a mesma
  * pergunta, e duas cópias da regra iam divergir na primeira mudança.
@@ -138,7 +149,7 @@ export function estaDigitando(
 ): boolean {
   if (!presenca || !["digitando", "gravando"].includes(presenca)) return false;
   const t = presencaEm ? new Date(presencaEm).getTime() : NaN;
-  return Number.isFinite(t) && agora.getTime() - t <= 5_000;
+  return Number.isFinite(t) && agora.getTime() - t <= 20_000;
 }
 
 /**
