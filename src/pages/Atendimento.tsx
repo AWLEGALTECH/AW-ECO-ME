@@ -239,16 +239,17 @@ export default function AtendimentoPage() {
      três segundos, e a lista, que recarrega a cada dez, nunca pegaria. */
   const { data: presencaViva } = usePresencaDaConversa(idAberto, aoVivo);
 
-  /* ASSINAR A PRESENÇA AO ABRIR. O WhatsApp não conta "fulano está digitando"
-     para quem não pediu — o Baileys precisa assinar aquele número primeiro.
-     Era o que faltava: o PRESENCE_UPDATE estava marcado no painel da Evolution
-     e nunca entregou uma linha, porque ninguém tinha assinado nada.
-     Uma vez por conversa por sessão; a assinatura vale enquanto o socket viver,
-     e repetir a cada re-render viraria uma chamada a cada três segundos. */
-  const jaAssinadas = useRef<Set<string>>(new Set());
+  /* AVISAR QUAL CONVERSA ESTÁ ABERTA. É a âncora que ensina o `@lid` do
+     contato: a presença chega identificada só pelo LinkedID, que não é
+     telefone, e a Evolution não devolve esse par quando perguntada. O vínculo
+     se aprende porque o WhatsApp só manda presença de quem se está olhando —
+     e é a tela que sabe quem é.
+     SEM MEMÓRIA DE "já avisei": o efeito dispara na troca de conversa, que é
+     exatamente quando o aviso importa. A versão anterior guardava as já
+     avisadas num Set e por isso só ensinava o primeiro contato de cada sessão
+     — foi assim que o Luan funcionou e o João não. */
   useEffect(() => {
-    if (!aoVivo || !idAberto || jaAssinadas.current.has(idAberto)) return;
-    jaAssinadas.current.add(idAberto);
+    if (!aoVivo || !idAberto) return;
     void assinarPresenca(idAberto);
   }, [aoVivo, idAberto]);
 

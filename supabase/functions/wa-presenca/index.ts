@@ -99,6 +99,21 @@ Deno.serve(async (req: Request) => {
       .from("wa_conversas").select("instancia, telefone, jid").eq("id", conversaId).maybeSingle();
     if (!conversa) return json({ ok: false, error: "Conversa não encontrada" });
 
+    // CARIMBA A CONVERSA ABERTA — antes de qualquer atalho.
+    //
+    // Esta é a âncora que ensina o @lid do contato. A presença chega
+    // identificada só pelo LinkedID, que não é telefone; o par é aprendido
+    // porque o WhatsApp só manda presença de quem se está olhando, e a tela
+    // acabou de dizer quem é.
+    //
+    // Tem que vir ANTES do `pular` de 24h: com o carimbo depois, uma instância
+    // já marcada como "sem rota de assinatura" nunca mais ensinaria lid nenhum,
+    // e a presença dos contatos novos morreria sem dono pra sempre. Foi o que
+    // aconteceu com o João — a presença dele chegava e não tinha onde pousar.
+    await sb.from("wa_conversas")
+      .update({ presenca_pedida_em: new Date().toISOString() })
+      .eq("id", conversaId);
+
     const inst = encodeURIComponent(conversa.instancia);
     const numero = conversa.telefone;
     const jid = conversa.jid || `${numero}@s.whatsapp.net`;
