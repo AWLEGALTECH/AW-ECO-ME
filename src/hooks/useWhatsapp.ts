@@ -324,6 +324,26 @@ export type Diagnostico = {
 };
 export const diagnosticarInstancia = (nome: string) =>
   pedirConexao({ acao: "diagnostico", instancia: nome }) as unknown as Promise<Diagnostico>;
+
+/**
+ * ASSINAR A PRESENÇA DE UM CONTATO.
+ *
+ * O WhatsApp não conta "fulano está digitando" para quem não pediu: o Baileys
+ * precisa chamar `presenceSubscribe` naquele número antes. Foi por isso que o
+ * `PRESENCE_UPDATE` ficou marcado no painel da Evolution e nunca entregou uma
+ * linha — a ausência de assinatura se parece com evento desmarcado, e eu
+ * procurei no lugar errado.
+ *
+ * Silenciosa de propósito: a assinatura é um detalhe do protocolo, e um toast
+ * de erro cada vez que se abre uma conversa seria barulho sobre algo que quem
+ * atende não pode consertar. O resultado fica em `wa_eventos`.
+ */
+export async function assinarPresenca(conversaId: string) {
+  const { data } = await supabase.functions.invoke("wa-presenca", {
+    body: { conversa_id: conversaId },
+  });
+  return data as { ok: boolean; assinou?: boolean; rota?: string | null; diagnostico?: string | null } | null;
+}
 export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desconectar", instancia: nome });
 
 export function useInvalidarWa() {

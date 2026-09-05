@@ -54,7 +54,7 @@ import {
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, useInvalidarWa,
-  diagnosticarInstancia, type Diagnostico,
+  diagnosticarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
@@ -236,6 +236,19 @@ export default function AtendimentoPage() {
   /* A presença da conversa aberta é olhada de perto (3s): "digitando" dura
      três segundos, e a lista, que recarrega a cada dez, nunca pegaria. */
   const { data: presencaViva } = usePresencaDaConversa(idAberto, aoVivo);
+
+  /* ASSINAR A PRESENÇA AO ABRIR. O WhatsApp não conta "fulano está digitando"
+     para quem não pediu — o Baileys precisa assinar aquele número primeiro.
+     Era o que faltava: o PRESENCE_UPDATE estava marcado no painel da Evolution
+     e nunca entregou uma linha, porque ninguém tinha assinado nada.
+     Uma vez por conversa por sessão; a assinatura vale enquanto o socket viver,
+     e repetir a cada re-render viraria uma chamada a cada três segundos. */
+  const jaAssinadas = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!aoVivo || !idAberto || jaAssinadas.current.has(idAberto)) return;
+    jaAssinadas.current.add(idAberto);
+    void assinarPresenca(idAberto);
+  }, [aoVivo, idAberto]);
 
   /* O campo cresce com o texto e volta ao tamanho de uma linha quando esvazia.
      Sem isso, uma resposta de quatro linhas rolaria dentro de uma caixa de uma
