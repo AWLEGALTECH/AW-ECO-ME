@@ -284,6 +284,18 @@ Deno.serve(async (req: Request) => {
       const urlLa = String(w.url ?? "");
       const porEvento = !!(w.webhookByEvents ?? w.webhook_by_events ?? w.byEvents);
 
+      // O TOKEN SE COMPARA DEPOIS DE DECODIFICAR, e isso é a correção de um
+      // erro que a própria tela cometeu: a comparação era `url.includes(
+      // "token=" + token)`, contra o token CRU. Como nós gravamos a URL com
+      // `encodeURIComponent`, qualquer caractere especial no segredo fazia a
+      // tela acusar "o token não é o deste sistema" numa configuração perfeita.
+      // Um diagnóstico que inventa problema é pior que nenhum: manda consertar
+      // o que não está quebrado. `searchParams` decodifica, então aqui a
+      // comparação é entre os dois valores de verdade.
+      const tokenNaUrl = (() => {
+        try { return new URL(urlLa).searchParams.get("token"); } catch { return null; }
+      })();
+
       // Estado da conexão junto: webhook perfeito em instância caída também
       // resulta em caixa parada, e são consertos diferentes.
       let estado = "desconhecido";
@@ -313,7 +325,7 @@ Deno.serve(async (req: Request) => {
           ativo: w.enabled !== false,
           url: esconde(urlLa),
           apontaPraCa: urlLa.startsWith(`${URL_SB}/functions/v1/wa-webhook`),
-          tokenConfere: urlLa.includes(`token=${tokenWebhook}`),
+          tokenConfere: tokenNaUrl === tokenWebhook,
           porEvento,
           eventos,
           faltando,
