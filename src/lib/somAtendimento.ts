@@ -37,15 +37,20 @@ export type Desenho = {
   volume: number;
 };
 
+// OS NÚMEROS JÁ ESTIVERAM ERRADOS, e vale registrar por quê. A primeira versão
+// usava 3,5% e 5,5% de pico: no papel é "discreto", no alto-falante de notebook
+// é silêncio — cerca de -29 dB num blip de 60ms não chega ao ouvido de ninguém.
+// Discreto é o som que não assusta, não o som que não existe. A hierarquia
+// entre os três é que importa, e ela continua a mesma; o que mudou foi o chão.
 export const DESENHO: Record<SomAtendimento, Desenho> = {
-  // Uma nota curta e quase inaudível: fecha o gesto e some.
-  "enviada": { notas: [880], duracao: 0.06, volume: 0.035 },
-  // Um pouco mais grave e mais presente que a de envio — é o outro lado
-  // falando —, mas ainda de canto: a pessoa está com a conversa na frente.
-  "recebida-aberta": { notas: [587.33], duracao: 0.09, volume: 0.055 },
+  // Uma nota curta: fecha o gesto e some.
+  "enviada": { notas: [880], duracao: 0.07, volume: 0.10 },
+  // Mais grave e mais presente que a de envio — é o outro lado falando —, mas
+  // ainda de canto: a pessoa está com a conversa na frente.
+  "recebida-aberta": { notas: [587.33], duracao: 0.10, volume: 0.17 },
   // Duas notas subindo (ré → lá). Subir é o que faz um som pedir atenção sem
   // soar de alarme; descer soaria como erro.
-  "recebida-fechada": { notas: [587.33, 880], duracao: 0.12, volume: 0.14 },
+  "recebida-fechada": { notas: [587.33, 880], duracao: 0.13, volume: 0.45 },
 };
 
 /**

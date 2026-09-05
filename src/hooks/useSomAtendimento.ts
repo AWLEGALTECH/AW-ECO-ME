@@ -41,24 +41,52 @@ export function useSomAtendimento(conversaAberta: string | null) {
   /** a primeira leitura só memoriza — ver armadilha 1 */
   const primeiraLeitura = useRef(true);
 
+  /* O NAVEGADOR SÓ LIBERA ÁUDIO DEPOIS DE UM CLIQUE, e isso derrubou a primeira
+     versão inteira: o contexto nascia dentro de um efeito, longe de qualquer
+     gesto, e ficava suspenso pra sempre. Não dava erro — só não saía som, que é
+     o pior jeito de falhar.
+     Aqui o primeiro clique EM QUALQUER LUGAR da página acorda o contexto, uma
+     vez só. O ouvinte se remove sozinho depois disso. */
+  useEffect(() => {
+    const acordar = () => {
+      try {
+        ctx.current ??= new AudioContext();
+        if (ctx.current.state === "suspended") void ctx.current.resume();
+      } catch { /* sem áudio neste navegador */ }
+    };
+    window.addEventListener("pointerdown", acordar, { once: true });
+    window.addEventListener("keydown", acordar, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", acordar);
+      window.removeEventListener("keydown", acordar);
+    };
+  }, []);
+
+  const soar = useCallback((som: SomAtendimento, ignorarMudo = false) => {
+    if (mudo && !ignorarMudo) return;
+    try {
+      ctx.current ??= new AudioContext();
+      if (ctx.current.state === "suspended") {
+        // `resume` é assíncrono: tocar antes dele terminar não produz som
+        // nenhum. Por isso o som espera a promessa, em vez de sair no vazio.
+        void ctx.current.resume().then(() => { if (ctx.current) tocar(som, ctx.current); }).catch(() => {});
+        return;
+      }
+      tocar(som, ctx.current);
+    } catch { /* navegador recusou: seguir sem som */ }
+  }, [mudo]);
+
+  /* Ligar o som TOCA UMA AMOSTRA. É um clique de verdade, então serve de
+     destravamento; e é a única forma de alguém saber que o som está funcionando
+     sem depender de um cliente escrever naquele instante. */
   const alternarMudo = useCallback(() => {
     setMudo((m) => {
       const novo = !m;
       try { localStorage.setItem(CHAVE_MUDO, novo ? "1" : "0"); } catch { /* modo privado */ }
+      if (!novo) soar("recebida-fechada", true);
       return novo;
     });
-  }, []);
-
-  const soar = useCallback((som: SomAtendimento) => {
-    if (mudo) return;
-    try {
-      ctx.current ??= new AudioContext();
-      // Suspenso é o estado normal antes do primeiro gesto na página. Pedir pra
-      // retomar é barato e resolve a partir do segundo som.
-      if (ctx.current.state === "suspended") void ctx.current.resume();
-      tocar(som, ctx.current);
-    } catch { /* navegador recusou: seguir sem som */ }
-  }, [mudo]);
+  }, [soar]);
 
   /**
    * Recebe o retrato atual das conversas e toca o que houver de novo.
@@ -74,7 +102,13 @@ export function useSomAtendimento(conversaAberta: string | null) {
       const anterior = visto.current.get(s.conversaId);
       visto.current.set(s.conversaId, s.em);
       if (primeiraLeitura.current) continue;              // armadilha 1
-      if (anterior === undefined || anterior >= s.em) continue;
+
+      // CONVERSA QUE NÃO EXISTIA É MENSAGEM NOVA, e essa é a mais importante de
+      // todas: um lead escrevendo pela PRIMEIRA vez. A versão anterior exigia
+      // um carimbo anterior pra comparar e, sem ele, ficava calada — perdia
+      // justamente o caso que ninguém pode perder.
+      const nova = anterior === undefined || anterior < s.em;
+      if (!nova) continue;
 
       const som = somDaMensagem({
         direcao: s.direcao ?? "",
@@ -93,10 +127,6 @@ export function useSomAtendimento(conversaAberta: string | null) {
     soar(escolhido);
     return escolhido;
   }, [conversaAberta, soar]);
-
-  /* Trocar de conversa NÃO reseta a memória: as outras continuam valendo, e
-     zerar tudo faria a próxima atualização soar o histórico da conversa nova. */
-  useEffect(() => { /* nada a fazer — a memória é por conversa, não por tela */ }, [conversaAberta]);
 
   return { mudo, alternarMudo, aoAtualizar, soar };
 }

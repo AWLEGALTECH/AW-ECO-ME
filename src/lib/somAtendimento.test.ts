@@ -48,9 +48,16 @@ describe("o peso de cada som", () => {
       .toBeGreaterThan(DESENHO["enviada"].volume);
   });
 
-  it("os discretos são discretos de verdade — abaixo de 6% do volume", () => {
-    expect(DESENHO["enviada"].volume).toBeLessThan(0.06);
-    expect(DESENHO["recebida-aberta"].volume).toBeLessThan(0.06);
+  // A primeira versão fixava o teto em 6% e passava nos testes soando NADA:
+  // -29 dB num blip de 60ms não chega ao ouvido. Discreto é o som que não
+  // assusta, não o que não existe — então a regra virou proporção, e ganhou um
+  // piso audível junto.
+  it("os discretos são fração do alto, mas continuam audíveis", () => {
+    const alto = DESENHO["recebida-fechada"].volume;
+    expect(DESENHO["enviada"].volume).toBeLessThan(alto / 3);
+    expect(DESENHO["recebida-aberta"].volume).toBeLessThan(alto / 2);
+    expect(DESENHO["enviada"].volume).toBeGreaterThanOrEqual(0.08);
+    expect(DESENHO["recebida-aberta"].volume).toBeGreaterThanOrEqual(0.08);
   });
 
   it("só o de conversa fechada tem duas notas — as outras são um toque só", () => {
