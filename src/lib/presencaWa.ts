@@ -119,6 +119,29 @@ export function quandoFoi(quando: number | string, agora = new Date()): string {
 }
 
 /**
+ * Está digitando AGORA?
+ *
+ * Validade curta de propósito — quinze segundos. "Digitando" é o estado mais
+ * perecível que existe nesta tela: o WhatsApp manda `composing` e só volta a
+ * falar quando a pessoa para, e se ela largar o celular no meio da frase o
+ * último evento fica pendurado. Com validade longa, o balão de reticências
+ * ficaria pulando eternamente para alguém que saiu — e quem olha a tela
+ * esperaria uma mensagem que não vem.
+ *
+ * Vale pro balão dentro da conversa E pro aviso no cartão da caixa: é a mesma
+ * pergunta, e duas cópias da regra iam divergir na primeira mudança.
+ */
+export function estaDigitando(
+  presenca: string | null | undefined,
+  presencaEm: string | null | undefined,
+  agora = new Date(),
+): boolean {
+  if (!presenca || !["digitando", "gravando"].includes(presenca)) return false;
+  const t = presencaEm ? new Date(presencaEm).getTime() : NaN;
+  return Number.isFinite(t) && agora.getTime() - t <= 15_000;
+}
+
+/**
  * A conversa merece um pontinho de "online" na lista?
  *
  * Só com presença fresca e positiva. Sem evento, sem pontinho — de novo: a

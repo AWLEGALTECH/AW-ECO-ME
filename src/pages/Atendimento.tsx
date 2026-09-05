@@ -59,7 +59,9 @@ import {
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
-import { situacaoDoContato, estaOnline, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio } from "@/lib/presencaWa";
+import {
+  situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
+} from "@/lib/presencaWa";
 import {
   novaPendente, aindaPendentes, daConversa, marcarFalha, remover, bolhaDaPendente,
   type Pendente,
@@ -261,10 +263,10 @@ export default function AtendimentoPage() {
   }, [rascunho]);
   /* Só "digitando" e "gravando" acendem o balão — "online" não: alguém pode
      ficar horas com o app aberto sem escrever nada, e um balão eterno de
-     reticências faria a tela mentir a tarde inteira. */
-  const digitandoAgora = ["digitando", "gravando"].includes(presencaViva?.presenca ?? "")
-    && !!presencaViva?.presenca_em
-    && Date.now() - new Date(presencaViva.presenca_em).getTime() < 15_000;
+     reticências faria a tela mentir a tarde inteira. A regra de validade mora
+     em presencaWa.estaDigitando, com teste, e é a MESMA que o cartão da caixa
+     usa — duas cópias iam divergir na primeira mudança. */
+  const digitandoAgora = estaDigitando(presencaViva?.presenca, presencaViva?.presenca_em);
 
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
@@ -402,6 +404,20 @@ export default function AtendimentoPage() {
   }, [msgsDaAberta]);
 
   const pendentesDaAberta = daConversa(pendentes, lead.id);
+
+  /* A CONVERSA DESCE SOZINHA PRA MENSAGEM NOVA.
+     Sem isso, a mensagem chegava, o histórico crescia por baixo e quem estava
+     olhando continuava vendo o mesmo trecho de sempre — a conversa "não
+     atualizava", quando na verdade só não tinha rolado.
+     Desce também quando o balão de digitando acende, e quando se troca de
+     conversa: abrir uma conversa no meio do histórico é o mesmo desconforto. */
+  const fimDaConversa = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    fimDaConversa.current?.scrollIntoView({ block: "end" });
+  }, [lead.id]);
+  useEffect(() => {
+    fimDaConversa.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [msgsDaAberta.length, pendentesDaAberta.length, digitandoAgora]);
   /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
      Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
      opcional (dia, midiaPath, duracao) some do que dá pra ler. */
@@ -1395,23 +1411,46 @@ export default function AtendimentoPage() {
                       className={cn("w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
                         ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
                       {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
-                      <span className={cn("h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1",
-                        semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
-                                    : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
-                        {iniciais(l.nome)}
+                      {/* O PINGO DE ONLINE FICA SOBRE A FOTO, no canto — que é
+                          onde todo aplicativo de mensagem põe e onde o olho já
+                          procura. Ao lado do nome ele empurrava o texto e fazia
+                          a lista dançar de largura conforme as pessoas entravam
+                          e saíam. */}
+                      <span className="relative shrink-0">
+                        <span className={cn("h-7 w-7 rounded-full grid place-items-center text-[10px] font-semibold ring-1",
+                          semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
+                                      : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
+                          {iniciais(l.nome)}
+                        </span>
+                        {estaOnline(l.presenca, l.presencaEm) && (
+                          <span title="online agora"
+                            className="absolute -bottom-px -right-px h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0d0f11]" />
+                        )}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-1.5">
-                          {estaOnline(l.presenca, l.presencaEm) && (
-                            <span title="online agora" className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 self-center" />
-                          )}
                           <span className="text-[12px] font-medium truncate flex-1">{l.nome}</span>
                           <span className="text-[9.5px] text-muted-foreground shrink-0">{l.ultimaHora}</span>
                         </span>
-                        <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
-                          {semResposta && <AlertTriangle className="inline h-3 w-3 text-amber-300 mr-1 -mt-px" />}
-                          {(l.conversa[l.conversa.length - 1]?.texto || l.previa || "").slice(0, 40)}
-                        </span>
+                        {/* DIGITANDO GANHA DA PRÉVIA. Quem está escrevendo agora
+                            é notícia mais nova que a última mensagem, e é a
+                            informação que muda a decisão de quem lê a fila:
+                            espera esse antes de cobrar aquele outro. */}
+                        {estaDigitando(l.presenca, l.presencaEm) ? (
+                          <span className="flex items-center gap-1 text-[10.5px] text-emerald-300 mt-0.5">
+                            {[0, 150, 300].map((atraso) => (
+                              <span key={atraso}
+                                style={{ animationDelay: `${atraso}ms` }}
+                                className="h-1 w-1 rounded-full bg-emerald-400 animate-bounce" />
+                            ))}
+                            <span className="ml-0.5">digitando…</span>
+                          </span>
+                        ) : (
+                          <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
+                            {semResposta && <AlertTriangle className="inline h-3 w-3 text-amber-300 mr-1 -mt-px" />}
+                            {(l.conversa[l.conversa.length - 1]?.texto || l.previa || "").slice(0, 40)}
+                          </span>
+                        )}
                         {/* AS ETIQUETAS EMPILHADAS, uma por linha.
                             Lado a lado elas competiam pela mesma largura: o
                             nome da base é longo, a etapa é curta, e a fileira
@@ -1489,8 +1528,16 @@ export default function AtendimentoPage() {
                 sabia onde estava. */}
             <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
-                <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
-                  {iniciais(lead.nome)}
+                {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
+                <span className="relative shrink-0">
+                  <span className="h-8 w-8 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
+                    {iniciais(lead.nome)}
+                  </span>
+                  {estaOnline(presencaViva?.presenca ?? lead.presenca,
+                              presencaViva?.presenca_em ?? lead.presencaEm) && (
+                    <span title="online agora"
+                      className="absolute -bottom-px -right-px h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0d0f11]" />
+                  )}
                 </span>
                 <div className="min-w-0">
                   <p className="text-[13px] font-semibold truncate leading-tight">{lead.nome}</p>
@@ -1508,8 +1555,12 @@ export default function AtendimentoPage() {
                     if (!sit) return <p className="text-[10.5px] text-muted-foreground truncate">{lead.telefone}</p>;
                     return (
                       <p className="text-[10.5px] truncate flex items-center gap-1.5">
-                        {sit.aoVivo && <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0 animate-pulse" />}
-                        <span className={sit.aoVivo ? "text-sky-300" : "text-muted-foreground"}>{sit.texto}</span>
+                        {/* VERDE, e não azul: é o mesmo verde do pingo sobre a
+                            foto, e presença é a única coisa nesta tela que fala
+                            do agora. O pingo já está no avatar, então aqui fica
+                            só a palavra — dois pontinhos verdes lado a lado
+                            seriam o mesmo recado dado duas vezes. */}
+                        <span className={sit.aoVivo ? "text-emerald-300" : "text-muted-foreground"}>{sit.texto}</span>
                         <span className="text-muted-foreground/50">·</span>
                         <span className="text-muted-foreground truncate">{lead.telefone}</span>
                       </p>
@@ -1639,6 +1690,12 @@ export default function AtendimentoPage() {
                     </div>
                   </div>
                 )}
+
+                {/* A âncora do rolamento. Fica DEPOIS do balão de digitando pra
+                    que ele também puxe a tela pra baixo — senão ele nasceria
+                    fora do campo de visão justamente quando avisa que tem
+                    mensagem vindo. */}
+                <div ref={fimDaConversa} />
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
