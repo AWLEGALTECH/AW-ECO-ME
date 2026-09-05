@@ -251,6 +251,14 @@ export default function AtendimentoPage() {
   useEffect(() => {
     if (!aoVivo || !idAberto) return;
     void assinarPresenca(idAberto);
+    /* BATIMENTO, não um aviso único. A presença desta build não é assinada de
+       verdade — ela vive de um canal que o anúncio da NOSSA presença abre, e que
+       morre junto com o socket do Baileys. Foi exatamente isso que aconteceu:
+       fluiu uma madrugada inteira, a instância reconectou às 09:59 e secou.
+       Uma chamada só teria a mesma vida curta e a gente descobriria de novo
+       catorze horas depois. */
+    const id = setInterval(() => void assinarPresenca(idAberto), 60_000);
+    return () => clearInterval(id);
   }, [aoVivo, idAberto]);
 
   /* O campo cresce com o texto e volta ao tamanho de uma linha quando esvazia.
