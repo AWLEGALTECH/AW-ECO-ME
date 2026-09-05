@@ -191,13 +191,42 @@ Deno.serve(async (req: Request) => {
       gatilho = { tentou: true, status: r.status, corpo: (await r.text()).slice(0, 200) };
     }
 
+    // ─────────────────────── a ponte @lid → telefone ───────────────────────
+    //
+    // A presença CHEGA, mas identificada por `@lid` — o identificador interno
+    // da conta, que não é telefone e que o webhook descarta de propósito desde
+    // que inventou um número que não existia. Sem saber de quem é aquele lid, o
+    // evento chega e não tem onde pousar.
+    //
+    // A mensagem não ajuda: o `key` traz `remoteJid` e `remoteJidAlt` iguais,
+    // os dois em `@s.whatsapp.net`, e `addressingMode: "lid"` sem o lid junto.
+    // Então a ponte tem que vir de quem sabe: a própria Evolution.
+    //
+    // As duas rotas abaixo são as candidatas a devolver o lid de um número. O
+    // corpo cru de cada uma fica gravado — inclusive o formato, que é o que eu
+    // preciso ver pra escrever a leitura sem chutar campo.
+    const ponte: { rota: string; status: number; corpo: string }[] = [];
+    if (valeAqui) {
+      for (const [rota, corpo] of [
+        ["chat/whatsappNumbers", { numbers: [numero] }],
+        ["chat/findContacts", { where: { remoteJid: jid } }],
+      ] as [string, unknown][]) {
+        const r = await fetch(`${base}/${rota}/${inst}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey },
+          body: JSON.stringify(corpo),
+        });
+        ponte.push({ rota, status: r.status, corpo: (await r.text()).slice(0, 600) });
+      }
+    }
+
     // O resultado vira linha, sempre — inclusive o fracasso. É a diferença entre
     // "a presença não funciona" e "a presença não funciona PORQUE esta build não
     // tem a rota", e só a segunda dá pra agir em cima.
     await sb.from("wa_eventos").insert({
       instancia: conversa.instancia,
       evento: aceita ? "presenca.assinatura.ok" : "presenca.assinatura.sem-rota",
-      corpo: { telefone: numero, aceita, pular, tentativas, inventario, gatilho, modo },
+      corpo: { telefone: numero, aceita, pular, tentativas, inventario, gatilho, modo, ponte },
     });
 
     return json({
@@ -212,6 +241,7 @@ Deno.serve(async (req: Request) => {
       inventario,
       gatilho,
       modo,
+      ponte,
     });
   } catch (e) {
     return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
