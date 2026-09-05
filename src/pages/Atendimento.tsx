@@ -305,13 +305,33 @@ export default function AtendimentoPage() {
      falando. */
   const { mudo, alternarMudo, aoAtualizar } = useSomAtendimento(idAberto);
   const sinaisDeSom = useMemo(
-    () => conversas.map((c) => ({
-      conversaId: c.id,
-      em: c.ultima_em,
-      direcao: c.id === idAberto
-        ? (msgsDaAberta[msgsDaAberta.length - 1]?.direcao ?? null)
-        : ((c.nao_lidas ?? 0) > 0 ? "entrada" : "saida"),
-    })),
+    () => {
+      const ultimaAberta = msgsDaAberta[msgsDaAberta.length - 1];
+      return conversas.map((c) => c.id === idAberto
+        // O SOM DA CONVERSA ABERTA SAI DA PRÓPRIA MENSAGEM, não da linha da
+        // conversa — e isso é sincronia, não preciosismo. São duas consultas
+        // diferentes: a lista de conversas recarrega a cada dez segundos, as
+        // mensagens a cada cinco. Lendo a lista, o bipe saía ANTES do balão
+        // aparecer, e som que anuncia o que ainda não está na tela é pior que
+        // som nenhum: a pessoa olha e não acha nada.
+        // Vindo da mesma consulta que desenha o balão, os dois acontecem na
+        // mesma pintura.
+        ? {
+            conversaId: c.id,
+            em: ultimaAberta?.criada_em ?? null,
+            direcao: ultimaAberta?.direcao ?? null,
+          }
+        // Nas fechadas não há balão pra sincronizar: o cartão da caixa vem
+        // desta mesma lista, então já é simultâneo. E a direção sai do contador
+        // de NÃO LIDAS, que é exatamente "chegou algo que ninguém viu" — sem
+        // isso, mensagem mandada de outra aba ou do celular do escritório faria
+        // a caixa apitar como se fosse o cliente falando.
+        : {
+            conversaId: c.id,
+            em: c.ultima_em,
+            direcao: (c.nao_lidas ?? 0) > 0 ? "entrada" : "saida",
+          });
+    },
     [conversas, idAberto, msgsDaAberta],
   );
   useEffect(() => { aoAtualizar(sinaisDeSom); }, [sinaisDeSom, aoAtualizar]);
