@@ -406,6 +406,7 @@ export function conversaParaLead(
     ultimaFoi: ultima?.direcao === "entrada" ? "lead" : "nos",
     horasSemResposta: horasSemResposta(msgs, agora),
     ultimaHora: horaDaLista(c.ultima_em, agora),
+    ultimaEm: c.ultima_em,
     naoLidas: c.nao_lidas ?? 0,
     temProximaAcao: false,
     diasParado,

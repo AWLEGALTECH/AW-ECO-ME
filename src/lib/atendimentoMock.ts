@@ -97,6 +97,9 @@ export interface Lead {
   ultimaFoi: "lead" | "nos";
   horasSemResposta: number;
   ultimaHora: string;
+  /** carimbo cru da última mensagem — o rótulo acima é pra ler, este é pra
+   *  comparar. A maquete não tem, e por isso é opcional. */
+  ultimaEm?: string | null;
   naoLidas: number;
   temProximaAcao: boolean;
   /* Dias sem NENHUM movimento — nem mensagem dele, nem nossa, nem troca de

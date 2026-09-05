@@ -134,10 +134,11 @@ export function quandoFoi(quando: number | string, agora = new Date()): string {
  * Com cinco segundos o balão apagava ENTRE dois reenvios, com a pessoa ainda
  * escrevendo. Vinte cobre o pior intervalo visto com folga.
  *
- * E a janela longa não deixa o balão pendurado, porque ela não é quem apaga: o
- * `available` chega um segundo depois da pausa e derruba o estado na hora. A
- * validade aqui é só a rede de segurança pra quando evento nenhum chegar —
- * celular que perdeu sinal no meio da frase.
+ * E a janela longa não deixa o balão pendurado, porque ela não é quem apaga.
+ * Quem apaga são dois sinais mais rápidos: a MENSAGEM chegando (prova
+ * instantânea de que a pessoa terminou) e o `available`, que vem um segundo
+ * depois da pausa. A validade aqui é só a rede de segurança pra quando nenhum
+ * dos dois chega — celular que perdeu sinal no meio da frase.
  *
  * Vale pro balão dentro da conversa E pro aviso no cartão da caixa: é a mesma
  * pergunta, e duas cópias da regra iam divergir na primeira mudança.
@@ -146,10 +147,22 @@ export function estaDigitando(
   presenca: string | null | undefined,
   presencaEm: string | null | undefined,
   agora = new Date(),
+  /** quando chegou a última mensagem daquela conversa */
+  ultimaMensagemEm?: string | null,
 ): boolean {
   if (!presenca || !["digitando", "gravando"].includes(presenca)) return false;
   const t = presencaEm ? new Date(presencaEm).getTime() : NaN;
-  return Number.isFinite(t) && agora.getTime() - t <= 20_000;
+  if (!Number.isFinite(t)) return false;
+
+  // A MENSAGEM CHEGANDO É A PROVA DE QUE PAROU DE DIGITAR, e é a mais rápida
+  // que existe: instantânea, porque vem junto com o balão que a pessoa está
+  // vendo. Esperar o `available` custava até três segundos (o intervalo da
+  // consulta de presença) e as reticências ficavam pulando embaixo de uma
+  // mensagem já lida — parecia que vinha mais coisa, e não vinha.
+  const m = ultimaMensagemEm ? new Date(ultimaMensagemEm).getTime() : NaN;
+  if (Number.isFinite(m) && m >= t) return false;
+
+  return agora.getTime() - t <= 20_000;
 }
 
 /**

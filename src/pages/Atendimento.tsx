@@ -276,7 +276,16 @@ export default function AtendimentoPage() {
      reticências faria a tela mentir a tarde inteira. A regra de validade mora
      em presencaWa.estaDigitando, com teste, e é a MESMA que o cartão da caixa
      usa — duas cópias iam divergir na primeira mudança. */
-  const digitandoAgora = estaDigitando(presencaViva?.presenca, presencaViva?.presenca_em);
+  /* A última mensagem da conversa aberta entra na conta: quando ela chega, a
+     pessoa terminou de escrever, e isso é mais rápido e mais certo do que
+     esperar o evento de pausa. Sem isso as reticências ficavam pulando embaixo
+     de uma mensagem já lida, prometendo mais coisa que não vinha. */
+  const digitandoAgora = estaDigitando(
+    presencaViva?.presenca,
+    presencaViva?.presenca_em,
+    undefined,
+    msgsDaAberta[msgsDaAberta.length - 1]?.criada_em ?? null,
+  );
 
   /* AS RETICÊNCIAS DA LISTA PRECISAM DE UM RELÓGIO PRÓPRIO.
      "Está digitando" é uma conta contra o AGORA, mas o React só refaz a conta
@@ -1514,7 +1523,7 @@ export default function AtendimentoPage() {
                             é notícia mais nova que a última mensagem, e é a
                             informação que muda a decisão de quem lê a fila:
                             espera esse antes de cobrar aquele outro. */}
-                        {estaDigitando(l.presenca, l.presencaEm, agoraTique) ? (
+                        {estaDigitando(l.presenca, l.presencaEm, agoraTique, l.ultimaEm) ? (
                           <span className="flex items-center gap-[3px] h-[15px] mt-0.5">
                             {[0, 150, 300].map((atraso) => (
                               <span key={atraso}

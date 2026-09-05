@@ -145,6 +145,26 @@ describe("está digitando agora", () => {
     expect(estaDigitando("disponivel", segAtras(1), AGORA)).toBe(false);
   });
 
+  // O sinal mais rápido de que parou: a mensagem chegou. Esperar o `available`
+  // custava até três segundos (o intervalo da consulta de presença) e as
+  // reticências ficavam pulando embaixo de uma mensagem já lida.
+  it("a mensagem chegando apaga o balão na hora", () => {
+    const digitou = segAtras(3);
+    const chegou = segAtras(1);
+    expect(estaDigitando("digitando", digitou, AGORA, chegou)).toBe(false);
+  });
+
+  it("mas mensagem ANTERIOR ao digitando não apaga — ele voltou a escrever", () => {
+    const chegou = segAtras(30);
+    const digitou = segAtras(2);
+    expect(estaDigitando("digitando", digitou, AGORA, chegou)).toBe(true);
+  });
+
+  it("sem mensagem nenhuma, a regra é a de sempre", () => {
+    expect(estaDigitando("digitando", segAtras(2), AGORA, null)).toBe(true);
+    expect(estaDigitando("digitando", segAtras(2), AGORA, "vixe")).toBe(true);
+  });
+
   it("mas o relógio segura quem sumiu sem avisar", () => {
     expect(estaDigitando("digitando", segAtras(21), AGORA)).toBe(false);
     expect(estaDigitando("digitando", segAtras(3600), AGORA)).toBe(false);
