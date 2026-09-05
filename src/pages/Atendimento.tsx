@@ -1417,7 +1417,12 @@ export default function AtendimentoPage() {
                           procura. Ao lado do nome ele empurrava o texto e fazia
                           a lista dançar de largura conforme as pessoas entravam
                           e saíam. */}
-                      <span className="relative shrink-0">
+                      {/* `self-start` e `block` são o que segura o pingo NO
+                          avatar: sem eles o contêiner relativo estica na altura
+                          do cartão inteiro (é um item de flex), e o pingo, que
+                          se ancora na borda dele, ia parar lá embaixo, solto,
+                          longe da foto. */}
+                      <span className="relative shrink-0 self-start block h-7 w-7">
                         <span className={cn("h-7 w-7 rounded-full grid place-items-center text-[10px] font-semibold ring-1",
                           semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
                                       : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
@@ -1425,7 +1430,7 @@ export default function AtendimentoPage() {
                         </span>
                         {estaOnline(l.presenca, l.presencaEm) && (
                           <span title="online agora"
-                            className="absolute -bottom-px -right-px h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0d0f11]" />
+                            className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                         )}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1438,13 +1443,13 @@ export default function AtendimentoPage() {
                             informação que muda a decisão de quem lê a fila:
                             espera esse antes de cobrar aquele outro. */}
                         {estaDigitando(l.presenca, l.presencaEm) ? (
-                          <span className="flex items-center gap-1 text-[10.5px] text-emerald-300 mt-0.5">
+                          <span className="flex items-center gap-[3px] text-[10.5px] text-emerald-300 mt-0.5">
                             {[0, 150, 300].map((atraso) => (
                               <span key={atraso}
                                 style={{ animationDelay: `${atraso}ms` }}
-                                className="h-1 w-1 rounded-full bg-emerald-400 animate-bounce" />
+                                className="h-[3px] w-[3px] rounded-full bg-emerald-400 animate-bounce" />
                             ))}
-                            <span className="ml-0.5">digitando…</span>
+                            <span className="ml-1">digitando…</span>
                           </span>
                         ) : (
                           <span className="block text-[10.5px] text-muted-foreground truncate mt-0.5">
@@ -1530,14 +1535,14 @@ export default function AtendimentoPage() {
             <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
-                <span className="relative shrink-0">
+                <span className="relative shrink-0 self-start block h-8 w-8">
                   <span className="h-8 w-8 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
                     {iniciais(lead.nome)}
                   </span>
                   {estaOnline(presencaViva?.presenca ?? lead.presenca,
                               presencaViva?.presenca_em ?? lead.presencaEm) && (
                     <span title="online agora"
-                      className="absolute -bottom-px -right-px h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0d0f11]" />
+                      className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                   )}
                 </span>
                 <div className="min-w-0">
@@ -1610,9 +1615,32 @@ export default function AtendimentoPage() {
                 </div>
               )}
 
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
+              {/* A CHAVE É A CONVERSA, e isso não é detalhe: ela faz a coluna
+                  inteira remontar ao trocar de lead, o que reinicia o
+                  `AnimatePresence initial={false}` logo abaixo. Sem isso, abrir
+                  uma conversa faria as trezentas mensagens do histórico
+                  entrarem animadas de uma vez. */}
+              <div key={lead.id}
+                className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
+                {/* `initial={false}` é o que separa "mensagem nova" de "mensagem
+                    que já estava aqui": o que existe na primeira pintura entra
+                    sem animação, e só o que CHEGA depois ganha o pop. É a
+                    diferença entre a tela reagir e a tela se exibir. */}
+                <AnimatePresence initial={false}>
                 {conversa.map((msg, i) => (
-                  <div key={i} className="flex flex-col gap-2">
+                  <motion.div
+                    key={msg.id ?? `i${i}`}
+                    layout="position"
+                    initial={{ opacity: 0, scale: 0.94, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    // Mola curta e bem amortecida: o balão assenta em ~180ms,
+                    // com um respiro de elasticidade no fim. Duração fixa daria
+                    // o movimento mecânico de banner; mola solta demais faria o
+                    // texto tremer, e texto tremendo é ilegível.
+                    transition={{ type: "spring", stiffness: 560, damping: 38, mass: 0.7 }}
+                    style={{ originX: msg.de === "lead" ? 0 : 1, originY: 1 }}
+                    className="flex flex-col gap-2">
                     {msg.dia && (
                       <div className="self-center rounded-full px-2.5 py-[2px] text-[10px] text-muted-foreground bg-white/[0.04] ring-1 ring-white/[0.06] my-1">
                         {msg.dia}
@@ -1671,26 +1699,40 @@ export default function AtendimentoPage() {
                         </span>
                       )}
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
+                </AnimatePresence>
 
                 {/* O BALÃO DE DIGITANDO FICA NO FIM DA CONVERSA, onde a próxima
                     mensagem vai nascer — e não num rótulo no cabeçalho. É onde
                     o olho já está, e é o que ele significa: tem coisa vindo,
-                    espera antes de mandar outra. */}
-                {digitandoAgora && (
-                  <div className="flex flex-col gap-2">
-                    <div className="self-start max-w-[70%] rounded-2xl rounded-tl-sm bg-white/[0.05] px-3.5 py-2.5">
-                      <span className="flex items-center gap-1">
-                        {[0, 150, 300].map((atraso) => (
-                          <span key={atraso}
-                            style={{ animationDelay: `${atraso}ms` }}
-                            className="h-1.5 w-1.5 rounded-full bg-muted-foreground/70 animate-bounce" />
-                        ))}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                    espera antes de mandar outra.
+                    Ele entra e sai com a mesma mola das mensagens, e cresce a
+                    partir do canto de baixo à esquerda — de onde o balão do
+                    contato nasce. Aparecer instantâneo dava um susco na tela a
+                    cada tecla que a pessoa encostava. */}
+                <AnimatePresence>
+                  {digitandoAgora && (
+                    <motion.div
+                      layout="position"
+                      initial={{ opacity: 0, scale: 0.9, y: 8 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, y: 4 }}
+                      transition={{ type: "spring", stiffness: 560, damping: 38, mass: 0.7 }}
+                      style={{ originX: 0, originY: 1 }}
+                      className="flex flex-col gap-2">
+                      <div className="self-start rounded-2xl rounded-tl-sm bg-white/[0.05] px-3 py-2.5">
+                        <span className="flex items-center gap-[3px]">
+                          {[0, 150, 300].map((atraso) => (
+                            <span key={atraso}
+                              style={{ animationDelay: `${atraso}ms` }}
+                              className="h-1 w-1 rounded-full bg-muted-foreground/70 animate-bounce" />
+                          ))}
+                        </span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* A âncora do rolamento. Fica DEPOIS do balão de digitando pra
                     que ele também puxe a tela pra baixo — senão ele nasceria
