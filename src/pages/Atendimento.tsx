@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 import {
   MessageCircle, Search, Send, AlertTriangle, Check,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
-  PanelRightClose, PanelRightOpen, Wifi, RefreshCw, StickyNote,
+  PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
@@ -1653,8 +1653,23 @@ export default function AtendimentoPage() {
                       className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                   )}
                 </span>
-                <div className="min-w-0">
-                  <p className="text-[13px] font-semibold truncate leading-tight">{lead.nome}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 min-w-0 leading-tight">
+                    <span className="text-[13px] font-semibold truncate">{lead.nome}</span>
+                    {/* O ACUMULADO DAS ETIQUETAS, aqui em cima. Quem está
+                        escrevendo precisa saber com quem está falando sem abrir
+                        a ficha: de onde essa pessoa veio, quem deu o primeiro
+                        passo e em que ponto do atendimento ela está. São as
+                        mesmas etiquetas do cartão da caixa — repetir o desenho
+                        é o que faz a fila e a conversa serem lidas como a mesma
+                        coisa vista de dois lugares. */}
+                    <span className="hidden sm:flex items-center gap-1.5 shrink-0">
+                      <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
+                        {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                      </span>
+                      <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base} />
+                    </span>
+                  </p>
                   {/* O QUE ELE ESTÁ FAZENDO AGORA, quando o WhatsApp conta.
                       Quando não conta — e é o caso da maioria, que esconde o
                       status — fica só o telefone. A tela NÃO escreve "offline":
@@ -1990,8 +2005,10 @@ export default function AtendimentoPage() {
 
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
                 {/* dossiê */}
+                {/* Sem o rótulo "Dossiê": o cartão já se chama "Detalhe do
+                    cliente" duas linhas acima, e um título dentro do outro só
+                    empurra o conteúdo pra baixo. */}
                 <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-2">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">Dossiê</p>
                   {/* A ORIGEM NÃO SE ESCOLHE. Ela responde "quem falou
                       primeiro", e disso o sistema sabe mais que qualquer um:
                       se a primeira mensagem foi dele, ele veio até nós; se
@@ -3279,13 +3296,15 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
             </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] text-muted-foreground">
-          <span className="tabular-nums">{instancia.telefone}</span>
-          <span className="flex items-center gap-1"><Wifi className="h-3 w-3" />{instancia.gateway}</span>
-          <span className="flex items-center gap-1"><RefreshCw className="h-3 w-3" />sincronizado {instancia.sincronizadoEm}</span>
-          <span className="tabular-nums">{instancia.conversas} conversas</span>
-          <span className="tabular-nums text-foreground/80">{instancia.naoLidas} não lidas</span>
-        </div>
+        {/* SÓ O NÚMERO. Saíram daqui o nome do gateway, o "sincronizado há X
+            min", a contagem de conversas e a de não lidas — quatro coisas que
+            falavam da ENGRENAGEM, não do atendimento. Quantas conversas e
+            quantas não lidas a caixa logo abaixo já mostra, contando as mesmas
+            linhas; e "Evolution API" só interessa no dia em que ela quebra,
+            que é o dia em que se abre o diagnóstico.
+            O que sobrou responde a única pergunta que essa faixa existe pra
+            responder: por qual número eu estou falando. */}
+        <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
       </div>
 
       {abas}
