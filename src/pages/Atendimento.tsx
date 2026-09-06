@@ -35,7 +35,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info,
@@ -73,6 +73,11 @@ import {
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
+import { SeletorDeDia, SeletorDeHora } from "@/components/EscolherQuando";
+import {
+  instanteDe, tipoDoMime, motivoDeNaoAgendar, faltaPara, quandoBonito,
+} from "@/lib/retencao";
+import { useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada } from "@/hooks/useAgendadas";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
   sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
@@ -153,6 +158,16 @@ export default function AtendimentoPage() {
   const [taskTitulo, setTaskTitulo] = useState("");
   const [taskDetalhe, setTaskDetalhe] = useState("");
   const [taskDia, setTaskDia] = useState(HOJE);
+  /* A RETENÇÃO mora no mesmo diálogo do lembrete, mas com horário PRÓPRIO: o
+     lembrete pode ser pra amanhã e a mensagem sair daqui a duas horas. Forçar
+     os dois no mesmo instante seria amarrar duas decisões que a pessoa toma
+     separadas: quando EU faço alguma coisa, e quando O CLIENTE recebe. */
+  const [reterAberta, setReterAberta] = useState(false);
+  const [reterTexto, setReterTexto] = useState("");
+  const [reterArquivo, setReterArquivo] = useState<File | null>(null);
+  const [reterDia, setReterDia] = useState(HOJE);
+  const [reterHora, setReterHora] = useState("09:00");
+  const seletorRetido = useRef<HTMLInputElement>(null);
   const [taskHora, setTaskHora] = useState("");
   const [salvandoTask, setSalvandoTask] = useState(false);
   const [rascunhoNota, setRascunhoNota] = useState("");
@@ -449,6 +464,8 @@ export default function AtendimentoPage() {
      sem escrever nada no banco. */
   const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
   const invalidarTasks = useInvalidarTasksWa();
+  const { data: agendadas = [] } = useAgendadas(aoVivo ? instancia.nome : null);
+  const invalidarAgendadas = useInvalidarAgendadas();
 
   /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
      silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
@@ -569,6 +586,14 @@ export default function AtendimentoPage() {
       return vivas.length === ps.length ? ps : vivas;
     });
   }, [msgsDaAberta]);
+
+  /* As retenções DESTA conversa, pra bolha fantasma no fim do histórico. Ver a
+     mensagem que vai sair, no lugar em que ela vai aparecer, é o que impede
+     alguém escrever de novo a mesma coisa à mão. */
+  const agendadasDaAberta = useMemo(
+    () => agendadas.filter((a) => a.conversa_id === lead.id),
+    [agendadas, lead.id],
+  );
 
   const pendentesDaAberta = daConversa(pendentes, lead.id);
 
@@ -723,9 +748,19 @@ export default function AtendimentoPage() {
     setTaskAberta(true);
   };
 
+  /* Limpar depois de salvar não é higiene: sem isso, o próximo lembrete abre
+     com a mensagem do anterior já dentro, e basta um clique distraído pra
+     agendar de novo o mesmo texto pra outra pessoa. */
+  const limparRetencao = () => {
+    setReterAberta(false);
+    setReterTexto("");
+    setReterArquivo(null);
+    setReterHora("09:00");
+  };
+
   const salvarTask = async () => {
     const titulo = taskTitulo.trim();
-    if (!titulo) { toast.error("A task precisa de um título."); return; }
+    if (!titulo) { toast.error("O lembrete precisa de um título."); return; }
     if (!aoVivo) {
       setLembretesMaquete((p) => [...p, {
         id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
@@ -744,8 +779,41 @@ export default function AtendimentoPage() {
         hora: taskHora || null,
         criadoPor: user?.id ?? null,
       });
+      /* A RETENÇÃO SÓ NASCE DEPOIS QUE O LEMBRETE NASCEU, e o erro dela NÃO
+         desfaz o lembrete: são duas coisas com valores diferentes. Perder o
+         lembrete porque o upload de um vídeo falhou seria trocar um problema
+         pequeno (reanexar) por um grande (a pessoa achar que anotou e não ter
+         anotado). Se a mensagem falhar, o aviso diz exatamente isso. */
+      if (reterAberta) {
+        const quando = instanteDe(reterDia, reterHora || null);
+        const tipo = reterArquivo ? tipoDoMime(reterArquivo.type) : "texto";
+        const impedimento = motivoDeNaoAgendar({
+          tipo, texto: reterTexto, temArquivo: !!reterArquivo, quando,
+        });
+        if (impedimento) {
+          toast.warning(`Lembrete salvo. A mensagem não foi agendada: ${impedimento}`);
+        } else {
+          try {
+            await reterMensagem({
+              conversaId: lead.id,
+              quando,
+              tipo,
+              texto: reterTexto,
+              arquivo: reterArquivo,
+              nomeArquivo: reterArquivo?.name ?? null,
+              criadaPor: user?.id ?? null,
+            });
+            invalidarAgendadas();
+            toast.success(`Mensagem retida para ${quandoBonito(quando.toISOString())}.`);
+          } catch (e) {
+            toast.error("Lembrete salvo, mas a mensagem não foi agendada: " + (e as Error).message);
+          }
+        }
+      }
+
       invalidarTasks();
       setTaskAberta(false);
+      limparRetencao();
       // Leva o calendário pro dia da task recém-criada: marcar algo pra quinta
       // e continuar olhando a terça faz parecer que não salvou.
       if (taskDia !== dia) setDia(taskDia);
@@ -2047,6 +2115,59 @@ export default function AtendimentoPage() {
                   )}
                 </AnimatePresence>
 
+                {/* ═══ AS MENSAGENS RETIDAS ═══
+                    No fim do histórico, no lugar exato em que vão aparecer
+                    quando saírem. Isso não é enfeite: sem ver o que já está
+                    programado, alguém escreve à mão a mesma coisa e o cliente
+                    recebe duas vezes — e o segundo texto chega sem que ninguém
+                    tenha decidido mandá-lo.
+
+                    Tracejada e apagada de propósito: ela ainda NÃO é uma
+                    mensagem. Uma bolha igual às outras diria que já foi. */}
+                {agendadasDaAberta.map((a) => (
+                  <div key={a.id}
+                    className={cn("self-end max-w-[70%] rounded-2xl rounded-tr-sm px-3 py-2 text-[12.5px] leading-snug",
+                      "border border-dashed",
+                      a.status === "falhou"
+                        ? "border-red-400/40 bg-red-400/[0.06]"
+                        : "border-primary/30 bg-primary/[0.05]")}>
+                    <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide mb-1 text-muted-foreground/80">
+                      {a.status === "falhou"
+                        ? <><AlertTriangle className="h-3 w-3 text-red-400" /> Não saiu</>
+                        : a.status === "enviando"
+                          ? <><Loader2 className="h-3 w-3 animate-spin text-primary" /> Enviando</>
+                          : <><Clock className="h-3 w-3 text-primary" /> {quandoBonito(a.quando)} · {faltaPara(a.quando)}</>}
+                    </p>
+
+                    {a.midia_nome && (
+                      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+                        <Paperclip className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{a.midia_nome}</span>
+                      </p>
+                    )}
+                    {a.texto && <p className="whitespace-pre-wrap break-words opacity-90">{a.texto}</p>}
+
+                    {a.erro && (
+                      <p className="text-[10.5px] text-red-300/80 mt-1 leading-snug">{a.erro}</p>
+                    )}
+
+                    {/* CANCELAR SÓ ENQUANTO ESTÁ PENDENTE. Depois que o
+                        despachante toma a linha, o WhatsApp já está a caminho e
+                        oferecer o botão seria mentir sobre o que ele faz. */}
+                    {a.status === "pendente" && (
+                      <button
+                        onClick={() => {
+                          cancelarAgendada(a.id)
+                            .then(() => { invalidarAgendadas(); toast.success("Mensagem cancelada."); })
+                            .catch((e) => { invalidarAgendadas(); toast.error((e as Error).message); });
+                        }}
+                        className="mt-1.5 text-[10.5px] text-muted-foreground/70 hover:text-red-300
+                                   underline underline-offset-2 transition-colors">
+                        Cancelar envio
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
@@ -2354,7 +2475,7 @@ export default function AtendimentoPage() {
             )}
             </AnimatePresence>
 
-            {/* ═══ Tasks — retrátil ═══
+            {/* ═══ Lembretes — retrátil ═══
                 Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
@@ -2366,7 +2487,7 @@ export default function AtendimentoPage() {
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
                     <div className="flex items-center justify-between gap-2">
                       <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
-                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Tasks
+                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Lembretes
                       </h2>
                       <div className="flex items-center gap-1.5">
                         <Popover>
@@ -2404,7 +2525,7 @@ export default function AtendimentoPage() {
                     </div>
 
                     <div className="flex gap-1">
-                      {([["todas", "Todas"], ["follow_up", "Follow-up"], ["lembrete", "Lembretes"]] as const).map(([k, rot]) => (
+                      {([["todas", "Todos"], ["follow_up", "Follow-up"], ["lembrete", "Manuais"]] as const).map(([k, rot]) => (
                         <button key={k} onClick={() => setTipoTask(k)}
                           className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
                             tipoTask === k
@@ -2502,7 +2623,7 @@ export default function AtendimentoPage() {
                   </div>
                 </>
               ) : (
-                <button onClick={() => setTarefasAbertas(true)} title="Abrir as tasks do dia"
+                <button onClick={() => setTarefasAbertas(true)} title="Abrir os lembretes do dia"
                   className="flex-1 flex flex-col items-center gap-3 py-3 hover:bg-white/[0.03] transition-colors">
                   <PanelRightOpen className="h-4 w-4 text-muted-foreground shrink-0" />
                   {abertasHoje > 0 && (
@@ -2904,19 +3025,19 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── NOVA TASK ──
+      {/* ── NOVO LEMBRETE ──
           Título, detalhe, dia e hora. A hora é opcional porque metade dos
           lembretes não tem hora ("passar o extrato hoje") e obrigar um horário
           faria a atendente inventar um — e um horário inventado vira alarme
           falso na fila do dia. */}
-      <Dialog open={taskAberta} onOpenChange={(a) => { if (!salvandoTask) setTaskAberta(a); }}>
+      <Dialog open={taskAberta} onOpenChange={(a) => { if (!salvandoTask) { setTaskAberta(a); if (!a) limparRetencao(); } }}>
         <DialogContent className="max-w-md [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <BellRing className="h-4 w-4" /> Nova task
+              <BellRing className="h-4 w-4" /> Novo lembrete
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              Sobre <span className="text-foreground/80">{lead.nome}</span>. Ela entra na fila do
+              Sobre <span className="text-foreground/80">{lead.nome}</span>. Ele entra na fila do
               dia que você escolher.
             </DialogDescription>
           </DialogHeader>
@@ -2946,32 +3067,121 @@ export default function AtendimentoPage() {
               />
             </label>
 
+            {/* O DIA E A HORA SÃO NOSSOS, e não do sistema operacional. O
+                calendário branco do Windows aparecia como um pedaço de outro
+                programa no meio da tela, e o campo de hora era digitação pura,
+                onde errar um dígito agenda pra outra hora sem avisar. */}
             <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <CalendarDays className="h-3 w-3" /> Dia
                 </span>
-                <Input type="date" lang="pt-BR" value={taskDia} onChange={(e) => setTaskDia(e.target.value)}
-                  className="h-9 text-[13px]" />
-              </label>
-              <label className="flex flex-col gap-1.5">
+                <SeletorDeDia valor={taskDia} onEscolher={setTaskDia} hojeISO={HOJE} />
+              </div>
+              <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" /> Hora <span className="opacity-60">(opcional)</span>
                 </span>
-                <Input type="time" lang="pt-BR" value={taskHora} onChange={(e) => setTaskHora(e.target.value)}
-                  className="h-9 text-[13px]" />
-              </label>
+                <SeletorDeHora valor={taskHora} onEscolher={setTaskHora} />
+              </div>
+            </div>
+
+            {/* ═══ RETER UMA MENSAGEM ═══
+                O lembrete diz o que EU faço; a retenção manda o cliente
+                receber. São duas coisas, e por isso a retenção tem horário
+                próprio: o lembrete pode ser pra amanhã e a mensagem sair daqui
+                a duas horas.
+
+                Fica FECHADA por padrão, atrás de um clique. Uma mensagem que
+                sai sozinha para o cliente não pode ser algo em que se esbarra
+                enquanto se anota um recado. */}
+            <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
+              <button type="button"
+                onClick={() => setReterAberta((v) => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors">
+                <Send className={cn("h-3.5 w-3.5 shrink-0", reterAberta ? "text-primary" : "text-muted-foreground")} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-medium">Reter uma mensagem</span>
+                  <span className="block text-[10.5px] text-muted-foreground/70">
+                    {reterAberta
+                      ? `Sai sozinha para ${lead.nome} em ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`
+                      : "Deixa uma mensagem programada para o cliente receber"}
+                  </span>
+                </span>
+                <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+                  reterAberta && "rotate-180")} />
+              </button>
+
+              {reterAberta && (
+                <div className="px-3 pb-3 pt-1 flex flex-col gap-2.5 border-t border-white/[0.06]">
+                  <Textarea
+                    value={reterTexto}
+                    onChange={(e) => setReterTexto(e.target.value)}
+                    placeholder={reterArquivo ? "Legenda (opcional)" : "A mensagem que o cliente vai receber"}
+                    className="text-[12.5px] min-h-[62px] resize-none" />
+
+                  {/* QUALQUER FORMATO, como na caixa de entrada: foto, vídeo,
+                      áudio, documento. É o mesmo bucket e o mesmo caminho de
+                      envio, então a bolha desenha igual. */}
+                  <input ref={seletorRetido} type="file" hidden
+                    onChange={(e) => { setReterArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+
+                  {reterArquivo ? (
+                    <div className="flex items-center gap-2 rounded-md bg-white/[0.04] ring-1 ring-white/[0.07] px-2.5 py-1.5">
+                      <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-[11px] truncate flex-1" title={reterArquivo.name}>{reterArquivo.name}</span>
+                      <button type="button" onClick={() => setReterArquivo(null)}
+                        className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => seletorRetido.current?.click()}
+                      className="self-start flex items-center gap-1.5 text-[11px] text-muted-foreground
+                                 hover:text-foreground transition-colors">
+                      <Paperclip className="h-3 w-3" /> Anexar foto, vídeo, áudio ou documento
+                    </button>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <SeletorDeDia valor={reterDia} onEscolher={setReterDia} hojeISO={HOJE} />
+                    <SeletorDeHora valor={reterHora} onEscolher={setReterHora} opcional={false} />
+                  </div>
+
+                  {/* O IMPEDIMENTO APARECE ANTES DO CLIQUE, e não como erro
+                      depois. Descobrir que a hora já passou só ao salvar faz
+                      perder o texto que se acabou de escrever. */}
+                  {(() => {
+                    const m = motivoDeNaoAgendar({
+                      tipo: reterArquivo ? tipoDoMime(reterArquivo.type) : "texto",
+                      texto: reterTexto,
+                      temArquivo: !!reterArquivo,
+                      quando: instanteDe(reterDia, reterHora || null),
+                    });
+                    return m ? (
+                      <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
+                        <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {m}
+                      </p>
+                    ) : (
+                      <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+                        Vai sair sozinha, mesmo com o sistema fechado. Dá pra cancelar até a hora,
+                        pela conversa.
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setTaskAberta(false)} disabled={salvandoTask}>
+            <Button variant="ghost" size="sm" onClick={() => { setTaskAberta(false); limparRetencao(); }} disabled={salvandoTask}>
               Cancelar
             </Button>
             <Button size="sm" onClick={salvarTask} disabled={salvandoTask || !taskTitulo.trim()}>
               {salvandoTask
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
-                : <>Marcar task <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+                : <>Marcar lembrete <Check className="h-3.5 w-3.5 ml-1.5" /></>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3500,7 +3710,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
 
                   <button onClick={onNovaTask}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
-                    <Plus className="h-3.5 w-3.5" /> Adicionar task
+                    <Plus className="h-3.5 w-3.5" /> Adicionar lembrete
                   </button>
 
                   {proxima && (

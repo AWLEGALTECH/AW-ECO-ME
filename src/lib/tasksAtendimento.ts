@@ -40,8 +40,12 @@ export interface Task {
 /** Dias de parada em que a cobrança acontece. */
 export const CADENCIA = [2, 5, 10, 20, 30] as const;
 
+/* O PAINEL INTEIRO se chama "Lembretes" agora, então o chip do tipo não pode
+   dizer "Lembrete": o rótulo repetiria o nome da coluna e não distinguiria
+   nada. O que separa os dois é a ORIGEM — um foi marcado por uma pessoa, o
+   outro nasceu da régua. */
 export const ROTULO_TIPO: Record<TipoTask, string> = {
-  lembrete: "Lembrete",
+  lembrete: "Manual",
   follow_up: "Follow-up",
 };
 
