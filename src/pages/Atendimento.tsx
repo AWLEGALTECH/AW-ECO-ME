@@ -655,7 +655,11 @@ export default function AtendimentoPage() {
      duplicado na tela — pior que o problema original. A regra de casamento
      (que consome a linha, pra dois "ok" iguais não casarem com a mesma) é
      testada. */
-  useEffect(() => {
+  /* `useLayoutEffect`, e não `useEffect`, pelo mesmo motivo do rolamento: isto
+     roda ANTES de o navegador pintar. Com o efeito comum, existia um quadro
+     pintado com as duas bolhas ao mesmo tempo — a otimista e a real — e esse
+     quadro é o piscar que a pessoa vê como pulo. */
+  useLayoutEffect(() => {
     setPendentes((ps) => {
       if (ps.length === 0) return ps;
       const vivas = aindaPendentes(ps, msgsDaAberta);
@@ -2250,7 +2254,19 @@ export default function AtendimentoPage() {
                        espaço que ainda não é dela. */
                     initial={{ opacity: 0, scale: 0.94 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.96 }}
+                    /* SEM ANIMAÇÃO DE SAÍDA, e este era o pulo que sobrava.
+                       A única "saída" que existe nesta lista é a troca da bolha
+                       otimista (com o relógio) pela linha de verdade que chega
+                       do banco — são dois elementos com chaves diferentes, e o
+                       React trata como um saindo e outro entrando.
+                       Com `exit`, a otimista levava os mesmos ~230ms pra sumir e
+                       CONTINUAVA OCUPANDO ESPAÇO enquanto desaparecia. A bolha
+                       real nascia com um vão invisível embaixo dela; quando a
+                       saída terminava, o vão sumia e ela descia até o piso. Era
+                       o "aparece em cima e depois desce".
+                       Sem `exit` a troca é instantânea, que é a verdade: não é
+                       uma mensagem indo embora, é a mesma mensagem trocando de
+                       roupa. */
                     /* ~230ms: os 180ms originais passavam sem ninguém ver, e
                        os 340ms da tentativa anterior arrastavam. Aqui o olho
                        pega o movimento e ele já acabou quando a leitura chega.
