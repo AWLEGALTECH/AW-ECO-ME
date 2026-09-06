@@ -35,7 +35,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, ChevronDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info,
@@ -73,7 +73,7 @@ import {
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
-import { SeletorDeDia, SeletorDeHora } from "@/components/EscolherQuando";
+import { SeletorDeDia, SeletorDeHora, diaDoISO } from "@/components/EscolherQuando";
 import {
   instanteDe, tipoDoMime, motivoDeNaoAgendar, faltaPara, quandoBonito, type TipoRetido,
 } from "@/lib/retencao";
@@ -168,6 +168,14 @@ export default function AtendimentoPage() {
   const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "funil">("atendimento");
   const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
   const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
+  /* OUTROS RECORTES, que não são etapa. Etapa é onde a pessoa está no funil;
+     isto é o estado dela hoje — está sendo cobrada, está esperando a gente. Os
+     dois se cruzam em vez de competir, e por isso são dois estados. */
+  const [filtroExtra, setFiltroExtra] = useState<"followup" | "semResposta" | null>(null);
+  /* Quantos filtros estão ligados. O botão conta porque filtro ligado e
+     invisível é a forma mais rápida de alguém concluir que "sumiram conversas"
+     — e ir procurar defeito onde não há. */
+  const filtrosLigados = (filtroEtapa !== "todos" ? 1 : 0) + (filtroExtra ? 1 : 0);
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
@@ -522,10 +530,51 @@ export default function AtendimentoPage() {
     }
   };
 
+  /* ESTE BLOCO MORA AQUI, ANTES DA LISTA, e não é arrumação: `lista` filtra
+     por "está em follow-up" e lê `followUpPorLead` no array de dependências —
+     que é avaliado DURANTE o render. Declarado depois, `const` não é içado e a
+     tela inteira cai com "Cannot access before initialization", num erro que o
+     `tsc` não pega porque o uso está dentro de um hook. Já aconteceu três vezes
+     nesta tela; a regra é simples: o que o corpo do componente usa, declara-se
+     antes do primeiro uso. */
+  const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
+  const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
+
+  /* ESTAR NA CADÊNCIA É UMA ETIQUETA DO LEAD, não um item de uma lista à parte.
+     A cobrança em aberto muda o jeito de escrever pra pessoa — quem já levou
+     três não recebe a mesma mensagem de quem está na primeira —, e quem atende
+     descobre isso ao abrir a conversa, não ao visitar outra aba. Por isso a
+     rodada viaja com o lead: aparece no cartão da caixa, na barra da conversa e
+     na ficha, sempre com o mesmo desenho.
+
+     Um mapa e não um `find` por cartão: a caixa desenha dezenas de linhas a cada
+     atualização, e varrer a lista inteira dentro de cada uma faria o custo
+     crescer ao quadrado à toa. */
+  const followUpPorLead = useMemo(() => {
+    const m = new Map<string, Task>();
+    for (const t of lembretes) {
+      if (t.tipo === "follow_up" && !t.feita) m.set(t.leadId, t);
+    }
+    return m;
+  }, [lembretes]);
+
+  /* As cobranças JÁ FEITAS, em ordem de régua. É o histórico que a ficha do
+     cliente mostra: "esta é a quarta vez que insistimos" é uma informação
+     diferente de "há uma cobrança marcada pra sexta", e as duas decidem coisas
+     diferentes na hora de escrever. */
+
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return leadsBase
       .filter((l) => filtroEtapa === "todos" || estagioDe(l) === filtroEtapa)
+      .filter((l) => {
+        if (filtroExtra === "followup") return followUpPorLead.has(l.id);
+        // "Esperando resposta NOSSA" é o contrário de follow-up: ele escreveu e
+        // ninguém respondeu. As duas se parecem numa lista e são opostas — uma
+        // é rotina, a outra é falha nossa e urgência de hoje.
+        if (filtroExtra === "semResposta") return l.ultimaFoi === "lead";
+        return true;
+      })
       .filter((l) => !termo || l.nome.toLowerCase().includes(termo) || l.telefone.includes(termo))
       .sort((a, b) => {
         const ra = a.ultimaFoi === "lead" ? 0 : 1;
@@ -533,12 +582,11 @@ export default function AtendimentoPage() {
         if (ra !== rb) return ra - rb;
         return b.horasSemResposta - a.horasSemResposta;
       });
-  }, [filtroEtapa, busca, leadsBase, estagios]);
+  }, [filtroEtapa, filtroExtra, followUpPorLead, busca, leadsBase, estagios]);
 
   /* Ao vivo os lembretes vêm de `wa_tasks` e sobrevivem ao recarregar; na
      maquete continuam em memória, pra ela seguir servindo pra discutir formato
      sem escrever nada no banco. */
-  const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
   const invalidarTasks = useInvalidarTasksWa();
   const { data: agendadas = [] } = useAgendadas(aoVivo ? instancia.nome : null);
   const invalidarAgendadas = useInvalidarAgendadas();
@@ -591,30 +639,6 @@ export default function AtendimentoPage() {
     return brutosNovos.filter((b) =>
       (b.nome ?? "").toLowerCase().includes(termo) || b.telefone.includes(termo.replace(/\D/g, "")));
   }, [brutosNovos, busca]);
-  const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
-
-  /* ESTAR NA CADÊNCIA É UMA ETIQUETA DO LEAD, não um item de uma lista à parte.
-     A cobrança em aberto muda o jeito de escrever pra pessoa — quem já levou
-     três não recebe a mesma mensagem de quem está na primeira —, e quem atende
-     descobre isso ao abrir a conversa, não ao visitar outra aba. Por isso a
-     rodada viaja com o lead: aparece no cartão da caixa, na barra da conversa e
-     na ficha, sempre com o mesmo desenho.
-
-     Um mapa e não um `find` por cartão: a caixa desenha dezenas de linhas a cada
-     atualização, e varrer a lista inteira dentro de cada uma faria o custo
-     crescer ao quadrado à toa. */
-  const followUpPorLead = useMemo(() => {
-    const m = new Map<string, Task>();
-    for (const t of lembretes) {
-      if (t.tipo === "follow_up" && !t.feita) m.set(t.leadId, t);
-    }
-    return m;
-  }, [lembretes]);
-
-  /* As cobranças JÁ FEITAS, em ordem de régua. É o histórico que a ficha do
-     cliente mostra: "esta é a quarta vez que insistimos" é uma informação
-     diferente de "há uma cobrança marcada pra sexta", e as duas decidem coisas
-     diferentes na hora de escrever. */
   const followUpsFeitosPorLead = useMemo(() => {
     const m = new Map<string, Task[]>();
     for (const t of lembretes) {
@@ -1653,28 +1677,119 @@ export default function AtendimentoPage() {
                     </button>
                   ))}
                 </div>
-                {caixa === "inbound" && <div className="flex flex-wrap gap-1">
-                  {CHIPS_ETAPA.map((c) => {
-                    const n = c.chave === "todos"
-                      ? leadsBase.length
-                      : leadsBase.filter((l) => estagioDe(l) === c.chave).length;
-                    return (
-                      <button key={c.chave} onClick={() => setFiltroEtapa(c.chave)}
-                        className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1 flex items-center gap-1",
-                          filtroEtapa === c.chave
-                            ? "bg-white/[0.10] text-foreground ring-white/20"
-                            : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground",
-                          // Etapa vazia fica apagada mas CLICÁVEL: sumir com ela
-                          // mudaria a largura da fileira a cada mensagem que
-                          // chega, e o chip que estava no lugar A pularia pro B
-                          // debaixo do dedo de quem ia clicar.
-                          n === 0 && filtroEtapa !== c.chave && "opacity-45")}>
-                        {c.rotulo}
-                        {n > 0 && <span className="tabular-nums opacity-60">{n}</span>}
+                {/* O FILTRO SAI DA FRENTE.
+                    Eram seis chips de etapa ocupando duas linhas do cabeçalho,
+                    todo dia, para um gesto que se faz poucas vezes por hora — e
+                    eles empurravam a lista de conversas, que é o que se olha o
+                    tempo todo, para baixo. Agora é um ícone: quem filtra clica,
+                    quem não filtra ganha duas linhas de fila.
+
+                    O botão CONTA quantos filtros estão ligados e fica aceso
+                    quando há algum. Filtro ligado e invisível é a forma mais
+                    rápida de alguém concluir que "sumiram conversas". */}
+                {caixa === "inbound" && (
+                  <div className="flex items-center gap-1.5">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          className={cn("h-7 shrink-0 flex items-center gap-1.5 rounded-md px-2 text-[11px] ring-1 transition-colors",
+                            filtrosLigados > 0
+                              ? "bg-primary/15 text-foreground ring-primary/35"
+                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
+                          <SlidersHorizontal className="h-3.5 w-3.5" />
+                          Filtros
+                          {filtrosLigados > 0 && (
+                            <span className="tabular-nums rounded-full bg-primary/25 px-1 text-[9.5px]">
+                              {filtrosLigados}
+                            </span>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-[15rem] p-2 flex flex-col gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                            Por etapa
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {CHIPS_ETAPA.map((c) => {
+                              const n = c.chave === "todos"
+                                ? leadsBase.length
+                                : leadsBase.filter((l) => estagioDe(l) === c.chave).length;
+                              return (
+                                <button key={c.chave} onClick={() => setFiltroEtapa(c.chave)}
+                                  className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1 flex items-center gap-1",
+                                    filtroEtapa === c.chave
+                                      ? "bg-white/[0.10] text-foreground ring-white/20"
+                                      : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground",
+                                    // Etapa vazia fica apagada mas CLICÁVEL: sumir
+                                    // com ela mudaria a largura da fileira a cada
+                                    // mensagem que chega, e o chip que estava no
+                                    // lugar A pularia pro B debaixo do dedo.
+                                    n === 0 && filtroEtapa !== c.chave && "opacity-45")}>
+                                  {c.rotulo}
+                                  {n > 0 && <span className="tabular-nums opacity-60">{n}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* OUTROS RECORTES, que não são etapa. Etapa é onde a
+                            pessoa está no funil; isto é o estado dela hoje, e
+                            os dois se cruzam em vez de competir. */}
+                        <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-2.5">
+                          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                            Outros
+                          </p>
+                          {([
+                            ["followup", "Em follow-up", Repeat],
+                            ["semResposta", "Esperando resposta nossa", Inbox],
+                          ] as const).map(([k, rot, Ico]) => (
+                            <button key={k}
+                              onClick={() => setFiltroExtra((v) => (v === k ? null : k))}
+                              className={cn("flex items-center gap-2 rounded-md px-2 py-1 text-[11.5px] transition-colors text-left",
+                                filtroExtra === k
+                                  ? "bg-primary/15 text-foreground ring-1 ring-primary/30"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-white/[0.05]")}>
+                              <Ico className="h-3.5 w-3.5 shrink-0" />
+                              <span className="flex-1">{rot}</span>
+                              {filtroExtra === k && <Check className="h-3.5 w-3.5 shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+
+                        {filtrosLigados > 0 && (
+                          <button
+                            onClick={() => { setFiltroEtapa("todos"); setFiltroExtra(null); }}
+                            className="text-[11px] text-muted-foreground hover:text-foreground
+                                       underline underline-offset-2 self-start">
+                            Limpar filtros
+                          </button>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* O QUE ESTÁ LIGADO FICA VISÍVEL FORA DO POPOVER, e some
+                        com um clique. Escondido atrás do ícone, um filtro
+                        esquecido vira "a caixa está errada". */}
+                    {filtroEtapa !== "todos" && (
+                      <button onClick={() => setFiltroEtapa("todos")}
+                        className="h-7 shrink-0 flex items-center gap-1 rounded-md px-2 text-[10.5px]
+                                   bg-white/[0.06] text-foreground ring-1 ring-white/[0.10] hover:bg-white/[0.10] transition-colors">
+                        {CHIPS_ETAPA.find((c) => c.chave === filtroEtapa)?.rotulo}
+                        <X className="h-3 w-3 opacity-60" />
                       </button>
-                    );
-                  })}
-                </div>}
+                    )}
+                    {filtroExtra && (
+                      <button onClick={() => setFiltroExtra(null)}
+                        className="h-7 shrink-0 flex items-center gap-1 rounded-md px-2 text-[10.5px]
+                                   bg-violet-400/12 text-violet-300 ring-1 ring-violet-400/25 hover:bg-violet-400/20 transition-colors">
+                        {filtroExtra === "followup" ? "Follow-up" : "Sem resposta"}
+                        <X className="h-3 w-3 opacity-60" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input value={busca} onChange={(e) => setBusca(e.target.value)}
@@ -2574,12 +2689,38 @@ export default function AtendimentoPage() {
                       usado pra decidir onde investir. */}
                   <div className="flex flex-col gap-1 items-start">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
+                    {/* SÓ A ORIGEM AQUI. A etiqueta de follow-up saiu deste
+                        bloco porque ela não é origem: origem responde "quem
+                        falou primeiro" e nunca muda; follow-up é o estado de
+                        hoje e muda toda semana. Juntas, a segunda fazia a
+                        primeira parecer variável. Ela tem bloco próprio logo
+                        abaixo, onde cabem os números que lhe dão sentido. */}
                     <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
-                      followUp={followUpPorLead.get(lead.id)?.rodada ?? null} tamanho="grande" />
+                      tamanho="grande" />
                   </div>
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
                 </div>
+
+                {/* ═══ O FOLLOW-UP DESTE CLIENTE ═══
+                    Bloco próprio, e não uma etiqueta perdida na origem. Aqui o
+                    número da rodada finalmente faz sentido, porque vem
+                    acompanhado do que o explica: há quanto tempo a pessoa não
+                    responde e quanto falta pro próximo toque. Sozinho, "UP03"
+                    não diz nada; com os dois números do lado, ele diz o tom da
+                    mensagem que precisa ser escrita.
+
+                    QUANDO É HOJE, ELE SOBE — passa na frente da jornada, que é
+                    consulta, porque follow-up de hoje é TRABALHO de hoje. A
+                    ficha inteira existe pra decidir o que fazer com a pessoa, e
+                    o que fazer hoje não pode estar abaixo de uma linha do tempo
+                    que ninguém vai mexer agora. */}
+                {followUpDoLead && followUpDoLead.data <= HOJE && (
+                  <PainelFollowUpDoLead
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE}
+                    onAbrir={() => campoResposta.current?.focus()}
+                    onConcluir={() => concluir(followUpDoLead.id)} />
+                )}
 
                 {/* jornada */}
                 <div className="px-3 py-3 border-b border-white/[0.06]">
@@ -2607,52 +2748,17 @@ export default function AtendimentoPage() {
                     O cartão é o mesmo da central e o mesmo da aba Tarefas, de
                     propósito: forma repetida é o que dispensa aprender a ler
                     de novo em cada lugar. */}
-                <div className="px-3 py-3 border-b border-white/[0.06] flex flex-col gap-2">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                    <Repeat className="h-3 w-3" /> Follow-up
-                    {feitosDoLead.length > 0 && (
-                      <span className="ml-auto tabular-nums opacity-70">
-                        {feitosDoLead.length} de {TOTAL_RODADAS}
-                      </span>
-                    )}
-                  </p>
-
-                  {followUpDoLead ? (
-                    <CardFollowUp
-                      task={followUpDoLead}
-                      diasSemResposta={lead.diasParado}
-                      hoje={HOJE}
-                      /* A conversa já está aberta: o clique leva ao único lugar
-                         que falta, que é o campo de escrever. */
-                      onAbrir={() => campoResposta.current?.focus()}
-                      onConcluir={() => concluir(followUpDoLead.id)}
-                    />
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/60 leading-snug">
-                      {feitosDoLead.length >= TOTAL_RODADAS
-                        ? "A régua acabou: as cinco tentativas foram feitas e o lead saiu da cadência."
-                        : "Sem cobrança marcada. Ou a bola está com a gente, ou a conversa saiu da cadência."}
-                    </p>
-                  )}
-
-                  {/* AS TENTATIVAS JÁ FEITAS. Uma linha por rodada seria uma
-                      lista de coisas que ninguém precisa reler; o que decide o
-                      tom da próxima mensagem é o NÚMERO de vezes que já
-                      insistimos, e isso cabe em cinco marcas. */}
-                  {feitosDoLead.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1">
-                      {feitosDoLead.map((t) => (
-                        <span key={t.id}
-                          title={t.titulo}
-                          className="inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[9px] tabular-nums
-                                     bg-emerald-400/10 text-emerald-300/90 ring-1 ring-emerald-400/20">
-                          <CheckCircle2 className="h-2.5 w-2.5" />
-                          {rotuloDaRodada(t.rodada ?? 1)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* O MESMO PAINEL, na posição de repouso: quando a cobrança é
+                    de outro dia (ou não há nenhuma), ela é consulta e fica
+                    depois da jornada. Um componente só nas duas posições porque
+                    é a MESMA informação — duplicar o desenho faria as duas
+                    divergirem na primeira mudança. */}
+                {!(followUpDoLead && followUpDoLead.data <= HOJE) && (
+                  <PainelFollowUpDoLead
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE}
+                    onAbrir={() => campoResposta.current?.focus()}
+                    onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
+                )}
 
                 {/* ANOTAÇÕES — MURAL, NÃO CAMPO.
                     Escrever a segunda coisa num campo único obriga a decidir
@@ -3893,15 +3999,19 @@ function SeloContato({ origem, base, followUp, tamanho = "pequeno" }: {
           <span className="truncate">{base}</span>
         </span>
       )}
-      {/* ESTÁ NA CADÊNCIA. É a etiqueta que muda o jeito de escrever pra
-          pessoa: quem já levou duas cobranças não recebe a mesma mensagem de
-          quem está na primeira. Roxo porque é a única cor que esta tela não usa
-          pra mais nada — âmbar aqui competia com o atraso das tasks e fazia
-          "está na régua" parecer "está atrasado", que são coisas diferentes. */}
+      {/* ESTÁ NA CADÊNCIA — e só isso.
+          O número da rodada saiu daqui: numa fila de trinta linhas, "UP03" é um
+          detalhe que ninguém compara entre leads e que gastava metade da
+          etiqueta. O que a caixa precisa dizer é a categoria: esta pessoa está
+          sendo cobrada. O número importa na hora de ESCREVER, e é na ficha do
+          cliente que ele aparece, junto dos dias que dão sentido a ele.
+          Roxo porque é a única cor que esta tela não usa pra mais nada — âmbar
+          competia com o atraso das tasks e fazia "está na régua" parecer "está
+          atrasado", que são coisas diferentes. */}
       {followUp ? (
         <span className={cn(caixa, "bg-violet-400/12 text-violet-300 ring-violet-400/25")}>
           <Repeat className={cn(ico, "shrink-0")} />
-          Follow-up {rotuloDaRodada(followUp)}
+          Follow-up
         </span>
       ) : null}
     </>
@@ -4152,6 +4262,108 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
             : <><MessageSquarePlus className="h-3.5 w-3.5 mr-1.5" /> Mandar mensagem</>}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════ o follow-up de UM cliente, na ficha ═══════════
+ *
+ * A caixa diz apenas que a pessoa está sendo cobrada; aqui o número da rodada
+ * finalmente aparece, porque aqui ele vem acompanhado do que o explica. "UP03"
+ * sozinho não diz nada. "UP03, doze dias sem responder, próximo em três" diz o
+ * tom exato da mensagem que precisa ser escrita — e é essa a decisão que se
+ * toma com a ficha aberta.
+ *
+ * O DESTAQUE DE HOJE não é enfeite: o painel muda de cor e ganha uma tarja
+ * quando a cobrança vence hoje, porque nessa hora ele deixa de ser consulta e
+ * vira a próxima coisa a fazer. Quem abre a conversa precisa disso antes de
+ * escrever "oi, tudo bem?" para alguém que está esperando o terceiro toque.
+ */
+function PainelFollowUpDoLead({ task, feitos, lead, hoje, onAbrir, onConcluir }: {
+  task: Task | null;
+  feitos: Task[];
+  lead: Lead;
+  hoje: string;
+  onAbrir: () => void;
+  onConcluir: () => void;
+}) {
+  const atrasada = !!task && task.data < hoje;
+  const deHoje = !!task && task.data === hoje;
+  const agora = deHoje || atrasada;
+  const faltam = task ? Math.max(0, Math.round(
+    (diaDoISO(task.data).getTime() - diaDoISO(hoje).getTime()) / 86400000)) : 0;
+
+  return (
+    <div className={cn("px-3 py-3 border-b flex flex-col gap-2",
+      agora ? "border-violet-400/20 bg-violet-400/[0.05]" : "border-white/[0.06]")}>
+      <p className={cn("text-[9px] uppercase tracking-[0.12em] flex items-center gap-1",
+        agora ? "text-violet-300" : "text-muted-foreground/70")}>
+        <Repeat className="h-3 w-3" /> Follow-up
+        {feitos.length > 0 && (
+          <span className="ml-auto tabular-nums opacity-70">
+            {feitos.length} de {TOTAL_RODADAS}
+          </span>
+        )}
+      </p>
+
+      {task ? (
+        <>
+          {/* A LINHA QUE DECIDE A MENSAGEM: qual rodada, há quanto tempo ele
+              está calado, e quanto falta. Os três juntos, porque nenhum deles
+              sozinho responde "o que eu escrevo agora". */}
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] tabular-nums
+                             bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30">
+              {rotuloDaRodada(task.rodada ?? 1)}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px]
+                             bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.08]">
+              <Clock className="h-2.5 w-2.5" />
+              {lead.diasParado === 0
+                ? "calado desde hoje"
+                : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
+            </span>
+            <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] ring-1",
+              atrasada
+                ? "bg-amber-400/15 text-amber-300 ring-amber-400/30"
+                : deHoje
+                  ? "bg-violet-400/20 text-violet-200 ring-violet-400/35 font-semibold"
+                  : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
+              <CalendarDays className="h-2.5 w-2.5" />
+              {atrasada
+                ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
+                : deHoje
+                  ? "é hoje"
+                  : `em ${faltam} ${faltam === 1 ? "dia" : "dias"}`}
+            </span>
+          </div>
+
+          <CardFollowUp task={task} diasSemResposta={lead.diasParado} hoje={hoje}
+            onAbrir={onAbrir} onConcluir={onConcluir} />
+        </>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/60 leading-snug">
+          {feitos.length >= TOTAL_RODADAS
+            ? "A régua acabou: as cinco tentativas foram feitas e o lead saiu da cadência."
+            : "Sem cobrança marcada. Ou a bola está com a gente, ou a conversa saiu da cadência."}
+        </p>
+      )}
+
+      {/* AS TENTATIVAS JÁ FEITAS. Uma linha por rodada seria uma lista que
+          ninguém precisa reler; o que decide o tom da próxima mensagem é o
+          NÚMERO de vezes que já insistimos, e isso cabe em cinco marcas. */}
+      {feitos.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          {feitos.map((t) => (
+            <span key={t.id} title={t.titulo}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[9px] tabular-nums
+                         bg-emerald-400/10 text-emerald-300/90 ring-1 ring-emerald-400/20">
+              <CheckCircle2 className="h-2.5 w-2.5" />
+              {rotuloDaRodada(t.rodada ?? 1)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
