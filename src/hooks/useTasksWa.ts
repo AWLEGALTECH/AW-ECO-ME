@@ -105,15 +105,18 @@ export async function criarTaskWa(args: {
   hora?: string | null;
   criadoPor?: string | null;
 }) {
-  const { error } = await tabela("wa_tasks").insert({
+  // Devolve o id porque as mensagens retidas se penduram nele: sem o vínculo,
+  // reabrir o lembrete não encontraria o que ele mandou agendar.
+  const { data, error } = await tabela("wa_tasks").insert({
     conversa_id: args.conversaId,
     titulo: args.titulo.trim(),
     detalhe: args.detalhe?.trim() || null,
     dia: args.dia,
     hora: args.hora || null,
     criado_por: args.criadoPor ?? null,
-  });
+  }).select("id").single();
   if (error) throw new Error(error.message);
+  return data.id as string;
 }
 
 /**
@@ -128,6 +131,29 @@ export async function alternarTaskWa(id: string, feita: boolean, quem?: string |
     feita,
     feita_em: feita ? new Date().toISOString() : null,
     feita_por: feita ? (quem ?? null) : null,
+  }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Edita um lembrete que já existe.
+ *
+ * Só os campos passados mudam. O `feita` fica de fora de propósito: concluir
+ * tem caminho próprio (com confirmação, e no follow-up abrindo a próxima da
+ * régua), e deixar que uma edição de texto marque algo como feito seria a porta
+ * de entrada pro tipo de engano que a confirmação existe pra evitar.
+ */
+export async function atualizarTaskWa(id: string, campos: {
+  titulo?: string;
+  detalhe?: string | null;
+  dia?: string;
+  hora?: string | null;
+}) {
+  const { error } = await tabela("wa_tasks").update({
+    ...(campos.titulo !== undefined ? { titulo: campos.titulo } : {}),
+    ...(campos.detalhe !== undefined ? { detalhe: campos.detalhe } : {}),
+    ...(campos.dia !== undefined ? { dia: campos.dia } : {}),
+    ...(campos.hora !== undefined ? { hora: campos.hora } : {}),
   }).eq("id", id);
   if (error) throw new Error(error.message);
 }

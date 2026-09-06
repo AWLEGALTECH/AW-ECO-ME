@@ -124,6 +124,32 @@ export async function reterMensagem(args: {
 }
 
 /**
+ * Edita uma mensagem retida que ainda não saiu.
+ *
+ * O `.eq("status", "pendente")` é a mesma trava do cancelamento, e pelo mesmo
+ * motivo: entre ler o status e escrever cabe o segundo em que o despachante
+ * toma a linha. Editar depois disso mudaria a linha do banco sem mudar o que o
+ * cliente já recebeu — a tela mostraria uma mensagem que nunca foi mandada.
+ *
+ * O arquivo não se troca por aqui. Trocar mídia é subir outra e apagar a
+ * anterior do bucket; enquanto ninguém pedir isso, quem quer outro arquivo
+ * cancela e agenda de novo, que é explícito e não deixa lixo.
+ */
+export async function editarAgendada(id: string, campos: { texto?: string | null; quando?: Date }) {
+  const { data, error } = await tabela("wa_agendadas")
+    .update({
+      ...(campos.texto !== undefined ? { texto: campos.texto?.trim() || null } : {}),
+      ...(campos.quando !== undefined ? { quando: campos.quando.toISOString() } : {}),
+    })
+    .eq("id", id).eq("status", "pendente")
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error("Essa mensagem já saiu — não dá mais pra editar.");
+  }
+}
+
+/**
  * Cancela antes da hora.
  *
  * O `.eq("status", "pendente")` é a trava, e ela precisa estar no UPDATE: ler o

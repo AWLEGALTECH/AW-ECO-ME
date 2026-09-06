@@ -75,13 +75,14 @@ import {
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import { SeletorDeDia, SeletorDeHora } from "@/components/EscolherQuando";
 import {
-  instanteDe, tipoDoMime, motivoDeNaoAgendar, faltaPara, quandoBonito,
+  instanteDe, tipoDoMime, motivoDeNaoAgendar, faltaPara, quandoBonito, type TipoRetido,
 } from "@/lib/retencao";
 import {
-  useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada, type AgendadaRow,
+  useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada, editarAgendada,
+  type AgendadaRow,
 } from "@/hooks/useAgendadas";
 import {
-  useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
+  useTasksWa, criarTaskWa, alternarTaskWa, atualizarTaskWa, useInvalidarTasksWa,
   sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
 } from "@/hooks/useTasksWa";
 import {
@@ -201,6 +202,43 @@ export default function AtendimentoPage() {
   const [reterDia, setReterDia] = useState(() => diaLocal(daquiUmaHora()));
   const [reterHora, setReterHora] = useState(() => horaLocal(daquiUmaHora()));
   const [reterGravando, setReterGravando] = useState(false);
+  /* "Você escreveu e não agendou." A pessoa digita a mensagem, esquece de
+     apertar o enviar da barra e clica em marcar o lembrete — e o texto morria
+     ali, sem aviso nenhum. Salvar por conta própria seria pior: mandaria pro
+     cliente algo que ninguém confirmou. Então pergunta. */
+  const [avisoRetida, setAvisoRetida] = useState(false);
+  /* QUAL LEMBRETE ESTÁ SENDO EDITADO. Null quando é um novo.
+     O mesmo diálogo serve pros dois porque são a mesma coisa: um lembrete com
+     dia, hora e mensagens presas. Uma tela só de edição repetiria cada campo e
+     ia divergir da de criação no primeiro ajuste. */
+  const [editando, setEditando] = useState<Task | null>(null);
+
+  /* Abre o diálogo já preenchido. É o que faltava pra um lembrete ser
+     REVISÁVEL: até agora, marcar a hora errada significava concluir e refazer,
+     e as mensagens presas nele não tinham como ser corrigidas de jeito nenhum. */
+  const abrirLembrete = (t: Task) => {
+    setEditando(t);
+    setTaskTitulo(t.titulo);
+    setTaskDetalhe(t.detalhe ?? "");
+    setTaskDia(t.data);
+    setTaskHora(t.hora ?? "");
+    setRetidas([]);
+    setReterTexto("");
+    setReterArquivo(null);
+    setReterAberta(false);
+    setAvisoRetida(false);
+    setTaskAberta(true);
+  };
+  /* AS MENSAGENS JÁ PREPARADAS, esperando o lembrete ser salvo.
+     Apertar enviar na barra não fecha nada e não salva o lembrete: ele faz o
+     que faria no chat — tira a mensagem do campo e a põe na conversa. A
+     diferença é que aqui ela fica de lado, com a hora dela, até alguém marcar
+     o lembrete. São dois gestos separados porque são duas decisões separadas,
+     e juntá-las fazia o diálogo fechar no meio da configuração. */
+  const [retidas, setRetidas] = useState<Array<{
+    id: string; texto: string; arquivo: File | null;
+    tipo: TipoRetido; duracao: number | null; quando: Date;
+  }>>([]);
   /* O webm gravado pelo navegador não traz a duração no cabeçalho, então quem
      sabe quantos segundos foram é só o gravador. Sem guardar aqui, o áudio
      agendado chegaria no cliente como uma barra sem tamanho. */
@@ -764,6 +802,17 @@ export default function AtendimentoPage() {
      mesma coisa, e escrita três vezes uma delas ia esquecer de recarregar a
      lista depois — o cartão continuaria ali, cancelado, parecendo que o clique
      não funcionou. */
+  /* As programadas do lembrete aberto. Casa por `task_id` quando existe e, na
+     falta dele, pelo lead: a retenção nasceu antes de o vínculo com o lembrete
+     existir, e as que já estão no banco sem `task_id` continuariam invisíveis
+     numa tela feita justamente pra encontrá-las. */
+  const agendadasDoEditando = useMemo(() => {
+    if (!editando) return [] as AgendadaRow[];
+    return agendadas.filter((a) =>
+      a.status === "pendente" &&
+      (a.task_id === editando.id || (!a.task_id && a.conversa_id === editando.leadId)));
+  }, [editando, agendadas]);
+
   const cancelarProgramada = (id: string) => {
     cancelarAgendada(id)
       .then(() => { invalidarAgendadas(); toast.success("Mensagem cancelada."); })
@@ -832,16 +881,42 @@ export default function AtendimentoPage() {
      meio de uma tela que não é dele. Agora abre um diálogo de verdade, já com
      o dia que está sendo olhado no calendário. */
   const novoLembrete = () => {
+    setEditando(null);
     setTaskTitulo("");
     setTaskDetalhe("");
     setTaskDia(dia);
     setTaskHora("");
+    limparRetencao();
     setTaskAberta(true);
   };
 
   /* Limpar depois de salvar não é higiene: sem isso, o próximo lembrete abre
      com a mensagem do anterior já dentro, e basta um clique distraído pra
      agendar de novo o mesmo texto pra outra pessoa. */
+  /* PREPARAR É O "ENVIAR" DESTA BARRA.
+     Tira a mensagem do campo e a põe na fila do lembrete, com a hora escolhida
+     naquele momento — cada preparada carrega a SUA hora, porque a pessoa pode
+     querer uma daqui a uma hora e outra amanhã cedo, e o seletor lá embaixo é
+     só o valor corrente do campo. */
+  const prepararRetida = () => {
+    const tipo = reterArquivo ? tipoDoMime(reterArquivo.type) : "texto";
+    const quando = instanteDe(reterDia, reterHora || null);
+    const impedimento = motivoDeNaoAgendar({
+      tipo, texto: reterTexto, temArquivo: !!reterArquivo, quando,
+    });
+    if (impedimento) { toast.error(impedimento); return; }
+
+    setRetidas((p) => [...p, {
+      id: `r-${Date.now()}`, texto: reterTexto.trim(), arquivo: reterArquivo,
+      tipo, duracao: reterDuracao, quando,
+    }]);
+    // Só o conteúdo se limpa. Dia e hora ficam: quem prepara duas mensagens
+    // pro mesmo horário não deveria escolhê-lo duas vezes.
+    setReterTexto("");
+    setReterArquivo(null);
+    setReterDuracao(null);
+  };
+
   const limparRetencao = () => {
     setReterAberta(false);
     setReterTexto("");
@@ -849,12 +924,28 @@ export default function AtendimentoPage() {
     setReterDuracao(null);
     setReterDia(diaLocal(daquiUmaHora()));
     setReterHora(horaLocal(daquiUmaHora()));
+    setRetidas([]);
+    setAvisoRetida(false);
   };
 
-  const salvarTask = async () => {
+  const salvarTask = async (ignorarPendente = false) => {
     const titulo = taskTitulo.trim();
     if (!titulo) { toast.error("O lembrete precisa de um título."); return; }
+
+    /* Conteúdo escrito e não agendado segura o salvamento UMA vez. Não é
+       teimosia: o texto está a um clique de sumir sem nunca ter existido, e
+       quem escreveu acha que agendou. */
+    const sobrou = !!reterTexto.trim() || !!reterArquivo;
+    if (sobrou && !ignorarPendente) { setAvisoRetida(true); return; }
+    setAvisoRetida(false);
     if (!aoVivo) {
+      if (editando) {
+        setLembretesMaquete((p) => p.map((t) => (t.id === editando.id
+          ? { ...t, titulo, detalhe: taskDetalhe.trim(), data: taskDia, hora: taskHora || null }
+          : t)));
+        setTaskAberta(false);
+        return;
+      }
       setLembretesMaquete((p) => [...p, {
         id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
         titulo, detalhe: taskDetalhe.trim(), data: taskDia, hora: taskHora || null, feita: false,
@@ -864,45 +955,54 @@ export default function AtendimentoPage() {
     }
     setSalvandoTask(true);
     try {
-      await criarTaskWa({
-        conversaId: lead.id,
-        titulo,
-        detalhe: taskDetalhe,
-        dia: taskDia,
-        hora: taskHora || null,
-        criadoPor: user?.id ?? null,
-      });
+      let idDaTask: string | null = editando?.id ?? null;
+      if (editando) {
+        await atualizarTaskWa(editando.id, {
+          titulo, detalhe: taskDetalhe, dia: taskDia, hora: taskHora || null,
+        });
+      } else {
+        idDaTask = await criarTaskWa({
+          conversaId: lead.id,
+          titulo,
+          detalhe: taskDetalhe,
+          dia: taskDia,
+          hora: taskHora || null,
+          criadoPor: user?.id ?? null,
+        });
+      }
       /* A RETENÇÃO SÓ NASCE DEPOIS QUE O LEMBRETE NASCEU, e o erro dela NÃO
          desfaz o lembrete: são duas coisas com valores diferentes. Perder o
          lembrete porque o upload de um vídeo falhou seria trocar um problema
          pequeno (reanexar) por um grande (a pessoa achar que anotou e não ter
          anotado). Se a mensagem falhar, o aviso diz exatamente isso. */
-      if (reterAberta) {
-        const quando = instanteDe(reterDia, reterHora || null);
-        const tipo = reterArquivo ? tipoDoMime(reterArquivo.type) : "texto";
-        const impedimento = motivoDeNaoAgendar({
-          tipo, texto: reterTexto, temArquivo: !!reterArquivo, quando,
-        });
-        if (impedimento) {
-          toast.warning(`Lembrete salvo. A mensagem não foi agendada: ${impedimento}`);
-        } else {
-          try {
-            await reterMensagem({
-              conversaId: lead.id,
-              quando,
-              tipo,
-              texto: reterTexto,
-              arquivo: reterArquivo,
-              nomeArquivo: reterArquivo?.name ?? null,
-              duracao: reterDuracao,
-              criadaPor: user?.id ?? null,
-            });
-            invalidarAgendadas();
-            toast.success(`Mensagem retida para ${quandoBonito(quando.toISOString())}.`);
-          } catch (e) {
-            toast.error("Lembrete salvo, mas a mensagem não foi agendada: " + (e as Error).message);
-          }
+      /* AS RETIDAS SÓ NASCEM DEPOIS QUE O LEMBRETE NASCEU, e o erro delas NÃO
+         desfaz o lembrete: são duas coisas com valores diferentes. Perder o
+         lembrete porque o upload de um vídeo falhou seria trocar um problema
+         pequeno (reanexar) por um grande (achar que anotou e não ter anotado). */
+      let agendadas = 0;
+      for (const r of retidas) {
+        try {
+          await reterMensagem({
+            conversaId: lead.id,
+            taskId: idDaTask,
+            quando: r.quando,
+            tipo: r.tipo,
+            texto: r.texto,
+            arquivo: r.arquivo,
+            nomeArquivo: r.arquivo?.name ?? null,
+            duracao: r.duracao,
+            criadaPor: user?.id ?? null,
+          });
+          agendadas++;
+        } catch (e) {
+          toast.error("Uma mensagem não foi agendada: " + (e as Error).message);
         }
+      }
+      if (agendadas > 0) {
+        invalidarAgendadas();
+        toast.success(agendadas === 1
+          ? "Lembrete salvo e mensagem programada."
+          : `Lembrete salvo e ${agendadas} mensagens programadas.`);
       }
 
       invalidarTasks();
@@ -2060,7 +2160,12 @@ export default function AtendimentoPage() {
                     const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
                     return (
                       <div key={t.id}
+                        role="button" tabIndex={0}
+                        onClick={() => abrirLembrete(t)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirLembrete(t); } }}
                         className={cn("shrink-0 w-[13.5rem] rounded-xl border px-2.5 py-2 flex items-start gap-2",
+                          "cursor-pointer transition-colors hover:border-primary/40 hover:bg-white/[0.05]",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
                           t.feita ? "border-white/[0.05] bg-white/[0.015] opacity-60"
                                   : "border-white/[0.07] bg-white/[0.03]")}>
                         <span className="h-6 w-6 rounded-lg bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
@@ -2085,7 +2190,7 @@ export default function AtendimentoPage() {
                             {t.detalhe}
                           </span>
                         </span>
-                        <button onClick={() => concluir(t.id)}
+                        <button onClick={(e) => { e.stopPropagation(); concluir(t.id); }}
                           title={t.feita ? "Reabrir" : "Concluir"}
                           className={cn("shrink-0 transition-colors",
                             t.feita ? "text-emerald-400" : "text-muted-foreground/35 hover:text-emerald-400/70")}>
@@ -2429,6 +2534,7 @@ export default function AtendimentoPage() {
                     onEscolherEtapa={() => setEtapaAberta(true)}
                     onNovaTask={novoLembrete}
                     onConcluirTask={concluir}
+                    onAbrirTask={abrirLembrete}
                   />
                 </div>
 
@@ -2694,9 +2800,13 @@ export default function AtendimentoPage() {
                       const fu = t.tipo === "follow_up";
                       return (
                         <div key={t.id}
+                          role="button" tabIndex={0}
+                          onClick={() => abrirLembrete(t)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirLembrete(t); } }}
                           className={cn(
                             "flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] p-2.5",
-                            "transition-colors hover:border-primary/40 hover:bg-white/[0.05]",
+                            "cursor-pointer transition-colors hover:border-primary/40 hover:bg-white/[0.05]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
                             t.feita && "opacity-70",
                           )}>
                           {/* MESMA CABEÇA DO CARD DO JURÍDICO: o quadradinho do
@@ -2710,7 +2820,7 @@ export default function AtendimentoPage() {
                                  : "bg-amber-400/10 ring-amber-400/25 text-amber-300")}>
                               <Icone className="h-3.5 w-3.5" />
                             </span>
-                            <button onClick={() => concluir(t.id)}
+                            <button onClick={(e) => { e.stopPropagation(); concluir(t.id); }}
                               title={t.feita ? "Reabrir" : "Concluir"}
                               className={cn("shrink-0 transition-colors",
                                 t.feita ? "text-emerald-400"
@@ -2719,7 +2829,7 @@ export default function AtendimentoPage() {
                             </button>
                           </div>
 
-                          <button onClick={() => abrir(t.leadId)} className="text-left">
+                          <div className="text-left">
                             <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2 flex items-center gap-1.5">
                               {ROTULO_TIPO[t.tipo]}
                               {t.hora && (
@@ -2744,9 +2854,18 @@ export default function AtendimentoPage() {
                                   {fu ? `${diasDaRodada(t.rodada ?? 1) ?? "?"} dias sem resposta` : "Marcado por você"}
                                 </span>
                               )}
-                              <span className="text-[10px] text-muted-foreground truncate">{t.lead}</span>
+                              {/* O NOME ABRE A CONVERSA; o resto do cartão abre
+                                  o lembrete pra editar. Duas ações diferentes
+                                  precisam de dois alvos, e o nome é o alvo
+                                  natural de "me leva até essa pessoa". */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); abrir(t.leadId); }}
+                                className="text-[10px] text-muted-foreground truncate text-left
+                                           hover:text-foreground hover:underline underline-offset-2 transition-colors">
+                                {t.lead}
+                              </button>
                             </div>
-                          </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -3213,11 +3332,13 @@ export default function AtendimentoPage() {
         <DialogContent className="max-w-md [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <BellRing className="h-4 w-4" /> Novo lembrete
+              <BellRing className="h-4 w-4" /> {editando ? "Editar lembrete" : "Novo lembrete"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              Sobre <span className="text-foreground/80">{lead.nome}</span>. Ele entra na fila do
-              dia que você escolher.
+              Sobre <span className="text-foreground/80">{editando?.lead ?? lead.nome}</span>.
+              {editando
+                ? " Mudar o dia adia o lembrete; as mensagens já programadas continuam com a hora delas."
+                : " Ele entra na fila do dia que você escolher."}
             </DialogDescription>
           </DialogHeader>
 
@@ -3265,6 +3386,35 @@ export default function AtendimentoPage() {
               </div>
             </div>
 
+            {/* AS QUE JÁ ESTÃO NO BANCO, quando se está editando. Elas não
+                são as preparadas de baixo: aquelas ainda não existem, estas já
+                vão sair sozinhas e por isso aparecem primeiro, com a edição
+                aberta. */}
+            {editando && agendadasDoEditando.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3 w-3" />
+                  {agendadasDoEditando.length === 1
+                    ? "1 mensagem já programada"
+                    : `${agendadasDoEditando.length} mensagens já programadas`}
+                </p>
+                {agendadasDoEditando.map((a) => (
+                  <RetidaEditavel key={a.id} a={a} hojeISO={HOJE}
+                    onCancelar={() => cancelarProgramada(a.id)}
+                    onSalvar={async (texto, quando) => {
+                      try {
+                        await editarAgendada(a.id, { texto, quando });
+                        invalidarAgendadas();
+                        toast.success("Mensagem reprogramada.");
+                      } catch (e) {
+                        invalidarAgendadas();
+                        toast.error((e as Error).message);
+                      }
+                    }} />
+                ))}
+              </div>
+            )}
+
             {/* ═══ RETER UMA MENSAGEM ═══
                 O lembrete diz o que EU faço; a retenção manda o cliente
                 receber. São duas coisas, e por isso a retenção tem horário
@@ -3291,9 +3441,11 @@ export default function AtendimentoPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12px] font-medium">Reter uma mensagem</span>
                   <span className="block text-[10.5px] text-muted-foreground/70 truncate">
-                    {reterAberta
-                      ? `Sai sozinha para ${lead.nome.split(" ")[0]} em ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`
-                      : "Deixa uma mensagem programada para o cliente receber"}
+                    {retidas.length > 0
+                      ? `${retidas.length} ${retidas.length === 1 ? "mensagem programada" : "mensagens programadas"} para ${lead.nome.split(" ")[0]}`
+                      : reterAberta
+                        ? `Escreva e aperte enviar. Sai para ${lead.nome.split(" ")[0]} na hora que você marcar.`
+                        : "Deixa uma mensagem programada para o cliente receber"}
                   </span>
                 </span>
                 <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-300",
@@ -3316,6 +3468,49 @@ export default function AtendimentoPage() {
                     transition={{ type: "spring", stiffness: 300, damping: 34, mass: 0.9 }}
                     className="overflow-hidden border-t border-white/[0.06]">
                     <div className="p-2.5 flex flex-col gap-2">
+
+                      {/* AS JÁ PREPARADAS, como bolhas — porque é isso que
+                          acontece no chat quando se aperta enviar: a mensagem
+                          sai do campo e aparece na conversa. Aqui ela aparece
+                          com a hora em que vai sair, e some do campo do mesmo
+                          jeito. Nada disso existe no banco ainda: só vira
+                          agendamento quando o lembrete for marcado. */}
+                      <AnimatePresence initial={false}>
+                        {retidas.map((r) => (
+                          <motion.div key={r.id}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 320, damping: 34, mass: 0.85 }}
+                            className="overflow-hidden">
+                            <div className="self-end ml-auto w-fit max-w-full rounded-2xl rounded-tr-sm
+                                            border border-dashed border-primary/30 bg-primary/[0.05] px-3 py-2">
+                              <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide
+                                            text-muted-foreground/80 mb-1">
+                                <Clock className="h-3 w-3 text-primary" />
+                                {quandoBonito(r.quando.toISOString())}
+                                <button type="button"
+                                  onClick={() => setRetidas((p) => p.filter((x) => x.id !== r.id))}
+                                  title="Tirar esta mensagem"
+                                  className="ml-1 text-muted-foreground/40 hover:text-red-300 transition-colors">
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </p>
+                              {r.arquivo && (
+                                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+                                  <Paperclip className="h-3 w-3 shrink-0" />
+                                  <span className="truncate max-w-[220px]">{r.arquivo.name}</span>
+                                </p>
+                              )}
+                              {r.texto && (
+                                <p className="text-[12.5px] leading-snug whitespace-pre-wrap break-words opacity-90">
+                                  {r.texto}
+                                </p>
+                              )}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
 
                       {/* O anexo escolhido fica VISÍVEL antes de ir, igual ao
                           chat: anexar e agendar no mesmo clique é o jeito de
@@ -3364,11 +3559,11 @@ export default function AtendimentoPage() {
                             onChange={(e) => setReterTexto(e.target.value)}
                             onKeyDown={(e) => {
                               // Mesmo atalho do chat: enter manda, shift+enter
-                              // quebra a linha. Aqui "mandar" é agendar.
+                              // quebra a linha. Aqui "mandar" é preparar.
                               if (e.key !== "Enter") return;
                               if (e.shiftKey || e.ctrlKey || e.metaKey) return;
                               e.preventDefault();
-                              if (taskTitulo.trim()) salvarTask();
+                              prepararRetida();
                             }}
                             placeholder={reterArquivo ? "Legenda (opcional)…" : `Mensagem para ${lead.nome.split(" ")[0]}…`}
                             className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
@@ -3390,19 +3585,20 @@ export default function AtendimentoPage() {
                         )}
 
                         {!reterGravando && (
-                          /* O BOTÃO É UM RELÓGIO, e não um avião de papel. A
-                             barra inteira diz "estou mandando uma mensagem"; o
-                             ícone é a única coisa que precisa lembrar que ela
-                             não sai agora. A hora escrita ao lado tira a última
-                             dúvida sem obrigar a olhar pro campo de cima. */
-                          <Button size="sm" className="h-9 shrink-0 px-2.5 gap-1.5"
-                            onClick={salvarTask}
-                            disabled={salvandoTask || !taskTitulo.trim()}
-                            title={`Agendar para ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`}>
-                            {salvandoTask
-                              ? <Loader2 className="h-4 w-4 animate-spin" />
-                              : <><Clock className="h-4 w-4" />
-                                  <span className="text-[11px] tabular-nums">{reterHora}</span></>}
+                          /* O MESMO BOTÃO DO CHAT: quadrado, avião de papel,
+                             sem texto. A versão anterior trazia a hora escrita
+                             dentro dele e virava um híbrido estranho — o botão
+                             que manda não é o lugar de informar quando; isso já
+                             está no seletor logo abaixo e na bolha que aparece
+                             depois de preparar.
+                             E ele NÃO salva o lembrete: prepara a mensagem, do
+                             mesmo jeito que o enviar do chat tira o texto do
+                             campo e o põe na conversa. */
+                          <Button size="sm" className="h-9 w-9 p-0 shrink-0"
+                            onClick={prepararRetida}
+                            disabled={!reterTexto.trim() && !reterArquivo}
+                            title={`Programar para ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`}>
+                            <Send className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
@@ -3422,14 +3618,15 @@ export default function AtendimentoPage() {
                           temArquivo: !!reterArquivo,
                           quando: instanteDe(reterDia, reterHora || null),
                         });
-                        return m ? (
+                        return m && (reterTexto.trim() || reterArquivo) ? (
                           <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
                             <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {m}
                           </p>
                         ) : (
                           <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
-                            Vai sair sozinha, mesmo com o sistema fechado. Dá pra cancelar até a hora,
-                            pela conversa.
+                            {retidas.length > 0
+                              ? "Sai sozinha na hora marcada, mesmo com o sistema fechado, quando você marcar o lembrete. Dá pra cancelar até a hora, pela conversa."
+                              : "Escreva e aperte enviar: a mensagem fica guardada aqui até você marcar o lembrete."}
                           </p>
                         );
                       })()}
@@ -3440,11 +3637,45 @@ export default function AtendimentoPage() {
             </div>
           </div>
 
+          {/* O AVISO FICA AQUI, colado no botão que a pessoa acabou de
+              apertar, e não num toast que some. Ele aparece uma vez e oferece
+              as duas saídas honestas: programar o que ficou escrito, ou dizer
+              que aquilo era rascunho. Salvar por conta própria mandaria pro
+              cliente algo que ninguém confirmou; descartar calado apagaria
+              texto que alguém escreveu. */}
+          <AnimatePresence initial={false}>
+            {avisoRetida && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 320, damping: 34, mass: 0.85 }}
+                className="overflow-hidden">
+                <div className="rounded-lg ring-1 ring-amber-400/25 bg-amber-400/[0.06] p-2.5 flex flex-col gap-2">
+                  <p className="flex items-start gap-1.5 text-[11.5px] text-amber-200/90 leading-snug">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
+                    Você escreveu uma mensagem e não apertou enviar. Ela não vai ser programada.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="ghost" size="sm" className="h-7 text-[11px]"
+                      onClick={() => { setReterTexto(""); setReterArquivo(null); setReterDuracao(null); salvarTask(true); }}>
+                      Descartar e salvar
+                    </Button>
+                    <Button size="sm" className="h-7 text-[11px]"
+                      onClick={() => { prepararRetida(); setAvisoRetida(false); }}>
+                      Programar também
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <DialogFooter>
             <Button variant="ghost" size="sm" onClick={() => { setTaskAberta(false); limparRetencao(); }} disabled={salvandoTask}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={salvarTask} disabled={salvandoTask || !taskTitulo.trim()}>
+            <Button size="sm" onClick={() => salvarTask()} disabled={salvandoTask || !taskTitulo.trim()}>
               {salvandoTask
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
                 : <>Marcar lembrete <Check className="h-3.5 w-3.5 ml-1.5" /></>}
@@ -3868,6 +4099,85 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
   );
 }
 
+/* ═══════════ editar uma mensagem já programada ═══════════
+ *
+ * Uma retida agendada não é um rascunho: ela está no banco, com hora marcada, e
+ * vai sair sozinha. Editar aqui é a diferença entre corrigir um horário e ter
+ * que cancelar e refazer a mensagem inteira — que era a única saída até agora.
+ *
+ * O ARQUIVO NÃO SE TROCA. Trocar mídia é subir outra e apagar a anterior do
+ * bucket, e meia troca (nova subiu, antiga ficou) deixa lixo que ninguém acha
+ * depois. Quem quer outro arquivo cancela e agenda de novo, que é explícito.
+ */
+function RetidaEditavel({ a, hojeISO, onSalvar, onCancelar }: {
+  a: AgendadaRow;
+  hojeISO: string;
+  onSalvar: (texto: string, quando: Date) => Promise<void>;
+  onCancelar: () => void;
+}) {
+  const inicial = new Date(a.quando);
+  const [texto, setTexto] = useState(a.texto ?? "");
+  const [dia, setDia] = useState(
+    `${inicial.getFullYear()}-${String(inicial.getMonth() + 1).padStart(2, "0")}-${String(inicial.getDate()).padStart(2, "0")}`);
+  const [hora, setHora] = useState(
+    `${String(inicial.getHours()).padStart(2, "0")}:${String(inicial.getMinutes()).padStart(2, "0")}`);
+  const [salvando, setSalvando] = useState(false);
+
+  const quando = instanteDe(dia, hora);
+  const mudou = texto !== (a.texto ?? "") || quando.getTime() !== inicial.getTime();
+  const impedimento = motivoDeNaoAgendar({
+    tipo: a.tipo, texto, temArquivo: !!a.midia_path, quando,
+  });
+
+  return (
+    <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] p-2.5 flex flex-col gap-2">
+      <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/80">
+        <Clock className="h-3 w-3 text-primary" /> {quandoBonito(a.quando)}
+        <button type="button" onClick={onCancelar} title="Cancelar o envio"
+          className="ml-auto text-muted-foreground/40 hover:text-red-300 transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </p>
+
+      {a.midia_nome && (
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Paperclip className="h-3 w-3 shrink-0" />
+          <span className="truncate">{a.midia_nome}</span>
+          <span className="opacity-60">(pra trocar o arquivo, cancele e agende de novo)</span>
+        </p>
+      )}
+
+      <Textarea
+        value={texto}
+        rows={2}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder={a.midia_path ? "Legenda (opcional)" : "A mensagem que o cliente vai receber"}
+        className="text-[12.5px] resize-none" />
+
+      <div className="grid grid-cols-2 gap-2">
+        <SeletorDeDia valor={dia} onEscolher={setDia} hojeISO={hojeISO} />
+        <SeletorDeHora valor={hora} onEscolher={setHora} opcional={false} />
+      </div>
+
+      {impedimento ? (
+        <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
+          <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {impedimento}
+        </p>
+      ) : mudou ? (
+        <Button size="sm" className="h-7 text-[11px] self-end" disabled={salvando}
+          onClick={async () => {
+            setSalvando(true);
+            try { await onSalvar(texto, quando); } finally { setSalvando(false); }
+          }}>
+          {salvando
+            ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Salvando…</>
+            : <>Salvar mudança <Check className="h-3 w-3 ml-1.5" /></>}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 /* ═══════════ o cartão de uma mensagem programada ═══════════
  *
  * Mesmo desenho dos cartões de lembrete e de follow-up: quadradinho do ícone,
@@ -3965,13 +4275,14 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask, onConcluirTask }: {
+function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
   atual: Estagio;
   puladas: Estagio[];
   tasksDoLead: Task[];
   onEscolherEtapa: () => void;
   onNovaTask: () => void;
   onConcluirTask: (id: string) => void;
+  onAbrirTask: (t: Task) => void;
 }) {
   const iAtual = ESTAGIOS.findIndex((e) => e.chave === atual);
   const proxima = ESTAGIOS[iAtual + 1];
@@ -4036,7 +4347,12 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
                     const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
                     return (
                       <div key={t.id}
-                        className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5">
+                        role="button" tabIndex={0}
+                        onClick={() => onAbrirTask(t)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAbrirTask(t); } }}
+                        className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5
+                                   cursor-pointer transition-colors hover:border-primary/40 hover:bg-white/[0.05]
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
                         <span className="h-5 w-5 rounded-md bg-primary/12 ring-1 ring-primary/20 grid place-items-center shrink-0">
                           <Ico className="h-3 w-3 text-primary" />
                         </span>
@@ -4051,7 +4367,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
                         <span className={cn("text-[11px] font-medium truncate flex-1", t.feita && "line-through")}>
                           {t.titulo}
                         </span>
-                        <button onClick={() => onConcluirTask(t.id)}
+                        <button onClick={(e) => { e.stopPropagation(); onConcluirTask(t.id); }}
                           title={t.feita ? "Reabrir" : "Concluir"}
                           className={cn("shrink-0 transition-colors",
                             t.feita ? "text-primary" : "text-muted-foreground/35 hover:text-primary/70")}>
