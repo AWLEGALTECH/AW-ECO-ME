@@ -1084,8 +1084,16 @@ export default function AtendimentoPage() {
      um menor: numa tela de trabalho, margem larga em volta é espaço que sai da
      conversa. Header do app tem 3,5rem; com py-3 aqui a conta fecha em 5rem. */
   return (
+    /* A BANCADA CABE NA JANELA, SEMPRE. Aqui havia um `min-h-[40rem]`, e ele
+       era a causa da barra de rolagem: em qualquer janela com menos de 640px
+       de área útil — notebook de 768px com as barras do navegador, por exemplo
+       — a altura mínima ganhava da altura real e empurrava a página pra baixo.
+       O jeito certo é o contrário: a bancada ocupa exatamente o que existe, e
+       quem se aperta são as colunas, que já têm rolagem própria. Rolar a
+       PÁGINA numa tela de atendimento é o pior dos dois mundos, porque leva
+       embora o cabeçalho e o campo de digitar junto. */
     <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
-                    h-[calc(100dvh-5rem)] min-h-[40rem]">
+                    h-[calc(100dvh-5rem)] min-h-0 overflow-hidden">
 
       {/* ── título e abas ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -1132,7 +1140,11 @@ export default function AtendimentoPage() {
               Colar tudo numa caixa só apagava a divisão de trabalho: a caixa,
               a conversa, o cliente e o dia são quatro coisas diferentes. Um gap
               curto mantém cada uma como objeto próprio sem espalhar a tela. */}
-          <div className="flex-1 min-h-0 flex gap-2">
+          {/* `min-w-0` e `overflow-hidden` são o que impedem uma coluna teimosa
+              de empurrar a largura da página: sem eles, um nome comprido ou uma
+              etiqueta larga vazam e a janela ganha barra horizontal. Quem
+              aperta é a coluna, nunca a tela. */}
+          <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex gap-2">
 
             {/* ═══ caixa ═══ */}
             {/* A CAIXA ALARGA QUANDO UMA BASE ABRE.
