@@ -121,10 +121,18 @@ function Coluna({ itens, valor, onEscolher, rotulo }: {
 
   /* O valor atual nasce VISÍVEL. Sem isto, abrir às 17h mostra a lista no zero
      e parece que nada está escolhido — a pessoa rola procurando o próprio
-     horário que já estava selecionado. */
+     horário que já estava selecionado.
+
+     A conta é feita à mão em vez de `scrollIntoView` porque aquilo rola TODOS
+     os ancestrais roláveis pra deixar o elemento visível, e não só esta coluna
+     — foi exatamente esse comportamento que fazia a conversa dar um pulo
+     quando chegava mensagem. Dentro de um popover, o estrago seria a página
+     inteira se mexer ao abrir o relógio. */
   useEffect(() => {
-    const el = caixa.current?.querySelector<HTMLElement>("[data-atual='1']");
-    el?.scrollIntoView({ block: "center" });
+    const cx = caixa.current;
+    const el = cx?.querySelector<HTMLElement>("[data-atual='1']");
+    if (!cx || !el) return;
+    cx.scrollTop = el.offsetTop - cx.clientHeight / 2 + el.offsetHeight / 2;
   }, [valor]);
 
   return (
@@ -132,19 +140,52 @@ function Coluna({ itens, valor, onEscolher, rotulo }: {
       <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60 text-center pb-1">
         {rotulo}
       </span>
-      <div ref={caixa} className="h-[9.5rem] w-14 overflow-y-auto scrollbar-thin flex flex-col gap-0.5 px-1">
-        {itens.map((i) => (
-          <button key={i} type="button" data-atual={i === valor ? "1" : undefined}
-            onClick={() => onEscolher(i)}
-            className={cn(
-              "shrink-0 rounded-md py-1 text-[13px] tabular-nums transition-colors",
-              i === valor
-                ? "bg-primary/20 text-foreground ring-1 ring-primary/40"
-                : "text-muted-foreground hover:text-foreground hover:bg-white/[0.06]",
-            )}>
-            {i}
-          </button>
-        ))}
+
+      {/* A LISTA PRECISA PARECER UMA LISTA.
+          Ela sempre teve as vinte e quatro horas, mas abria centrada no valor
+          atual, mostrava cinco linhas e a barra de rolagem some no tema escuro
+          — então parecia que só existiam aquelas cinco. O conteúdo estava
+          certo e a tela mentia sobre ele, que é o pior tipo de defeito porque
+          ninguém procura a causa: acredita.
+
+          Três coisas resolvem, e as três dizem a mesma coisa por meios
+          diferentes: mais linhas visíveis (nove em vez de cinco), o desbotado
+          nas duas pontas mostrando que o conteúdo atravessa a borda, e a barra
+          de rolagem visível de verdade. */}
+      <div className="relative">
+        <div ref={caixa}
+          className="h-[15rem] w-16 overflow-y-scroll flex flex-col gap-0.5 px-1
+                     [scrollbar-width:thin] [scrollbar-color:hsl(var(--muted-foreground)/0.35)_transparent]
+                     [&::-webkit-scrollbar]:w-1.5
+                     [&::-webkit-scrollbar-thumb]:rounded-full
+                     [&::-webkit-scrollbar-thumb]:bg-muted-foreground/35
+                     [&::-webkit-scrollbar-track]:bg-transparent">
+          {/* Um respiro em cima e embaixo pra que a PRIMEIRA e a ÚLTIMA linha
+              também possam ficar no meio da caixa quando escolhidas — sem ele,
+              00 e 23 nunca centralizam e a rolagem parece travar antes do fim. */}
+          <span aria-hidden className="shrink-0 h-16" />
+          {itens.map((i) => (
+            <button key={i} type="button" data-atual={i === valor ? "1" : undefined}
+              onClick={() => onEscolher(i)}
+              className={cn(
+                "shrink-0 rounded-md py-1 text-[13px] tabular-nums transition-colors",
+                i === valor
+                  ? "bg-primary/20 text-foreground ring-1 ring-primary/40"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/[0.06]",
+              )}>
+              {i}
+            </button>
+          ))}
+          <span aria-hidden className="shrink-0 h-16" />
+        </div>
+
+        {/* O desbotado das pontas. `pointer-events-none` porque ele cobre
+            botões clicáveis: sem isso, a primeira e a última linha visíveis
+            deixariam de responder ao clique. */}
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-8
+                                     bg-gradient-to-b from-popover to-transparent" />
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8
+                                     bg-gradient-to-t from-popover to-transparent" />
       </div>
     </div>
   );
