@@ -2698,6 +2698,19 @@ export default function AtendimentoPage() {
                     <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
                       tamanho="grande" />
                   </div>
+                  {/* O FOLLOW-UP NO DOSSIÊ, sempre que existe — inclusive
+                      quando a cobrança é pra daqui a três semanas. Saber que a
+                      pessoa está na régua, em que rodada, e há quanto tempo
+                      está calada muda o tom de QUALQUER mensagem que se mande
+                      hoje, e não só no dia da cobrança. O que espera o dia
+                      certo é o cartão da tarefa, que é trabalho; isto é
+                      contexto, e contexto se lê antes de escrever. */}
+                  {followUpDoLead && (
+                    <div className="flex flex-col gap-1 items-start">
+                      <span className="text-[9.5px] text-muted-foreground/70">Follow-up</span>
+                      <ResumoFollowUp task={followUpDoLead} lead={lead} hoje={HOJE} />
+                    </div>
+                  )}
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
                 </div>
@@ -4266,6 +4279,55 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
   );
 }
 
+/* ═══════════ os três números do follow-up ═══════════
+ *
+ * Qual rodada, há quanto tempo a pessoa está calada, e quanto falta pro próximo
+ * toque. Os três juntos, porque nenhum deles sozinho responde a pergunta que se
+ * faz aqui: o que eu escrevo agora?
+ *
+ * Isto vive no DOSSIÊ, ao lado da origem, e aparece sempre que existe cobrança
+ * aberta — inclusive quando ela vence daqui a três semanas. Saber que a pessoa
+ * está na régua muda o tom de qualquer mensagem que se mande hoje, e não só no
+ * dia da cobrança. O que espera o dia certo é o CARTÃO da tarefa, que é
+ * trabalho; isto é contexto, e contexto se lê antes de escrever.
+ */
+function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: string }) {
+  const atrasada = task.data < hoje;
+  const deHoje = task.data === hoje;
+  const faltam = Math.max(0, Math.round(
+    (diaDoISO(task.data).getTime() - diaDoISO(hoje).getTime()) / 86400000));
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] tabular-nums
+                       bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30">
+        <Repeat className="h-2.5 w-2.5" />
+        {rotuloDaRodada(task.rodada ?? 1)}
+      </span>
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px]
+                       bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.08]">
+        <Clock className="h-2.5 w-2.5" />
+        {lead.diasParado === 0
+          ? "calado desde hoje"
+          : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
+      </span>
+      <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] ring-1",
+        atrasada
+          ? "bg-amber-400/15 text-amber-300 ring-amber-400/30"
+          : deHoje
+            ? "bg-violet-400/20 text-violet-200 ring-violet-400/35 font-semibold"
+            : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
+        <CalendarDays className="h-2.5 w-2.5" />
+        {atrasada
+          ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
+          : deHoje
+            ? "cobrança é hoje"
+            : `próximo em ${faltam} ${faltam === 1 ? "dia" : "dias"}`}
+      </span>
+    </div>
+  );
+}
+
 /* ═══════════ o follow-up de UM cliente, na ficha ═══════════
  *
  * A caixa diz apenas que a pessoa está sendo cobrada; aqui o número da rodada
@@ -4287,11 +4349,9 @@ function PainelFollowUpDoLead({ task, feitos, lead, hoje, onAbrir, onConcluir }:
   onAbrir: () => void;
   onConcluir: () => void;
 }) {
-  const atrasada = !!task && task.data < hoje;
-  const deHoje = !!task && task.data === hoje;
-  const agora = deHoje || atrasada;
-  const faltam = task ? Math.max(0, Math.round(
-    (diaDoISO(task.data).getTime() - diaDoISO(hoje).getTime()) / 86400000)) : 0;
+  /* "Agora" é hoje OU atrasado: se a cobrança de hoje já é trabalho, a de ontem
+     é mais ainda. É o que decide a cor do painel e a posição dele na ficha. */
+  const agora = !!task && task.data <= hoje;
 
   return (
     <div className={cn("px-3 py-3 border-b flex flex-col gap-2",
@@ -4307,40 +4367,11 @@ function PainelFollowUpDoLead({ task, feitos, lead, hoje, onAbrir, onConcluir }:
       </p>
 
       {task ? (
-        <>
-          {/* A LINHA QUE DECIDE A MENSAGEM: qual rodada, há quanto tempo ele
-              está calado, e quanto falta. Os três juntos, porque nenhum deles
-              sozinho responde "o que eu escrevo agora". */}
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] tabular-nums
-                             bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30">
-              {rotuloDaRodada(task.rodada ?? 1)}
-            </span>
-            <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px]
-                             bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.08]">
-              <Clock className="h-2.5 w-2.5" />
-              {lead.diasParado === 0
-                ? "calado desde hoje"
-                : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
-            </span>
-            <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] ring-1",
-              atrasada
-                ? "bg-amber-400/15 text-amber-300 ring-amber-400/30"
-                : deHoje
-                  ? "bg-violet-400/20 text-violet-200 ring-violet-400/35 font-semibold"
-                  : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
-              <CalendarDays className="h-2.5 w-2.5" />
-              {atrasada
-                ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
-                : deHoje
-                  ? "é hoje"
-                  : `em ${faltam} ${faltam === 1 ? "dia" : "dias"}`}
-            </span>
-          </div>
-
-          <CardFollowUp task={task} diasSemResposta={lead.diasParado} hoje={hoje}
-            onAbrir={onAbrir} onConcluir={onConcluir} />
-        </>
+        /* Sem repetir os três números: eles já estão no dossiê, algumas linhas
+           acima, e aparecem lá mesmo quando a cobrança é de outro dia. Aqui o
+           que interessa é o cartão — a coisa que se faz. */
+        <CardFollowUp task={task} diasSemResposta={lead.diasParado} hoje={hoje}
+          onAbrir={onAbrir} onConcluir={onConcluir} />
       ) : (
         <p className="text-[11px] text-muted-foreground/60 leading-snug">
           {feitos.length >= TOTAL_RODADAS
