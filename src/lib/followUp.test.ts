@@ -36,6 +36,16 @@ describe("a régua", () => {
     expect(rotuloDoDegrau(5)).toBe("Follow-up de 60 dias");
   });
 
+  // O TRAVESSÃO ESTÁ PROIBIDO nos textos que aparecem na tela, e o título da
+  // cobrança aparece inteiro na faixa do topo da conversa. Comentário nenhum
+  // impede isso de voltar num copiar-e-colar; este teste impede.
+  it("nenhum texto de cobrança tem travessão", () => {
+    for (const i of Object.values(INTENCAO)) {
+      expect(i.titulo).not.toMatch(/[—–]/);
+      expect(i.detalhe).not.toMatch(/[—–]/);
+    }
+  });
+
   it("rodada fora da régua não inventa degrau", () => {
     expect(diasDaRodada(0)).toBeNull();
     expect(diasDaRodada(6)).toBeNull();

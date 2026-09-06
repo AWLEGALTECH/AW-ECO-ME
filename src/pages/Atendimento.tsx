@@ -198,6 +198,24 @@ export default function AtendimentoPage() {
      importa quando se está escrevendo. */
   const [detalheAberto, setDetalheAberto] = useState(true);
 
+  /* A LARGURA DA FICHA MORA NUM LUGAR SÓ — e essa é a correção de um buraco que
+     apareceu na tela: o invólucro que anima a abertura tinha a largura escrita
+     em JS ("17rem") e o cartão de dentro tinha a dele em classe do Tailwind.
+     Quando encolhi só a classe, o invólucro continuou abrindo o tamanho antigo
+     e a diferença virou uma coluna de vazio entre a ficha e as tasks.
+     Duas fontes para a mesma medida sempre acabam assim; agora é uma variável,
+     lida pelos dois. Ela precisa existir em JS porque a animação anima um
+     número, e não uma classe — e o cartão continua com largura FIXA por dentro
+     pra que o conteúdo não se reorganize a cada quadro da abertura. */
+  const [larguraFicha, setLarguraFicha] = useState("17rem");
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1536px)");
+    const ver = () => setLarguraFicha(mq.matches ? "17rem" : "14.5rem");
+    ver();
+    mq.addEventListener("change", ver);
+    return () => mq.removeEventListener("change", ver);
+  }, []);
+
   /* QUATRO COLUNAS NÃO CABEM EM TODA TELA, e fingir que cabem é pior que
      esconder uma. Espremidas, TODAS ficam ruins ao mesmo tempo: o nome do lead
      trunca na caixa, a bolha da mensagem vira uma tira, a ficha corta o texto.
@@ -626,7 +644,13 @@ export default function AtendimentoPage() {
      que havia uma cobrança marcada, justamente na hora de escrever pra pessoa.
      Sem duplicar quando ela já está no dia que está sendo olhado. */
   const tasksDoCabecalho = useMemo(() => {
-    if (!followUpDoLead || tasksDoLead.some((t) => t.id === followUpDoLead.id)) return tasksDoLead;
+    if (!followUpDoLead) return tasksDoLead;
+    /* SÓ QUANDO CHEGOU A HORA. Cobrança que vence daqui a três semanas não é
+       trabalho de hoje, e mostrá-la no topo da conversa é pedir pra alguém
+       cobrar antes do tempo — o oposto do que a régua serve pra fazer. Entra
+       no dia dela, e continua entrando enquanto estiver atrasada. */
+    if (followUpDoLead.data > HOJE) return tasksDoLead;
+    if (tasksDoLead.some((t) => t.id === followUpDoLead.id)) return tasksDoLead;
     return [followUpDoLead, ...tasksDoLead];
   }, [tasksDoLead, followUpDoLead]);
   const prog = progressoTasks(tasksDoDia);
@@ -2122,12 +2146,17 @@ export default function AtendimentoPage() {
             <motion.div
               key="detalhe"
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: "17rem", opacity: 1 }}
+              animate={{ width: larguraFicha, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
               className="hidden xl:block shrink-0 min-h-0 overflow-hidden">
+            {/* A largura fica NESTE div e não no cartão: o `SpotlightCard` não
+                recebe `style`, e a medida precisa ser a mesma que a animação usa
+                lá em cima — foi a divergência entre as duas que abriu a coluna
+                de vazio. Aqui elas leem a mesma variável. */}
+            <div style={{ width: larguraFicha }} className="h-full">
             <SpotlightCard sutil className={cn(
-              "w-[14.5rem] 2xl:w-[17rem] h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
+              "w-full h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -2320,6 +2349,7 @@ export default function AtendimentoPage() {
                 </div>
               </div>
             </SpotlightCard>
+            </div>
             </motion.div>
             )}
             </AnimatePresence>

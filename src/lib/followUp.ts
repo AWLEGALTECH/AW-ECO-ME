@@ -68,23 +68,23 @@ export function rotuloDoDegrau(rodada: number): string {
  */
 export const INTENCAO: Record<number, { titulo: string; detalhe: string }> = {
   1: {
-    titulo: "1º follow-up — retomar",
-    detalhe: "Um dia sem resposta. Retome de onde parou, sem cobrar: pergunte se ficou alguma dúvida do que foi dito.",
+    titulo: "Retomar de onde parou",
+    detalhe: "Um dia sem resposta. Retome sem cobrar: pergunte se ficou alguma dúvida do que foi dito.",
   },
   2: {
-    titulo: "2º follow-up — tirar o obstáculo",
+    titulo: "Tirar o obstáculo",
     detalhe: "Cinco dias. Quem some nessa altura em geral travou em algo concreto. Pergunte o que falta para decidir.",
   },
   3: {
-    titulo: "3º follow-up — trazer novidade",
+    titulo: "Trazer novidade",
     detalhe: "Quinze dias. Repetir a mesma pergunta não move. Traga algo novo: um caso parecido, um prazo que mudou.",
   },
   4: {
-    titulo: "4º follow-up — checar se ainda faz sentido",
-    detalhe: "Trinta dias. Pergunte diretamente se o assunto ainda está de pé — resposta negativa também é resposta.",
+    titulo: "Checar se ainda faz sentido",
+    detalhe: "Trinta dias. Pergunte diretamente se o assunto ainda está de pé. Resposta negativa também é resposta.",
   },
   5: {
-    titulo: "5º follow-up — encerrar ou reabrir",
+    titulo: "Encerrar ou reabrir",
     detalhe: "Sessenta dias. Última da régua. Deixe a porta aberta e registre o desfecho; depois desta, o lead sai da cadência.",
   },
 };
@@ -158,7 +158,7 @@ export function motivoDeFora(c: SituacaoDaConversa): string | null {
   if (c.arquivada) return "conversa arquivada";
   if (c.etapa === "fechado") return "já fechou";
   if (!c.ultimaEm) return "ainda não houve conversa";
-  if (c.ultimaFoi === "lead") return "ele respondeu — a bola está com a gente";
+  if (c.ultimaFoi === "lead") return "ele respondeu, a bola está com a gente";
   return "fora da cadência";
 }
 
