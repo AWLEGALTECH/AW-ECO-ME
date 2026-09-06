@@ -99,7 +99,33 @@ import { toast } from "sonner";
 
 /* O "hoje" da maquete é fixo pra ela não mudar de comportamento amanhã e a
    gente perder a referência do que discutiu. Vira hojeISO() quando for real. */
-const HOJE = "2026-09-02";
+/* HOJE, DE VERDADE.
+ *
+ * Esta linha era `"2026-09-02"` — uma data fixa, sobra de quando a tela era só
+ * maquete. Com o módulo em produção isso deixou de ser detalhe e virou o defeito
+ * que explicava um monte de coisa que parecia não ter explicação: o lembrete
+ * novo nascia com o dia quatro dias atrás, o botão dizia "hoje, 02/09", a
+ * retenção recusava qualquer horário como "no passado" (porque era), e a fila de
+ * follow-up media o atraso contra um dia que já tinha passado.
+ *
+ * É calculado em fuso LOCAL, componente a componente, e nunca por `toISOString`:
+ * aquilo devolve UTC, e em Manaus (UTC−4) toda tarde depois das 20h viraria o
+ * dia seguinte na tela.
+ */
+const diaLocal = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const HOJE = diaLocal();
+
+const horaLocal = (d: Date) =>
+  `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+/** O instante padrão de uma retenção: uma hora à frente, no minuto cheio. */
+const daquiUmaHora = () => {
+  const d = new Date(Date.now() + 3600_000);
+  d.setSeconds(0, 0);
+  return d;
+};
 
 const somaDias = (iso: string, n: number) => {
   const [a, m, d] = iso.split("-").map(Number);
@@ -167,8 +193,13 @@ export default function AtendimentoPage() {
   const [reterAberta, setReterAberta] = useState(false);
   const [reterTexto, setReterTexto] = useState("");
   const [reterArquivo, setReterArquivo] = useState<File | null>(null);
-  const [reterDia, setReterDia] = useState(HOJE);
-  const [reterHora, setReterHora] = useState("09:00");
+  /* O PADRÃO É DAQUI A UMA HORA, e não um horário fixo. Era "09:00", o que
+     fazia todo agendamento aberto depois das nove nascer no passado — e a tela
+     recusava com "escolha um horário à frente" antes de a pessoa ter escolhido
+     coisa alguma. Uma hora à frente é sempre válido e quase sempre perto do que
+     se quer; quando não for, mudar são dois cliques. */
+  const [reterDia, setReterDia] = useState(() => diaLocal(daquiUmaHora()));
+  const [reterHora, setReterHora] = useState(() => horaLocal(daquiUmaHora()));
   const [reterGravando, setReterGravando] = useState(false);
   /* O webm gravado pelo navegador não traz a duração no cabeçalho, então quem
      sabe quantos segundos foram é só o gravador. Sem guardar aqui, o áudio
@@ -816,7 +847,8 @@ export default function AtendimentoPage() {
     setReterTexto("");
     setReterArquivo(null);
     setReterDuracao(null);
-    setReterHora("09:00");
+    setReterDia(diaLocal(daquiUmaHora()));
+    setReterHora(horaLocal(daquiUmaHora()));
   };
 
   const salvarTask = async () => {

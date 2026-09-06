@@ -135,6 +135,30 @@ function Coluna({ itens, valor, onEscolher, rotulo }: {
     cx.scrollTop = el.offsetTop - cx.clientHeight / 2 + el.offsetHeight / 2;
   }, [valor]);
 
+  /* A RODA DO MOUSE PRECISA ROLAR ESTA COLUNA.
+     Só a barra funcionava, e o motivo não está aqui: este seletor abre dentro
+     de um diálogo, e o diálogo do Radix trava a rolagem da página inteira
+     enquanto está aberto (`react-remove-scroll`). A trava é feita cancelando
+     eventos de roda que não venham de dentro do conteúdo do diálogo — e o
+     popover, que é renderizado num portal separado, cai justamente do lado de
+     fora dessa permissão. Rolar com o mouse virava um evento cancelado.
+
+     Então a coluna trata a roda ela mesma, antes de qualquer um: converte o
+     movimento em `scrollTop` e para o evento ali. `passive: false` é o que
+     permite o `preventDefault` — sem isso o navegador ignora o pedido e a
+     página se mexeria junto. */
+  useEffect(() => {
+    const cx = caixa.current;
+    if (!cx) return;
+    const naRoda = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cx.scrollTop += e.deltaY;
+    };
+    cx.addEventListener("wheel", naRoda, { passive: false });
+    return () => cx.removeEventListener("wheel", naRoda);
+  }, []);
+
   return (
     <div className="flex flex-col min-w-0">
       <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60 text-center pb-1">
