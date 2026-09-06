@@ -151,7 +151,12 @@ export async function sincronizarFollowUps(instancia: string | null) {
     p_instancia: instancia,
   } as never);
   if (error) throw new Error(error.message);
-  const linha = (Array.isArray(data) ? data[0] : data) as { criadas: number; canceladas: number } | null;
+  // A função devolve uma linha só, mas o PostgREST embrulha `returns table`
+  // num array — e devolve null quando não há linha nenhuma. Os dois casos
+  // precisam sobreviver, senão a tela quebra por causa de um contador.
+  const bruto = data as unknown;
+  const linha = (Array.isArray(bruto) ? bruto[0] : bruto) as
+    { criadas?: number; canceladas?: number } | null | undefined;
   return { criadas: linha?.criadas ?? 0, canceladas: linha?.canceladas ?? 0 };
 }
 

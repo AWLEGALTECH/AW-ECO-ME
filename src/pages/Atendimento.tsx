@@ -47,7 +47,7 @@ import {
 } from "@/lib/atendimentoMock";
 import {
   ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
-  CADENCIA, horaBonita, type Task, type TipoTask,
+  horaBonita, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
@@ -1100,11 +1100,12 @@ export default function AtendimentoPage() {
       [lead.id]: [...(prev[lead.id] ?? []), { de: "nos", texto, hora: agora }],
     }));
     setRascunho("");
-    // responder resolve o follow-up daquele lead no dia — é a cobrança
-    setFeitasFollowUp((p) => {
-      const ids = tasksDoDia.filter((t) => t.tipo === "follow_up" && t.leadId === lead.id).map((t) => t.id);
-      return [...new Set([...p, ...ids])];
-    });
+    /* Responder NÃO precisa marcar follow-up aqui. Quando a cobrança era uma
+       conta na memória da tela, esta linha era o único jeito de dizer "já
+       falei com ele". Agora a cobrança é linha no banco, e quem a resolve é a
+       sincronização: assim que o lead responde, a conversa sai da cadência
+       sozinha — e a cobrança aberta é CANCELADA em vez de ficar marcada como
+       feita, porque ela não foi feita, deixou de fazer sentido. */
   };
 
   /* A bancada cancela o respiro que o layout dá a todas as páginas e reaplica
