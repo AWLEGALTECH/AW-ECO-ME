@@ -2438,14 +2438,14 @@ function EspelhoSucesso({
 
 // Pega "primeiro sobrenome" do nome completo. Fallback pra parte antes do @ do email.
 function nomeSobrenome(p: { nome?: string | null; email?: string | null } | null | undefined): string {
-  if (!p) return "—";
+  if (!p) return "alguém";
   const full = (p.nome || "").trim();
   if (full) {
     const parts = full.split(/\s+/);
     return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1]}`;
   }
   if (p.email) return p.email.split("@")[0];
-  return "—";
+  return "alguém";
 }
 
 function PrePipeline({

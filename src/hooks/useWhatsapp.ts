@@ -48,7 +48,7 @@ export function instanciaParaCard(i: InstanciaRow, agora = new Date()): Instanci
     id: i.nome,
     nome: i.nome,
     curto: i.nome.length > 14 ? iniciaisDe(i.nome) : i.nome,
-    telefone: i.telefone ? telefoneBonito(i.telefone) : "—",
+    telefone: i.telefone ? telefoneBonito(i.telefone) : "sem número",
     status: i.status === "conectado" ? "conectado" : "desconectado",
     gateway: "Evolution API",
     sincronizadoEm: min < 1 ? "agora" : `há ${min} min`,
