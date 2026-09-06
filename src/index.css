@@ -424,9 +424,42 @@ html, body, #root {
     background-size: 22px 22px;
   }
 
+  /* ═══ A CHEGADA DE UMA MENSAGEM ═══
+     Uma expansão, e nada além disso.
+
+     Isto é CSS e não uma biblioteca de animação de propósito. A versão anterior
+     usava o framer, e toda tentativa de acertá-la trombava no mesmo muro: uma
+     animação em JS precisa saber QUANDO um elemento é novo, e essa pergunta,
+     numa lista que recarrega a cada cinco segundos e troca a bolha otimista pela
+     linha do banco, foi respondida errado de quatro maneiras diferentes — cada
+     uma virando um pulo ou um piscar.
+
+     Uma animação CSS não faz essa pergunta: ela roda uma vez, quando o elemento
+     nasce, e nunca mais. Re-renderizar não reinicia. Não há estado, não há
+     medida, não há quadro intermediário em que a bolha exista sem estar no
+     lugar certo.
+
+     SÓ ESCALA E OPACIDADE. Nenhum deslocamento vertical: `translate` entra na
+     área de rolagem do container e faz a conversa descer além do fim — foi essa
+     a origem do repuxão. A escala parte da BASE do balão, então ele cresce pra
+     cima, de dentro do próprio espaço, sem nunca ocupar um pixel que ainda não
+     é dele. */
+  @keyframes bolha-entra {
+    from { opacity: 0; transform: scale(0.82); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  .bolha-entra {
+    animation: bolha-entra 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    /* A origem muda de lado conforme quem falou: a bolha cresce a partir do
+       canto de onde ela sai, como um balão sendo inflado dali. */
+    transform-origin: var(--bolha-origem, 100% 100%);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .spy-sweep, .spy-ping, .spy-blip { animation: none; }
     .spy-scan::after { animation: none; opacity: 0; }
     .spy-lock { animation: none; }
+    .bolha-entra { animation: none; }
   }
 }

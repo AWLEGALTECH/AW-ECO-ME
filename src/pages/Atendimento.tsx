@@ -683,21 +683,9 @@ export default function AtendimentoPage() {
      roda ANTES de o navegador pintar. Com o efeito comum, existia um quadro
      pintado com as duas bolhas ao mesmo tempo — a otimista e a real — e esse
      quadro é o piscar que a pessoa vê como pulo. */
-  /* A CHAVE QUE A LINHA DO BANCO HERDA DA BOLHA OTIMISTA.
-     Um ref e não estado: isto não muda o que a tela desenha, só COMO o React
-     identifica o elemento — e um estado aqui provocaria um render a mais
-     justamente no quadro que se está tentando manter parado. */
-  const chaveHerdada = useRef<Map<string, string>>(new Map());
-
   useLayoutEffect(() => {
     setPendentes((ps) => {
       if (ps.length === 0) return ps;
-      /* Anota quem virou quem ANTES de descartar as pendências: depois do
-         descarte não há mais como saber que aquela linha do banco já estava na
-         tela com outra chave. */
-      for (const { pendenteId, msgId } of casamentos(ps, msgsDaAberta)) {
-        chaveHerdada.current.set(msgId, pendenteId);
-      }
       const vivas = aindaPendentes(ps, msgsDaAberta);
       return vivas.length === ps.length ? ps : vivas;
     });
@@ -728,6 +716,15 @@ export default function AtendimentoPage() {
      pra baixo, abrindo um vão além da última mensagem.
      `scrollTop = scrollHeight` não tem esse problema: mexe numa caixa só, e no
      valor final, não numa posição em movimento. */
+  /* QUEM JÁ ESTAVA NA TELA. Só quem NÃO está aqui ganha a animação de chegada:
+     abrir uma conversa faria as trezentas mensagens do histórico expandirem
+     todas de uma vez, que é o oposto de "algo novo chegou".
+     Um ref e não estado: isto não muda o que se desenha, só se a bolha nasce
+     com a classe da animação — e um estado provocaria justamente o render a
+     mais que se está tentando evitar. */
+  const jaNaTela = useRef<Set<string>>(new Set());
+  const primeiraPintura = useRef(true);
+
   const caixaDaConversa = useRef<HTMLDivElement>(null);
   const descer = () => {
     const el = caixaDaConversa.current;
@@ -749,12 +746,21 @@ export default function AtendimentoPage() {
      altura; num efeito de layout a medida já está pronta, e esperar um quadro
      era justamente pintar uma vez no lugar errado.) */
   useLayoutEffect(() => {
-    /* Trocar de conversa zera as heranças: elas só valem para as bolhas que
-       estão na tela agora, e guardá-las para sempre seria um mapa crescendo a
-       cada mensagem enviada durante o dia inteiro. */
-    chaveHerdada.current.clear();
+    /* Trocar de conversa zera o que já estava na tela: as bolhas da conversa
+       nova são todas "antigas" pra quem acabou de abrir, e nenhuma deve
+       expandir. */
+    jaNaTela.current = new Set();
+    primeiraPintura.current = true;
     descer();
   }, [lead.id]);
+
+  /* Depois de cada pintura, tudo que está na tela passa a ser "antigo". A
+     próxima bolha que aparecer sem estar neste conjunto é, por definição, a que
+     acabou de chegar. */
+  useLayoutEffect(() => {
+    for (const m of conversa) jaNaTela.current.add(m.chave);
+    primeiraPintura.current = false;
+  });
 
   /* GRUDADO NO FIM ENQUANTO O CONTEÚDO AINDA CRESCE.
      Rolar uma vez, no quadro em que a mensagem entra, resolve o texto e falha
@@ -783,14 +789,44 @@ export default function AtendimentoPage() {
      acima seria jogado pro fim a cada dois segundos. Rolar é interrupção, e só
      mensagem nova justifica. */
   useLayoutEffect(() => { descer(); }, [msgsDaAberta.length, pendentesDaAberta.length]);
-  /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
-     Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
-     opcional (dia, midiaPath, duracao) some do que dá pra ler. */
-  const conversa: Mensagem[] = [
-    ...lead.conversa,
-    ...(enviadas[lead.id] ?? []),
-    ...pendentesDaAberta.map(bolhaDaPendente),
-  ];
+  /* ═══ AS BOLHAS DA CONVERSA, com identidade estável ═══
+     *
+     * A reconciliação entre a bolha otimista e a linha do banco acontece AQUI,
+     * durante o render — e não num efeito depois dele. Essa mudança de lugar é
+     * a correção do piscar.
+     *
+     * Com a herança de chave feita num efeito, existia um quadro em que a
+     * mensagem real já estava na lista com a chave nova (montando, invisível,
+     * animando do zero) e a pendente ainda estava lá; no quadro seguinte a
+     * chave virava a da pendente e o elemento remontava de novo. Duas
+     * montagens para uma mensagem só: o piscar.
+     *
+     * Calculando junto com a lista, as duas coisas acontecem no MESMO quadro: a
+     * linha do banco já nasce com a chave que a pendente tinha, e a pendente já
+     * não é desenhada. Uma vira a outra sem que o React veja nada nascer ou
+     * morrer — que é a verdade: é a mesma mensagem, trocando o relógio pelo
+     * risco.
+     *
+     * O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
+     * Mensagem completa e o formato mais estreito da bolha pendente, e todo
+     * campo opcional (dia, midiaPath, duracao) some do que dá pra ler. */
+  const conversa: Array<Mensagem & { chave: string }> = useMemo(() => {
+    const heranca = new Map<string, string>();
+    for (const { pendenteId, msgId } of casamentos(pendentesDaAberta, msgsDaAberta)) {
+      heranca.set(msgId, pendenteId);
+    }
+    const vivas = aindaPendentes(pendentesDaAberta, msgsDaAberta);
+
+    return [
+      ...lead.conversa.map((m, i) => ({
+        ...m,
+        chave: (m.id && heranca.get(m.id)) || m.id || `m${i}`,
+      })),
+      ...(enviadas[lead.id] ?? []).map((m, i) => ({ ...m, chave: m.id || `e${i}` })),
+      ...vivas.map(bolhaDaPendente).map((b) => ({ ...b, chave: b.id })),
+    ] as Array<Mensagem & { chave: string }>;
+  }, [lead.conversa, enviadas, lead.id, pendentesDaAberta, msgsDaAberta]);
+
 
   /* AS TASKS DO DIA ESCOLHIDO — TODAS GRAVADAS AGORA.
      O follow-up era CONTA: a cadência lia o tempo parado e deduzia quantas
@@ -2348,82 +2384,37 @@ export default function AtendimentoPage() {
               )}
 
               {/* A CHAVE É A CONVERSA, e isso não é detalhe: ela faz a coluna
-                  inteira remontar ao trocar de lead, o que reinicia o
-                  `AnimatePresence initial={false}` logo abaixo. Sem isso, abrir
-                  uma conversa faria as trezentas mensagens do histórico
-                  entrarem animadas de uma vez. */}
+                  inteira remontar ao trocar de lead, o que zera o conjunto de
+                  bolhas "já vistas". Sem isso, abrir uma conversa faria as
+                  trezentas mensagens do histórico expandirem de uma vez. */}
               <div key={lead.id} ref={caixaDaConversa}
                 className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
-                {/* `initial={false}` é o que separa "mensagem nova" de "mensagem
-                    que já estava aqui": o que existe na primeira pintura entra
-                    sem animação, e só o que CHEGA depois ganha o pop. É a
-                    diferença entre a tela reagir e a tela se exibir. */}
-                <AnimatePresence initial={false}>
-                {conversa.map((msg, i) => (
-                  <motion.div
-                    /* A CHAVE HERDADA, e este é o conserto do pulo pela raiz.
-                       A bolha otimista e a linha do banco são a MESMA mensagem,
-                       mas chegavam com identidades diferentes: o React
-                       desmontava uma e montava a outra, e a que montava fazia a
-                       animação de entrada — invisível no primeiro quadro,
-                       ocupando espaço sem aparecer. Quem olhava via a mensagem
-                       sumir e voltar de outro lugar.
-                       Herdando a chave, o React enxerga o mesmo elemento: nada
-                       monta, nada anima, e o relógio simplesmente vira risco. */
-                    key={(msg.id && chaveHerdada.current.get(msg.id)) ?? msg.id ?? `i${i}`}
-                    /* SEM `layout`, e esta é a segunda metade do conserto do
-                       repuxão. `layout="position"` mede a posição do balão em
-                       coordenadas de TELA, não do container. Quando a conversa
-                       rola, todas as bolhas mudam de lugar aos olhos dele — e
-                       ele reage animando cada uma "de volta" com transform, que
-                       é exatamente o que entra na área de rolagem. Rolagem e
-                       animação passavam a se alimentar: descia, o framer
-                       empurrava, a área crescia, descia mais.
-                       Ele não fazia falta nenhuma aqui: mensagem não reordena e
-                       não muda de tamanho, só nasce no fim da lista.
-
-                       SEM DESLOCAMENTO VERTICAL, que é a primeira metade:
-                       defeito visível: `y: 10` empurra o balão pra baixo com
-                       transform, e transform ENTRA na área de rolagem do
-                       container. No primeiro quadro o `scrollHeight` já vinha
-                       dez pixels maior que o conteúdo real, a conversa descia
-                       até lá, e quando a mola terminava o excesso sumia e a
-                       tela voltava — o repuxão, com o vão entre a última
-                       mensagem e a barra de digitar.
-                       A entrada continua existindo, só que por opacidade e
-                       escala. A escala nasce da BASE do balão (`originY: 1`,
-                       logo abaixo), então ela cresce pra cima e nunca ocupa
-                       espaço que ainda não é dela. */
-                    /* 0.86 e não 0.94: a expansão precisa SER VISTA. Com a
-                       diferença anterior o balão praticamente aparecia pronto,
-                       e a chegada de uma mensagem virava um corte seco. Escala
-                       é o único movimento seguro aqui — ela nasce da base do
-                       balão (`originY: 1`, logo abaixo), cresce pra cima e
-                       nunca ocupa espaço que ainda não é dela, ao contrário de
-                       qualquer deslocamento vertical. */
-                    initial={{ opacity: 0, scale: 0.86 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    /* SEM ANIMAÇÃO DE SAÍDA, e este era o pulo que sobrava.
-                       A única "saída" que existe nesta lista é a troca da bolha
-                       otimista (com o relógio) pela linha de verdade que chega
-                       do banco — são dois elementos com chaves diferentes, e o
-                       React trata como um saindo e outro entrando.
-                       Com `exit`, a otimista levava os mesmos ~230ms pra sumir e
-                       CONTINUAVA OCUPANDO ESPAÇO enquanto desaparecia. A bolha
-                       real nascia com um vão invisível embaixo dela; quando a
-                       saída terminava, o vão sumia e ela descia até o piso. Era
-                       o "aparece em cima e depois desce".
-                       Sem `exit` a troca é instantânea, que é a verdade: não é
-                       uma mensagem indo embora, é a mesma mensagem trocando de
-                       roupa. */
-                    /* ~230ms: os 180ms originais passavam sem ninguém ver, e
-                       os 340ms da tentativa anterior arrastavam. Aqui o olho
-                       pega o movimento e ele já acabou quando a leitura chega.
-                       Bem amortecida de propósito: mola solta faz o texto
-                       tremer no fim, e texto tremendo é ilegível. */
-                    transition={{ type: "spring", stiffness: 340, damping: 30, mass: 0.85 }}
-                    style={{ originX: msg.de === "lead" ? 0 : 1, originY: 1 }}
-                    className="flex flex-col gap-2">
+                {/* O que separa "mensagem nova" de "mensagem que já estava
+                    aqui" é o conjunto `jaNaTela`, montado depois de cada
+                    pintura: o que existe quando a conversa abre entra sem
+                    animação, e só o que CHEGA depois expande. É a diferença
+                    entre a tela reagir e a tela se exibir. */}
+                {conversa.map((msg) => {
+                  /* A BOLHA NOVA GANHA A CLASSE, e mais nada muda.
+                     "Nova" é a que não estava na tela na pintura anterior —
+                     nem a que o React acabou de montar, que é outra coisa: a
+                     linha do banco que substitui a bolha otimista MONTA (chave
+                     nova pro React em alguns casos) mas não é nova pra quem
+                     está olhando, porque o texto já estava ali com o relógio.
+                     Por isso a pergunta é feita sobre a CHAVE, e a chave da
+                     linha do banco é herdada da pendente que ela confirma. */
+                  const nova = !primeiraPintura.current && !jaNaTela.current.has(msg.chave);
+                  return (
+                  <div
+                    key={msg.chave}
+                    /* Sem framer aqui. A animação é uma classe CSS que roda uma
+                       vez, no nascimento do elemento, e nunca reinicia num
+                       re-render — ao contrário de uma animação em JS, que
+                       precisa decidir a cada atualização se aquele elemento é
+                       novo, e errava essa decisão de quatro maneiras
+                       diferentes nesta lista. */
+                    className={cn("flex flex-col gap-2", nova && "bolha-entra")}
+                    style={{ "--bolha-origem": msg.de === "lead" ? "0% 100%" : "100% 100%" } as React.CSSProperties}>
                     {msg.dia && (
                       <div className="self-center rounded-full px-2.5 py-[2px] text-[10px] text-muted-foreground bg-white/[0.04] ring-1 ring-white/[0.06] my-1">
                         {msg.dia}
@@ -2440,7 +2431,7 @@ export default function AtendimentoPage() {
                         : "self-end bg-white/[0.08] rounded-tr-sm ring-1 ring-white/[0.10]")}>
                       {msg.midiaPath && (
                         <MidiaMensagem
-                          id={msg.id ?? String(i)}
+                          id={msg.id ?? msg.chave}
                           tipo={msg.tipo ?? null}
                           path={msg.midiaPath}
                           mime={msg.midiaMime ?? null}
@@ -2482,9 +2473,9 @@ export default function AtendimentoPage() {
                         </span>
                       )}
                     </div>
-                  </motion.div>
-                ))}
-                </AnimatePresence>
+                  </div>
+                  );
+                })}
 
                 {/* O BALÃO DE DIGITANDO FICA NO FIM DA CONVERSA, onde a próxima
                     mensagem vai nascer — e não num rótulo no cabeçalho. É onde
@@ -2494,37 +2485,27 @@ export default function AtendimentoPage() {
                     partir do canto de baixo à esquerda — de onde o balão do
                     contato nasce. Aparecer instantâneo dava um susco na tela a
                     cada tecla que a pessoa encostava. */}
-                <AnimatePresence>
-                  {digitandoAgora && (
-                    <motion.div
-                      /* Sem `layout` e sem `y`, pelos mesmos dois motivos do
-                         balão de mensagem: os dois mexem em transform, e
-                         transform entra na área de rolagem do container.
-
-                         E SEM `exit`, que é o pulo da RECEPÇÃO. Este balão fica
-                         DEPOIS das mensagens, e ele some justamente quando a
-                         mensagem chega. Com animação de saída ele continuava
-                         ocupando espaço por uns 200ms: a conversa descia até o
-                         fim contando com ele, a mensagem nova ficava acima do
-                         piso, e quando o balão terminava de sumir ela caía. O
-                         mesmo defeito da bolha do relógio, no outro sentido. */
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
-                      style={{ originX: 0, originY: 1 }}
-                      className="flex flex-col gap-2">
-                      <div className="self-start rounded-2xl rounded-tl-sm bg-white/[0.05] px-3 py-2.5">
-                        <span className="flex items-center gap-[3px]">
-                          {[0, 150, 300].map((atraso) => (
-                            <span key={atraso}
-                              style={{ animationDelay: `${atraso}ms` }}
-                              className="h-1 w-1 rounded-full bg-muted-foreground/70 animate-bounce" />
-                          ))}
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {digitandoAgora && (
+                  /* Mesma animação das mensagens, e pelo mesmo motivo: uma
+                     classe CSS que roda uma vez ao nascer. Sem animação de
+                     SAÍDA — este balão fica depois das mensagens e some
+                     justamente quando a mensagem chega; animando a saída, ele
+                     continuava ocupando espaço enquanto sumia, a conversa
+                     descia contando com ele, e a mensagem nova ficava acima do
+                     piso até o balão terminar de desaparecer. */
+                  <div className="flex flex-col gap-2 bolha-entra"
+                    style={{ "--bolha-origem": "0% 100%" } as React.CSSProperties}>
+                    <div className="self-start rounded-2xl rounded-tl-sm bg-white/[0.05] px-3 py-2.5">
+                      <span className="flex items-center gap-[3px]">
+                        {[0, 150, 300].map((atraso) => (
+                          <span key={atraso}
+                            style={{ animationDelay: `${atraso}ms` }}
+                            className="h-1 w-1 rounded-full bg-muted-foreground/70 animate-bounce" />
+                        ))}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* ═══ AS MENSAGENS RETIDAS ═══
                     No fim do histórico, no lugar exato em que vão aparecer
