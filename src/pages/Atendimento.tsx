@@ -38,7 +38,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX,
+  RotateCcw, Volume2, VolumeX, Info,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -1690,13 +1690,14 @@ export default function AtendimentoPage() {
                   })()}
                 </div>
 
-                  {/* Uma seta discreta: o alvo é a região inteira, mas nada na
-                      tela avisa que um nome é clicável. Ela também diz o estado
-                      — apontando pra ficha quando ela está escondida, e pra
-                      conversa quando é hora de devolver o espaço. */}
-                  {detalheAberto
-                    ? <PanelRightClose className="h-3.5 w-3.5 ml-auto shrink-0 text-muted-foreground/50" />
-                    : <PanelRightOpen className="h-3.5 w-3.5 ml-auto shrink-0 text-muted-foreground/50" />}
+                  {/* UM "i" DE INFORMAÇÃO, e não uma seta de painel. A seta
+                      descrevia o mecanismo — que lado abre, que lado fecha —, e
+                      quem está atendendo não quer saber de mecanismo: quer
+                      saber quem é a pessoa. O "i" diz o CONTEÚDO que está do
+                      outro lado do clique. Ele acende quando a ficha está
+                      aberta, o que já é estado suficiente. */}
+                  <Info className={cn("h-4 w-4 ml-auto shrink-0 transition-colors",
+                    detalheAberto ? "text-foreground/70" : "text-muted-foreground/40")} />
                 </button>
 
                 {/* O MUDO FICA À MÃO, e isso não é capricho. Quem atende de
@@ -1961,13 +1962,28 @@ export default function AtendimentoPage() {
                 logo abaixo, no mesmo desenho e com as mesmas animações da linha
                 do tempo dos processos — inclusive a lógica de abrir a etapa
                 corrente, inserir task ali dentro e avançar. */}
-            {/* Some por dois motivos diferentes, e os dois são o mesmo
-                princípio: quando falta espaço, o que sai é a CONSULTA, nunca a
-                conversa. Abaixo de 1280px o espaço acaba sozinho; acima disso,
-                quem decide é quem está atendendo, clicando no nome do lead. */}
+            {/* A FICHA DESLIZA, NÃO PISCA. Antes ela aparecia e sumia de uma
+                vez, e o corte seco parecia defeito — a conversa dava um salto
+                de largura sem nada explicando o movimento.
+                A largura é animada por fora e o cartão fica com a largura FIXA
+                por dentro: sem isso o conteúdo se reorganizaria a cada quadro,
+                o texto dançaria durante toda a abertura e o resultado seria
+                pior que o corte seco.
+                Some por dois motivos, e os dois são o mesmo princípio: quando
+                falta espaço, o que sai é a CONSULTA, nunca a conversa. Abaixo
+                de 1280px o espaço acaba sozinho; acima disso, quem decide é
+                quem está atendendo. */}
+            <AnimatePresence initial={false}>
+            {detalheAberto && (
+            <motion.div
+              key="detalhe"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: "17rem", opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
+              className="hidden xl:block shrink-0 min-h-0 overflow-hidden">
             <SpotlightCard sutil className={cn(
-              "w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none",
-              detalheAberto ? "hidden xl:flex" : "hidden")}>
+              "w-[17rem] h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -2051,6 +2067,9 @@ export default function AtendimentoPage() {
                 </div>
               </div>
             </SpotlightCard>
+            </motion.div>
+            )}
+            </AnimatePresence>
 
             {/* ═══ Tasks — retrátil ═══
                 Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
@@ -3224,7 +3243,14 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
   return (
-    <SpotlightCard sutil className="shrink-0 rounded-xl px-3 py-2.5 flex items-center gap-3">
+    /* SEM CARTÃO. A instância não é uma ferramenta da bancada — é o CONTEXTO
+       dela: por qual número tudo aqui embaixo está acontecendo. Dentro de um
+       cartão ela virava o quinto painel, disputando a mesma superfície da
+       caixa, da conversa e da ficha, e a tela passava a ter cinco objetos
+       quando tem quatro.
+       Solta, ela lê como cabeçalho: um título que não precisa de moldura pra
+       existir. E o cartão que sobrou é o que de fato guarda trabalho. */
+    <div className="shrink-0 px-1 pb-0.5 flex items-center gap-3">
       {/* A FOTO DO PERFIL É IDENTIDADE, NÃO STATUS. Ela fica neutra: quem diz
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
@@ -3341,7 +3367,7 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
           </div>
         </PopoverContent>
       </Popover>
-    </SpotlightCard>
+    </div>
   );
 }
 
