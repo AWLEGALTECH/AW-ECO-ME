@@ -2217,8 +2217,18 @@ export default function AtendimentoPage() {
                 {conversa.map((msg, i) => (
                   <motion.div
                     key={msg.id ?? `i${i}`}
-                    layout="position"
-                    /* SEM DESLOCAMENTO VERTICAL, e isso é conserto de um
+                    /* SEM `layout`, e esta é a segunda metade do conserto do
+                       repuxão. `layout="position"` mede a posição do balão em
+                       coordenadas de TELA, não do container. Quando a conversa
+                       rola, todas as bolhas mudam de lugar aos olhos dele — e
+                       ele reage animando cada uma "de volta" com transform, que
+                       é exatamente o que entra na área de rolagem. Rolagem e
+                       animação passavam a se alimentar: descia, o framer
+                       empurrava, a área crescia, descia mais.
+                       Ele não fazia falta nenhuma aqui: mensagem não reordena e
+                       não muda de tamanho, só nasce no fim da lista.
+
+                       SEM DESLOCAMENTO VERTICAL, que é a primeira metade:
                        defeito visível: `y: 10` empurra o balão pra baixo com
                        transform, e transform ENTRA na área de rolagem do
                        container. No primeiro quadro o `scrollHeight` já vinha
@@ -2233,14 +2243,12 @@ export default function AtendimentoPage() {
                     initial={{ opacity: 0, scale: 0.94 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.96 }}
-                    /* Mais lenta que antes: em ~180ms a chegada acontecia e
-                       ninguém via, o que desperdiça a única pista de que algo
-                       novo entrou na tela. Agora assenta em torno de 340ms —
-                       tempo de o olho pegar o movimento, e ainda curto o
-                       bastante pra não atrasar quem está lendo.
-                       Continua bem amortecida: mola solta faria o texto tremer
-                       no fim do movimento, e texto tremendo é ilegível. */
-                    transition={{ type: "spring", stiffness: 260, damping: 30, mass: 0.9 }}
+                    /* ~230ms: os 180ms originais passavam sem ninguém ver, e
+                       os 340ms da tentativa anterior arrastavam. Aqui o olho
+                       pega o movimento e ele já acabou quando a leitura chega.
+                       Bem amortecida de propósito: mola solta faz o texto
+                       tremer no fim, e texto tremendo é ilegível. */
+                    transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
                     style={{ originX: msg.de === "lead" ? 0 : 1, originY: 1 }}
                     className="flex flex-col gap-2">
                     {msg.dia && (
@@ -2316,11 +2324,9 @@ export default function AtendimentoPage() {
                 <AnimatePresence>
                   {digitandoAgora && (
                     <motion.div
-                      layout="position"
-                      /* Sem `y` pelo mesmo motivo do balão de mensagem: o
-                         deslocamento entrava na área de rolagem e fazia a
-                         conversa descer além do fim toda vez que o lead
-                         começava a digitar. */
+                      /* Sem `layout` e sem `y`, pelos mesmos dois motivos do
+                         balão de mensagem: os dois mexem em transform, e
+                         transform entra na área de rolagem do container. */
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
