@@ -2394,7 +2394,14 @@ export default function AtendimentoPage() {
                        escala. A escala nasce da BASE do balão (`originY: 1`,
                        logo abaixo), então ela cresce pra cima e nunca ocupa
                        espaço que ainda não é dela. */
-                    initial={{ opacity: 0, scale: 0.94 }}
+                    /* 0.86 e não 0.94: a expansão precisa SER VISTA. Com a
+                       diferença anterior o balão praticamente aparecia pronto,
+                       e a chegada de uma mensagem virava um corte seco. Escala
+                       é o único movimento seguro aqui — ela nasce da base do
+                       balão (`originY: 1`, logo abaixo), cresce pra cima e
+                       nunca ocupa espaço que ainda não é dela, ao contrário de
+                       qualquer deslocamento vertical. */
+                    initial={{ opacity: 0, scale: 0.86 }}
                     animate={{ opacity: 1, scale: 1 }}
                     /* SEM ANIMAÇÃO DE SAÍDA, e este era o pulo que sobrava.
                        A única "saída" que existe nesta lista é a troca da bolha
@@ -2414,7 +2421,7 @@ export default function AtendimentoPage() {
                        pega o movimento e ele já acabou quando a leitura chega.
                        Bem amortecida de propósito: mola solta faz o texto
                        tremer no fim, e texto tremendo é ilegível. */
-                    transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.8 }}
+                    transition={{ type: "spring", stiffness: 340, damping: 30, mass: 0.85 }}
                     style={{ originX: msg.de === "lead" ? 0 : 1, originY: 1 }}
                     className="flex flex-col gap-2">
                     {msg.dia && (
@@ -2492,10 +2499,17 @@ export default function AtendimentoPage() {
                     <motion.div
                       /* Sem `layout` e sem `y`, pelos mesmos dois motivos do
                          balão de mensagem: os dois mexem em transform, e
-                         transform entra na área de rolagem do container. */
+                         transform entra na área de rolagem do container.
+
+                         E SEM `exit`, que é o pulo da RECEPÇÃO. Este balão fica
+                         DEPOIS das mensagens, e ele some justamente quando a
+                         mensagem chega. Com animação de saída ele continuava
+                         ocupando espaço por uns 200ms: a conversa descia até o
+                         fim contando com ele, a mensagem nova ficava acima do
+                         piso, e quando o balão terminava de sumir ela caía. O
+                         mesmo defeito da bolha do relógio, no outro sentido. */
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
                       transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
                       style={{ originX: 0, originY: 1 }}
                       className="flex flex-col gap-2">
