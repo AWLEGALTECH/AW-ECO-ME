@@ -618,6 +618,17 @@ export default function AtendimentoPage() {
      marcada pra sexta. */
   const followUpDoLead = followUpPorLead.get(lead.id) ?? null;
   const feitosDoLead = followUpsFeitosPorLead.get(lead.id) ?? [];
+
+  /* O QUE APARECE NA FAIXA DO TOPO DA CONVERSA.
+     As tasks do dia MAIS a cobrança em aberto, mesmo que ela vença noutro dia —
+     e era exatamente isso que faltava: a faixa filtrava pelo dia do calendário,
+     e cobrança quase nunca vence hoje. Resultado: quem abria a conversa não via
+     que havia uma cobrança marcada, justamente na hora de escrever pra pessoa.
+     Sem duplicar quando ela já está no dia que está sendo olhado. */
+  const tasksDoCabecalho = useMemo(() => {
+    if (!followUpDoLead || tasksDoLead.some((t) => t.id === followUpDoLead.id)) return tasksDoLead;
+    return [followUpDoLead, ...tasksDoLead];
+  }, [tasksDoLead, followUpDoLead]);
   const prog = progressoTasks(tasksDoDia);
   const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
 
@@ -1850,9 +1861,9 @@ export default function AtendimentoPage() {
                   quem está conversando não olha pros lados — olha pra conversa.
                   A faixa põe o que ficou combinado com ESTA pessoa no caminho
                   do olho, logo abaixo do nome dela, e some quando não há nada. */}
-              {tasksDoLead.length > 0 && (
+              {tasksDoCabecalho.length > 0 && (
                 <div className="px-3 py-2 border-b border-white/[0.06] shrink-0 flex gap-2 overflow-x-auto scrollbar-thin">
-                  {tasksDoLead.map((t) => {
+                  {tasksDoCabecalho.map((t) => {
                     const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
                     return (
                       <div key={t.id}
@@ -1863,8 +1874,16 @@ export default function AtendimentoPage() {
                           <Ico className="h-3 w-3 text-primary" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                            {ROTULO_TIPO[t.tipo]}
+                          {/* No follow-up, o DEGRAU no lugar da palavra
+                              "Follow-up": qual régua é essa muda o que se
+                              escreve, e o rótulo genérico não muda nada. */}
+                          <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/70 flex items-center gap-1">
+                            {t.tipo === "follow_up" ? rotuloDoDegrau(t.rodada ?? 1) : ROTULO_TIPO[t.tipo]}
+                            {t.data !== dia && (
+                              <span className="text-muted-foreground/50 tabular-nums normal-case">
+                                · {t.data < dia ? "venceu" : "vence"} {fmtDiaCurto(t.data)}
+                              </span>
+                            )}
                           </span>
                           <span className={cn("block text-[11.5px] font-medium leading-tight truncate",
                             t.feita && "line-through")}>{t.titulo}</span>
@@ -3115,12 +3134,18 @@ function CardFollowUp({ task, diasSemResposta, hoje, onAbrir, onConcluir }: {
   onAbrir: () => void;
   onConcluir: () => void;
 }) {
+  /* O DIA SEMPRE ESCRITO, e não só "há 3 dias". Quem trabalha a fila precisa
+     saber a data pra cruzar com a agenda — "venceu há 3 dias" obriga a fazer a
+     conta de cabeça toda vez, e a conta muda de sentido dependendo de quando a
+     pessoa abriu a tela. A distância continua ali, ao lado: uma diz o quanto
+     atrasou, a outra diz o dia. */
   const atraso = diasDeAtraso(task.data, hoje);
+  const quando = fmtDiaCurto(task.data);
   const prazo = atraso > 0
-    ? { texto: `venceu há ${atraso} ${atraso === 1 ? "dia" : "dias"}`, cor: "text-amber-300" }
+    ? { texto: `${quando} · venceu há ${atraso} ${atraso === 1 ? "dia" : "dias"}`, cor: "text-amber-300" }
     : task.data === hoje
-      ? { texto: "vence hoje", cor: "text-foreground/80" }
-      : { texto: `vence em ${fmtDiaCurto(task.data)}`, cor: "text-muted-foreground" };
+      ? { texto: `${quando} · vence hoje`, cor: "text-foreground/80" }
+      : { texto: `${quando} · a fazer`, cor: "text-muted-foreground" };
 
   return (
     <div
