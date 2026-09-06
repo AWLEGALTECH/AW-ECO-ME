@@ -2996,10 +2996,11 @@ function SeloContato({ origem, base, followUp, tamanho = "pequeno" }: {
       )}
       {/* ESTÁ NA CADÊNCIA. É a etiqueta que muda o jeito de escrever pra
           pessoa: quem já levou duas cobranças não recebe a mesma mensagem de
-          quem está na primeira. Âmbar porque é a única das três que fala de
-          uma dívida nossa com o lead, e não de como ele chegou. */}
+          quem está na primeira. Roxo porque é a única cor que esta tela não usa
+          pra mais nada — âmbar aqui competia com o atraso das tasks e fazia
+          "está na régua" parecer "está atrasado", que são coisas diferentes. */}
       {followUp ? (
-        <span className={cn(caixa, "bg-amber-400/12 text-amber-300 ring-amber-400/25")}>
+        <span className={cn(caixa, "bg-violet-400/12 text-violet-300 ring-violet-400/25")}>
           <Repeat className={cn(ico, "shrink-0")} />
           Follow-up {rotuloDaRodada(followUp)}
         </span>

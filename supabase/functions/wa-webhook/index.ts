@@ -37,7 +37,8 @@
 // A porta não fica aberta: a autenticação real é o `?token=` conferido logo
 // abaixo, contra o secret WA_WEBHOOK_TOKEN.
 //
-// Env (secrets): WA_WEBHOOK_TOKEN, EVOLUTION_URL, EVOLUTION_APIKEY.
+// Env (secrets): WA_WEBHOOK_TOKEN, EVOLUTION_URL, EVOLUTION_APIKEY_GLOBAL
+// (com EVOLUTION_APIKEY como reserva — ver o comentário no download da mídia).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -336,7 +337,16 @@ Deno.serve(async (req: Request) => {
       const baixar = async () => {
         try {
           const base = (Deno.env.get("EVOLUTION_URL") ?? "").replace(/\/$/, "");
-          const key = Deno.env.get("EVOLUTION_APIKEY");
+          /* A CHAVE GLOBAL PRIMEIRO, e isto não é preferência: `EVOLUTION_APIKEY`
+             guarda a chave de UMA instância, e chave de instância MORRE junto com
+             ela. Quando a PDA 2 foi recriada, esta linha continuou pedindo a
+             mídia com a chave do defunto — a Evolution respondeu 401, a mensagem
+             foi gravada normalmente e só a imagem não desceu. Na tela virou um
+             "Imagem" cinza que nunca abre, sem nada dizendo por quê.
+             O envio e a presença já tinham sido corrigidos; esta ficou pra trás
+             porque falha de mídia não derruba nada visível — só apaga o
+             conteúdo. */
+          const key = Deno.env.get("EVOLUTION_APIKEY_GLOBAL") || Deno.env.get("EVOLUTION_APIKEY");
           if (!base || !key) return;
           const r = await fetch(`${base}/chat/getBase64FromMediaMessage/${encodeURIComponent(instancia)}`, {
             method: "POST",
