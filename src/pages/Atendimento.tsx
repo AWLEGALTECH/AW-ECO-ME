@@ -64,7 +64,7 @@ import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
 } from "@/lib/presencaWa";
 import {
-  novaPendente, aindaPendentes, daConversa, marcarFalha, remover, bolhaDaPendente,
+  novaPendente, aindaPendentes, casamentos, daConversa, marcarFalha, remover, bolhaDaPendente,
   type Pendente,
 } from "@/lib/envioOtimista";
 import {
@@ -659,9 +659,21 @@ export default function AtendimentoPage() {
      roda ANTES de o navegador pintar. Com o efeito comum, existia um quadro
      pintado com as duas bolhas ao mesmo tempo — a otimista e a real — e esse
      quadro é o piscar que a pessoa vê como pulo. */
+  /* A CHAVE QUE A LINHA DO BANCO HERDA DA BOLHA OTIMISTA.
+     Um ref e não estado: isto não muda o que a tela desenha, só COMO o React
+     identifica o elemento — e um estado aqui provocaria um render a mais
+     justamente no quadro que se está tentando manter parado. */
+  const chaveHerdada = useRef<Map<string, string>>(new Map());
+
   useLayoutEffect(() => {
     setPendentes((ps) => {
       if (ps.length === 0) return ps;
+      /* Anota quem virou quem ANTES de descartar as pendências: depois do
+         descarte não há mais como saber que aquela linha do banco já estava na
+         tela com outra chave. */
+      for (const { pendenteId, msgId } of casamentos(ps, msgsDaAberta)) {
+        chaveHerdada.current.set(msgId, pendenteId);
+      }
       const vivas = aindaPendentes(ps, msgsDaAberta);
       return vivas.length === ps.length ? ps : vivas;
     });
@@ -712,7 +724,13 @@ export default function AtendimentoPage() {
      (O `requestAnimationFrame` que estava aqui existia pra esperar a medida da
      altura; num efeito de layout a medida já está pronta, e esperar um quadro
      era justamente pintar uma vez no lugar errado.) */
-  useLayoutEffect(() => { descer(); }, [lead.id]);
+  useLayoutEffect(() => {
+    /* Trocar de conversa zera as heranças: elas só valem para as bolhas que
+       estão na tela agora, e guardá-las para sempre seria um mapa crescendo a
+       cada mensagem enviada durante o dia inteiro. */
+    chaveHerdada.current.clear();
+    descer();
+  }, [lead.id]);
 
   /* GRUDADO NO FIM ENQUANTO O CONTEÚDO AINDA CRESCE.
      Rolar uma vez, no quadro em que a mensagem entra, resolve o texto e falha
@@ -2228,7 +2246,16 @@ export default function AtendimentoPage() {
                 <AnimatePresence initial={false}>
                 {conversa.map((msg, i) => (
                   <motion.div
-                    key={msg.id ?? `i${i}`}
+                    /* A CHAVE HERDADA, e este é o conserto do pulo pela raiz.
+                       A bolha otimista e a linha do banco são a MESMA mensagem,
+                       mas chegavam com identidades diferentes: o React
+                       desmontava uma e montava a outra, e a que montava fazia a
+                       animação de entrada — invisível no primeiro quadro,
+                       ocupando espaço sem aparecer. Quem olhava via a mensagem
+                       sumir e voltar de outro lugar.
+                       Herdando a chave, o React enxerga o mesmo elemento: nada
+                       monta, nada anima, e o relógio simplesmente vira risco. */
+                    key={(msg.id && chaveHerdada.current.get(msg.id)) ?? msg.id ?? `i${i}`}
                     /* SEM `layout`, e esta é a segunda metade do conserto do
                        repuxão. `layout="position"` mede a posição do balão em
                        coordenadas de TELA, não do container. Quando a conversa

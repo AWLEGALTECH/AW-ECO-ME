@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
-  novaPendente, podeSerAConfirmacao, aindaPendentes, daConversa,
+  novaPendente, podeSerAConfirmacao, aindaPendentes, casamentos, daConversa,
   marcarFalha, remover, bolhaDaPendente, type Pendente, type LinhaEnviada,
 } from "./envioOtimista";
 
@@ -137,5 +137,54 @@ describe("bolhaDaPendente", () => {
     expect(b.texto).toBe("oi");
     expect(b.status).toBe("pendente");
     expect(b.hora).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("quem virou quem", () => {
+  const p = (id: string, texto: string, criadaEm: string): Pendente =>
+    ({ id, conversaId: "c1", texto, criadaEm, estado: "pendente" });
+  const linha = (id: string, texto: string, criada_em: string): LinhaEnviada =>
+    ({ id, direcao: "saida", texto, criada_em });
+
+  it("devolve o par de cada pendência confirmada", () => {
+    const pares = casamentos(
+      [p("pend:1", "ok", "2026-09-06T12:00:00Z")],
+      [linha("uuid-1", "ok", "2026-09-06T12:00:01Z")],
+    );
+    expect(pares).toEqual([{ pendenteId: "pend:1", msgId: "uuid-1" }]);
+  });
+
+  // A MESMA REGRA DO `aindaPendentes`, e é o que sustenta a herança de chave:
+  // se as duas discordassem sobre quem casou com quem, uma bolha sumiria da
+  // tela e a outra não herdaria identidade nenhuma — o pulo voltaria.
+  it("dois 'ok' iguais casam um de cada vez, na ordem", () => {
+    const ps = [
+      p("pend:1", "ok", "2026-09-06T12:00:00Z"),
+      p("pend:2", "ok", "2026-09-06T12:00:05Z"),
+    ];
+    const ms = [
+      linha("uuid-1", "ok", "2026-09-06T12:00:01Z"),
+      linha("uuid-2", "ok", "2026-09-06T12:00:06Z"),
+    ];
+    expect(casamentos(ps, ms)).toEqual([
+      { pendenteId: "pend:1", msgId: "uuid-1" },
+      { pendenteId: "pend:2", msgId: "uuid-2" },
+    ]);
+    expect(aindaPendentes(ps, ms)).toEqual([]);
+  });
+
+  it("o que não casou não vira par", () => {
+    expect(casamentos(
+      [p("pend:1", "oi", "2026-09-06T12:00:00Z")],
+      [linha("uuid-1", "outra coisa", "2026-09-06T12:00:01Z")],
+    )).toEqual([]);
+  });
+
+  it("pendência que falhou fica de fora — ela não foi confirmada", () => {
+    const falha: Pendente = {
+      id: "pend:1", conversaId: "c1", texto: "ok",
+      criadaEm: "2026-09-06T12:00:00Z", estado: "falhou",
+    };
+    expect(casamentos([falha], [linha("uuid-1", "ok", "2026-09-06T12:00:01Z")])).toEqual([]);
   });
 });

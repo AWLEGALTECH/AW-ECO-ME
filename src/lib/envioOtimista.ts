@@ -38,6 +38,9 @@ export type Pendente = {
 
 /** Linha do banco, no mínimo que interessa pra casar. */
 export type LinhaEnviada = {
+  /** o id do banco. Opcional porque o casamento não precisa dele; quem precisa
+   *  é a herança de identidade (ver `casamentos`). */
+  id?: string;
   direcao: string;
   texto: string | null;
   criada_em: string;
@@ -98,6 +101,44 @@ export function aindaPendentes(pendentes: Pendente[], msgs: LinhaEnviada[]): Pen
     else sobra.push(p);
   }
   return sobra;
+}
+
+/**
+ * QUEM VIROU QUEM: cada pendência e a linha do banco que a confirmou.
+ *
+ * Existe por um motivo de TELA, e é o conserto de um pulo que resistiu a três
+ * tentativas. A bolha otimista e a linha do banco são dois elementos com
+ * chaves diferentes, então o React desmonta uma e monta a outra — e a que monta
+ * faz a animação de entrada, invisível no primeiro quadro, ocupando espaço sem
+ * aparecer. Quem está olhando vê a mensagem sumir e voltar de outro lugar.
+ *
+ * Com o par em mãos, a linha do banco pode HERDAR a chave da pendência: o React
+ * enxerga o mesmo elemento, nada monta, nada anima, e o relógio simplesmente
+ * vira risco. Que é a verdade do que aconteceu — é a mesma mensagem.
+ *
+ * A regra de casamento é a mesma de `aindaPendentes`, e de propósito: as duas
+ * precisam concordar sobre quem casou com quem, senão uma bolha sumiria e a
+ * outra não herdaria nada.
+ */
+export function casamentos(
+  pendentes: Pendente[], msgs: LinhaEnviada[],
+): Array<{ pendenteId: string; msgId: string }> {
+  const usadas = new Set<number>();
+  const pares: Array<{ pendenteId: string; msgId: string }> = [];
+
+  for (const p of [...pendentes].sort((a, b) => a.criadaEm.localeCompare(b.criadaEm))) {
+    if (p.estado === "falhou") continue;
+    for (let i = 0; i < msgs.length; i++) {
+      if (usadas.has(i)) continue;
+      if (podeSerAConfirmacao(p, msgs[i])) {
+        usadas.add(i);
+        const id = msgs[i].id;
+        if (id) pares.push({ pendenteId: p.id, msgId: id });
+        break;
+      }
+    }
+  }
+  return pares;
 }
 
 /** As pendências de UMA conversa, em ordem de chegada. */
