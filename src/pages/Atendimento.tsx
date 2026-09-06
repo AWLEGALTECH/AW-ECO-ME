@@ -190,6 +190,13 @@ export default function AtendimentoPage() {
   /* Em janela estreita a coluna de tasks nasce RECOLHIDA. Com ela aberta, a
      caixa (15,5rem) + tasks (16rem) + a barra lateral do app não deixavam nem
      200px pra conversa — o balão quebrava uma palavra por linha. */
+  /* O DETALHE DO CLIENTE ABRE E FECHA, e o gesto é clicar na foto e no nome do
+     lead no alto da conversa — a região retangular inteira. É o lugar certo:
+     quem quer saber mais sobre a pessoa olha pro nome dela, não caça um botão
+     no canto. Fechado, a conversa ganha a largura da ficha, que é o que
+     importa quando se está escrevendo. */
+  const [detalheAberto, setDetalheAberto] = useState(true);
+
   const [tarefasAbertas, setTarefasAbertas] = useState(
     () => typeof window === "undefined" || window.innerWidth >= 1280);
 
@@ -1627,6 +1634,14 @@ export default function AtendimentoPage() {
                 sabia onde estava. */}
             <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
+                {/* A FOTO E O NOME SÃO O BOTÃO da ficha do cliente. Um alvo
+                    grande, no lugar onde o olho já está quando a pergunta é
+                    "quem é essa pessoa?" — e não mais um ícone no canto, que
+                    ninguém encontra sem procurar. */}
+                <button
+                  onClick={() => setDetalheAberto((v) => !v)}
+                  title={detalheAberto ? "Esconder o detalhe do cliente" : "Ver o detalhe do cliente"}
+                  className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors">
                 {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
                 <span className="relative shrink-0 self-start block h-8 w-8">
                   <span className="h-8 w-8 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
@@ -1674,6 +1689,15 @@ export default function AtendimentoPage() {
                     );
                   })()}
                 </div>
+
+                  {/* Uma seta discreta: o alvo é a região inteira, mas nada na
+                      tela avisa que um nome é clicável. Ela também diz o estado
+                      — apontando pra ficha quando ela está escondida, e pra
+                      conversa quando é hora de devolver o espaço. */}
+                  {detalheAberto
+                    ? <PanelRightClose className="h-3.5 w-3.5 ml-auto shrink-0 text-muted-foreground/50" />
+                    : <PanelRightOpen className="h-3.5 w-3.5 ml-auto shrink-0 text-muted-foreground/50" />}
+                </button>
 
                 {/* O MUDO FICA À MÃO, e isso não é capricho. Quem atende de
                     fone e quem atende numa sala com cliente na frente querem
@@ -1937,7 +1961,13 @@ export default function AtendimentoPage() {
                 logo abaixo, no mesmo desenho e com as mesmas animações da linha
                 do tempo dos processos — inclusive a lógica de abrir a etapa
                 corrente, inserir task ali dentro e avançar. */}
-            <SpotlightCard sutil className="hidden xl:flex w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none">
+            {/* Some por dois motivos diferentes, e os dois são o mesmo
+                princípio: quando falta espaço, o que sai é a CONSULTA, nunca a
+                conversa. Abaixo de 1280px o espaço acaba sozinho; acima disso,
+                quem decide é quem está atendendo, clicando no nome do lead. */}
+            <SpotlightCard sutil className={cn(
+              "w-[17rem] shrink-0 flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none",
+              detalheAberto ? "hidden xl:flex" : "hidden")}>
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -2178,11 +2208,11 @@ export default function AtendimentoPage() {
                       {abertasHoje}
                     </span>
                   )}
+                  {/* Sem rótulo escrito na vertical: texto de lado obriga a
+                      inclinar a cabeça pra ler três letras que o ícone e o
+                      contador já dizem. O placar "2/5" é o que informa. */}
                   <span className="text-[10px] text-muted-foreground tabular-nums">
                     {prog.feitas}/{prog.total}
-                  </span>
-                  <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
-                    Tasks
                   </span>
                 </button>
               )}
