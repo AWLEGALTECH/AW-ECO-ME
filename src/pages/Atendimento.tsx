@@ -58,7 +58,7 @@ import {
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
-import { CADENCIA, TOTAL_RODADAS, rotuloDaRodada, diasDeAtraso } from "@/lib/followUp";
+import { TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso } from "@/lib/followUp";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
@@ -75,7 +75,7 @@ import {
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
-  sincronizarFollowUps, concluirFollowUp,
+  sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
 } from "@/hooks/useTasksWa";
 import {
   useAnotacoes, postarAnotacao, useInvalidarAnotacoes, quandoDaNota,
@@ -198,8 +198,16 @@ export default function AtendimentoPage() {
      importa quando se está escrevendo. */
   const [detalheAberto, setDetalheAberto] = useState(true);
 
+  /* QUATRO COLUNAS NÃO CABEM EM TODA TELA, e fingir que cabem é pior que
+     esconder uma. Espremidas, TODAS ficam ruins ao mesmo tempo: o nome do lead
+     trunca na caixa, a bolha da mensagem vira uma tira, a ficha corta o texto.
+     Fechada, a coluna some inteira e as outras três ficam boas — e o botão de
+     abrir continua ali, a um clique.
+     O corte é por largura da JANELA, não do monitor: quem usa a 100% de zoom
+     numa tela de 1366 tem menos espaço real que quem usa a 80% na mesma tela, e
+     é o espaço real que decide. */
   const [tarefasAbertas, setTarefasAbertas] = useState(
-    () => typeof window === "undefined" || window.innerWidth >= 1280);
+    () => typeof window === "undefined" || window.innerWidth >= 1450);
 
   const { user } = useAuth();
   const { display: nomeDoAutor } = useUserDisplayNames();
@@ -552,18 +560,34 @@ export default function AtendimentoPage() {
      atualizava", quando na verdade só não tinha rolado.
      Desce também quando o balão de digitando acende, e quando se troca de
      conversa: abrir uma conversa no meio do histórico é o mesmo desconforto. */
-  const fimDaConversa = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    fimDaConversa.current?.scrollIntoView({ block: "end" });
-  }, [lead.id]);
+  /* ROLA O PRÓPRIO CONTAINER, e não um `scrollIntoView` num div vazio no fim.
+     Aquilo dava o pulo que aparecia no envio: `scrollIntoView` pede ao navegador
+     que o elemento fique visível, e pra isso ele rola TODOS os ancestrais
+     roláveis, não só a caixa da conversa. Junto com a mola do framer, que ainda
+     está movendo o balão quando o cálculo acontece, o navegador mirava numa
+     posição que deixaria de existir um quadro depois — e a conversa "fisgava"
+     pra baixo, abrindo um vão além da última mensagem.
+     `scrollTop = scrollHeight` não tem esse problema: mexe numa caixa só, e no
+     valor final, não numa posição em movimento. */
+  const caixaDaConversa = useRef<HTMLDivElement>(null);
+  const descer = (suave: boolean) => {
+    const el = caixaDaConversa.current;
+    if (!el) return;
+    /* Um quadro de espera: o balão novo entra no DOM neste render, e a altura
+       só existe depois que o navegador mede. Sem isso, a conta usa a altura
+       ANTERIOR e para um balão antes do fim. */
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
+    });
+  };
+
+  useEffect(() => { descer(false); }, [lead.id]);
   /* SÓ MENSAGEM PUXA A TELA PRA BAIXO. Digitando não entra na conta: o balão
      de reticências acende e apaga o tempo todo enquanto a pessoa pensa, e cada
      piscada arrastaria a conversa — quem estivesse lendo uma mensagem mais
      acima seria jogado pro fim a cada dois segundos. Rolar é interrupção, e só
      mensagem nova justifica. */
-  useEffect(() => {
-    fimDaConversa.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgsDaAberta.length, pendentesDaAberta.length]);
+  useEffect(() => { descer(true); }, [msgsDaAberta.length, pendentesDaAberta.length]);
   /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
      Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
      opcional (dia, midiaPath, duracao) some do que dá pra ler. */
@@ -630,6 +654,26 @@ export default function AtendimentoPage() {
       return;
     }
     setLembretesMaquete((prev) => prev.map((t) => (t.id === id ? { ...t, feita: !t.feita } : t)));
+  };
+
+  /* LIGAR E DESLIGAR A TRAVA. Cancelar a cobrança aberta é parte do gesto, não
+     efeito colateral: quem clica "finalizado" espera a fila mudar naquele
+     segundo — e o banco faz as duas coisas numa chamada só, pra não existir o
+     estado intermediário de "finalizado mas ainda sendo cobrado". */
+  const [finalizando, setFinalizando] = useState(false);
+  const alternarFinalizado = (finalizar: boolean) => {
+    if (!aoVivo || semConversas) return;
+    setFinalizando(true);
+    finalizarAtendimento(lead.id, finalizar, user?.id ?? null)
+      .then(() => {
+        invalidarTasks();
+        invalidarWa();
+        toast.success(finalizar
+          ? `${lead.nome}: atendimento finalizado. Sai da régua de follow-up.`
+          : `${lead.nome}: atendimento reaberto.`);
+      })
+      .catch((e) => toast.error("Não consegui: " + (e as Error).message))
+      .finally(() => setFinalizando(false));
   };
 
   /* O `window.prompt` que estava aqui aceitava uma linha de texto e mais nada:
@@ -1231,7 +1275,7 @@ export default function AtendimentoPage() {
                 cada ficha pra descobrir se vale falar com aquela pessoa. */}
             <SpotlightCard sutil className={cn(
               "shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
-              caixa === "base" && baseAberta ? "w-[24rem]" : "w-[15.5rem]")}>
+              caixa === "base" && baseAberta ? "w-[21rem] 2xl:w-[24rem]" : "w-[13.25rem] 2xl:w-[15.5rem]")}>
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -1661,7 +1705,7 @@ export default function AtendimentoPage() {
                  escreve daqui pra frente. Dizer isso, com os dois caminhos pra
                  sair do zero, vale mais que uma tela cheia de gente que não
                  existe. */
-              <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+              <SpotlightCard sutil className="flex-1 min-w-[15rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
                 <div className="flex-1 grid place-items-center p-8">
                   <div className="max-w-sm text-center flex flex-col items-center gap-3">
                     <span className="h-12 w-12 rounded-full grid place-items-center bg-white/[0.05] ring-1 ring-white/10">
@@ -1701,7 +1745,7 @@ export default function AtendimentoPage() {
                 mais leve da bancada, que é a lista que muda o dia todo. Sem isso
                 os quatro painéis eram a mesma superfície repetida e o olho não
                 sabia onde estava. */}
-            <SpotlightCard sutil className="flex-1 min-w-[17rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+            <SpotlightCard sutil className="flex-1 min-w-[15rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 {/* A FOTO E O NOME SÃO O BOTÃO da ficha do cliente. Um alvo
                     grande, no lugar onde o olho já está quando a pergunta é
@@ -1846,7 +1890,7 @@ export default function AtendimentoPage() {
                   `AnimatePresence initial={false}` logo abaixo. Sem isso, abrir
                   uma conversa faria as trezentas mensagens do histórico
                   entrarem animadas de uma vez. */}
-              <div key={lead.id}
+              <div key={lead.id} ref={caixaDaConversa}
                 className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
                 {/* `initial={false}` é o que separa "mensagem nova" de "mensagem
                     que já estava aqui": o que existe na primeira pintura entra
@@ -1960,11 +2004,6 @@ export default function AtendimentoPage() {
                   )}
                 </AnimatePresence>
 
-                {/* A âncora do rolamento. Fica DEPOIS do balão de digitando pra
-                    que ele também puxe a tela pra baixo — senão ele nasceria
-                    fora do campo de visão justamente quando avisa que tem
-                    mensagem vindo. */}
-                <div ref={fimDaConversa} />
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
@@ -2069,7 +2108,7 @@ export default function AtendimentoPage() {
               transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
               className="hidden xl:block shrink-0 min-h-0 overflow-hidden">
             <SpotlightCard sutil className={cn(
-              "w-[17rem] h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
+              "w-[14.5rem] 2xl:w-[17rem] h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
               <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                 <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
               </div>
@@ -2213,6 +2252,53 @@ export default function AtendimentoPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* ═══ A TRAVA, no fim de tudo ═══
+                    Fica por último de propósito: é a última coisa que se faz
+                    com um lead, e o gesto que tira ele de toda fila. Perto do
+                    topo, viraria um botão que se aperta sem querer no meio de
+                    um atendimento vivo.
+
+                    A única saída automática da régua é o lead responder. Esta é
+                    a saída HUMANA: cliente que virou processo, pessoa que pediu
+                    pra não insistir, caso que morreu por fora do chat. Sem ela
+                    o lead fica na fila para sempre, e a métrica de cobrança
+                    passa a contar trabalho que ninguém vai fazer.
+
+                    NÃO é o mesmo que a etapa "fechado": aquilo quer dizer VIROU
+                    CLIENTE, e muita gente que não fechou também merece parar de
+                    ser cobrada. */}
+                <div className="px-3 py-3 border-t border-white/[0.06]">
+                  {lead.atendimentoFinalizadoEm ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                        Atendimento finalizado em {fmtDiaLongo(lead.atendimentoFinalizadoEm.slice(0, 10))}
+                      </p>
+                      <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+                        Fora da régua de follow-up e fora da métrica de cobrança.
+                        Se a pessoa voltar a escrever, a conversa continua normal.
+                      </p>
+                      <button
+                        onClick={() => alternarFinalizado(false)}
+                        disabled={finalizando}
+                        className="self-start text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50">
+                        Reabrir atendimento
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => alternarFinalizado(true)}
+                      disabled={finalizando || semConversas}
+                      className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px]
+                                 ring-1 ring-white/[0.08] bg-white/[0.03] text-muted-foreground
+                                 hover:text-foreground hover:bg-white/[0.06] transition-colors disabled:opacity-50">
+                      {finalizando
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Finalizando…</>
+                        : <><CheckCircle2 className="h-3.5 w-3.5" /> Finalizar atendimento</>}
+                    </button>
+                  )}
+                </div>
               </div>
             </SpotlightCard>
             </motion.div>
@@ -2225,7 +2311,7 @@ export default function AtendimentoPage() {
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
                 volta sozinho) e lembrete (o sino que alguém marcou). */}
             <SpotlightCard sutil className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.045] transition-[width] duration-200",
-              tarefasAbertas ? "w-[16rem]" : "w-[2.75rem]")}>
+              tarefasAbertas ? "w-[13.5rem] 2xl:w-[16rem]" : "w-[2.5rem]")}>
               {tarefasAbertas ? (
                 <>
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
@@ -2349,7 +2435,7 @@ export default function AtendimentoPage() {
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-white/[0.06] text-muted-foreground ring-white/[0.10]">
-                                  {fu ? `${t.rodada}ª de ${CADENCIA.length}` : "Marcado por você"}
+                                  {fu ? `${diasDaRodada(t.rodada ?? 1) ?? "?"} dias sem resposta` : "Marcado por você"}
                                 </span>
                               )}
                               <span className="text-[10px] text-muted-foreground truncate">{t.lead}</span>
@@ -3060,8 +3146,11 @@ function CardFollowUp({ task, diasSemResposta, hoje, onAbrir, onConcluir }: {
         </button>
       </div>
 
+      {/* O DEGRAU, NÃO A POSIÇÃO NA FILA. "UP01 de 5" contava uma ordem que não
+          muda o que se escreve; "de 1 dia" e "de 60 dias" pedem mensagens
+          opostas — a primeira retoma, a última encerra. */}
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">
-        Follow-up {rotuloDaRodada(task.rodada ?? 1)} de {TOTAL_RODADAS}
+        {rotuloDoDegrau(task.rodada ?? 1)}
       </p>
       <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{task.lead}</p>
       <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{task.detalhe}</p>
@@ -3675,15 +3764,9 @@ function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
       <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
-        <div>
-          <h2 className="text-sm font-semibold">Follow-up</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-0.5">
-            Quem ficou sem responder depois da nossa última mensagem. A régua é de
-            {" "}{CADENCIA.join(", ")} dias contados do silêncio, e concluir uma cobrança
-            agenda a seguinte. Quem responde sai da fila sozinho.
-          </p>
-        </div>
-
+        {/* Sem parágrafo explicando a régua. Quem abre esta aba abre pra
+            trabalhar a fila, não pra ler como ela funciona — e o texto ocupava
+            a altura de dois cartões todo dia, para ser lido uma vez. */}
         {fila.length === 0 ? (
           <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
             Ninguém para cobrar hoje. Toda conversa aberta está com a bola do outro lado.

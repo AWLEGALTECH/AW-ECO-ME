@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
-  CADENCIA, TOTAL_RODADAS, rotuloDaRodada, INTENCAO, somaDias,
+  CADENCIA, TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, INTENCAO, somaDias,
   vencimentoDaPrimeira, vencimentoDaProxima, entraNaCadencia, motivoDeFora,
   urgenciaDaTask, diasDeAtraso, type SituacaoDaConversa,
 } from "./followUp";
@@ -26,6 +26,20 @@ describe("a régua", () => {
   it("o rótulo segue o vocabulário da planilha", () => {
     expect(rotuloDaRodada(1)).toBe("UP01");
     expect(rotuloDaRodada(5)).toBe("UP05");
+  });
+
+  // O cartão fala em DIAS, não em posição na fila: "UP01 de 5" não muda o que
+  // se escreve, "de 1 dia" e "de 60 dias" mudam tudo.
+  it("o cartão diz o degrau da régua, e o singular do primeiro", () => {
+    expect(rotuloDoDegrau(1)).toBe("Follow-up de 1 dia");
+    expect(rotuloDoDegrau(2)).toBe("Follow-up de 5 dias");
+    expect(rotuloDoDegrau(5)).toBe("Follow-up de 60 dias");
+  });
+
+  it("rodada fora da régua não inventa degrau", () => {
+    expect(diasDaRodada(0)).toBeNull();
+    expect(diasDaRodada(6)).toBeNull();
+    expect(rotuloDoDegrau(9)).toBe("Follow-up");
   });
 });
 

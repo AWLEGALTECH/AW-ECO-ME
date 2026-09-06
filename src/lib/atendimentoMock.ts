@@ -127,6 +127,11 @@ export interface Lead {
   vistoEm?: string | null;
   /** etapas que ficaram pra trás quando alguém pulou direto pra frente */
   etapasPuladas?: Estagio[];
+  /* A TRAVA. Quando preenchido, o atendimento acabou por decisão de alguém: o
+     lead sai da cadência de follow-up e para de contar na métrica de cobrança.
+     Diferente de `estagio = 'fechado'`, que quer dizer VIROU CLIENTE — muita
+     gente que não fecha também merece parar de ser cobrada. */
+  atendimentoFinalizadoEm?: string | null;
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
      porque a conversa inteira só é carregada pra aberta — sem isso, todo mundo
      que não está aberto aparece com o nome e mais nada. */

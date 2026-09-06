@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -420,6 +420,7 @@ export function conversaParaLead(
     presenca: c.presenca,
     presencaEm: c.presenca_em,
     vistoEm: c.visto_em,
+    atendimentoFinalizadoEm: c.atendimento_finalizado_em ?? null,
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

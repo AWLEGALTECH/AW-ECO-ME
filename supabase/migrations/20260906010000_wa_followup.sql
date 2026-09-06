@@ -86,12 +86,9 @@ begin
             c.arquivada
          or c.etapa = 'fechado'
          -- respondeu: a ultima mensagem da conversa veio dele
-         or exists (
-              select 1 from public.wa_mensagens m
-               where m.conversa_id = c.id
-               order by m.criada_em desc limit 1
-              having bool_and(m.direcao = 'entrada')
-            )
+         or (select m.direcao from public.wa_mensagens m
+              where m.conversa_id = c.id
+              order by m.criada_em desc limit 1) = 'entrada'
        )
   )
   delete from public.wa_tasks t using mortas m where t.id = m.id;

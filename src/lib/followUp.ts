@@ -39,6 +39,26 @@ export function rotuloDaRodada(rodada: number): string {
   return `UP${String(rodada).padStart(2, "0")}`;
 }
 
+/** Em que degrau da régua essa rodada cai — 1, 5, 15, 30 ou 60 dias. */
+export function diasDaRodada(rodada: number): number | null {
+  if (rodada < 1 || rodada > CADENCIA.length) return null;
+  return CADENCIA[rodada - 1];
+}
+
+/**
+ * O rótulo que vai no cartão.
+ *
+ * "UP01 de 5" contava a posição na fila, e posição na fila não muda o que se
+ * escreve. O DEGRAU muda: "de 1 dia" pede um lembrete leve, "de 60 dias" pede
+ * uma mensagem de encerramento. É a mesma informação — a primeira rodada é
+ * sempre a de 1 dia —, dita pelo lado que decide a mensagem.
+ */
+export function rotuloDoDegrau(rodada: number): string {
+  const d = diasDaRodada(rodada);
+  if (d === null) return "Follow-up";
+  return `Follow-up de ${d} ${d === 1 ? "dia" : "dias"}`;
+}
+
 /**
  * O que dizer em cada cobrança.
  *

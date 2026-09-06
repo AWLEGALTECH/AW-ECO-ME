@@ -37,6 +37,10 @@ export interface ConversaRow {
   visto_em: string | null;
   etapa: string;
   etapas_puladas: string[] | null;
+  /* A trava manual: quando preenchido, o atendimento acabou por decisão de
+     alguém e o lead sai da cadência de follow-up. Diferente de
+     `etapa = 'fechado'`, que significa que virou cliente. */
+  atendimento_finalizado_em: string | null;
   created_at: string;
 }
 

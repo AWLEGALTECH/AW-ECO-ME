@@ -82,6 +82,10 @@ export function useTasksWa(instancia: string | null) {
         // permite filtrar pela instância — task da PDA não aparece no dia de
         // quem está olhando o número do escritório.
         .select("id, conversa_id, titulo, detalhe, dia, hora, feita, tipo, rodada, wa_conversas!inner(instancia, nome_wa, telefone)")
+        // CANCELADA NÃO É TASK. Ela existe pro histórico saber por que a
+        // cobrança deixou de fazer sentido — não pra reaparecer numa fila que
+        // ninguém pode trabalhar.
+        .is("cancelada_em", null)
         .ilike("wa_conversas.instancia", instancia!)
         .gte("dia", iso(de))
         .lte("dia", iso(ate))
@@ -174,6 +178,26 @@ export async function sincronizarFollowUps(instancia: string | null) {
 export async function concluirFollowUp(taskId: string, quem?: string | null) {
   const { data, error } = await supabase.rpc("fn_wa_followup_concluir" as never, {
     p_task: taskId, p_por: quem ?? null,
+  } as never);
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
+}
+
+/**
+ * A TRAVA: "esse atendimento acabou".
+ *
+ * A única saída automática da régua é o lead responder. Mas há uma saída
+ * humana que o sistema não tinha: cliente que virou processo, pessoa que pediu
+ * pra não insistir, caso que morreu por fora do chat. Sem isso o lead fica na
+ * fila para sempre, inflando a métrica com trabalho que ninguém vai fazer.
+ *
+ * Não é o mesmo que `etapa = 'fechado'`: aquilo quer dizer VIROU CLIENTE, e
+ * "não insiste mais" acontece muito com quem não fechou. Juntar os dois faria
+ * a taxa de fechamento subir toda vez que alguém desistisse de um lead.
+ */
+export async function finalizarAtendimento(conversaId: string, finalizado: boolean, quem?: string | null) {
+  const { data, error } = await supabase.rpc("fn_wa_atendimento_finalizar" as never, {
+    p_conversa: conversaId, p_finalizado: finalizado, p_por: quem ?? null,
   } as never);
   if (error) throw new Error(error.message);
   return (data as string | null) ?? null;
