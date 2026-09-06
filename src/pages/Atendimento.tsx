@@ -77,7 +77,9 @@ import { SeletorDeDia, SeletorDeHora } from "@/components/EscolherQuando";
 import {
   instanteDe, tipoDoMime, motivoDeNaoAgendar, faltaPara, quandoBonito,
 } from "@/lib/retencao";
-import { useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada } from "@/hooks/useAgendadas";
+import {
+  useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada, type AgendadaRow,
+} from "@/hooks/useAgendadas";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
   sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
@@ -136,7 +138,7 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "followup" | "funil">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "funil">("atendimento");
   const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
   const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
   const [busca, setBusca] = useState("");
@@ -167,6 +169,11 @@ export default function AtendimentoPage() {
   const [reterArquivo, setReterArquivo] = useState<File | null>(null);
   const [reterDia, setReterDia] = useState(HOJE);
   const [reterHora, setReterHora] = useState("09:00");
+  const [reterGravando, setReterGravando] = useState(false);
+  /* O webm gravado pelo navegador não traz a duração no cabeçalho, então quem
+     sabe quantos segundos foram é só o gravador. Sem guardar aqui, o áudio
+     agendado chegaria no cliente como uma barra sem tamanho. */
+  const [reterDuracao, setReterDuracao] = useState<number | null>(null);
   const seletorRetido = useRef<HTMLInputElement>(null);
   const [taskHora, setTaskHora] = useState("");
   const [salvandoTask, setSalvandoTask] = useState(false);
@@ -707,7 +714,38 @@ export default function AtendimentoPage() {
      inteira — não há mais recálculo por dia porque não há mais conta. */
   const diasComTask = useMemo(() => new Set(lembretes.map((t) => t.data)), [lembretes]);
 
+  /* CONCLUIR PASSA A PERGUNTAR ANTES.
+     O check ficava a um pixel do resto do cartão e concluía no primeiro clique.
+     Isso aconteceu: coisa marcada como feita sem ninguém ter feito — e, no
+     follow-up, o estrago não para aí: concluir agenda a PRÓXIMA cobrança
+     contando do dia de hoje, então um clique errado empurra a régua inteira e
+     não há como voltar (o índice único proíbe duas cobranças abertas).
+     Um gesto que mente sobre trabalho feito não pode ter o mesmo custo do gesto
+     que se faz dez vezes por dia.
+
+     REABRIR NÃO PERGUNTA. É reversível e não escreve nada em lugar nenhum;
+     exigir confirmação nos dois lados transformaria a caixa num carimbo que
+     todo mundo aperta sem ler, que é justamente o que se quer evitar. */
+  const [aConcluir, setAConcluir] = useState<Task | null>(null);
+
+  /* Cancelar uma programada mora aqui, e não em cada lugar que mostra um
+     cartão: são três telas (a conversa, a ficha do cliente e a aba) fazendo a
+     mesma coisa, e escrita três vezes uma delas ia esquecer de recarregar a
+     lista depois — o cartão continuaria ali, cancelado, parecendo que o clique
+     não funcionou. */
+  const cancelarProgramada = (id: string) => {
+    cancelarAgendada(id)
+      .then(() => { invalidarAgendadas(); toast.success("Mensagem cancelada."); })
+      .catch((e) => { invalidarAgendadas(); toast.error((e as Error).message); });
+  };
+
   const concluir = (id: string) => {
+    const alvo = lembretes.find((t) => t.id === id) ?? lembretesMaquete.find((t) => t.id === id);
+    if (alvo && !alvo.feita) { setAConcluir(alvo); return; }
+    aplicarConclusao(id);
+  };
+
+  const aplicarConclusao = (id: string) => {
     if (aoVivo) {
       const atual = lembretes.find((t) => t.id === id);
       if (!atual) return;
@@ -777,6 +815,7 @@ export default function AtendimentoPage() {
     setReterAberta(false);
     setReterTexto("");
     setReterArquivo(null);
+    setReterDuracao(null);
     setReterHora("09:00");
   };
 
@@ -823,6 +862,7 @@ export default function AtendimentoPage() {
               texto: reterTexto,
               arquivo: reterArquivo,
               nomeArquivo: reterArquivo?.name ?? null,
+              duracao: reterDuracao,
               criadaPor: user?.id ?? null,
             });
             invalidarAgendadas();
@@ -1355,7 +1395,7 @@ export default function AtendimentoPage() {
         onDiagnosticar={rodarDiagnostico}
         abas={
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5 shrink-0">
-            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
+            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => setAba(k)}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -1372,6 +1412,13 @@ export default function AtendimentoPage() {
           leads={leadsBase}
           hoje={HOJE}
           onConcluir={concluir}
+          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); }}
+        />
+      ) : aba === "programadas" ? (
+        <CentralProgramadas
+          agendadas={agendadas}
+          leads={leadsBase}
+          onCancelar={cancelarProgramada}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); }}
         />
       ) : aba === "funil" ? (
@@ -2197,11 +2244,7 @@ export default function AtendimentoPage() {
                         oferecer o botão seria mentir sobre o que ele faz. */}
                     {a.status === "pendente" && (
                       <button
-                        onClick={() => {
-                          cancelarAgendada(a.id)
-                            .then(() => { invalidarAgendadas(); toast.success("Mensagem cancelada."); })
-                            .catch((e) => { invalidarAgendadas(); toast.error((e as Error).message); });
-                        }}
+                        onClick={() => cancelarProgramada(a.id)}
                         className="mt-1.5 text-[10.5px] text-muted-foreground/70 hover:text-red-300
                                    underline underline-offset-2 transition-colors">
                         Cancelar envio
@@ -2462,6 +2505,26 @@ export default function AtendimentoPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* ═══ AS MENSAGENS PROGRAMADAS DESTA PESSOA ═══
+                    A conversa mostra as que estão no fim do histórico; a aba
+                    mostra as de todo mundo. Esta responde a pergunta que se faz
+                    com a ficha aberta, prestes a escrever: o que já está a
+                    caminho pra ela? Sem isso, o risco é escrever à mão o que já
+                    vai sair sozinho daqui a uma hora. */}
+                {agendadasDaAberta.length > 0 && (
+                  <div className="px-3 py-3 border-b border-white/[0.06] flex flex-col gap-2">
+                    <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Programadas
+                      <span className="ml-auto tabular-nums opacity-70">{agendadasDaAberta.length}</span>
+                    </p>
+                    {agendadasDaAberta.map((a) => (
+                      <CardProgramada key={a.id} a={a} nome={lead.nome}
+                        onAbrir={() => campoResposta.current?.focus()}
+                        onCancelar={() => cancelarProgramada(a.id)} />
+                    ))}
+                  </div>
+                )}
 
                 {/* ═══ A TRAVA, no fim de tudo ═══
                     Fica por último de propósito: é a última coisa que se faz
@@ -3066,6 +3129,49 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── CONFIRMAR A CONCLUSÃO ──
+          Diz o que vai acontecer, e não só "tem certeza?". No follow-up isso é
+          o essencial: concluir não fecha nada, ABRE a próxima cobrança contando
+          do dia de hoje — quem clica sem saber disso acha que está encerrando
+          quando está agendando. */}
+      <Dialog open={!!aConcluir} onOpenChange={(a) => { if (!a) setAConcluir(null); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              {aConcluir?.tipo === "follow_up" ? "Cobrança feita?" : "Concluir lembrete?"}
+            </DialogTitle>
+            <DialogDescription className="text-[12px] leading-relaxed">
+              {aConcluir?.tipo === "follow_up" ? (
+                <>
+                  Confirma que você já falou com{" "}
+                  <span className="text-foreground/80">{aConcluir?.lead}</span>?
+                  {(aConcluir?.rodada ?? 1) < TOTAL_RODADAS ? (
+                    <> A próxima cobrança da régua será agendada a partir de hoje.</>
+                  ) : (
+                    <> Esta é a última da régua: o lead sai da cadência.</>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="text-foreground/80">{aConcluir?.titulo}</span>
+                  {aConcluir?.lead ? <> · {aConcluir.lead}</> : null}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setAConcluir(null)}>
+              Ainda não
+            </Button>
+            <Button size="sm"
+              onClick={() => { if (aConcluir) aplicarConclusao(aConcluir.id); setAConcluir(null); }}>
+              Concluir <Check className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── NOVO LEMBRETE ──
           Título, detalhe, dia e hora. A hora é opcional porque metade dos
           lembretes não tem hora ("passar o extrato hoje") e obrigar um horário
@@ -3133,6 +3239,15 @@ export default function AtendimentoPage() {
                 próprio: o lembrete pode ser pra amanhã e a mensagem sair daqui
                 a duas horas.
 
+                A BARRA É A MESMA DO CHAT, e isso é a decisão de desenho que
+                importa aqui. Um formulário de "agendar mensagem" — campo
+                Mensagem, campo Anexo, botão Salvar — faria a pessoa preencher
+                um cadastro. A barra do chat ela já usa cem vezes por dia: o
+                clipe à esquerda, o campo no meio, o microfone e o botão de
+                mandar à direita, na mesma ordem e do mesmo tamanho. O gesto é
+                idêntico ao de responder agora; o que muda é só a hora em que
+                chega, e é isso que o botão do relógio diz.
+
                 Fica FECHADA por padrão, atrás de um clique. Uma mensagem que
                 sai sozinha para o cliente não pode ser algo em que se esbarra
                 enquanto se anota um recado. */}
@@ -3140,78 +3255,156 @@ export default function AtendimentoPage() {
               <button type="button"
                 onClick={() => setReterAberta((v) => !v)}
                 className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors">
-                <Send className={cn("h-3.5 w-3.5 shrink-0", reterAberta ? "text-primary" : "text-muted-foreground")} />
+                <Send className={cn("h-3.5 w-3.5 shrink-0 transition-colors", reterAberta ? "text-primary" : "text-muted-foreground")} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12px] font-medium">Reter uma mensagem</span>
-                  <span className="block text-[10.5px] text-muted-foreground/70">
+                  <span className="block text-[10.5px] text-muted-foreground/70 truncate">
                     {reterAberta
-                      ? `Sai sozinha para ${lead.nome} em ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`
+                      ? `Sai sozinha para ${lead.nome.split(" ")[0]} em ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`
                       : "Deixa uma mensagem programada para o cliente receber"}
                   </span>
                 </span>
-                <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+                <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-300",
                   reterAberta && "rotate-180")} />
               </button>
 
-              {reterAberta && (
-                <div className="px-3 pb-3 pt-1 flex flex-col gap-2.5 border-t border-white/[0.06]">
-                  <Textarea
-                    value={reterTexto}
-                    onChange={(e) => setReterTexto(e.target.value)}
-                    placeholder={reterArquivo ? "Legenda (opcional)" : "A mensagem que o cliente vai receber"}
-                    className="text-[12.5px] min-h-[62px] resize-none" />
+              {/* A ABERTURA DESLIZA. Aparecer de uma vez faria o diálogo pular
+                  de tamanho e a pessoa perder de vista o que estava lendo —
+                  além de não deixar claro que aquilo saiu de dentro do botão
+                  que ela acabou de apertar. A altura é animada por fora e o
+                  conteúdo tem `overflow-hidden` pra não vazar durante o
+                  movimento. */}
+              <AnimatePresence initial={false}>
+                {reterAberta && (
+                  <motion.div
+                    key="reter"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 34, mass: 0.9 }}
+                    className="overflow-hidden border-t border-white/[0.06]">
+                    <div className="p-2.5 flex flex-col gap-2">
 
-                  {/* QUALQUER FORMATO, como na caixa de entrada: foto, vídeo,
-                      áudio, documento. É o mesmo bucket e o mesmo caminho de
-                      envio, então a bolha desenha igual. */}
-                  <input ref={seletorRetido} type="file" hidden
-                    onChange={(e) => { setReterArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                      {/* O anexo escolhido fica VISÍVEL antes de ir, igual ao
+                          chat: anexar e agendar no mesmo clique é o jeito de
+                          programar o arquivo errado pro cliente errado, e o
+                          erro só aparece quando já chegou nele. */}
+                      <AnimatePresence initial={false}>
+                        {reterArquivo && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 340, damping: 34, mass: 0.8 }}
+                            className="overflow-hidden">
+                            <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5 w-fit">
+                              {reterArquivo.type.startsWith("image/")
+                                ? <img src={URL.createObjectURL(reterArquivo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
+                                : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
+                              <span className="text-[11.5px] truncate max-w-[180px]" title={reterArquivo.name}>{reterArquivo.name}</span>
+                              <button type="button" onClick={() => setReterArquivo(null)} title="Tirar o anexo"
+                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
-                  {reterArquivo ? (
-                    <div className="flex items-center gap-2 rounded-md bg-white/[0.04] ring-1 ring-white/[0.07] px-2.5 py-1.5">
-                      <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-                      <span className="text-[11px] truncate flex-1" title={reterArquivo.name}>{reterArquivo.name}</span>
-                      <button type="button" onClick={() => setReterArquivo(null)}
-                        className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors">
-                        <X className="h-3 w-3" />
-                      </button>
+                      {/* A LINHA DO CHAT, na mesma ordem e nas mesmas medidas. */}
+                      <div className="flex items-center gap-1.5">
+                        {!reterGravando && (
+                          <>
+                            <input ref={seletorRetido} type="file" className="hidden"
+                              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                              onChange={(e) => { setReterArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                            <Button size="sm" variant="ghost" title="Anexar arquivo"
+                              className="h-9 w-9 p-0 shrink-0" onClick={() => seletorRetido.current?.click()}>
+                              <Paperclip className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+
+                        {!reterGravando && (
+                          <Textarea
+                            value={reterTexto}
+                            rows={1}
+                            onChange={(e) => setReterTexto(e.target.value)}
+                            onKeyDown={(e) => {
+                              // Mesmo atalho do chat: enter manda, shift+enter
+                              // quebra a linha. Aqui "mandar" é agendar.
+                              if (e.key !== "Enter") return;
+                              if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+                              e.preventDefault();
+                              if (taskTitulo.trim()) salvarTask();
+                            }}
+                            placeholder={reterArquivo ? "Legenda (opcional)…" : `Mensagem para ${lead.nome.split(" ")[0]}…`}
+                            className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
+                          />
+                        )}
+
+                        {/* O MICROFONE GRAVA, MAS NÃO MANDA. No chat o áudio
+                            sai no fim da gravação; aqui ele vira o anexo e
+                            espera a hora, como todo o resto. */}
+                        {!reterArquivo && (
+                          <GravadorDeAudio
+                            onEnviar={async (audio, segundos) => {
+                              const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+                              setReterArquivo(new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }));
+                              setReterDuracao(segundos);
+                            }}
+                            onGravandoChange={setReterGravando}
+                          />
+                        )}
+
+                        {!reterGravando && (
+                          /* O BOTÃO É UM RELÓGIO, e não um avião de papel. A
+                             barra inteira diz "estou mandando uma mensagem"; o
+                             ícone é a única coisa que precisa lembrar que ela
+                             não sai agora. A hora escrita ao lado tira a última
+                             dúvida sem obrigar a olhar pro campo de cima. */
+                          <Button size="sm" className="h-9 shrink-0 px-2.5 gap-1.5"
+                            onClick={salvarTask}
+                            disabled={salvandoTask || !taskTitulo.trim()}
+                            title={`Agendar para ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`}>
+                            {salvandoTask
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <><Clock className="h-4 w-4" />
+                                  <span className="text-[11px] tabular-nums">{reterHora}</span></>}
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <SeletorDeDia valor={reterDia} onEscolher={setReterDia} hojeISO={HOJE} />
+                        <SeletorDeHora valor={reterHora} onEscolher={setReterHora} opcional={false} />
+                      </div>
+
+                      {/* O IMPEDIMENTO APARECE ANTES DO CLIQUE, e não como erro
+                          depois. Descobrir que a hora já passou só ao salvar faz
+                          perder o texto que se acabou de escrever. */}
+                      {(() => {
+                        const m = motivoDeNaoAgendar({
+                          tipo: reterArquivo ? tipoDoMime(reterArquivo.type) : "texto",
+                          texto: reterTexto,
+                          temArquivo: !!reterArquivo,
+                          quando: instanteDe(reterDia, reterHora || null),
+                        });
+                        return m ? (
+                          <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
+                            <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {m}
+                          </p>
+                        ) : (
+                          <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+                            Vai sair sozinha, mesmo com o sistema fechado. Dá pra cancelar até a hora,
+                            pela conversa.
+                          </p>
+                        );
+                      })()}
                     </div>
-                  ) : (
-                    <button type="button" onClick={() => seletorRetido.current?.click()}
-                      className="self-start flex items-center gap-1.5 text-[11px] text-muted-foreground
-                                 hover:text-foreground transition-colors">
-                      <Paperclip className="h-3 w-3" /> Anexar foto, vídeo, áudio ou documento
-                    </button>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <SeletorDeDia valor={reterDia} onEscolher={setReterDia} hojeISO={HOJE} />
-                    <SeletorDeHora valor={reterHora} onEscolher={setReterHora} opcional={false} />
-                  </div>
-
-                  {/* O IMPEDIMENTO APARECE ANTES DO CLIQUE, e não como erro
-                      depois. Descobrir que a hora já passou só ao salvar faz
-                      perder o texto que se acabou de escrever. */}
-                  {(() => {
-                    const m = motivoDeNaoAgendar({
-                      tipo: reterArquivo ? tipoDoMime(reterArquivo.type) : "texto",
-                      texto: reterTexto,
-                      temArquivo: !!reterArquivo,
-                      quando: instanteDe(reterDia, reterHora || null),
-                    });
-                    return m ? (
-                      <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
-                        <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {m}
-                      </p>
-                    ) : (
-                      <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
-                        Vai sair sozinha, mesmo com o sistema fechado. Dá pra cancelar até a hora,
-                        pela conversa.
-                      </p>
-                    );
-                  })()}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -3638,6 +3831,93 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
             ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Enviando…</>
             : <><MessageSquarePlus className="h-3.5 w-3.5 mr-1.5" /> Mandar mensagem</>}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ o cartão de uma mensagem programada ═══════════
+ *
+ * Mesmo desenho dos cartões de lembrete e de follow-up: quadradinho do ícone,
+ * rótulo miúdo em caixa alta, título, conteúdo, faixa de apoio embaixo da
+ * linha. Uma pessoa que já lê a fila do dia lê esta sem aprender nada.
+ *
+ * O QUE ELE PRECISA RESPONDER, nesta ordem: quando sai, pra quem, o que diz, e
+ * dá pra parar? A última é a que justifica a tela existir — a mensagem já foi
+ * escrita e decidida, e o único trabalho que resta é o de mudar de ideia a
+ * tempo.
+ */
+function CardProgramada({ a, nome, onAbrir, onCancelar }: {
+  a: AgendadaRow;
+  nome: string;
+  onAbrir: () => void;
+  onCancelar: () => void;
+}) {
+  const falhou = a.status === "falhou";
+  const saindo = a.status === "enviando";
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onAbrir}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAbrir(); } }}
+      className={cn(
+        "group flex flex-col text-left rounded-2xl border backdrop-blur-md p-3.5 cursor-pointer",
+        "shadow-[0_4px_20px_rgba(0,0,0,0.25)] transition-all hover:-translate-y-0.5",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+        falhou
+          ? "border-red-400/25 bg-red-400/[0.04] hover:border-red-400/45"
+          : "border-white/[0.07] bg-white/[0.03] hover:border-primary/40 hover:bg-white/[0.05]",
+      )}>
+      <div className="flex items-start justify-between gap-2">
+        <span className={cn("h-8 w-8 rounded-xl ring-1 grid place-items-center shrink-0",
+          falhou ? "bg-red-400/12 ring-red-400/25" : "bg-primary/12 ring-primary/25")}>
+          {falhou ? <AlertTriangle className="h-4 w-4 text-red-400" />
+            : saindo ? <Loader2 className="h-4 w-4 text-primary animate-spin" />
+            : <Clock className="h-4 w-4 text-primary" />}
+        </span>
+        {/* CANCELAR SÓ ENQUANTO DÁ. Depois que o despachante toma a linha o
+            WhatsApp já está a caminho, e um botão que não faz nada é pior que
+            botão nenhum. */}
+        {a.status === "pendente" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCancelar(); }}
+            title="Cancelar o envio"
+            className="shrink-0 h-7 w-7 grid place-items-center rounded-lg text-muted-foreground/40
+                       hover:text-red-400 hover:bg-red-400/10 transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      <p className={cn("text-[10px] uppercase tracking-wide mt-2.5",
+        falhou ? "text-red-300/90" : "text-muted-foreground")}>
+        {falhou ? "Não saiu" : saindo ? "Saindo agora" : `Sai ${quandoBonito(a.quando)}`}
+      </p>
+      <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-1">{nome}</p>
+
+      {a.midia_nome && (
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-1">
+          <Paperclip className="h-3 w-3 shrink-0" />
+          <span className="truncate">{a.midia_nome}</span>
+        </p>
+      )}
+      {a.texto && (
+        <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{a.texto}</p>
+      )}
+
+      <div className="mt-2.5 pt-2.5 border-t border-white/[0.06]">
+        {falhou ? (
+          <p className="text-[10.5px] text-red-300/80 leading-snug line-clamp-2">
+            {a.erro || "A Evolution recusou o envio."}
+          </p>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium
+                           ring-1 bg-white/[0.05] text-muted-foreground ring-white/[0.08]">
+            <Clock className="h-3 w-3" /> {faltaPara(a.quando)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -4082,6 +4362,80 @@ function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
             <Grupo titulo="Atrasadas" itens={atrasadas} tom="text-amber-300" />
             <Grupo titulo="Hoje" itens={deHoje} tom="text-foreground/80" />
             <Grupo titulo="Programadas" itens={futuras} tom="text-muted-foreground/70" />
+          </>
+        )}
+      </SpotlightCard>
+    </div>
+  );
+}
+
+/* ═══════════ A CENTRAL DAS PROGRAMADAS ═══════════
+ *
+ * Tudo que vai sair sozinho, num lugar só.
+ *
+ * POR QUE ELA EXISTE: as mensagens retidas são a única coisa deste módulo que
+ * acontece sem ninguém presente. Espalhadas por conversa, a pergunta "o que o
+ * escritório vai mandar hoje?" não tem resposta — teria que abrir uma por uma.
+ * E é justamente essa a pergunta que alguém faz quando muda alguma coisa: o
+ * cliente ligou, o caso mudou, e três mensagens marcadas ontem ficaram erradas.
+ *
+ * A ORDEM É POR URGÊNCIA DE REVISÃO, não por horário. As que FALHARAM vêm
+ * primeiro, sempre: elas não chegaram no cliente e ninguém foi avisado, então
+ * são a única coisa aqui que já deu errado. Depois o que sai hoje, depois o
+ * resto — porque cancelar algo de daqui a uma hora é urgente e cancelar algo da
+ * semana que vem pode esperar o café.
+ */
+function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa }: {
+  agendadas: AgendadaRow[];
+  leads: Lead[];
+  onCancelar: (id: string) => void;
+  onAbrirConversa: (leadId: string) => void;
+}) {
+  const porLead = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
+  const nomeDe = (id: string) => porLead.get(id)?.nome ?? "conversa arquivada";
+
+  const { falhas, hoje, depois } = useMemo(() => {
+    const ordenadas = [...agendadas].sort((a, b) => a.quando.localeCompare(b.quando));
+    const fimDeHoje = new Date();
+    fimDeHoje.setHours(23, 59, 59, 999);
+    return {
+      falhas: ordenadas.filter((a) => a.status === "falhou"),
+      hoje: ordenadas.filter((a) => a.status !== "falhou" && new Date(a.quando) <= fimDeHoje),
+      depois: ordenadas.filter((a) => a.status !== "falhou" && new Date(a.quando) > fimDeHoje),
+    };
+  }, [agendadas]);
+
+  const Grupo = ({ titulo, itens, tom }: { titulo: string; itens: AgendadaRow[]; tom: string }) => {
+    if (itens.length === 0) return null;
+    return (
+      <div className="flex flex-col gap-2">
+        <p className={cn("text-[9.5px] uppercase tracking-[0.12em] flex items-center gap-2", tom)}>
+          {titulo}
+          <span className="tabular-nums opacity-70">{itens.length}</span>
+        </p>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {itens.map((a) => (
+            <CardProgramada key={a.id} a={a} nome={nomeDe(a.conversa_id)}
+              onAbrir={() => onAbrirConversa(a.conversa_id)}
+              onCancelar={() => onCancelar(a.id)} />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
+        {agendadas.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
+            Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
+          </p>
+        ) : (
+          <>
+            <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
+            <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
+            <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
           </>
         )}
       </SpotlightCard>

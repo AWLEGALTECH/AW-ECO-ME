@@ -10,13 +10,10 @@
  * Os dois viram botões que abrem um painel nosso.
  *
  * A HORA NÃO SE DIGITA, SE ESCOLHE. Duas colunas que rolam, hora e minuto, com
- * o valor escolhido em destaque — o mesmo gesto do relógio do celular. Digitar
- * é rápido pra quem já sabe a hora exata; escolher é seguro pra todo mundo, e
- * quem sabe a hora exata continua chegando lá em dois cliques.
- *
- * ATALHOS ANTES DA ROLAGEM. "Agora", "daqui a 1h", "amanhã de manhã": quase
- * todo agendamento de atendimento cai num punhado de horários repetidos, e
- * obrigar a rolar até 14 quando o que se quer é "de tarde" é trabalho à toa.
+ * o valor escolhido em destaque — o mesmo gesto do relógio do celular. As
+ * vinte e quatro horas e os sessenta minutos, todos, sem grade e sem atalho de
+ * "manhã/tarde": quem precisa das 14h37 tem que poder marcar 14h37, e quem
+ * quer 14h00 já chega lá em dois cliques sem precisar de um botão só pra isso.
  */
 import { useMemo, useRef, useEffect, useState } from "react";
 import { Calendar as CalendarIcon, Clock, X } from "lucide-react";
@@ -106,11 +103,16 @@ export function SeletorDeDia({ valor, onEscolher, hojeISO, className }: {
 }
 
 /* ── A HORA ───────────────────────────────────────────────────────────────
-   Minutos de cinco em cinco. Sessenta linhas por coluna transformariam a
-   escolha numa caçada, e ninguém marca cobrança para as 14h37. Quem precisar
-   de um minuto exato ainda pode digitar no campo. */
+   As vinte e quatro horas e os sessenta minutos, sem grade e sem atalho. A
+   versão anterior tinha as duas coisas — minuto de cinco em cinco e botões de
+   "manhã / tarde" — e as duas partiam do mesmo palpite errado: o de que dá pra
+   adivinhar quais horários alguém vai querer. Quem precisa das 14h37 não podia
+   escolher, e quem queria 14h00 ganhava um atalho que já estava a dois cliques
+   de distância.
+   A coluna começa no valor atual e rola: sessenta linhas não são uma caçada
+   quando a que interessa já está no meio da tela. */
 const HORAS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-const MINUTOS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+const MINUTOS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 function Coluna({ itens, valor, onEscolher, rotulo }: {
   itens: string[]; valor: string; onEscolher: (v: string) => void; rotulo: string;
@@ -159,17 +161,8 @@ export function SeletorDeHora({ valor, onEscolher, opcional = true, className }:
   const [aberto, setAberto] = useState(false);
   const [h, m] = useMemo(() => {
     const p = (valor || "").split(":");
-    return [p[0] || "09", (p[1] || "00")];
+    return [p[0] || "09", p[1] || "00"];
   }, [valor]);
-
-  /* O minuto digitado fora da grade (14:37, vindo de um agendamento antigo)
-     não pode sumir da coluna, senão a tela mostraria 14:35 para uma hora que
-     na verdade é 14:37. */
-  const minutos = MINUTOS.includes(m) ? MINUTOS : [...MINUTOS, m].sort();
-
-  const atalhos: Array<[string, string]> = [
-    ["Manhã", "09:00"], ["Meio-dia", "12:00"], ["Tarde", "14:00"], ["Fim do dia", "17:00"],
-  ];
 
   return (
     <Popover open={aberto} onOpenChange={setAberto}>
@@ -199,23 +192,11 @@ export function SeletorDeHora({ valor, onEscolher, opcional = true, className }:
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-2">
-        <div className="flex gap-1 pb-2">
-          {atalhos.map(([rot, hh]) => (
-            <button key={rot} type="button"
-              onClick={() => { onEscolher(hh); setAberto(false); }}
-              className={cn("rounded-md px-2 py-1 text-[11px] transition-colors",
-                valor === hh
-                  ? "bg-primary/20 text-foreground ring-1 ring-primary/40"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/[0.06]")}>
-              {rot}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 border-t border-white/[0.06] pt-2">
+        <div className="flex gap-1">
           <Coluna itens={HORAS} valor={h} rotulo="hora"
             onEscolher={(nova) => onEscolher(`${nova}:${m}`)} />
           <span className="self-center text-muted-foreground/40 text-[13px] pt-4">:</span>
-          <Coluna itens={minutos} valor={m} rotulo="min"
+          <Coluna itens={MINUTOS} valor={m} rotulo="min"
             onEscolher={(novo) => onEscolher(`${h}:${novo}`)} />
         </div>
       </PopoverContent>
