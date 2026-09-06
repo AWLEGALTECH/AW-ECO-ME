@@ -1095,30 +1095,40 @@ export default function AtendimentoPage() {
     <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
                     h-[calc(100dvh-5rem)] min-h-0 overflow-hidden">
 
-      {/* ── título e abas ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <h1 className="font-display text-2xl font-medium leading-none">Atendimento</h1>
-          {/* O selo só aparece quando é MAQUETE. Quem abre a tela sem contexto
-              precisa saber que aquelas pessoas não existem — mas o contrário
-              não precisa de aviso: dado real é o esperado, e um selo verde
-              permanente ao lado do título vira enfeite que ninguém mais lê. */}
-          {!aoVivo && (
-            <span className="rounded-full px-2 py-[3px] text-[9.5px] uppercase tracking-[0.12em] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25">
-              maquete
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
-          {([["atendimento", "Atendimento", Inbox], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
-            <button key={k} onClick={() => setAba(k)}
-              className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] transition-colors",
-                aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
-              <Ico className="h-3.5 w-3.5" /> {rot}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* ── UMA FAIXA SÓ NO TOPO ──
+          Aqui havia duas: um título "Atendimento" sozinho numa linha larga e,
+          logo abaixo, o cartão da instância. Duas bandas empilhadas comem uns
+          quarenta e quatro pixels de altura e — pior — deixam a palavra
+          flutuando sem se ligar a nada, que foi exatamente a sensação de
+          recortado.
+          O título saiu porque era a terceira cópia da mesma palavra na mesma
+          tela: a barra lateral já marca "Atendimento", a aba ativa também diz
+          "Atendimento", e o navegador repete no título. O que sobrou é o que a
+          tela realmente precisa dizer: por qual número você está falando.
+          As abas vieram morar no cartão, do lado direito, ancoradas no mesmo
+          objeto — e o cartão passa a existir nas duas abas, porque a instância
+          é o contexto dos dois painéis. */}
+      <CardInstancia
+        instancia={cartaoDaInstancia}
+        todas={instancias}
+        maquete={!aoVivo}
+        onTrocar={setInstanciaId}
+        onConectar={abrirConexao}
+        onReaplicar={reconfigurarEventos}
+        onImportar={importarDoAparelho}
+        onDiagnosticar={rodarDiagnostico}
+        abas={
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5 shrink-0">
+            {([["atendimento", "Atendimento", Inbox], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
+              <button key={k} onClick={() => setAba(k)}
+                className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors",
+                  aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <Ico className="h-3.5 w-3.5" /> {rot}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {aba === "funil" ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
@@ -1126,15 +1136,6 @@ export default function AtendimentoPage() {
         </div>
       ) : (
         <>
-          <CardInstancia
-            instancia={cartaoDaInstancia}
-            todas={instancias}
-            onTrocar={setInstanciaId}
-            onConectar={abrirConexao}
-            onReaplicar={reconfigurarEventos}
-            onImportar={importarDoAparelho}
-            onDiagnosticar={rodarDiagnostico}
-          />
 
           {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
               Colar tudo numa caixa só apagava a divisão de trabalho: a caixa,
@@ -3178,8 +3179,12 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
+function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
   instancia: Instancia; todas: Instancia[];
+  /** os dados da tela são inventados — quem abre sem contexto precisa saber */
+  maquete?: boolean;
+  /** as abas da página moram aqui: uma faixa no topo, não duas */
+  abas?: React.ReactNode;
   onTrocar: (id: string) => void;
   onConectar: () => void;
   onReaplicar: () => void;
@@ -3189,7 +3194,7 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, on
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
   return (
-    <SpotlightCard sutil className="shrink-0 rounded-xl p-3 flex items-center gap-3">
+    <SpotlightCard sutil className="shrink-0 rounded-xl px-3 py-2.5 flex items-center gap-3">
       {/* A FOTO DO PERFIL É IDENTIDADE, NÃO STATUS. Ela fica neutra: quem diz
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
@@ -3209,6 +3214,14 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, on
                : "bg-rose-400/10 text-rose-300 ring-rose-400/25")}>
             {on ? "conectado" : "desconectado"}
           </span>
+          {/* O selo de maquete perdeu a casa quando o título saiu, e veio pra
+              cá — que é onde ele importa mesmo: colado no número, dizendo que
+              aquele número e aquelas pessoas não existem. */}
+          {maquete && (
+            <span className="rounded-full px-2 py-[1px] text-[9px] uppercase tracking-[0.12em] bg-amber-400/12 text-amber-300 ring-1 ring-amber-400/25 shrink-0">
+              maquete
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] text-muted-foreground">
           <span className="tabular-nums">{instancia.telefone}</span>
@@ -3218,6 +3231,8 @@ function CardInstancia({ instancia, todas, onTrocar, onConectar, onReaplicar, on
           <span className="tabular-nums text-foreground/80">{instancia.naoLidas} não lidas</span>
         </div>
       </div>
+
+      {abas}
 
       <Popover open={aberto} onOpenChange={setAberto}>
         <PopoverTrigger asChild>
