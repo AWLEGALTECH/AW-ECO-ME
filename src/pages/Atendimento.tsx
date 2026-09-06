@@ -625,6 +625,28 @@ export default function AtendimentoPage() {
   };
 
   useEffect(() => { descer(false); }, [lead.id]);
+
+  /* GRUDADO NO FIM ENQUANTO O CONTEÚDO AINDA CRESCE.
+     Rolar uma vez, no quadro em que a mensagem entra, resolve o texto e falha
+     em tudo que muda de tamanho DEPOIS: uma foto entra sem altura nenhuma e só
+     empurra o histórico quando termina de carregar, meio segundo mais tarde —
+     aí a conversa já parou de rolar e a imagem nasce metade fora da tela.
+     O observador acompanha essas mudanças e, SÓ SE a pessoa já estava no fim,
+     segue o conteúdo. A condição é o ponto todo: quem subiu pra reler uma
+     mensagem antiga não pode ser arrastado pra baixo porque uma foto acabou de
+     carregar em algum lugar. */
+  useEffect(() => {
+    const el = caixaDaConversa.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => {
+      const doFim = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (doFim < 120) el.scrollTop = el.scrollHeight;
+    });
+    /* Observa os FILHOS, e não a caixa: a caixa tem altura fixa (ela é o painel
+       da conversa) e nunca dispara; quem muda de tamanho é o conteúdo. */
+    for (const filho of Array.from(el.children)) obs.observe(filho);
+    return () => obs.disconnect();
+  }, [lead.id, msgsDaAberta.length]);
   /* SÓ MENSAGEM PUXA A TELA PRA BAIXO. Digitando não entra na conta: o balão
      de reticências acende e apaga o tempo todo enquanto a pessoa pensa, e cada
      piscada arrastaria a conversa — quem estivesse lendo uma mensagem mais
@@ -2012,14 +2034,29 @@ export default function AtendimentoPage() {
                   <motion.div
                     key={msg.id ?? `i${i}`}
                     layout="position"
-                    initial={{ opacity: 0, scale: 0.94, y: 10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    /* SEM DESLOCAMENTO VERTICAL, e isso é conserto de um
+                       defeito visível: `y: 10` empurra o balão pra baixo com
+                       transform, e transform ENTRA na área de rolagem do
+                       container. No primeiro quadro o `scrollHeight` já vinha
+                       dez pixels maior que o conteúdo real, a conversa descia
+                       até lá, e quando a mola terminava o excesso sumia e a
+                       tela voltava — o repuxão, com o vão entre a última
+                       mensagem e a barra de digitar.
+                       A entrada continua existindo, só que por opacidade e
+                       escala. A escala nasce da BASE do balão (`originY: 1`,
+                       logo abaixo), então ela cresce pra cima e nunca ocupa
+                       espaço que ainda não é dela. */
+                    initial={{ opacity: 0, scale: 0.94 }}
+                    animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.96 }}
-                    // Mola curta e bem amortecida: o balão assenta em ~180ms,
-                    // com um respiro de elasticidade no fim. Duração fixa daria
-                    // o movimento mecânico de banner; mola solta demais faria o
-                    // texto tremer, e texto tremendo é ilegível.
-                    transition={{ type: "spring", stiffness: 560, damping: 38, mass: 0.7 }}
+                    /* Mais lenta que antes: em ~180ms a chegada acontecia e
+                       ninguém via, o que desperdiça a única pista de que algo
+                       novo entrou na tela. Agora assenta em torno de 340ms —
+                       tempo de o olho pegar o movimento, e ainda curto o
+                       bastante pra não atrasar quem está lendo.
+                       Continua bem amortecida: mola solta faria o texto tremer
+                       no fim do movimento, e texto tremendo é ilegível. */
+                    transition={{ type: "spring", stiffness: 260, damping: 30, mass: 0.9 }}
                     style={{ originX: msg.de === "lead" ? 0 : 1, originY: 1 }}
                     className="flex flex-col gap-2">
                     {msg.dia && (
@@ -2096,10 +2133,14 @@ export default function AtendimentoPage() {
                   {digitandoAgora && (
                     <motion.div
                       layout="position"
-                      initial={{ opacity: 0, scale: 0.9, y: 8 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, y: 4 }}
-                      transition={{ type: "spring", stiffness: 560, damping: 38, mass: 0.7 }}
+                      /* Sem `y` pelo mesmo motivo do balão de mensagem: o
+                         deslocamento entrava na área de rolagem e fazia a
+                         conversa descer além do fim toda vez que o lead
+                         começava a digitar. */
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.8 }}
                       style={{ originX: 0, originY: 1 }}
                       className="flex flex-col gap-2">
                       <div className="self-start rounded-2xl rounded-tl-sm bg-white/[0.05] px-3 py-2.5">
