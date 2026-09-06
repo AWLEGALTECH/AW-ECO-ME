@@ -353,22 +353,6 @@ export default function AtendimentoPage() {
   );
   useEffect(() => { aoAtualizar(sinaisDeSom); }, [sinaisDeSom, aoAtualizar]);
 
-  /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
-     silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
-     coisas, porque uma cadência que só cria vira lista de fantasmas, e cobrar
-     quem já respondeu é a pior mensagem que existe.
-     Roda ao abrir e a cada cinco minutos: é idempotente, então repetir não
-     duplica nada. */
-  useEffect(() => {
-    if (!aoVivo || !instancia.nome) return;
-    const por = () => sincronizarFollowUps(instancia.nome)
-      .then((r) => { if (r.criadas || r.canceladas) invalidarTasks(); })
-      .catch(() => { /* a fila do dia continua valendo sem isso */ });
-    void por();
-    const id = setInterval(por, 5 * 60_000);
-    return () => clearInterval(id);
-  }, [aoVivo, instancia.nome, invalidarTasks]);
-
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
     [fontesTodas]);
@@ -439,6 +423,29 @@ export default function AtendimentoPage() {
      sem escrever nada no banco. */
   const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
   const invalidarTasks = useInvalidarTasksWa();
+
+  /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
+     silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
+     coisas, porque uma cadência que só cria vira lista de fantasmas, e cobrar
+     quem já respondeu é a pior mensagem que existe.
+     Roda ao abrir e a cada cinco minutos: é idempotente, então repetir não
+     duplica nada.
+
+     MORA AQUI, DEPOIS DE `invalidarTasks`, e isso não é arrumação: a lista de
+     dependências do efeito é lida DURANTE a renderização, então declarar ela
+     depois derruba o componente inteiro com "Cannot access before
+     initialization". É a terceira vez que essa tela cai por uso antes da
+     declaração — o `const` não é içado, e o efeito não protege a lista de
+     dependências de nada. */
+  useEffect(() => {
+    if (!aoVivo || !instancia.nome) return;
+    const por = () => sincronizarFollowUps(instancia.nome)
+      .then((r) => { if (r.criadas || r.canceladas) invalidarTasks(); })
+      .catch(() => { /* a fila do dia continua valendo sem isso */ });
+    void por();
+    const id = setInterval(por, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [aoVivo, instancia.nome, invalidarTasks]);
   const { data: anotacoes = [] } = useAnotacoes(idAberto, aoVivo);
   const invalidarAnotacoes = useInvalidarAnotacoes();
 
