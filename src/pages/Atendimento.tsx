@@ -1653,23 +1653,8 @@ export default function AtendimentoPage() {
                       className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                   )}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 min-w-0 leading-tight">
-                    <span className="text-[13px] font-semibold truncate">{lead.nome}</span>
-                    {/* O ACUMULADO DAS ETIQUETAS, aqui em cima. Quem está
-                        escrevendo precisa saber com quem está falando sem abrir
-                        a ficha: de onde essa pessoa veio, quem deu o primeiro
-                        passo e em que ponto do atendimento ela está. São as
-                        mesmas etiquetas do cartão da caixa — repetir o desenho
-                        é o que faz a fila e a conversa serem lidas como a mesma
-                        coisa vista de dois lugares. */}
-                    <span className="hidden sm:flex items-center gap-1.5 shrink-0">
-                      <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
-                        {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
-                      </span>
-                      <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base} />
-                    </span>
-                  </p>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold truncate leading-tight">{lead.nome}</p>
                   {/* O QUE ELE ESTÁ FAZENDO AGORA, quando o WhatsApp conta.
                       Quando não conta — e é o caso da maioria, que esconde o
                       status — fica só o telefone. A tela NÃO escreve "offline":
@@ -1705,13 +1690,29 @@ export default function AtendimentoPage() {
                   })()}
                 </div>
 
+                  {/* O ACUMULADO DAS ETIQUETAS, ESPALHADO PELA BARRA.
+                      Coladas no nome elas espremiam os dois: o nome perdia
+                      espaço pra truncar e as etiquetas viravam um bloco só,
+                      ilegível de tão junto. A barra é larga e estava vazia — o
+                      `ml-auto` joga o grupo pro fim do espaço livre, e o `gap`
+                      largo separa cada informação da seguinte.
+                      São as mesmas etiquetas do cartão da caixa, no mesmo
+                      desenho: repetir a forma é o que faz a fila e a conversa
+                      serem lidas como a mesma coisa vista de dois lugares. */}
+                  <span className="hidden sm:flex items-center gap-3 shrink-0 ml-auto pl-4">
+                    <span className="rounded px-1.5 py-[2px] text-[9.5px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
+                      {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                    </span>
+                    <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base} />
+                  </span>
+
                   {/* UM "i" DE INFORMAÇÃO, e não uma seta de painel. A seta
                       descrevia o mecanismo — que lado abre, que lado fecha —, e
                       quem está atendendo não quer saber de mecanismo: quer
                       saber quem é a pessoa. O "i" diz o CONTEÚDO que está do
                       outro lado do clique. Ele acende quando a ficha está
                       aberta, o que já é estado suficiente. */}
-                  <Info className={cn("h-4 w-4 ml-auto shrink-0 transition-colors",
+                  <Info className={cn("h-4 w-4 ml-3 shrink-0 transition-colors",
                     detalheAberto ? "text-foreground/70" : "text-muted-foreground/40")} />
                 </button>
 
