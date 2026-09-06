@@ -46,7 +46,7 @@ import {
   INSTANCIAS, type Lead, type Origem, type Estagio, type Mensagem, type Instancia,
 } from "@/lib/atendimentoMock";
 import {
-  followUpsDoDia, ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
+  ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
   CADENCIA, horaBonita, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
@@ -58,6 +58,7 @@ import {
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
+import { CADENCIA, rotuloDaRodada, diasDeAtraso } from "@/lib/followUp";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
@@ -74,6 +75,7 @@ import {
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, useInvalidarTasksWa,
+  sincronizarFollowUps, concluirFollowUp,
 } from "@/hooks/useTasksWa";
 import {
   useAnotacoes, postarAnotacao, useInvalidarAnotacoes, quandoDaNota,
@@ -129,7 +131,7 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "funil">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "followup" | "funil">("atendimento");
   const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
   const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
   const [busca, setBusca] = useState("");
@@ -137,7 +139,6 @@ export default function AtendimentoPage() {
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
   const [dia, setDia] = useState(HOJE);
   const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
-  const [feitasFollowUp, setFeitasFollowUp] = useState<string[]>([]);
   const [rascunho, setRascunho] = useState("");
   const [anexo, setAnexo] = useState<File | null>(null);
   const [mandandoAnexo, setMandandoAnexo] = useState(false);
@@ -352,6 +353,22 @@ export default function AtendimentoPage() {
   );
   useEffect(() => { aoAtualizar(sinaisDeSom); }, [sinaisDeSom, aoAtualizar]);
 
+  /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
+     silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
+     coisas, porque uma cadência que só cria vira lista de fantasmas, e cobrar
+     quem já respondeu é a pior mensagem que existe.
+     Roda ao abrir e a cada cinco minutos: é idempotente, então repetir não
+     duplica nada. */
+  useEffect(() => {
+    if (!aoVivo || !instancia.nome) return;
+    const por = () => sincronizarFollowUps(instancia.nome)
+      .then((r) => { if (r.criadas || r.canceladas) invalidarTasks(); })
+      .catch(() => { /* a fila do dia continua valendo sem isso */ });
+    void por();
+    const id = setInterval(por, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [aoVivo, instancia.nome, invalidarTasks]);
+
   const nomeDaBase = useMemo(
     () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
     [fontesTodas]);
@@ -516,55 +533,51 @@ export default function AtendimentoPage() {
     ...pendentesDaAberta.map(bolhaDaPendente),
   ];
 
-  /* AS TASKS DO DIA ESCOLHIDO.
-     Lembrete é dado: tem data própria. Follow-up é conta: a cadência lê o tempo
-     parado do lead NAQUELE dia — por isso andar no calendário mostra quem vai
-     precisar de cobrança amanhã, não só quem precisa hoje. */
-  const tasksDoDia = useMemo(() => {
-    const offset = diasEntre(HOJE, dia);
-    const parados = leadsBase.map((l) => ({
-      id: l.id,
-      nome: l.nome,
-      diasParado: l.diasParado + offset,
-      followUpsFeitos: l.followUpsFeitos,
-      ativo: l.estagio !== "fechado",
-    }));
-    const fu = followUpsDoDia(parados, dia)
-      .map((t) => ({ ...t, feita: feitasFollowUp.includes(t.id) }));
-    const lb = lembretes.filter((t) => t.data === dia);
-    return ordenarTasks([...fu, ...lb]);
-  }, [dia, lembretes, feitasFollowUp, leadsBase]);
+  /* AS TASKS DO DIA ESCOLHIDO — TODAS GRAVADAS AGORA.
+     O follow-up era CONTA: a cadência lia o tempo parado e deduzia quantas
+     cobranças o lead "já devia ter recebido". Servia pra desenhar a tela, não
+     pra trabalhar — a conta não sabe o que foi realmente feito, não sabe quem
+     fez, e o "feito" morria ao recarregar a página.
+     Agora cada cobrança é uma linha, criada pela cadência no banco e concluída
+     de verdade. Lembrete e follow-up viraram a mesma coisa aqui: dois tipos da
+     mesma task, com o mesmo desenho e o mesmo ciclo. */
+  const tasksDoDia = useMemo(
+    () => ordenarTasks(lembretes.filter((t) => t.data === dia)),
+    [dia, lembretes],
+  );
 
   const tasksVisiveis = tasksDoDia.filter((t) => tipoTask === "todas" || t.tipo === tipoTask);
   const tasksDoLead = tasksDoDia.filter((t) => t.leadId === lead.id);
   const prog = progressoTasks(tasksDoDia);
   const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
 
-  /* Dias com task, pro calendário marcar. O follow-up é recalculado dia a dia
-     porque o tempo parado anda junto com a data. */
-  const diasComTask = useMemo(() => {
-    const set = new Set(lembretes.map((t) => t.data));
-    for (let i = -7; i <= 21; i++) {
-      const d = somaDias(HOJE, i);
-      const parados = leadsBase.map((l) => ({
-        id: l.id, nome: l.nome, diasParado: l.diasParado + i,
-        followUpsFeitos: l.followUpsFeitos, ativo: l.estagio !== "fechado",
-      }));
-      if (followUpsDoDia(parados, d).length > 0) set.add(d);
-    }
-    return set;
-  }, [lembretes, leadsBase]);
+  /* Dias com task, pro calendário marcar. Uma linha por task, contra a lista
+     inteira — não há mais recálculo por dia porque não há mais conta. */
+  const diasComTask = useMemo(() => new Set(lembretes.map((t) => t.data)), [lembretes]);
 
   const concluir = (id: string) => {
-    // Follow-up não é linha no banco — é conta feita a partir do tempo parado.
-    // O "feito" dele é do dia e mora aqui mesmo.
-    if (id.startsWith("fu-")) {
-      setFeitasFollowUp((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-      return;
-    }
     if (aoVivo) {
       const atual = lembretes.find((t) => t.id === id);
       if (!atual) return;
+
+      /* CONCLUIR UMA COBRANÇA ABRE A PRÓXIMA — e por isso ela não passa pelo
+         mesmo caminho de um lembrete. A régua inteira mora no banco: ele marca
+         esta como feita e já agenda a seguinte, contando do dia de HOJE.
+         Desmarcar um follow-up não desfaz a próxima de propósito: a régua anda
+         pra frente, e voltar atrás criaria duas cobranças abertas pro mesmo
+         lead — que é exatamente o que o índice único no banco proíbe. */
+      if (atual.tipo === "follow_up" && !atual.feita) {
+        concluirFollowUp(id, user?.id ?? null)
+          .then((proxima) => {
+            invalidarTasks();
+            toast.success(proxima
+              ? `${atual.lead}: cobrança feita. A próxima já está agendada.`
+              : `${atual.lead}: última da régua. O lead sai da cadência.`);
+          })
+          .catch((e) => toast.error("Não consegui concluir: " + (e as Error).message));
+        return;
+      }
+
       alternarTaskWa(id, !atual.feita, user?.id ?? null)
         .then(invalidarTasks)
         .catch((e) => toast.error("Não consegui marcar: " + (e as Error).message));
@@ -1126,7 +1139,7 @@ export default function AtendimentoPage() {
         onDiagnosticar={rodarDiagnostico}
         abas={
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5 shrink-0">
-            {([["atendimento", "Atendimento", Inbox], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
+            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => setAba(k)}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -1137,7 +1150,15 @@ export default function AtendimentoPage() {
         }
       />
 
-      {aba === "funil" ? (
+      {aba === "followup" ? (
+        <CentralFollowUp
+          tasks={lembretes}
+          leads={leadsBase}
+          hoje={HOJE}
+          onConcluir={concluir}
+          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); }}
+        />
+      ) : aba === "funil" ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           <PainelFunil emRisco={abertasHoje} />
         </div>
@@ -3387,6 +3408,118 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
           </div>
         </PopoverContent>
       </Popover>
+    </div>
+  );
+}
+
+/* ═════════════════════════ a central de follow-up ═════════════════════════
+ *
+ * Substitui uma planilha que calculava ao contrário: "hoje é dia X, então quem
+ * leva o UP03 é quem entrou em X−15" — e alguém ia procurar essas pessoas à
+ * mão, uma a uma, no chat. O trabalho todo era ACHAR QUEM; fazer era o fácil.
+ *
+ * Aqui a lista já vem pronta, e a ordem é a única que importa numa fila de
+ * cobrança: o que venceu primeiro. ATRASADAS no topo, e com o tamanho do atraso
+ * escrito — três dias e trinta dias pedem conversas diferentes, e uma fila que
+ * não diz isso faz todo mundo escrever a mesma coisa.
+ *
+ * O QUE FICA DE FORA É TÃO IMPORTANTE QUANTO. Lead que ESCREVEU e está
+ * esperando resposta não aparece aqui: aquilo é caixa não respondida, urgência
+ * de hoje, e misturar as duas faria o caso urgente sumir embaixo da rotina.
+ */
+function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
+  tasks: Task[];
+  leads: Lead[];
+  hoje: string;
+  onConcluir: (id: string) => void;
+  onAbrirConversa: (leadId: string) => void;
+}) {
+  const fila = useMemo(() => {
+    const fu = tasks.filter((t) => t.tipo === "follow_up" && !t.feita);
+    return fu.sort((a, b) => a.data.localeCompare(b.data));
+  }, [tasks]);
+
+  const atrasadas = fila.filter((t) => t.data < hoje);
+  const deHoje = fila.filter((t) => t.data === hoje);
+  const futuras = fila.filter((t) => t.data > hoje);
+  const porLead = new Map(leads.map((l) => [l.id, l]));
+
+  const Grupo = ({ titulo, itens, tom }: { titulo: string; itens: Task[]; tom: string }) => {
+    if (itens.length === 0) return null;
+    return (
+      <div className="flex flex-col gap-1.5">
+        <p className={cn("text-[9.5px] uppercase tracking-[0.12em] flex items-center gap-2", tom)}>
+          {titulo}
+          <span className="tabular-nums opacity-70">{itens.length}</span>
+        </p>
+        {itens.map((t) => {
+          const l = porLead.get(t.leadId);
+          const atraso = diasDeAtraso(t.data, hoje);
+          return (
+            <div key={t.id}
+              className="rounded-xl bg-white/[0.03] ring-1 ring-white/[0.06] px-3 py-2.5 flex items-start gap-3">
+              <button onClick={() => onConcluir(t.id)} title="Cobrança feita — abre a próxima"
+                className="mt-[2px] shrink-0 h-5 w-5 rounded-md ring-1 ring-white/15 grid place-items-center
+                           text-muted-foreground/40 hover:text-emerald-400 hover:ring-emerald-400/40 transition-colors">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              </button>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button onClick={() => onAbrirConversa(t.leadId)}
+                    className="text-[12.5px] font-medium truncate hover:underline underline-offset-2">
+                    {t.lead}
+                  </button>
+                  <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.06] text-muted-foreground ring-1 ring-white/[0.08] shrink-0 tabular-nums">
+                    {rotuloDaRodada(t.rodada ?? 1)}
+                  </span>
+                  {l && (
+                    <span className="hidden md:block shrink-0">
+                      <SeloContato origem={l.importada ? undefined : l.origemContato} base={l.base} />
+                    </span>
+                  )}
+                  {atraso > 0 && (
+                    <span className="ml-auto shrink-0 text-[10px] text-amber-300 tabular-nums">
+                      {atraso} {atraso === 1 ? "dia" : "dias"} de atraso
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{t.titulo}</p>
+                {t.detalhe && (
+                  <p className="text-[11px] text-muted-foreground/70 mt-1 leading-snug">{t.detalhe}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
+        <div>
+          <h2 className="text-sm font-semibold">Follow-up</h2>
+          <p className="text-[11.5px] text-muted-foreground mt-0.5">
+            Quem ficou sem responder depois da nossa última mensagem. A régua é de
+            {" "}{CADENCIA.join(", ")} dias contados do silêncio, e concluir uma cobrança
+            agenda a seguinte. Quem responde sai da fila sozinho.
+          </p>
+        </div>
+
+        {fila.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
+            Ninguém para cobrar hoje. Toda conversa aberta está com a bola do outro lado.
+          </p>
+        ) : (
+          <>
+            <Grupo titulo="Atrasadas" itens={atrasadas} tom="text-amber-300" />
+            <Grupo titulo="Hoje" itens={deHoje} tom="text-foreground/80" />
+            <Grupo titulo="Programadas" itens={futuras} tom="text-muted-foreground/70" />
+          </>
+        )}
+      </SpotlightCard>
     </div>
   );
 }

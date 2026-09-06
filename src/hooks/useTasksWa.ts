@@ -5,10 +5,14 @@
 // Maria amanhã às 15h" e isso tem que estar lá amanhã, na máquina dela e na de
 // quem mais abrir a tela.
 //
-// SÓ LEMBRETE VEM DAQUI. Follow-up continua sendo calculado da cadência de dias
-// parados (src/lib/tasksAtendimento.ts) e nunca é gravado: guardar os dois no
-// banco criaria duas verdades sobre o mesmo lead — a linha de ontem e a conta
-// de hoje — que divergem no primeiro dia em que alguém mexer na conversa.
+// AGORA O FOLLOW-UP TAMBÉM VEM DAQUI, e essa é a virada.
+// Antes ele era CALCULADO: "esse lead está parado há 12 dias, logo devia ter
+// levado três cobranças". A conta não sabe o que foi realmente feito, não sabe
+// quem fez, e o "feito" morria ao recarregar a página. Agora cada cobrança é
+// uma linha, criada pela cadência no banco (fn_wa_followups_sincronizar) e
+// concluída de verdade — concluir uma abre a próxima.
+// As duas verdades que eu temia aqui deixaram de existir porque sobrou uma só:
+// a linha. A conta saiu.
 //
 // A JANELA DE 60 DIAS PRA TRÁS E 180 PRA FRENTE existe pro calendário. Ele
 // precisa saber em quais dias há task pra pintar o pontinho, e isso é a lista
@@ -34,6 +38,8 @@ export interface TaskRow {
   dia: string;
   hora: string | null;
   feita: boolean;
+  tipo: string;
+  rodada: number | null;
   wa_conversas: { instancia: string; nome_wa: string | null; telefone: string } | null;
 }
 
@@ -47,7 +53,8 @@ export function nomeDoLead(nome: string | null | undefined, telefone: string): s
 export function taskDaLinha(r: TaskRow): Task {
   return {
     id: r.id,
-    tipo: "lembrete",
+    tipo: r.tipo === "follow_up" ? "follow_up" : "lembrete",
+    rodada: r.rodada ?? undefined,
     leadId: r.conversa_id,
     lead: nomeDoLead(r.wa_conversas?.nome_wa, r.wa_conversas?.telefone ?? ""),
     titulo: r.titulo,
@@ -74,7 +81,7 @@ export function useTasksWa(instancia: string | null) {
         // !inner porque a task só existe se a conversa existir, e é o join que
         // permite filtrar pela instância — task da PDA não aparece no dia de
         // quem está olhando o número do escritório.
-        .select("id, conversa_id, titulo, detalhe, dia, hora, feita, wa_conversas!inner(instancia, nome_wa, telefone)")
+        .select("id, conversa_id, titulo, detalhe, dia, hora, feita, tipo, rodada, wa_conversas!inner(instancia, nome_wa, telefone)")
         .ilike("wa_conversas.instancia", instancia!)
         .gte("dia", iso(de))
         .lte("dia", iso(ate))
@@ -129,4 +136,40 @@ export async function apagarTaskWa(id: string) {
 export function useInvalidarTasksWa() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["wa", "tasks"] });
+}
+
+/**
+ * Põe a cadência em dia: cria a cobrança de quem acabou de silenciar e cancela
+ * a de quem respondeu, fechou ou foi arquivado.
+ *
+ * É chamada ao abrir a tela, e é idempotente — rodar duas vezes seguidas não
+ * muda nada na segunda. Devolve os dois números porque "rodou e não fez nada"
+ * e "rodou e criou sete" precisam ser distinguíveis de fora.
+ */
+export async function sincronizarFollowUps(instancia: string | null) {
+  const { data, error } = await supabase.rpc("fn_wa_followups_sincronizar" as never, {
+    p_instancia: instancia,
+  } as never);
+  if (error) throw new Error(error.message);
+  const linha = (Array.isArray(data) ? data[0] : data) as { criadas: number; canceladas: number } | null;
+  return { criadas: linha?.criadas ?? 0, canceladas: linha?.canceladas ?? 0 };
+}
+
+/**
+ * Conclui uma cobrança e abre a próxima da régua.
+ *
+ * O próximo vencimento conta do dia de HOJE — de quando a cobrança foi
+ * realmente feita — e não do calendário original. Uma cobrança atrasada não
+ * pode empurrar a seguinte pro dia seguinte.
+ *
+ * Devolve o id da próxima, ou null quando a régua acabou: aí o lead sai da
+ * cadência com as cinco tentativas registradas, que é o desfecho e não um
+ * sumiço.
+ */
+export async function concluirFollowUp(taskId: string, quem?: string | null) {
+  const { data, error } = await supabase.rpc("fn_wa_followup_concluir" as never, {
+    p_task: taskId, p_por: quem ?? null,
+  } as never);
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
 }
