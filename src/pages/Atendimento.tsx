@@ -23,7 +23,7 @@
 // placar, e volta inteira com um clique. A fila em si (ordem de culpa, pontos,
 // cadência de follow-up) mora em src/lib/tasksAtendimento.ts, testada.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
@@ -689,18 +689,26 @@ export default function AtendimentoPage() {
      `scrollTop = scrollHeight` não tem esse problema: mexe numa caixa só, e no
      valor final, não numa posição em movimento. */
   const caixaDaConversa = useRef<HTMLDivElement>(null);
-  const descer = (suave: boolean) => {
+  const descer = () => {
     const el = caixaDaConversa.current;
     if (!el) return;
-    /* Um quadro de espera: o balão novo entra no DOM neste render, e a altura
-       só existe depois que o navegador mede. Sem isso, a conta usa a altura
-       ANTERIOR e para um balão antes do fim. */
-    requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
-    });
+    el.scrollTop = el.scrollHeight;
   };
 
-  useEffect(() => { descer(false); }, [lead.id]);
+  /* ANTES DO QUADRO, E SEM ROLAGEM SUAVE — e é isto que finalmente acaba com o
+     repuxão.
+     O que sobrava era a viagem: com `behavior: "smooth"`, o navegador pinta o
+     balão no lugar onde o conteúdo ESTAVA e passa os trezentos milissegundos
+     seguintes levando a conversa até o fim. Quem olha vê a mensagem nascer mais
+     acima e descer até o piso — a animação de chegada acontecendo num lugar que
+     não é o dela.
+     `useLayoutEffect` roda depois de o React mexer no DOM e ANTES de o navegador
+     pintar: quando o balão aparece pela primeira vez, a conversa já está no fim.
+     Ele nasce no piso e faz a animação ali, parado.
+     (O `requestAnimationFrame` que estava aqui existia pra esperar a medida da
+     altura; num efeito de layout a medida já está pronta, e esperar um quadro
+     era justamente pintar uma vez no lugar errado.) */
+  useLayoutEffect(() => { descer(); }, [lead.id]);
 
   /* GRUDADO NO FIM ENQUANTO O CONTEÚDO AINDA CRESCE.
      Rolar uma vez, no quadro em que a mensagem entra, resolve o texto e falha
@@ -728,7 +736,7 @@ export default function AtendimentoPage() {
      piscada arrastaria a conversa — quem estivesse lendo uma mensagem mais
      acima seria jogado pro fim a cada dois segundos. Rolar é interrupção, e só
      mensagem nova justifica. */
-  useEffect(() => { descer(true); }, [msgsDaAberta.length, pendentesDaAberta.length]);
+  useLayoutEffect(() => { descer(); }, [msgsDaAberta.length, pendentesDaAberta.length]);
   /* O tipo é declarado, não inferido: sem isso o array vira uma UNIÃO entre a
      Mensagem completa e o formato mais estreito da bolha pendente, e todo campo
      opcional (dia, midiaPath, duracao) some do que dá pra ler. */
