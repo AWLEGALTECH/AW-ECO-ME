@@ -37,6 +37,10 @@ export interface AgendadaRow {
      valendo e guardam o PRIMEIRO deles — é o que deixa quem ainda lê a forma
      antiga mandar algo certo, ainda que incompleto. */
   midias: Midia[];
+  /* A etapa da jornada em que o lead estava quando esta mensagem foi marcada.
+     Preenchida por gatilho no banco: dali a três dias o lead já mudou de lugar,
+     e a mensagem continua sendo a que alguém escreveu pensando na etapa antiga. */
+  etapa: string | null;
   status: "pendente" | "enviando" | "enviada" | "cancelada" | "falhou";
   tentativas: number;
   erro: string | null;
@@ -62,7 +66,7 @@ export function useAgendadas(instancia: string | null) {
     refetchInterval: 30_000,
     queryFn: async (): Promise<AgendadaRow[]> => {
       const { data, error } = await tabela("wa_agendadas")
-        .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
+        .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, etapa, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
         .ilike("wa_conversas.instancia", instancia!)
         .in("status", ["pendente", "enviando", "falhou"])
         .order("quando");

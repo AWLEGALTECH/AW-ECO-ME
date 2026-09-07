@@ -40,7 +40,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info,
+  RotateCcw, Volume2, VolumeX, Info, Smile,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -68,6 +68,11 @@ import {
   useCadenciaFollowUp, useInvalidarCadencia, salvarDegrauDaRegua,
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
+import {
+  passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
+  type PassagemNaTela, type PassagemDeEtapa,
+} from "@/lib/jornada";
+import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
@@ -201,7 +206,11 @@ export default function AtendimentoPage() {
   const [dia, setDia] = useState(HOJE);
   const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
   const [rascunho, setRascunho] = useState("");
-  const [anexo, setAnexo] = useState<File | null>(null);
+  /* OS ANEXOS DA BARRA DO CHAT — no plural. Era um só, e escolher o segundo
+     trocava o primeiro sem avisar: nada dizia nada, o nome no campo apenas
+     mudava. Quem estava mandando três documentos de um caso descobria pelo
+     cliente. Agora somam, e saem todos no mesmo aperto do enviar. */
+  const [anexos, setAnexos] = useState<AnexoLocal[]>([]);
   const [mandandoAnexo, setMandandoAnexo] = useState(false);
   const [gravando, setGravando] = useState(false);
   const seletorArquivo = useRef<HTMLInputElement>(null);
@@ -638,7 +647,7 @@ export default function AtendimentoPage() {
 
     if (aoVivo) {
       moverEtapaWa(l.id, alvo, puladasNovas)
-        .then(invalidarWa)
+        .then(() => { invalidarWa(); invalidarEtapaLog(); })
         .catch((e) => toast.error("Não consegui mover a etapa: " + (e as Error).message));
     }
   };
@@ -856,6 +865,13 @@ export default function AtendimentoPage() {
     () => agendadas.filter((a) => a.conversa_id === lead.id),
     [agendadas, lead.id],
   );
+
+  /* O HISTÓRICO DE ETAPAS DESTA CONVERSA. De uma só, e não da caixa inteira:
+     ele é lido quando alguém abre a ficha de alguém, e carregar o histórico das
+     cinquenta linhas da caixa pra desenhar uma seria pagar por quarenta e nove
+     que ninguém vai olhar. */
+  const { data: etapaLog = [] } = useEtapaLog(aoVivo ? lead.id : null);
+  const invalidarEtapaLog = useInvalidarEtapaLog();
 
   const pendentesDaAberta = daConversa(pendentes, lead.id);
 
@@ -1767,7 +1783,7 @@ export default function AtendimentoPage() {
       const r = await enviarArquivo({
         conversaId: lead.id, arquivo, nome, legenda, duracao: segundos ?? null,
       });
-      setAnexo(null);
+      setAnexos([]);
       setRascunho("");
       invalidarWa();
       if (r?.aviso) toast.warning(r.aviso);
@@ -1776,6 +1792,116 @@ export default function AtendimentoPage() {
     } finally {
       setMandandoAnexo(false);
     }
+  };
+
+  /**
+   * Manda a fila inteira de anexos, um atrás do outro.
+   *
+   * O TEXTO VAI COM O PRIMEIRO, como no WhatsApp: legenda embaixo da primeira
+   * imagem e os demais secos atrás. Repetir a legenda em cada um faria o cliente
+   * receber o mesmo parágrafo quatro vezes.
+   *
+   * UM POR VEZ, EM ORDEM. Disparar os quatro em paralelo chegaria mais rápido e
+   * embaralhado — e a ordem dos documentos de um caso é justamente o que a
+   * pessoa escolheu ao anexar.
+   *
+   * O CAMPO SÓ ESVAZIA NO FIM, e só do que foi. Limpar antes de saber se saiu
+   * apagaria da tela um arquivo que o cliente nunca recebeu.
+   */
+  const mandarAnexos = async () => {
+    const fila = anexos;
+    if (fila.length === 0) return;
+    const legenda = rascunho.trim() || undefined;
+
+    setMandandoAnexo(true);
+    const ficaram: AnexoLocal[] = [];
+    try {
+      for (const [i, a] of fila.entries()) {
+        try {
+          const r = await enviarArquivo({
+            conversaId: lead.id,
+            arquivo: a.arquivo,
+            nome: a.arquivo.name,
+            legenda: i === 0 ? legenda : undefined,
+            duracao: a.duracao ?? null,
+          });
+          if (r?.aviso) toast.warning(r.aviso);
+        } catch (e) {
+          /* NÃO DERRUBA A FILA POR UM ARQUIVO. Parar no segundo deixaria o
+             terceiro e o quarto na tela sem explicação, e quem olha não teria
+             como saber se eles foram ou não. O que falhou continua no campo,
+             sozinho, pronto pra tentar de novo. */
+          ficaram.push(a);
+          toast.error(`Não consegui enviar "${a.arquivo.name}": ${(e as Error).message}`);
+        }
+      }
+      setAnexos(ficaram);
+      if (ficaram.length < fila.length) setRascunho("");
+      invalidarWa();
+    } finally {
+      setMandandoAnexo(false);
+    }
+  };
+
+  /**
+   * COLAR UM PRINT VIRA ANEXO.
+   *
+   * O gesto é o do WhatsApp Web e o de todo lugar onde se conversa: recorta a
+   * tela, Ctrl+V, manda. Sem isso, a pessoa que acabou de printar um extrato
+   * precisa salvar em Downloads, achar o arquivo no seletor e apagar depois —
+   * três passos e um arquivo esquecido no computador, pra mandar uma imagem que
+   * já estava na mão.
+   *
+   * SÓ INTERCEPTA QUANDO HÁ ARQUIVO. Colar texto continua colando texto: quem
+   * copiou o número de um processo e colou aqui não pode ver o campo não fazer
+   * nada porque a área de transferência também tinha uma imagem antiga.
+   */
+  const colarEmLista = (
+    e: React.ClipboardEvent,
+    guardar: React.Dispatch<React.SetStateAction<AnexoLocal[]>>,
+  ) => {
+    const arquivos = Array.from(e.clipboardData?.items ?? [])
+      .filter((i) => i.kind === "file")
+      .map((i) => i.getAsFile())
+      .filter((f): f is File => !!f);
+    if (arquivos.length === 0) return;
+
+    e.preventDefault();
+    guardar((p) => [...p, ...arquivos.map((bruto) => ({
+      /* O print chega sem nome próprio: o navegador entrega "image.png" pra
+         todos. Um nome com a hora é o que evita três anexos idênticos na mesma
+         fila, indistinguíveis na hora de tirar o errado. */
+      arquivo: bruto.name && bruto.name !== "image.png"
+        ? bruto
+        : new File([bruto], `print-${new Date().toLocaleTimeString("pt-BR").replace(/\D/g, "")}.png`,
+            { type: bruto.type || "image/png" }),
+    }))]);
+  };
+
+  const colarNoCampo = (e: React.ClipboardEvent) => colarEmLista(e, setAnexos);
+
+  /**
+   * O RELÓGIO DA BARRA: a mesma mensagem, marcada pra depois.
+   *
+   * Leva o que já está escrito — texto e anexos — pro diálogo da programada, em
+   * vez de abrir em branco. Abrir vazio faria a pessoa reescrever o que acabou
+   * de escrever, e reescrever é onde o texto muda sem querer.
+   */
+  const programarDaBarra = () => {
+    setEditando(null);
+    setTaskTitulo("");
+    setTaskDetalhe("");
+    setTaskDia(dia);
+    setTaskHora("");
+    limparRetencao();
+    setReterTexto(rascunho);
+    setReterAnexos(anexos);
+    setReterAberta(true);
+    setTaskAberta(true);
+    // O campo esvazia: a mensagem MUDOU DE LUGAR, não foi duplicada. Deixá-la
+    // nos dois faria alguém programar e mandar a mesma coisa.
+    setRascunho("");
+    setAnexos([]);
   };
 
   const enviarAudio = async (audio: Blob, segundos: number) => {
@@ -1806,7 +1932,7 @@ export default function AtendimentoPage() {
   };
 
   const enviar = async () => {
-    if (anexo) { await mandarArquivo(anexo, anexo.name, rascunho.trim() || undefined); return; }
+    if (anexos.length > 0) { await mandarAnexos(); return; }
     const texto = rascunho.trim();
     if (!texto) return;
     if (aoVivo) {
@@ -3038,18 +3164,16 @@ export default function AtendimentoPage() {
                 {/* O anexo escolhido fica VISÍVEL antes de ir. Anexar e mandar
                     no mesmo clique é o jeito de mandar o arquivo errado pro
                     cliente errado, e no WhatsApp não existe desfazer. */}
-                {anexo && (
-                  <div className="px-3 pt-2.5 flex items-center gap-2">
-                    <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5">
-                      {anexo.type.startsWith("image/")
-                        ? <img src={URL.createObjectURL(anexo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
-                        : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
-                      <span className="text-[11.5px] truncate max-w-[180px]" title={anexo.name}>{anexo.name}</span>
-                      <button type="button" onClick={() => setAnexo(null)} title="Tirar o anexo"
-                        className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12]">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
+                {anexos.length > 0 && (
+                  <div className="px-3 pt-2.5">
+                    <TiraDeAnexos
+                      itens={anexos.map((a, i) => ({
+                        chave: `${i}-${a.arquivo.name}-${a.arquivo.size}`,
+                        nome: a.arquivo.name,
+                        mime: a.arquivo.type,
+                        arquivo: a.arquivo,
+                        onRemover: () => setAnexos((p) => p.filter((_, j) => j !== i)),
+                      }))} />
                   </div>
                 )}
 
@@ -3057,13 +3181,41 @@ export default function AtendimentoPage() {
                   {aoVivo && !gravando && (
                     <>
                       <input
-                        ref={seletorArquivo} type="file" className="hidden"
+                        ref={seletorArquivo} type="file" className="hidden" multiple
                         accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                        onChange={(e) => { setAnexo(e.target.files?.[0] ?? null); e.target.value = ""; }}
+                        onChange={(e) => {
+                          /* SOMA, NÃO TROCA. Escolher vários de uma vez e voltar
+                             pra escolher mais são o mesmo gesto no WhatsApp. */
+                          const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
+                          setAnexos((p) => [...p, ...novos]);
+                          e.target.value = "";
+                        }}
                       />
-                      <Button size="sm" variant="ghost" title="Anexar arquivo"
+                      <Button size="sm" variant="ghost" title="Anexar arquivos"
                         className="h-9 w-9 p-0 shrink-0" onClick={() => seletorArquivo.current?.click()}>
                         <Paperclip className="h-4 w-4" />
+                      </Button>
+
+                      {/* O EMOJI FICA COLADO NO CLIPE, e não do lado do enviar:
+                          os dois são "o que entra na mensagem"; o enviar é "o
+                          que sai". */}
+                      <SeletorDeEmoji onEscolher={(e) => {
+                        setRascunho((t) => t + e);
+                        campoResposta.current?.focus();
+                      }} />
+
+                      {/* MESMO GESTO DA MENSAGEM PROGRAMADA, na barra onde a
+                          mensagem é escrita. Ela existia só no botão lá da
+                          coluna do dia, longe de onde se está escrevendo — e
+                          "isso aqui é melhor mandar às oito" é uma decisão que
+                          se toma com o texto na mão, não antes dele.
+                          Fantasma de propósito: só um envio é o envio: dar o
+                          mesmo peso aos dois faria a pessoa programar quando
+                          queria mandar. */}
+                      <Button size="sm" variant="ghost" title="Programar esta mensagem para depois"
+                        className="h-9 w-9 p-0 shrink-0 text-muted-foreground hover:text-primary"
+                        onClick={programarDaBarra}>
+                        <Clock className="h-4 w-4" />
                       </Button>
                     </>
                   )}
@@ -3086,12 +3238,13 @@ export default function AtendimentoPage() {
                         e.preventDefault();
                         enviar();
                       }}
-                      placeholder={anexo ? "Legenda (opcional)…" : `Responder ${lead.nome.split(" ")[0]}…`}
+                      onPaste={colarNoCampo}
+                      placeholder={anexos.length > 0 ? "Legenda (opcional)…" : `Responder ${lead.nome.split(" ")[0]}…`}
                       className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
                     />
                   )}
 
-                  {aoVivo && !anexo && (
+                  {aoVivo && anexos.length === 0 && (
                     <GravadorDeAudio
                       onEnviar={enviarAudio}
                       onGravandoChange={setGravando}
@@ -3101,7 +3254,7 @@ export default function AtendimentoPage() {
 
                   {!gravando && (
                     <Button size="sm" className="h-9 w-9 p-0 shrink-0" onClick={enviar}
-                      disabled={mandandoAnexo || (!rascunho.trim() && !anexo)}>
+                      disabled={mandandoAnexo || (!rascunho.trim() && anexos.length === 0)}>
                       {mandandoAnexo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                   )}
@@ -3244,6 +3397,8 @@ export default function AtendimentoPage() {
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
                     tasksDoLead={tasksDoLead}
+                    log={etapaLog}
+                    programadas={agendadasDaAberta}
                     onEscolherEtapa={() => setEtapaAberta(true)}
                     onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
@@ -4086,6 +4241,7 @@ export default function AtendimentoPage() {
                       className="h-9 w-9 p-0 shrink-0" onClick={() => seletorModelo.current?.click()}>
                       <Paperclip className="h-4 w-4" />
                     </Button>
+                    <SeletorDeEmoji onEscolher={(x) => setModeloTexto((t) => t + x)} />
                   </>
                 )}
 
@@ -4094,6 +4250,7 @@ export default function AtendimentoPage() {
                     value={modeloTexto}
                     rows={1}
                     onChange={(e) => setModeloTexto(e.target.value)}
+                    onPaste={(ev) => colarEmLista(ev, setModeloAnexos)}
                     placeholder={modeloAnexos.length + modeloMantidos.length > 0
                       ? "Legenda (opcional)…" : "A mensagem desta rodada…"}
                     className="min-h-9 max-h-[9rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin" />
@@ -4370,6 +4527,7 @@ export default function AtendimentoPage() {
                               className="h-9 w-9 p-0 shrink-0" onClick={() => seletorRetido.current?.click()}>
                               <Paperclip className="h-4 w-4" />
                             </Button>
+                            <SeletorDeEmoji onEscolher={(x) => setReterTexto((t) => t + x)} />
                           </>
                         )}
 
@@ -4386,6 +4544,7 @@ export default function AtendimentoPage() {
                               e.preventDefault();
                               prepararRetida();
                             }}
+                            onPaste={(ev) => colarEmLista(ev, setReterAnexos)}
                             placeholder={reterAnexos.length > 0 ? "Legenda (opcional)…" : `Mensagem para ${lead.nome.split(" ")[0]}…`}
                             className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
                           />
@@ -5241,17 +5400,38 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
+function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
   atual: Estagio;
   puladas: Estagio[];
   tasksDoLead: Task[];
+  /** cada passagem do lead por cada etapa, em ordem de tempo */
+  log: PassagemDeEtapa[];
+  /** as mensagens marcadas, pra aparecerem na etapa em que foram marcadas */
+  programadas: AgendadaRow[];
   onEscolherEtapa: () => void;
   onNovaTask: () => void;
   onConcluirTask: (id: string) => void;
   onAbrirTask: (t: Task) => void;
 }) {
   const iAtual = ESTAGIOS.findIndex((e) => e.chave === atual);
-  const proxima = ESTAGIOS[iAtual + 1];
+
+  /* O LOG VIRADO POR ETAPA. Ele chega em ordem de tempo, que é como a coisa
+     aconteceu; a tela precisa por etapa, que é onde a informação vai morar. */
+  const passagens = useMemo(
+    () => passagensPorEtapa(log, ESTAGIOS.map((e) => e.chave)),
+    [log]);
+
+  /* As programadas de cada etapa. Uma mensagem marcada quando o lead estava em
+     Extrato foi escrita pensando em Extrato -- dali a três dias ele já mudou de
+     lugar, e a lista de programadas sozinha não conta essa parte. */
+  const programadasPorEtapa = useMemo(() => {
+    const m = new Map<string, AgendadaRow[]>();
+    for (const a of programadas) {
+      if (!a.etapa) continue;
+      m.set(a.etapa, [...(m.get(a.etapa) ?? []), a]);
+    }
+    return m;
+  }, [programadas]);
 
   return (
     <div>
@@ -5305,6 +5485,18 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
                 {pulada ? "pulada" : eAtual ? e.descricao : concluida ? "concluída" : "ainda não"}
               </p>
 
+              {/* ── O LOG DESTA ETAPA ──
+                  Uma linha por passagem, com a data. Duas linhas aqui querem
+                  dizer que o lead voltou -- e é essa a informação que a etapa
+                  sozinha apagava, porque `etapa` guarda uma palavra e a segunda
+                  passagem sobrescrevia a primeira.
+                  A DATA DA VOLTA É O QUE SE USA: é por ela que se acha a
+                  conversa daquele dia e se descobre o que fez o lead recuar. */}
+              <PassagensDaEtapa
+                passagens={passagens.get(e.chave) ?? []}
+                agendadas={programadasPorEtapa.get(e.chave) ?? []}
+                eAtual={eAtual} />
+
               {eAtual && (
                 <motion.div className="mt-2 flex flex-col gap-1.5 overflow-hidden"
                   initial={false} animate={{ height: "auto", opacity: 1 }}
@@ -5348,12 +5540,15 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
                     <Plus className="h-3.5 w-3.5" /> Programar mensagem
                   </button>
 
-                  {proxima && (
-                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
-                      onClick={onEscolherEtapa}>
-                      <ArrowRight className="h-3.5 w-3.5" /> Alterar etapa
-                    </Button>
-                  )}
+                  {/* SEM TRAVA NO FIM DA RÉGUA. Antes o botão sumia em
+                      "Fechado", porque não havia próxima -- e "não há pra onde
+                      avançar" foi confundido com "não há o que mudar". Fechar
+                      por engano acontece, e desfazer era impossível pela tela:
+                      a etapa que mais precisa de saída era a única sem nenhuma. */}
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
+                    onClick={onEscolherEtapa}>
+                    <ArrowRight className="h-3.5 w-3.5" /> Alterar etapa
+                  </Button>
                 </motion.div>
               )}
 
@@ -5366,6 +5561,71 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── AS PASSAGENS POR UMA ETAPA ──────────────────────────────────────────
+ *
+ * "Entrou aqui em 05/09" é uma frase; "entrou aqui em 05/09 e de novo em 12/09,
+ * voltando da Proposta" é uma HISTÓRIA, e é ela que muda a conversa. Um lead
+ * que bateu duas vezes na mesma etapa travou em alguma coisa, e a data da volta
+ * é o que permite achar a conversa daquele dia e descobrir o quê.
+ *
+ * A ETAPA CORRENTE MOSTRA HÁ QUANTO TEMPO. Nas outras, o tempo parado não
+ * significa nada — o lead já saiu de lá. Na atual, é a pergunta inteira.
+ *
+ * O QUE NÃO SE SABE, NÃO SE INVENTA. As conversas anteriores ao log não têm
+ * história gravada: essas linhas dizem "desde antes do registro" em vez de
+ * exibirem uma data que parece apurada e não é.
+ */
+function PassagensDaEtapa({ passagens, agendadas, eAtual }: {
+  passagens: PassagemNaTela[];
+  agendadas: AgendadaRow[];
+  eAtual: boolean;
+}) {
+  if (passagens.length === 0 && agendadas.length === 0) return null;
+  const ultima = passagens[passagens.length - 1];
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-[3px]">
+      {passagens.map((p, i) => (
+        <p key={i} className="flex items-center gap-1.5 text-[9.5px] leading-tight text-muted-foreground/60">
+          <span className="h-1 w-1 rounded-full bg-current shrink-0 opacity-70" />
+          {p.estimado ? (
+            <span className="italic">desde antes do registro</span>
+          ) : (
+            <>
+              <span className="tabular-nums">{quandoDaPassagem(p.entrouEm)}</span>
+              {p.voltou && (
+                <span className="text-amber-300/70">
+                  voltou{p.de ? ` de ${ESTAGIOS.find((e) => e.chave === p.de)?.rotulo ?? p.de}` : ""}
+                </span>
+              )}
+              {/* A CONTAGEM SÓ APARECE QUANDO PASSA DE UMA. "1ª vez" em toda
+                  etapa de todo lead seria ruído em cinco linhas por ficha, pra
+                  dizer o que o normal já diz. */}
+              {p.vez > 1 && <span className="opacity-70">{p.vez}ª vez</span>}
+            </>
+          )}
+        </p>
+      ))}
+
+      {eAtual && ultima && !ultima.estimado && (
+        <p className="text-[9.5px] leading-tight text-muted-foreground/50 pl-2.5">
+          aqui {tempoNaEtapa(ultima.entrouEm)}
+        </p>
+      )}
+
+      {agendadas.map((a) => (
+        <p key={a.id}
+          title={a.texto ?? a.midia_nome ?? "mensagem programada"}
+          className="flex items-center gap-1.5 text-[9.5px] leading-tight text-primary/70">
+          <Clock className="h-2.5 w-2.5 shrink-0" />
+          <span className="tabular-nums shrink-0">{quandoDaPassagem(a.quando)}</span>
+          <span className="truncate opacity-80">{a.texto || a.midia_nome || "mensagem"}</span>
+        </p>
+      ))}
     </div>
   );
 }
@@ -5729,6 +5989,82 @@ function TiraDeAnexos({ itens }: {
         <ChipDeAnexo key={it.chave} nome={it.nome} arquivo={it.arquivo} onRemover={it.onRemover} />
       ))}
     </div>
+  );
+}
+
+/* O SELETOR DE EMOJI.
+ *
+ * Uma lista curada, e não a tabela Unicode inteira. Um seletor completo tem
+ * milhares de figuras e uma busca por nome em inglês — e quem atende cliente usa
+ * as mesmas quinze o dia todo. A lista aqui é a de um escritório: confirmação,
+ * atenção, documento, prazo, cordialidade. Cabe numa tela, sem rolagem e sem
+ * biblioteca nova no pacote.
+ *
+ * OS RECENTES FICAM NA FRENTE, no navegador de quem usa. É a única
+ * personalização que um seletor pequeno precisa: em uma semana a primeira linha
+ * vira a lista pessoal de quem está atendendo.
+ */
+const EMOJIS: Array<{ grupo: string; itens: string[] }> = [
+  { grupo: "Confirmar", itens: ["👍", "✅", "🙌", "🤝", "👏", "💪", "🎯", "⭐"] },
+  { grupo: "Conversar", itens: ["🙂", "😀", "😊", "😉", "😅", "🥰", "🙏", "😌"] },
+  { grupo: "Atenção",   itens: ["⚠️", "❗", "❓", "🔴", "🟡", "🟢", "⏰", "⌛"] },
+  { grupo: "Trabalho",  itens: ["📄", "📎", "📅", "📌", "✍️", "⚖️", "🏛️", "📊"] },
+  { grupo: "Contato",   itens: ["📱", "📞", "💬", "📍", "💰", "🧾", "📷", "🔗"] },
+];
+
+const CHAVE_RECENTES = "aweco.emojis.recentes";
+
+function SeletorDeEmoji({ onEscolher }: { onEscolher: (e: string) => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [recentes, setRecentes] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const bruto = localStorage.getItem(CHAVE_RECENTES);
+      if (bruto) setRecentes(JSON.parse(bruto).slice(0, 8));
+    } catch { /* navegador sem storage: some a linha de recentes, o resto serve */ }
+  }, []);
+
+  const escolher = (e: string) => {
+    onEscolher(e);
+    setRecentes((p) => {
+      const novo = [e, ...p.filter((x) => x !== e)].slice(0, 8);
+      try { localStorage.setItem(CHAVE_RECENTES, JSON.stringify(novo)); } catch { /* idem */ }
+      return novo;
+    });
+    /* NÃO FECHA. Quem manda "👍🙏" escolhe dois seguidos, e fechar a cada
+       escolha obrigaria a reabrir pro segundo. Fecha no Esc, no clique fora ou
+       no próprio botão. */
+  };
+
+  const Linha = ({ titulo, itens }: { titulo: string; itens: string[] }) => (
+    <div>
+      <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1">{titulo}</p>
+      <div className="grid grid-cols-8 gap-0.5">
+        {itens.map((e) => (
+          <button key={e} type="button" onClick={() => escolher(e)}
+            className="h-7 w-7 grid place-items-center rounded-md text-[17px] leading-none
+                       hover:bg-white/[0.10] transition-colors">
+            {e}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <Popover open={aberto} onOpenChange={setAberto}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost" title="Emoji" className="h-9 w-9 p-0 shrink-0">
+          <Smile className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top"
+        className="w-[15.5rem] max-h-[min(20rem,60vh)] overflow-y-auto scrollbar-thin p-2.5 flex flex-col gap-2.5">
+        {recentes.length > 0 && <Linha titulo="Usados agora há pouco" itens={recentes} />}
+        {EMOJIS.map((g) => <Linha key={g.grupo} titulo={g.grupo} itens={g.itens} />)}
+      </PopoverContent>
+    </Popover>
   );
 }
 
