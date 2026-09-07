@@ -60,7 +60,14 @@ import {
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
-import { TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso } from "@/lib/followUp";
+import {
+  TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso, INTENCAO,
+  CADENCIA as CADENCIA_PADRAO, type Regua,
+} from "@/lib/followUp";
+import {
+  useCadenciaFollowUp, useInvalidarCadencia, salvarDegrauDaRegua,
+} from "@/hooks/useCadenciaFollowUp";
+import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
@@ -213,7 +220,10 @@ export default function AtendimentoPage() {
      separadas: quando EU faço alguma coisa, e quando O CLIENTE recebe. */
   const [reterAberta, setReterAberta] = useState(false);
   const [reterTexto, setReterTexto] = useState("");
-  const [reterArquivo, setReterArquivo] = useState<File | null>(null);
+  /* OS ANEXOS SE ACUMULAM, e não se substituem. Era um só, e escolher o segundo
+     trocava o primeiro em silêncio: nada avisava, o nome no campo apenas mudava.
+     Quem estava mandando três documentos de um caso descobria pelo cliente. */
+  const [reterAnexos, setReterAnexos] = useState<AnexoLocal[]>([]);
   /* O PADRÃO É DAQUI A UMA HORA, e não um horário fixo. Era "09:00", o que
      fazia todo agendamento aberto depois das nove nascer no passado — e a tela
      recusava com "escolha um horário à frente" antes de a pessoa ter escolhido
@@ -250,8 +260,12 @@ export default function AtendimentoPage() {
      no outro, e o que vazaria aqui viraria a mensagem de todo mundo. */
   const [modeloRodada, setModeloRodada] = useState<number | null>(null);
   const [modeloTexto, setModeloTexto] = useState("");
-  const [modeloArquivo, setModeloArquivo] = useState<File | null>(null);
-  const [modeloDuracao, setModeloDuracao] = useState<number | null>(null);
+  /* Duas listas porque são duas naturezas: os NOVOS ainda estão no computador de
+     quem escreve e precisam subir; os MANTIDOS já estão no bucket desde a última
+     vez. O editor mostra as duas juntas, na ordem, porque para quem lê isso é
+     uma coisa só — a mensagem que vai sair. */
+  const [modeloAnexos, setModeloAnexos] = useState<AnexoLocal[]>([]);
+  const [modeloMantidos, setModeloMantidos] = useState<Midia[]>([]);
   const [modeloGravando, setModeloGravando] = useState(false);
   const [salvandoModelo, setSalvandoModelo] = useState(false);
   const seletorModelo = useRef<HTMLInputElement>(null);
@@ -273,7 +287,7 @@ export default function AtendimentoPage() {
     setTaskHora(t.hora ?? "");
     setRetidas([]);
     setReterTexto("");
-    setReterArquivo(null);
+    setReterAnexos([]);
     setReterAberta(false);
     setAvisoRetida(false);
     setTaskAberta(true);
@@ -285,13 +299,8 @@ export default function AtendimentoPage() {
      o lembrete. São dois gestos separados porque são duas decisões separadas,
      e juntá-las fazia o diálogo fechar no meio da configuração. */
   const [retidas, setRetidas] = useState<Array<{
-    id: string; texto: string; arquivo: File | null;
-    tipo: TipoRetido; duracao: number | null; quando: Date;
+    id: string; texto: string; anexos: AnexoLocal[]; quando: Date;
   }>>([]);
-  /* O webm gravado pelo navegador não traz a duração no cabeçalho, então quem
-     sabe quantos segundos foram é só o gravador. Sem guardar aqui, o áudio
-     agendado chegaria no cliente como uma barra sem tamanho. */
-  const [reterDuracao, setReterDuracao] = useState<number | null>(null);
   const seletorRetido = useRef<HTMLInputElement>(null);
   const [taskHora, setTaskHora] = useState("");
   const [salvandoTask, setSalvandoTask] = useState(false);
@@ -723,6 +732,22 @@ export default function AtendimentoPage() {
   const invalidarAgendadas = useInvalidarAgendadas();
   const { data: modelosRegua = [] } = useModelosFollowUp();
   const invalidarModelos = useInvalidarModelos();
+  /* A RÉGUA EM USO. Vem do banco, e é a MESMA que `fn_wa_cadencia()` lê para
+     agendar a próxima cobrança: mudar o número na tela muda a fila de amanhã
+     porque os dois lados olham a mesma linha, não porque um avisou o outro. */
+  const { data: regua = CADENCIA_PADRAO } = useCadenciaFollowUp();
+  const invalidarCadencia = useInvalidarCadencia();
+
+  const mudarDegrau = async (rodada: number, dias: number) => {
+    try {
+      await salvarDegrauDaRegua(rodada, dias, user?.id ?? null);
+      invalidarCadencia();
+      invalidarTasks();
+      toast.success(`${rotuloDaRodada(rodada)} agora é de ${dias} ${dias === 1 ? "dia" : "dias"}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
 
   /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
      silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
@@ -1063,14 +1088,17 @@ export default function AtendimentoPage() {
     const m = modelosRegua.find((x) => x.rodada === rodada);
     setModeloRodada(rodada);
     setModeloTexto(m?.texto ?? "");
-    setModeloArquivo(null);
-    setModeloDuracao(null);
+    setModeloAnexos([]);
+    /* OS ANEXOS QUE JÁ ESTAVAM VOLTAM PRO EDITOR. Sem isso, salvar uma vírgula
+       no texto apagaria o PDF que a rodada mandava — o editor abriria sem ele e
+       o salvamento gravaria o que o editor mostrava. */
+    setModeloMantidos(m ? midiasDaLinha(m) : []);
   };
 
   const salvarModelo = async () => {
     if (modeloRodada === null) return;
-    const tipo = modeloArquivo ? tipoDoMime(modeloArquivo.type) : "texto";
-    if (tipo === "texto" && !modeloTexto.trim()) {
+    const semAnexo = modeloAnexos.length === 0 && modeloMantidos.length === 0;
+    if (semAnexo && !modeloTexto.trim()) {
       toast.error("Escreva a mensagem ou anexe um arquivo.");
       return;
     }
@@ -1078,11 +1106,9 @@ export default function AtendimentoPage() {
     try {
       await salvarModeloFollowUp({
         rodada: modeloRodada,
-        tipo,
         texto: modeloTexto,
-        arquivo: modeloArquivo,
-        nomeArquivo: modeloArquivo?.name ?? null,
-        duracao: modeloDuracao,
+        anexosNovos: modeloAnexos,
+        anexosMantidos: modeloMantidos,
         por: user?.id ?? null,
       });
       invalidarModelos();
@@ -1257,29 +1283,28 @@ export default function AtendimentoPage() {
      querer uma daqui a uma hora e outra amanhã cedo, e o seletor lá embaixo é
      só o valor corrente do campo. */
   const prepararRetida = () => {
-    const tipo = reterArquivo ? tipoDoMime(reterArquivo.type) : "texto";
+    /* O tipo da mensagem é o do PRIMEIRO anexo: é ele que define a rota de
+       envio, e é dele que o texto vira legenda. */
+    const tipo: TipoRetido = reterAnexos[0] ? tipoDoMime(reterAnexos[0].arquivo.type) : "texto";
     const quando = instanteDe(reterDia, reterHora || null);
     const impedimento = motivoDeNaoAgendar({
-      tipo, texto: reterTexto, temArquivo: !!reterArquivo, quando,
+      tipo, texto: reterTexto, temArquivo: reterAnexos.length > 0, quando,
     });
     if (impedimento) { toast.error(impedimento); return; }
 
     setRetidas((p) => [...p, {
-      id: `r-${Date.now()}`, texto: reterTexto.trim(), arquivo: reterArquivo,
-      tipo, duracao: reterDuracao, quando,
+      id: `r-${Date.now()}`, texto: reterTexto.trim(), anexos: reterAnexos, quando,
     }]);
     // Só o conteúdo se limpa. Dia e hora ficam: quem prepara duas mensagens
     // pro mesmo horário não deveria escolhê-lo duas vezes.
     setReterTexto("");
-    setReterArquivo(null);
-    setReterDuracao(null);
+    setReterAnexos([]);
   };
 
   const limparRetencao = () => {
     setReterAberta(false);
     setReterTexto("");
-    setReterArquivo(null);
-    setReterDuracao(null);
+    setReterAnexos([]);
     setReterDia(diaLocal(daquiUmaHora()));
     setReterHora(horaLocal(daquiUmaHora()));
     setRetidas([]);
@@ -1294,7 +1319,7 @@ export default function AtendimentoPage() {
     /* Conteúdo escrito e não preparado segura o salvamento UMA vez. Não é
        teimosia: o texto está a um clique de sumir sem nunca ter existido, e
        quem escreveu acha que já programou. */
-    const sobrou = !!reterTexto.trim() || !!reterArquivo;
+    const sobrou = !!reterTexto.trim() || reterAnexos.length > 0;
     if (sobrou && !ignorarPendente) { setAvisoRetida(true); return; }
     setAvisoRetida(false);
 
@@ -1315,11 +1340,8 @@ export default function AtendimentoPage() {
             conversaId: lead.id,
             taskId: editando?.id ?? null,
             quando: r.quando,
-            tipo: r.tipo,
             texto: r.texto,
-            arquivo: r.arquivo,
-            nomeArquivo: r.arquivo?.name ?? null,
-            duracao: r.duracao,
+            anexos: r.anexos,
             criadaPor: user?.id ?? null,
           });
           feitas++;
@@ -1879,6 +1901,8 @@ export default function AtendimentoPage() {
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2">
           <ModelosDaRegua
             modelos={modelosRegua}
+            regua={regua}
+            onMudarDia={mudarDegrau}
             onEditar={abrirModelo}
             onAlternar={(r, ativo) => {
               alternarModeloAtivo(r, ativo)
@@ -1889,6 +1913,7 @@ export default function AtendimentoPage() {
           tasks={lembretes}
           leads={leadsBase}
           hoje={HOJE}
+          regua={regua}
           onConcluir={concluir}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
           />
@@ -2773,7 +2798,7 @@ export default function AtendimentoPage() {
                               "Follow-up": qual régua é essa muda o que se
                               escreve, e o rótulo genérico não muda nada. */}
                           <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/70 flex items-center gap-1">
-                            {t.tipo === "follow_up" ? rotuloDoDegrau(t.rodada ?? 1) : ROTULO_TIPO[t.tipo]}
+                            {t.tipo === "follow_up" ? rotuloDoDegrau(t.rodada ?? 1, regua) : ROTULO_TIPO[t.tipo]}
                             {t.data !== dia && (
                               <span className="text-muted-foreground/50 tabular-nums normal-case">
                                 · {t.data < dia ? "venceu" : "vence"} {fmtDiaCurto(t.data)}
@@ -3174,7 +3199,7 @@ export default function AtendimentoPage() {
                     que ninguém vai mexer agora. */}
                 {followUpDoLead && followUpDoLead.data <= HOJE && (
                   <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE}
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={regua}
                     onAbrir={() => campoResposta.current?.focus()}
                     onConcluir={() => concluir(followUpDoLead.id)} />
                 )}
@@ -3212,7 +3237,7 @@ export default function AtendimentoPage() {
                     divergirem na primeira mudança. */}
                 {!(followUpDoLead && followUpDoLead.data <= HOJE) && (
                   <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE}
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={regua}
                     onAbrir={() => campoResposta.current?.focus()}
                     onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
                 )}
@@ -3501,7 +3526,7 @@ export default function AtendimentoPage() {
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-white/[0.06] text-muted-foreground ring-white/[0.10]">
-                                  {fu ? `${diasDaRodada(t.rodada ?? 1) ?? "?"} dias sem resposta` : "Marcado por você"}
+                                  {fu ? `${diasDaRodada(t.rodada ?? 1, regua) ?? "?"} dias sem resposta` : "Marcado por você"}
                                 </span>
                               )}
                               {/* O NOME ABRE A CONVERSA; o resto do cartão abre
@@ -3990,7 +4015,7 @@ export default function AtendimentoPage() {
             <DialogDescription className="text-[12px]">
               Vale para quem estiver com{" "}
               <span className="text-foreground/80">
-                {modeloRodada ? diasDaRodada(modeloRodada) : 0} dias sem responder
+                {modeloRodada ? diasDaRodada(modeloRodada, regua) : 0} dias sem responder
               </span>. Escreva como escreveria pra uma pessoa: é isso que vai ser
               mandado. Por ora ela não sai sozinha — serve pra quem for cobrar.
             </DialogDescription>
@@ -3998,27 +4023,33 @@ export default function AtendimentoPage() {
 
           <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
             <div className="p-2.5 flex flex-col gap-2">
-              {modeloArquivo && (
-                <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5 w-fit">
-                  {modeloArquivo.type.startsWith("image/")
-                    ? <img src={URL.createObjectURL(modeloArquivo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
-                    : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
-                  <span className="text-[11.5px] truncate max-w-[180px]" title={modeloArquivo.name}>{modeloArquivo.name}</span>
-                  <button type="button" onClick={() => { setModeloArquivo(null); setModeloDuracao(null); }}
-                    title="Tirar o anexo"
-                    className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
+              {/* OS ANEXOS EM TIRA, na ordem em que vão sair. Os que já estavam
+                  gravados e os que acabaram de ser escolhidos aparecem juntos,
+                  porque para quem lê são a mesma coisa: a mensagem que vai. */}
+              <TiraDeAnexos
+                itens={[
+                  ...modeloMantidos.map((m, i) => ({
+                    chave: `g${i}-${m.path}`, nome: m.nome, mime: m.mime,
+                    onRemover: () => setModeloMantidos((p) => p.filter((_, j) => j !== i)),
+                  })),
+                  ...modeloAnexos.map((a, i) => ({
+                    chave: `n${i}-${a.arquivo.name}`, nome: a.arquivo.name,
+                    mime: a.arquivo.type, arquivo: a.arquivo,
+                    onRemover: () => setModeloAnexos((p) => p.filter((_, j) => j !== i)),
+                  })),
+                ]} />
 
               <div className="flex items-center gap-1.5">
                 {!modeloGravando && (
                   <>
-                    <input ref={seletorModelo} type="file" className="hidden"
+                    <input ref={seletorModelo} type="file" className="hidden" multiple
                       accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                      onChange={(e) => { setModeloArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-                    <Button size="sm" variant="ghost" title="Anexar arquivo"
+                      onChange={(e) => {
+                        const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
+                        setModeloAnexos((p) => [...p, ...novos]);
+                        e.target.value = "";
+                      }} />
+                    <Button size="sm" variant="ghost" title="Anexar arquivos"
                       className="h-9 w-9 p-0 shrink-0" onClick={() => seletorModelo.current?.click()}>
                       <Paperclip className="h-4 w-4" />
                     </Button>
@@ -4030,19 +4061,20 @@ export default function AtendimentoPage() {
                     value={modeloTexto}
                     rows={1}
                     onChange={(e) => setModeloTexto(e.target.value)}
-                    placeholder={modeloArquivo ? "Legenda (opcional)…" : "A mensagem desta rodada…"}
+                    placeholder={modeloAnexos.length + modeloMantidos.length > 0
+                      ? "Legenda (opcional)…" : "A mensagem desta rodada…"}
                     className="min-h-9 max-h-[9rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin" />
                 )}
 
-                {!modeloArquivo && (
-                  <GravadorDeAudio
-                    onEnviar={async (audio, segundos) => {
-                      const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-                      setModeloArquivo(new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }));
-                      setModeloDuracao(segundos);
-                    }}
-                    onGravandoChange={setModeloGravando} />
-                )}
+                <GravadorDeAudio
+                  onEnviar={async (audio, segundos) => {
+                    const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+                    setModeloAnexos((p) => [...p, {
+                      arquivo: new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }),
+                      duracao: segundos,
+                    }]);
+                  }}
+                  onGravandoChange={setModeloGravando} />
               </div>
 
               <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
@@ -4057,7 +4089,8 @@ export default function AtendimentoPage() {
               Cancelar
             </Button>
             <Button size="sm" onClick={salvarModelo}
-              disabled={salvandoModelo || (!modeloTexto.trim() && !modeloArquivo)}>
+              disabled={salvandoModelo ||
+                (!modeloTexto.trim() && modeloAnexos.length + modeloMantidos.length === 0)}>
               {salvandoModelo
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
                 : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
@@ -4259,12 +4292,12 @@ export default function AtendimentoPage() {
                                   <X className="h-3 w-3" />
                                 </button>
                               </p>
-                              {r.arquivo && (
-                                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+                              {r.anexos.map((a, i) => (
+                                <p key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
                                   <Paperclip className="h-3 w-3 shrink-0" />
-                                  <span className="truncate max-w-[220px]">{r.arquivo.name}</span>
+                                  <span className="truncate max-w-[220px]">{a.arquivo.name}</span>
                                 </p>
-                              )}
+                              ))}
                               {r.texto && (
                                 <p className="text-[12.5px] leading-snug whitespace-pre-wrap break-words opacity-90">
                                   {r.texto}
@@ -4279,36 +4312,28 @@ export default function AtendimentoPage() {
                           chat: anexar e agendar no mesmo clique é o jeito de
                           programar o arquivo errado pro cliente errado, e o
                           erro só aparece quando já chegou nele. */}
-                      <AnimatePresence initial={false}>
-                        {reterArquivo && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ type: "spring", stiffness: 340, damping: 34, mass: 0.8 }}
-                            className="overflow-hidden">
-                            <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5 w-fit">
-                              {reterArquivo.type.startsWith("image/")
-                                ? <img src={URL.createObjectURL(reterArquivo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
-                                : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
-                              <span className="text-[11.5px] truncate max-w-[180px]" title={reterArquivo.name}>{reterArquivo.name}</span>
-                              <button type="button" onClick={() => setReterArquivo(null)} title="Tirar o anexo"
-                                className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                      <TiraDeAnexos
+                        itens={reterAnexos.map((a, i) => ({
+                          chave: `${i}-${a.arquivo.name}`, nome: a.arquivo.name,
+                          mime: a.arquivo.type, arquivo: a.arquivo,
+                          onRemover: () => setReterAnexos((p) => p.filter((_, j) => j !== i)),
+                        }))} />
 
                       {/* A LINHA DO CHAT, na mesma ordem e nas mesmas medidas. */}
                       <div className="flex items-center gap-1.5">
                         {!reterGravando && (
                           <>
-                            <input ref={seletorRetido} type="file" className="hidden"
+                            <input ref={seletorRetido} type="file" className="hidden" multiple
                               accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                              onChange={(e) => { setReterArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-                            <Button size="sm" variant="ghost" title="Anexar arquivo"
+                              onChange={(e) => {
+                                /* SOMA, não troca. Selecionar vários de uma vez e
+                                   voltar pra escolher mais são o mesmo gesto no
+                                   WhatsApp, e aqui também. */
+                                const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
+                                setReterAnexos((p) => [...p, ...novos]);
+                                e.target.value = "";
+                              }} />
+                            <Button size="sm" variant="ghost" title="Anexar arquivos"
                               className="h-9 w-9 p-0 shrink-0" onClick={() => seletorRetido.current?.click()}>
                               <Paperclip className="h-4 w-4" />
                             </Button>
@@ -4328,7 +4353,7 @@ export default function AtendimentoPage() {
                               e.preventDefault();
                               prepararRetida();
                             }}
-                            placeholder={reterArquivo ? "Legenda (opcional)…" : `Mensagem para ${lead.nome.split(" ")[0]}…`}
+                            placeholder={reterAnexos.length > 0 ? "Legenda (opcional)…" : `Mensagem para ${lead.nome.split(" ")[0]}…`}
                             className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
                           />
                         )}
@@ -4336,16 +4361,16 @@ export default function AtendimentoPage() {
                         {/* O MICROFONE GRAVA, MAS NÃO MANDA. No chat o áudio
                             sai no fim da gravação; aqui ele vira o anexo e
                             espera a hora, como todo o resto. */}
-                        {!reterArquivo && (
-                          <GravadorDeAudio
-                            onEnviar={async (audio, segundos) => {
-                              const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-                              setReterArquivo(new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }));
-                              setReterDuracao(segundos);
-                            }}
-                            onGravandoChange={setReterGravando}
-                          />
-                        )}
+                        <GravadorDeAudio
+                          onEnviar={async (audio, segundos) => {
+                            const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+                            setReterAnexos((p) => [...p, {
+                              arquivo: new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }),
+                              duracao: segundos,
+                            }]);
+                          }}
+                          onGravandoChange={setReterGravando}
+                        />
 
                         {!reterGravando && (
                           /* O MESMO BOTÃO DO CHAT: quadrado, avião de papel,
@@ -4359,7 +4384,7 @@ export default function AtendimentoPage() {
                              campo e o põe na conversa. */
                           <Button size="sm" className="h-9 w-9 p-0 shrink-0"
                             onClick={prepararRetida}
-                            disabled={!reterTexto.trim() && !reterArquivo}
+                            disabled={!reterTexto.trim() && reterAnexos.length === 0}
                             title={`Programar para ${quandoBonito(instanteDe(reterDia, reterHora || null).toISOString())}`}>
                             <Send className="h-4 w-4" />
                           </Button>
@@ -4376,12 +4401,12 @@ export default function AtendimentoPage() {
                           perder o texto que se acabou de escrever. */}
                       {(() => {
                         const m = motivoDeNaoAgendar({
-                          tipo: reterArquivo ? tipoDoMime(reterArquivo.type) : "texto",
+                          tipo: reterAnexos[0] ? tipoDoMime(reterAnexos[0].arquivo.type) : "texto",
                           texto: reterTexto,
-                          temArquivo: !!reterArquivo,
+                          temArquivo: reterAnexos.length > 0,
                           quando: instanteDe(reterDia, reterHora || null),
                         });
-                        return m && (reterTexto.trim() || reterArquivo) ? (
+                        return m && (reterTexto.trim() || reterAnexos.length > 0) ? (
                           <p className="flex items-start gap-1.5 text-[10.5px] text-amber-300/90 leading-snug">
                             <AlertTriangle className="h-3 w-3 shrink-0 mt-[1px]" /> {m}
                           </p>
@@ -4418,7 +4443,7 @@ export default function AtendimentoPage() {
                   </p>
                   <div className="flex gap-2 justify-end">
                     <Button variant="ghost" size="sm" className="h-7 text-[11px]"
-                      onClick={() => { setReterTexto(""); setReterArquivo(null); setReterDuracao(null); salvarTask(true); }}>
+                      onClick={() => { setReterTexto(""); setReterAnexos([]); salvarTask(true); }}>
                       Descartar e salvar
                     </Button>
                     <Button size="sm" className="h-7 text-[11px]"
@@ -4436,7 +4461,7 @@ export default function AtendimentoPage() {
               Cancelar
             </Button>
             <Button size="sm" onClick={() => salvarTask()}
-              disabled={salvandoTask || (retidas.length === 0 && !reterTexto.trim() && !reterArquivo)}>
+              disabled={salvandoTask || (retidas.length === 0 && !reterTexto.trim() && reterAnexos.length === 0)}>
               {salvandoTask
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Programando…</>
                 : <>Programar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
@@ -4638,10 +4663,11 @@ function SeloContato({ origem, base, followUp, tamanho = "pequeno" }: {
  * conversa é o botão de concluir — que faz outra coisa e por isso segura o
  * clique pra si.
  */
-function CardFollowUp({ task, diasSemResposta, hoje, onAbrir, onConcluir }: {
+function CardFollowUp({ task, diasSemResposta, hoje, regua, onAbrir, onConcluir }: {
   task: Task;
   diasSemResposta: number;
   hoje: string;
+  regua: Regua;
   onAbrir: () => void;
   onConcluir: () => void;
 }) {
@@ -4686,7 +4712,7 @@ function CardFollowUp({ task, diasSemResposta, hoje, onAbrir, onConcluir }: {
           muda o que se escreve; "de 1 dia" e "de 60 dias" pedem mensagens
           opostas — a primeira retoma, a última encerra. */}
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-2.5">
-        {rotuloDoDegrau(task.rodada ?? 1)}
+        {rotuloDoDegrau(task.rodada ?? 1, regua)}
       </p>
       <p className="text-sm font-medium leading-tight mt-0.5 line-clamp-2">{task.lead}</p>
       <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 flex-1">{task.detalhe}</p>
@@ -4947,11 +4973,12 @@ function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: st
  * vira a próxima coisa a fazer. Quem abre a conversa precisa disso antes de
  * escrever "oi, tudo bem?" para alguém que está esperando o terceiro toque.
  */
-function PainelFollowUpDoLead({ task, feitos, lead, hoje, onAbrir, onConcluir }: {
+function PainelFollowUpDoLead({ task, feitos, lead, hoje, regua, onAbrir, onConcluir }: {
   task: Task | null;
   feitos: Task[];
   lead: Lead;
   hoje: string;
+  regua: Regua;
   onAbrir: () => void;
   onConcluir: () => void;
 }) {
@@ -4976,7 +5003,7 @@ function PainelFollowUpDoLead({ task, feitos, lead, hoje, onAbrir, onConcluir }:
         /* Sem repetir os três números: eles já estão no dossiê, algumas linhas
            acima, e aparecem lá mesmo quando a cobrança é de outro dia. Aqui o
            que interessa é o cartão — a coisa que se faz. */
-        <CardFollowUp task={task} diasSemResposta={lead.diasParado} hoje={hoje}
+        <CardFollowUp task={task} diasSemResposta={lead.diasParado} hoje={hoje} regua={regua}
           onAbrir={onAbrir} onConcluir={onConcluir} />
       ) : (
         <p className="text-[11px] text-muted-foreground/60 leading-snug">
@@ -5563,10 +5590,11 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
  * esperando resposta não aparece aqui: aquilo é caixa não respondida, urgência
  * de hoje, e misturar as duas faria o caso urgente sumir embaixo da rotina.
  */
-function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
+function CentralFollowUp({ tasks, leads, hoje, regua, onConcluir, onAbrirConversa }: {
   tasks: Task[];
   leads: Lead[];
   hoje: string;
+  regua: Regua;
   onConcluir: (id: string) => void;
   onAbrirConversa: (leadId: string) => void;
 }) {
@@ -5599,6 +5627,7 @@ function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
               task={t}
               diasSemResposta={porLead.get(t.leadId)?.diasParado ?? 0}
               hoje={hoje}
+              regua={regua}
               onAbrir={() => onAbrirConversa(t.leadId)}
               onConcluir={() => onConcluir(t.id)}
             />
@@ -5651,97 +5680,273 @@ function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
  * mostrou o tamanho do cuidado que uma mensagem automática exige; ligar cinco
  * delas de uma vez, para a carteira inteira, seria começar pelo lado perigoso.
  */
-function ModelosDaRegua({ modelos, onEditar, onAlternar }: {
+/* A TIRA DE ANEXOS — os arquivos escolhidos, na ordem em que vão sair.
+ *
+ * Uma tira e não uma pilha: o WhatsApp mostra assim, e o número de arquivos é a
+ * informação que a pessoa precisa conferir num relance antes de programar. Cada
+ * chip tem o seu X, porque tirar o terceiro de quatro é um gesto comum e a
+ * alternativa (limpar tudo e reanexar) faz perder os outros três. */
+function TiraDeAnexos({ itens }: {
+  itens: Array<{ chave: string; nome: string; mime?: string | null; arquivo?: File; onRemover: () => void }>;
+}) {
+  if (itens.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {itens.map((it) => (
+        <ChipDeAnexo key={it.chave} nome={it.nome} arquivo={it.arquivo} onRemover={it.onRemover} />
+      ))}
+    </div>
+  );
+}
+
+function ChipDeAnexo({ nome, arquivo, onRemover }: {
+  nome: string; arquivo?: File; onRemover: () => void;
+}) {
+  /* A PRÉVIA NASCE UMA VEZ E MORRE COM O CHIP. `createObjectURL` no meio do
+     JSX criava um endereço novo a cada pintura e nunca soltava nenhum: com meia
+     dúzia de imagens anexadas e o campo sendo digitado, isso vira memória
+     presa que só o refresh devolve. */
+  const previa = useMemo(
+    () => (arquivo && arquivo.type.startsWith("image/") ? URL.createObjectURL(arquivo) : null),
+    [arquivo]);
+  useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
+
+  return (
+    <span className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5">
+      {previa
+        ? <img src={previa} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
+        : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
+      <span className="text-[11.5px] truncate max-w-[160px]" title={nome}>{nome}</span>
+      <button type="button" onClick={onRemover} title="Tirar este anexo"
+        className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+/* O DEGRAU, EDITÁVEL NO LUGAR ONDE ELE É LIDO.
+ *
+ * O número de dias estava escrito em código e mudá-lo custava um deploy; por
+ * custar um deploy, nunca mudava. Aqui ele é um botão que vira campo: o gesto é
+ * clicar no número que já está na tela, e não procurar uma tela de configuração
+ * que repetiria a régua inteira num segundo lugar.
+ *
+ * Enter salva, Escape desiste, sair do campo salva. Sem botão de confirmar: é
+ * um número de dois dígitos, e um "salvar" ao lado de cada um dos cinco encheria
+ * a régua de botões que fazem a mesma coisa. */
+function DegrauEditavel({ dias, salto, onSalvar }: {
+  dias: number;
+  /** quantos dias depois do degrau anterior; null na primeira rodada */
+  salto: number | null;
+  onSalvar: (dias: number) => Promise<void>;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [valor, setValor] = useState(String(dias));
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => { if (!editando) setValor(String(dias)); }, [dias, editando]);
+
+  const confirmar = async () => {
+    const n = Number(valor);
+    setEditando(false);
+    if (!Number.isFinite(n) || n === dias) { setValor(String(dias)); return; }
+    setSalvando(true);
+    try { await onSalvar(Math.round(n)); } finally { setSalvando(false); }
+  };
+
+  if (editando) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          autoFocus
+          type="number" min={1} max={365}
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          onBlur={confirmar}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); confirmar(); }
+            if (e.key === "Escape") { e.preventDefault(); setValor(String(dias)); setEditando(false); }
+          }}
+          className="w-12 rounded-md bg-white/[0.08] ring-1 ring-primary/40 px-1.5 py-0.5
+                     text-[12px] tabular-nums text-center outline-none" />
+        <span className="text-[11px] text-muted-foreground">dias</span>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditando(true)}
+      title="Clique para mudar de quantos dias é esta rodada"
+      className="group/degrau inline-flex items-baseline gap-1 rounded-md px-1 -mx-1
+                 hover:bg-white/[0.06] transition-colors">
+      <span className="text-[17px] font-semibold tabular-nums leading-none">
+        {salvando ? "…" : dias}
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        {dias === 1 ? "dia" : "dias"}
+      </span>
+      <Pencil className="h-2.5 w-2.5 self-center opacity-0 group-hover/degrau:opacity-60 transition-opacity" />
+      {salto !== null && (
+        <span className="text-[10px] text-muted-foreground/50 tabular-nums ml-0.5">
+          (+{salto})
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ModelosDaRegua({ modelos, regua, onEditar, onAlternar, onMudarDia }: {
   modelos: ModeloFollowUp[];
+  regua: Regua;
   onEditar: (rodada: number) => void;
   onAlternar: (rodada: number, ativo: boolean) => void;
+  onMudarDia: (rodada: number, dias: number) => Promise<void>;
 }) {
   const porRodada = new Map(modelos.map((m) => [m.rodada, m]));
+  const rodadas = Array.from({ length: TOTAL_RODADAS }, (_, i) => i + 1);
+  const escritas = rodadas.filter((r) => {
+    const m = porRodada.get(r);
+    return m && (m.texto || midiasDaLinha(m).length > 0);
+  }).length;
 
   return (
     <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
-      <div>
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <MessageSquareText className="h-4 w-4 text-muted-foreground" />
-          Mensagens padrão da régua
-        </h2>
-        <p className="text-[11.5px] text-muted-foreground mt-0.5">
-          O que a gente diz em cada rodada. Escrever do zero toda vez faz a mesma
-          cobrança sair de cinco jeitos — e a quinta rodada sair com o texto da
-          primeira. Por ora elas não saem sozinhas: servem pra quem vai escrever.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+            A régua
+          </h2>
+          <p className="text-[11.5px] text-muted-foreground mt-0.5">
+            O que a gente diz em cada rodada, e de quantos em quantos dias. Clique
+            no número para mudar o espaçamento; clique na mensagem para editar.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full bg-white/[0.05] ring-1 ring-white/[0.08]
+                         px-2.5 py-1 text-[10.5px] text-muted-foreground tabular-nums">
+          {escritas} de {TOTAL_RODADAS} escritas
+        </span>
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: TOTAL_RODADAS }, (_, i) => i + 1).map((r) => {
-          const m = porRodada.get(r);
-          const vazio = !m || (!m.texto && !m.midia_path);
-          const dias = diasDaRodada(r) ?? 0;
+      {/* ── A RÉGUA COMO RÉGUA ──
+          As cinco rodadas ficam LADO A LADO, numa faixa que rola de lado, e
+          nunca empilhadas. Empilhadas elas viravam cinco cartões parecidos e a
+          única coisa que importa aqui se perdia: que uma vem DEPOIS da outra, e
+          que a distância entre elas é o que decide o tom. O trilho atrás dos
+          marcadores é o desenho dessa passagem de tempo. */}
+      <div className="-mx-1 px-1 overflow-x-auto scrollbar-thin">
+        <div className="flex gap-3 min-w-max pb-1">
+          {rodadas.map((r, i) => {
+            const m = porRodada.get(r);
+            const anexos = m ? midiasDaLinha(m) : [];
+            const vazio = !m || (!m.texto && anexos.length === 0);
+            const dias = diasDaRodada(r, regua) ?? 0;
+            const anterior = i === 0 ? null : (diasDaRodada(r - 1, regua) ?? 0);
+            const desligada = m?.ativo === false;
 
-          return (
-            <div key={r}
-              className={cn("flex flex-col rounded-2xl border p-3 transition-colors",
-                m?.ativo === false
-                  ? "border-white/[0.05] bg-white/[0.015] opacity-60"
-                  : "border-white/[0.07] bg-white/[0.03]")}>
-              <div className="flex items-center gap-2">
-                <span className="h-7 w-7 rounded-xl bg-violet-400/12 ring-1 ring-violet-400/25 grid place-items-center shrink-0">
-                  <Repeat className="h-3.5 w-3.5 text-violet-300" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-medium tabular-nums">{rotuloDaRodada(r)}</span>
-                  <span className="block text-[10.5px] text-muted-foreground">
-                    {dias} {dias === 1 ? "dia" : "dias"} sem responder
+            return (
+              <div key={r} className="relative w-[16.5rem] shrink-0 flex flex-col">
+                {/* O TRILHO. Atravessa o cartão na altura do marcador e segue
+                    pelo vão até o próximo, o que faz as cinco lerem como uma
+                    linha do tempo e não como cinco caixas. */}
+                <span aria-hidden
+                  className={cn("absolute top-[0.68rem] left-[0.68rem] h-px bg-white/[0.12]",
+                    i === TOTAL_RODADAS - 1 ? "right-1/2" : "-right-3")} />
+
+                <div className="relative flex items-center gap-2 mb-2">
+                  <span className={cn(
+                    "h-[1.35rem] w-[1.35rem] rounded-full grid place-items-center shrink-0 text-[10px] font-semibold tabular-nums",
+                    desligada
+                      ? "bg-[#14161a] ring-1 ring-white/[0.12] text-muted-foreground/50"
+                      : vazio
+                        ? "bg-[#14161a] ring-1 ring-dashed ring-white/[0.20] text-muted-foreground"
+                        : "bg-violet-400/20 ring-1 ring-violet-400/40 text-violet-200")}>
+                    {r}
                   </span>
-                </span>
-                {m && !vazio && (
-                  <button
-                    onClick={() => onAlternar(r, !(m.ativo ?? true))}
-                    title={m.ativo === false ? "Ligar esta mensagem" : "Desligar sem apagar o texto"}
-                    className={cn("shrink-0 h-6 w-6 grid place-items-center rounded-md transition-colors",
-                      m.ativo === false
-                        ? "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.08]"
-                        : "text-emerald-400 hover:bg-emerald-400/10")}>
-                    {m.ativo === false ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
-                  </button>
-                )}
-              </div>
+                  <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 bg-[#101215] px-1">
+                    {rotuloDaRodada(r)}
+                  </span>
+                </div>
 
-              {/* A MENSAGEM COMO ELA CHEGA. Bolha do nosso lado, com o anexo se
-                  houver — a pergunta aqui é "isso está bom pra mandar?", e um
-                  campo de formulário não responde isso. */}
-              <div className="mt-2.5 min-h-[3.5rem] flex">
-                {vazio ? (
-                  <p className="text-[11px] text-muted-foreground/50 self-center">
-                    Nenhuma mensagem escrita ainda.
-                  </p>
-                ) : (
-                  <div className="self-end ml-auto w-fit max-w-full rounded-2xl rounded-tr-sm
-                                  bg-white/[0.08] ring-1 ring-white/[0.10] px-3 py-2">
-                    {m?.midia_nome && (
-                      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
-                        <Paperclip className="h-3 w-3 shrink-0" />
-                        <span className="truncate max-w-[12rem]">{m.midia_nome}</span>
-                      </p>
-                    )}
-                    {m?.texto && (
-                      <p className="text-[12.5px] leading-snug whitespace-pre-wrap break-words">{m.texto}</p>
+                <div className={cn("flex-1 flex flex-col rounded-2xl border p-3 transition-colors",
+                  desligada
+                    ? "border-white/[0.05] bg-white/[0.015]"
+                    : "border-white/[0.07] bg-white/[0.03]")}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0">
+                      <DegrauEditavel
+                        dias={dias}
+                        salto={anterior === null ? null : dias - anterior}
+                        onSalvar={(d) => onMudarDia(r, d)} />
+                      <span className="block text-[10px] text-muted-foreground/70 mt-0.5">
+                        sem responder
+                      </span>
+                    </span>
+                    {m && !vazio && (
+                      <button
+                        onClick={() => onAlternar(r, !(m.ativo ?? true))}
+                        title={desligada ? "Ligar esta mensagem" : "Desligar sem apagar o texto"}
+                        className={cn("shrink-0 h-6 w-6 grid place-items-center rounded-md transition-colors",
+                          desligada
+                            ? "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.08]"
+                            : "text-emerald-400 hover:bg-emerald-400/10")}>
+                        {desligada ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
+                      </button>
                     )}
                   </div>
-                )}
-              </div>
 
-              <button
-                onClick={() => onEditar(r)}
-                className="mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed
-                           border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5
-                           text-[11px] text-muted-foreground hover:text-primary transition-colors">
-                <Pencil className="h-3.5 w-3.5" /> {vazio ? "Escrever" : "Editar"}
-              </button>
-            </div>
-          );
-        })}
+                  {/* A INTENÇÃO DA RODADA, que é o que muda entre as cinco. Sem
+                      ela o cartão vazio não diz o que escrever, e o preenchido
+                      não diz por que aquele texto e não outro. */}
+                  <p className="text-[10.5px] text-muted-foreground/80 leading-snug mt-2">
+                    {INTENCAO[r]?.titulo}
+                  </p>
+
+                  {/* A MENSAGEM COMO ELA CHEGA. Bolha do nosso lado, com os
+                      anexos se houver — a pergunta aqui é "isso está bom pra
+                      mandar pra um cliente?", e um campo de formulário não
+                      responde isso. */}
+                  <button
+                    onClick={() => onEditar(r)}
+                    title={vazio ? "Escrever a mensagem desta rodada" : "Editar esta mensagem"}
+                    className={cn("mt-2 flex-1 min-h-[4.5rem] flex text-left rounded-xl p-1.5 -m-1.5 transition-colors",
+                      "hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                      desligada && "opacity-55")}>
+                    {vazio ? (
+                      <span className="m-auto flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                        <Pencil className="h-3.5 w-3.5" /> Escrever a mensagem
+                      </span>
+                    ) : (
+                      <span className="self-end ml-auto w-fit max-w-full rounded-2xl rounded-tr-sm
+                                       bg-white/[0.08] ring-1 ring-white/[0.10] px-3 py-2">
+                        {anexos.map((a, k) => (
+                          <span key={k} className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <span className="truncate max-w-[11rem]">{a.nome}</span>
+                          </span>
+                        ))}
+                        {m?.texto && (
+                          <span className="block text-[12.5px] leading-snug whitespace-pre-wrap break-words line-clamp-6">
+                            {m.texto}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+        Mudar um degrau muda o agendamento das próximas cobranças, e não as que já
+        estão marcadas. Por ora nada aqui sai sozinho: a mensagem fica pronta para
+        quem for cobrar.
+      </p>
     </SpotlightCard>
   );
 }

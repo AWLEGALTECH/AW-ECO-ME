@@ -43,6 +43,19 @@ const json = (b: unknown) =>
 
 type Tipo = "texto" | "imagem" | "video" | "documento" | "audio";
 
+type Midia = { path: string; mime?: string | null; nome?: string | null; tipo?: Tipo; duracao?: number | null };
+
+/** Os anexos da linha, aceitando as duas formas: `midias` (nova) e `midia_path` (antiga). */
+function anexosDaLinha(a: Record<string, any>): Midia[] {
+  const lista = Array.isArray(a.midias) ? (a.midias as Midia[]) : [];
+  const bons = lista.filter((m) => m && typeof m.path === "string" && m.path);
+  if (bons.length > 0) return bons;
+  if (a.midia_path) {
+    return [{ path: a.midia_path, mime: a.midia_mime, nome: a.midia_nome, tipo: a.tipo, duracao: a.duracao }];
+  }
+  return [];
+}
+
 /** Rota e corpo da Evolution v2 para cada tipo. Espelho da wa-enviar. */
 function requisicao(tipo: Tipo, numero: string, texto: string | null, url: string | null, nome: string | null, mime: string | null) {
   if (tipo === "texto") {
@@ -109,76 +122,115 @@ Deno.serve(async (req: Request) => {
         falhas++; continue;
       }
 
-      // ── o link que a Evolution vai baixar ──
-      let url: string | null = null;
-      if (a.midia_path) {
-        // Uma hora de validade: a Evolution baixa em segundos, e um link curto
-        // é um link que não vaza depois.
-        const { data: assinada, error: eUrl } = await sb.storage
-          .from("wa-midia").createSignedUrl(a.midia_path, 3600);
-        if (eUrl || !assinada?.signedUrl) {
-          await desfecho(false, null, `Mídia sem URL: ${eUrl?.message ?? "arquivo sumiu do bucket"}`);
-          falhas++; continue;
+      /* ── UMA MENSAGEM PODE TER VÁRIOS ANEXOS ──
+         Sai um por vez, na ordem em que foram escolhidos, e o TEXTO ACOMPANHA O
+         PRIMEIRO como legenda — igual ao WhatsApp. Repetir a legenda em cada um
+         faria o cliente receber o mesmo parágrafo quatro vezes.
+
+         DEPOIS DO PRIMEIRO ENTREGUE, ESTA LINHA NÃO VOLTA PRA FILA. Um erro no
+         terceiro anexo devolveria a linha para `pendente`, e o minuto seguinte
+         reenviaria os dois que o cliente já tinha recebido. Entre "faltou um
+         arquivo" e "chegou tudo em dobro", o primeiro é o que dá pra
+         consertar. */
+      const anexos = anexosDaLinha(a);
+      const partes: Array<{ tipo: Tipo; url: string | null; nome: string | null; mime: string | null; texto: string | null; midia: Midia | null }> =
+        anexos.length === 0
+          ? [{ tipo: "texto", url: null, nome: null, mime: null, texto: a.texto, midia: null }]
+          : anexos.map((m, i) => ({
+              tipo: (m.tipo ?? "documento") as Tipo,
+              url: null, nome: m.nome ?? null, mime: m.mime ?? null,
+              texto: i === 0 ? a.texto : null,
+              midia: m,
+            }));
+
+      let primeiraMsg: string | null = null;
+      let entregues = 0;
+      let quebrou: string | null = null;
+
+      for (const parte of partes) {
+        if (parte.midia) {
+          // Uma hora de validade: a Evolution baixa em segundos, e um link curto
+          // é um link que não vaza depois.
+          const { data: assinada, error: eUrl } = await sb.storage
+            .from("wa-midia").createSignedUrl(parte.midia.path, 3600);
+          if (eUrl || !assinada?.signedUrl) {
+            quebrou = `Mídia sem URL (${parte.nome ?? parte.midia.path}): ${eUrl?.message ?? "arquivo sumiu do bucket"}`;
+            break;
+          }
+          parte.url = assinada.signedUrl;
         }
-        url = assinada.signedUrl;
-      }
 
-      const { rota, corpo } = requisicao(
-        a.tipo as Tipo, conversa.telefone, a.texto, url, a.midia_nome, a.midia_mime,
-      );
-      const resp = await fetch(`${base}/message/${rota}/${encodeURIComponent(conversa.instancia)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey },
-        body: JSON.stringify(corpo),
-      });
-      const bruto = await resp.text();
+        const { rota, corpo } = requisicao(
+          parte.tipo, conversa.telefone, parte.texto, parte.url, parte.nome, parte.mime,
+        );
+        const resp = await fetch(`${base}/message/${rota}/${encodeURIComponent(conversa.instancia)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey },
+          body: JSON.stringify(corpo),
+        });
+        const bruto = await resp.text();
 
-      if (!resp.ok) {
-        /* A MENSAGEM DE ERRO PRECISA DIZER O QUE FAZER. A Evolution devolve
-           "Connection Closed" quando a instância está desconectada, e quem lê
-           isso na manhã seguinte não liga o texto ao WhatsApp fora do ar. */
-        const dica = resp.status === 401
-          ? "chave da Evolution recusada"
-          : /connection|closed|not.*found/i.test(bruto)
-            ? `instância ${conversa.instancia} parece desconectada`
-            : `Evolution ${resp.status}`;
-        console.error(`[wa-despachar] ${rota} ${resp.status}: ${bruto.slice(0, 300)}`);
-        await desfecho(false, null, `${dica}: ${bruto.slice(0, 160)}`);
-        falhas++; continue;
-      }
+        if (!resp.ok) {
+          /* A MENSAGEM DE ERRO PRECISA DIZER O QUE FAZER. A Evolution devolve
+             "Connection Closed" quando a instância está desconectada, e quem lê
+             isso na manhã seguinte não liga o texto ao WhatsApp fora do ar. */
+          const dica = resp.status === 401
+            ? "chave da Evolution recusada"
+            : /connection|closed|not.*found/i.test(bruto)
+              ? `instância ${conversa.instancia} parece desconectada`
+              : `Evolution ${resp.status}`;
+          console.error(`[wa-despachar] ${rota} ${resp.status}: ${bruto.slice(0, 300)}`);
+          quebrou = `${dica}: ${bruto.slice(0, 160)}`;
+          break;
+        }
 
-      const retorno = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
+        const retorno = (() => { try { return JSON.parse(bruto); } catch { return {}; } })();
 
-      // ── agora sim, vira linha na conversa ──
-      const { data: msg, error: eIns } = await sb.from("wa_mensagens").insert({
-        conversa_id: a.conversa_id,
-        id_whatsapp: retorno?.key?.id ?? null,
-        direcao: "saida",
-        status: "enviada",
-        tipo: a.tipo,
-        texto: a.texto,
-        midia_path: a.midia_path,
-        midia_mime: a.midia_mime,
-        midia_nome: a.midia_nome,
-        duracao: a.duracao,
-        enviado_por: a.criada_por,
-        /* SAIU SOZINHA, e a tela precisa saber. Sem esta marca, uma conversa
-           que sobe ao topo às três da manhã parece movimento de gente — e
-           alguém pode responder de manhã a um "oi, tudo bem?" que ele mesmo
-           agendou, achando que o cliente escreveu. */
-        automatica: true,
-      }).select("id").single();
+        // ── agora sim, vira linha na conversa ──
+        const { data: msg, error: eIns } = await sb.from("wa_mensagens").insert({
+          conversa_id: a.conversa_id,
+          id_whatsapp: retorno?.key?.id ?? null,
+          direcao: "saida",
+          status: "enviada",
+          tipo: parte.tipo,
+          texto: parte.texto,
+          midia_path: parte.midia?.path ?? null,
+          midia_mime: parte.mime,
+          midia_nome: parte.nome,
+          duracao: parte.midia?.duracao ?? null,
+          enviado_por: a.criada_por,
+          /* SAIU SOZINHA, e a tela precisa saber. Sem esta marca, uma conversa
+             que sobe ao topo às três da manhã parece movimento de gente — e
+             alguém pode responder de manhã a um "oi, tudo bem?" que ele mesmo
+             agendou, achando que o cliente escreveu. */
+          automatica: true,
+        }).select("id").single();
 
-      if (eIns) {
         /* JÁ FOI. O cliente recebeu; falhar aqui é problema de registro, não de
            entrega. Marcar como falha faria o minuto seguinte reenviar — e o
            cliente receberia duas vezes por causa de um erro de gravação. */
-        console.error("[wa-despachar] enviou mas não gravou:", eIns.message);
-        await desfecho(true, null, null);
-        enviadas++; continue;
+        if (eIns) console.error("[wa-despachar] enviou mas não gravou:", eIns.message);
+        else if (!primeiraMsg) primeiraMsg = msg.id;
+
+        entregues++;
       }
 
-      await desfecho(true, msg.id, null);
+      if (quebrou && entregues === 0) {
+        await desfecho(false, null, quebrou);
+        falhas++; continue;
+      }
+
+      await desfecho(true, primeiraMsg, null);
+
+      if (quebrou) {
+        /* Entregue pela metade. O status fica `enviada` para não reenviar o que
+           já chegou, e o erro é gravado por cima para que a linha não conte
+           essa história como se tivesse dado tudo certo. */
+        console.error(`[wa-despachar] parcial ${a.id}: ${entregues}/${partes.length} — ${quebrou}`);
+        await sb.from("wa_agendadas")
+          .update({ erro: `Saiu ${entregues} de ${partes.length}: ${quebrou}` })
+          .eq("id", a.id);
+      }
       enviadas++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

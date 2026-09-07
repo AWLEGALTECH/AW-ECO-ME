@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   CADENCIA, TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, INTENCAO, somaDias,
   vencimentoDaPrimeira, vencimentoDaProxima, entraNaCadencia, motivoDeFora,
-  urgenciaDaTask, diasDeAtraso, type SituacaoDaConversa,
+  urgenciaDaTask, diasDeAtraso, reguaValida, type SituacaoDaConversa,
 } from "./followUp";
 
 describe("a régua", () => {
@@ -137,5 +137,51 @@ describe("urgência", () => {
     expect(diasDeAtraso("2026-09-01", "2026-09-10")).toBe(9);
     expect(diasDeAtraso("2026-09-10", "2026-09-10")).toBe(0);
     expect(diasDeAtraso("2026-09-20", "2026-09-10")).toBe(0);
+  });
+});
+
+/* A RÉGUA AJUSTÁVEL.
+ *
+ * Os degraus deixaram de ser constante e viraram linha no banco. O que estes
+ * testes protegem é o caminho de volta: uma régua que chega quebrada não pode
+ * apagar a fila do dia, e uma régua que chega válida tem que mandar de verdade
+ * — inclusive no cálculo de quando vence a próxima cobrança, que é a parte que
+ * ninguém vê errar até a fila amanhecer vazia. */
+describe("a régua ajustada", () => {
+  it("completa com o padrão o que vier faltando, em vez de recusar", () => {
+    expect(reguaValida([])).toEqual(CADENCIA);
+    expect(reguaValida(null)).toEqual(CADENCIA);
+    expect(reguaValida(undefined)).toEqual(CADENCIA);
+    // três degraus e dois buracos: o que falta volta ao padrão
+    expect(reguaValida([2, 7, 20])).toEqual([2, 7, 20, 30, 60]);
+    expect(reguaValida([0, 7])).toEqual([1, 7, 15, 30, 60]);
+  });
+
+  it("os rótulos falam da régua em uso, não da de fábrica", () => {
+    const minha = [2, 7, 20, 45, 90];
+    expect(diasDaRodada(2, minha)).toBe(7);
+    expect(rotuloDoDegrau(1, minha)).toBe("Follow-up de 2 dias");
+    expect(rotuloDoDegrau(5, minha)).toBe("Follow-up de 90 dias");
+    // sem régua, o padrão continua valendo — nada que já chamava mudou
+    expect(rotuloDoDegrau(2)).toBe("Follow-up de 5 dias");
+  });
+
+  it("o intervalo até a próxima é a distância entre os degraus DA RÉGUA EM USO", () => {
+    const minha = [2, 7, 20, 45, 90];
+    expect(vencimentoDaPrimeira("2026-09-10", minha)).toBe("2026-09-12");
+    expect(vencimentoDaProxima(1, "2026-09-01", minha)).toBe("2026-09-06");  // 7−2  = 5
+    expect(vencimentoDaProxima(4, "2026-09-01", minha)).toBe("2026-10-16");  // 90−45 = 45
+    expect(vencimentoDaProxima(5, "2026-09-01", minha)).toBeNull();
+  });
+
+  it("régua que não sobe não agenda no passado", () => {
+    /* O banco recusa isto na hora de salvar. Aqui é o cinto de segurança de
+       quem leu a régua antes da correção: sem o piso, a próxima cobrança
+       venceria ANTES da que acabou de ser feita e a fila encheria de coisa
+       vencida que ninguém marcou. */
+    const torta = [10, 3, 20, 30, 60];
+    const proxima = vencimentoDaProxima(1, "2026-09-10", torta);
+    expect(proxima).toBe("2026-09-11");
+    expect(proxima! > "2026-09-10").toBe(true);
   });
 });

@@ -28,21 +28,41 @@
 //    pode vencer no dia seguinte. O que importa é "quantos dias desde que a
 //    gente cutucou pela última vez", não uma data que já foi perdida.
 
-/** Dias desde o silêncio em que cada cobrança vence. */
+/** Dias desde o silêncio em que cada cobrança vence, quando ninguém mexeu.
+ *
+ * DEIXOU DE SER A VERDADE E VIROU O PADRÃO. A régua de verdade mora em
+ * `wa_followup_cadencia` e pode ser ajustada na tela — no mês de audiência,
+ * cobrar de 1 dia é perseguição; na semana morta, esperar 15 é perder o lead.
+ * Este array continua aqui como o que vale antes de a tabela responder, e como
+ * o que volta a valer se ela vier vazia: a fila do dia não pode sumir por causa
+ * de uma consulta que falhou. */
 export const CADENCIA = [1, 5, 15, 30, 60] as const;
 
 /** Quantas cobranças a régua tem, no total. */
 export const TOTAL_RODADAS = CADENCIA.length;
+
+/** A régua em uso — a ajustada, se houver; a padrão, se não. */
+export type Regua = readonly number[];
+
+/* Uma régua vinda do banco pode chegar curta, com buraco ou fora de ordem —
+   basta alguém ter apagado uma linha. Aqui ela é COMPLETADA com o padrão em vez
+   de recusada: uma régua torta ainda cobra gente, uma régua ausente não cobra
+   ninguém. */
+export function reguaValida(dias: number[] | null | undefined): Regua {
+  if (!dias || dias.length === 0) return CADENCIA;
+  return Array.from({ length: TOTAL_RODADAS }, (_, i) =>
+    Number.isFinite(dias[i]) && dias[i] > 0 ? dias[i] : CADENCIA[i]);
+}
 
 /** O nome curto de cada rodada, do jeito que a planilha nomeia. */
 export function rotuloDaRodada(rodada: number): string {
   return `UP${String(rodada).padStart(2, "0")}`;
 }
 
-/** Em que degrau da régua essa rodada cai — 1, 5, 15, 30 ou 60 dias. */
-export function diasDaRodada(rodada: number): number | null {
-  if (rodada < 1 || rodada > CADENCIA.length) return null;
-  return CADENCIA[rodada - 1];
+/** Em que degrau da régua essa rodada cai — 1, 5, 15, 30 ou 60 dias no padrão. */
+export function diasDaRodada(rodada: number, regua: Regua = CADENCIA): number | null {
+  if (rodada < 1 || rodada > TOTAL_RODADAS) return null;
+  return regua[rodada - 1] ?? CADENCIA[rodada - 1];
 }
 
 /**
@@ -53,8 +73,8 @@ export function diasDaRodada(rodada: number): number | null {
  * uma mensagem de encerramento. É a mesma informação — a primeira rodada é
  * sempre a de 1 dia —, dita pelo lado que decide a mensagem.
  */
-export function rotuloDoDegrau(rodada: number): string {
-  const d = diasDaRodada(rodada);
+export function rotuloDoDegrau(rodada: number, regua: Regua = CADENCIA): string {
+  const d = diasDaRodada(rodada, regua);
   if (d === null) return "Follow-up";
   return `Follow-up de ${d} ${d === 1 ? "dia" : "dias"}`;
 }
@@ -67,25 +87,29 @@ export function rotuloDoDegrau(rodada: number): string {
  * cinco cobranças virarem cinco "e aí, tudo certo?".
  */
 export const INTENCAO: Record<number, { titulo: string; detalhe: string }> = {
+  /* SEM O NÚMERO DE DIAS ESCRITO NO TEXTO. Ele estava aqui ("Cinco dias.") e
+     virou mentira no dia em que a régua passou a ser ajustável: o degrau da
+     segunda rodada pode ser 3 ou 7 agora. Quem mostra o número é a tela, que lê
+     a régua em uso; aqui fica só a INTENÇÃO, que não muda com o calendário. */
   1: {
     titulo: "Retomar de onde parou",
-    detalhe: "Um dia sem resposta. Retome sem cobrar: pergunte se ficou alguma dúvida do que foi dito.",
+    detalhe: "Primeiro toque. Retome sem cobrar: pergunte se ficou alguma dúvida do que foi dito.",
   },
   2: {
     titulo: "Tirar o obstáculo",
-    detalhe: "Cinco dias. Quem some nessa altura em geral travou em algo concreto. Pergunte o que falta para decidir.",
+    detalhe: "Quem some nesta altura em geral travou em algo concreto. Pergunte o que falta para decidir.",
   },
   3: {
     titulo: "Trazer novidade",
-    detalhe: "Quinze dias. Repetir a mesma pergunta não move. Traga algo novo: um caso parecido, um prazo que mudou.",
+    detalhe: "Repetir a mesma pergunta não move. Traga algo novo: um caso parecido, um prazo que mudou.",
   },
   4: {
     titulo: "Checar se ainda faz sentido",
-    detalhe: "Trinta dias. Pergunte diretamente se o assunto ainda está de pé. Resposta negativa também é resposta.",
+    detalhe: "Pergunte diretamente se o assunto ainda está de pé. Resposta negativa também é resposta.",
   },
   5: {
     titulo: "Encerrar ou reabrir",
-    detalhe: "Sessenta dias. Última da régua. Deixe a porta aberta e registre o desfecho; depois desta, o lead sai da cadência.",
+    detalhe: "Última da régua. Deixe a porta aberta e registre o desfecho; depois desta, o lead sai da cadência.",
   },
 };
 
@@ -103,8 +127,8 @@ export const somaDias = (iso: string, n: number): string => {
  *
  * Conta de `desdeISO` — o dia da nossa última mensagem sem resposta.
  */
-export function vencimentoDaPrimeira(desdeISO: string): string {
-  return somaDias(desdeISO, CADENCIA[0]);
+export function vencimentoDaPrimeira(desdeISO: string, regua: Regua = CADENCIA): string {
+  return somaDias(desdeISO, regua[0] ?? CADENCIA[0]);
 }
 
 /**
@@ -117,10 +141,15 @@ export function vencimentoDaPrimeira(desdeISO: string): string {
  *
  * Null quando a régua acabou: não há próxima, o lead sai da cadência.
  */
-export function vencimentoDaProxima(rodada: number, feitaEmISO: string): string | null {
-  if (rodada < 1 || rodada >= CADENCIA.length) return null;
-  const intervalo = CADENCIA[rodada] - CADENCIA[rodada - 1];
-  return somaDias(feitaEmISO, intervalo);
+export function vencimentoDaProxima(
+  rodada: number, feitaEmISO: string, regua: Regua = CADENCIA,
+): string | null {
+  if (rodada < 1 || rodada >= TOTAL_RODADAS) return null;
+  const intervalo = (regua[rodada] ?? CADENCIA[rodada]) - (regua[rodada - 1] ?? CADENCIA[rodada - 1]);
+  /* Uma régua que não sobe agendaria a próxima cobrança para ANTES da que
+     acabou de ser feita. O banco já recusa isso na hora de salvar; aqui o piso
+     de um dia é o cinto de segurança de quem leu a régua antes da correção. */
+  return somaDias(feitaEmISO, Math.max(1, intervalo));
 }
 
 export type SituacaoDaConversa = {

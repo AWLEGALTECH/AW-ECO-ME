@@ -15,6 +15,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { TipoRetido } from "@/lib/retencao";
+import { resumoDasMidias, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { subirAnexos } from "@/lib/anexosBucket";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
@@ -26,6 +28,9 @@ export interface ModeloFollowUp {
   midia_mime: string | null;
   midia_nome: string | null;
   duracao: number | null;
+  /* Todos os anexos da mensagem padrão, em ordem. As colunas `midia_*` acima
+     guardam o primeiro deles. */
+  midias: Midia[];
   ativo: boolean;
   atualizado_por: string | null;
   updated_at: string;
@@ -39,7 +44,7 @@ export function useModelosFollowUp() {
     staleTime: 60_000,
     queryFn: async (): Promise<ModeloFollowUp[]> => {
       const { data, error } = await tabela("wa_followup_modelos")
-        .select("rodada, tipo, texto, midia_path, midia_mime, midia_nome, duracao, ativo, atualizado_por, updated_at")
+        .select("rodada, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, ativo, atualizado_por, updated_at")
         .order("rodada");
       if (error) throw error;
       return (data || []) as ModeloFollowUp[];
@@ -52,48 +57,35 @@ export function useInvalidarModelos() {
   return () => qc.invalidateQueries({ queryKey: ["wa", "followup", "modelos"] });
 }
 
-const nomeSeguro = (n: string) =>
-  n.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(-80);
-
 /**
  * Grava a mensagem padrão de uma rodada.
  *
  * `upsert` pela rodada: a linha existe ou não, e quem escreve não deveria
- * precisar saber disso. O arquivo sobe antes, no MESMO bucket das mensagens
- * enviadas à mão — quando isto virar disparo, o despachante vai lê-lo pelo
- * caminho que já conhece.
+ * precisar saber disso. Os arquivos sobem antes, no MESMO bucket das mensagens
+ * enviadas à mão — quando isto virar disparo, o despachante vai lê-los pelos
+ * caminhos que já conhece.
+ *
+ * O QUE ESTÁ NO EDITOR É O QUE FICA GRAVADO, inclusive a ausência de anexo:
+ * o editor abre com os anexos atuais, então salvar sem eles é uma decisão de
+ * tirar. Preservar o que não veio faria a rodada mandar um arquivo que ninguém
+ * escolheu, e sem lugar nenhum na tela pra descobrir isso antes do cliente.
  */
 export async function salvarModeloFollowUp(args: {
   rodada: number;
   texto?: string | null;
-  arquivo?: Blob | null;
-  nomeArquivo?: string | null;
-  tipo: TipoRetido;
-  duracao?: number | null;
+  /** os que ainda estão no computador de quem escreve */
+  anexosNovos?: AnexoLocal[];
+  /** os que já estavam gravados e a pessoa manteve */
+  anexosMantidos?: Midia[];
   por?: string | null;
 }) {
-  let midiaPath: string | null = null;
-  let mime: string | null = null;
-
-  if (args.arquivo) {
-    mime = args.arquivo.type || "application/octet-stream";
-    const nome = args.nomeArquivo || "arquivo";
-    midiaPath = `agendados/modelos/${args.rodada}_${Date.now()}_${nomeSeguro(nome)}`;
-    const { error } = await supabase.storage
-      .from("wa-midia").upload(midiaPath, args.arquivo, { contentType: mime, upsert: false });
-    if (error) throw new Error(`Não consegui subir o arquivo: ${error.message}`);
-  }
+  const subidos = await subirAnexos(args.anexosNovos ?? [], `agendados/modelos/${args.rodada}`);
+  const midias = [...(args.anexosMantidos ?? []), ...subidos];
 
   const { error } = await tabela("wa_followup_modelos").upsert({
     rodada: args.rodada,
-    tipo: args.tipo,
     texto: args.texto?.trim() || null,
-    // Trocar de mídia limpa o caminho antigo; manter o anterior quando o novo
-    // não veio faria a rodada mandar um arquivo que ninguém escolheu.
-    midia_path: midiaPath,
-    midia_mime: mime,
-    midia_nome: args.arquivo ? (args.nomeArquivo || "arquivo") : null,
-    duracao: args.duracao ?? null,
+    ...resumoDasMidias(midias),
     ativo: true,
     atualizado_por: args.por ?? null,
   }, { onConflict: "rodada" });

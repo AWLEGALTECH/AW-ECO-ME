@@ -17,6 +17,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { TipoRetido } from "@/lib/retencao";
+import { resumoDasMidias, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { subirAnexos } from "@/lib/anexosBucket";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
@@ -31,6 +33,10 @@ export interface AgendadaRow {
   midia_mime: string | null;
   midia_nome: string | null;
   duracao: number | null;
+  /* Todos os anexos, em ordem de envio. As colunas `midia_*` acima seguem
+     valendo e guardam o PRIMEIRO deles — é o que deixa quem ainda lê a forma
+     antiga mandar algo certo, ainda que incompleto. */
+  midias: Midia[];
   status: "pendente" | "enviando" | "enviada" | "cancelada" | "falhou";
   tentativas: number;
   erro: string | null;
@@ -56,7 +62,7 @@ export function useAgendadas(instancia: string | null) {
     refetchInterval: 30_000,
     queryFn: async (): Promise<AgendadaRow[]> => {
       const { data, error } = await tabela("wa_agendadas")
-        .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
+        .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
         .ilike("wa_conversas.instancia", instancia!)
         .in("status", ["pendente", "enviando", "falhou"])
         .order("quando");
@@ -71,51 +77,33 @@ export function useInvalidarAgendadas() {
   return () => qc.invalidateQueries({ queryKey: ["wa", "agendadas"] });
 }
 
-/** Nome de arquivo que sobrevive a um caminho de URL. */
-const nomeSeguro = (n: string) =>
-  n.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(-80);
-
 /**
  * Retém uma mensagem para sair na hora marcada.
  *
- * O arquivo, quando há, sobe primeiro — para o MESMO bucket das mensagens
+ * Os arquivos, quando há, sobem primeiro — para o MESMO bucket das mensagens
  * enviadas à mão. Isso não é economia de código: é o que faz a bolha da
  * conversa desenhar a mensagem agendada exatamente como desenharia a enviada,
  * sem precisar saber qual das duas ela é.
+ *
+ * São VÁRIOS agora. O texto vai como legenda do primeiro e os demais vão secos
+ * atrás, que é o comportamento do WhatsApp e portanto o que quem manda espera.
  */
 export async function reterMensagem(args: {
   conversaId: string;
   taskId?: string | null;
   quando: Date;
   texto?: string | null;
-  arquivo?: Blob | null;
-  nomeArquivo?: string | null;
-  tipo: TipoRetido;
-  duracao?: number | null;
+  anexos?: AnexoLocal[];
   criadaPor?: string | null;
 }) {
-  let midiaPath: string | null = null;
-  let mime: string | null = null;
-
-  if (args.arquivo) {
-    mime = args.arquivo.type || "application/octet-stream";
-    const nome = args.nomeArquivo || "arquivo";
-    midiaPath = `agendados/${args.conversaId}/${Date.now()}_${nomeSeguro(nome)}`;
-    const { error } = await supabase.storage
-      .from("wa-midia").upload(midiaPath, args.arquivo, { contentType: mime, upsert: false });
-    if (error) throw new Error(`Não consegui subir o arquivo: ${error.message}`);
-  }
+  const midias = await subirAnexos(args.anexos ?? [], `agendados/${args.conversaId}`);
 
   const { data, error } = await tabela("wa_agendadas").insert({
     conversa_id: args.conversaId,
     task_id: args.taskId ?? null,
     quando: args.quando.toISOString(),
-    tipo: args.tipo,
     texto: args.texto?.trim() || null,
-    midia_path: midiaPath,
-    midia_mime: mime,
-    midia_nome: args.arquivo ? (args.nomeArquivo || "arquivo") : null,
-    duracao: args.duracao ?? null,
+    ...resumoDasMidias(midias),
     criada_por: args.criadaPor ?? null,
   }).select("id").single();
 
