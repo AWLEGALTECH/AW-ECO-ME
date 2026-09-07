@@ -222,6 +222,21 @@ export default function AtendimentoPage() {
      ali, sem aviso nenhum. Salvar por conta própria seria pior: mandaria pro
      cliente algo que ninguém confirmou. Então pergunta. */
   const [avisoRetida, setAvisoRetida] = useState(false);
+
+  /* ═══ O LEMBRETE, AGORA NA FICHA ═══
+     Campos próprios, separados dos do diálogo, porque agora são duas telas
+     diferentes: aqui se anota o que EU faço; lá se programa o que o CLIENTE
+     recebe. Compartilhar o mesmo estado faria um rascunho vazar no outro. */
+  const [fichaTitulo, setFichaTitulo] = useState("");
+  const [fichaDetalhe, setFichaDetalhe] = useState("");
+  const [fichaDia, setFichaDia] = useState(HOJE);
+  const [fichaHora, setFichaHora] = useState("");
+  const [salvandoFicha, setSalvandoFicha] = useState(false);
+  /* Qual lembrete a ficha está editando. Null = está criando um novo. O mesmo
+     formulário serve aos dois porque são a mesma coisa; uma tela separada de
+     edição repetiria cada campo e divergiria no primeiro ajuste. */
+  const [editandoFicha, setEditandoFicha] = useState<Task | null>(null);
+  const campoLembrete = useRef<HTMLInputElement>(null);
   /* QUAL LEMBRETE ESTÁ SENDO EDITADO. Null quando é um novo.
      O mesmo diálogo serve pros dois porque são a mesma coisa: um lembrete com
      dia, hora e mensagens presas. Uma tela só de edição repetiria cada campo e
@@ -944,6 +959,17 @@ export default function AtendimentoPage() {
      lista é do dia que o calendário está mostrando, e a cobrança quase nunca
      vence hoje. Sair dali faria a ficha dizer "sem follow-up" para quem tem uma
      marcada pra sexta. */
+  /* TODOS os lembretes manuais em aberto desta pessoa, de qualquer dia — e não
+     só os do dia que o calendário aponta, como faz a jornada. Um recado marcado
+     pra sexta ficaria invisível numa quarta, que é justamente quando alguém
+     abriria a ficha pra conferir se já tinha anotado aquilo. */
+  const lembretesDoLead = useMemo(
+    () => lembretes
+      .filter((t) => t.leadId === lead.id && t.tipo === "lembrete" && !t.feita)
+      .sort((a, b) => a.data.localeCompare(b.data)),
+    [lembretes, lead.id],
+  );
+
   const followUpDoLead = followUpPorLead.get(lead.id) ?? null;
   const feitosDoLead = followUpsFeitosPorLead.get(lead.id) ?? [];
 
@@ -969,6 +995,7 @@ export default function AtendimentoPage() {
   /* Dias com task, pro calendário marcar. Uma linha por task, contra a lista
      inteira — não há mais recálculo por dia porque não há mais conta. */
   const diasComTask = useMemo(() => new Set(lembretes.map((t) => t.data)), [lembretes]);
+
 
   /* CONCLUIR PASSA A PERGUNTAR ANTES.
      O check ficava a um pixel do resto do cartão e concluía no primeiro clique.
@@ -1067,14 +1094,77 @@ export default function AtendimentoPage() {
      sem detalhe, sem dia, sem hora — e com a cara do sistema operacional no
      meio de uma tela que não é dele. Agora abre um diálogo de verdade, já com
      o dia que está sendo olhado no calendário. */
-  const novoLembrete = () => {
+  /* Abre o diálogo da MENSAGEM PROGRAMADA. O nome antigo (`novoLembrete`) ficou
+     errado quando as duas coisas se separaram: o diálogo não marca mais nada
+     pra mim, ele programa algo pro cliente. */
+  const novaProgramada = () => {
     setEditando(null);
     setTaskTitulo("");
     setTaskDetalhe("");
     setTaskDia(dia);
     setTaskHora("");
     limparRetencao();
+    setReterAberta(true);
     setTaskAberta(true);
+  };
+
+  /* MARCAR LEMBRETE, direto da ficha e sem diálogo nenhum. Um recado de duas
+     palavras não merece uma janela que cobre a conversa: quem anota "ligar
+     amanhã" está olhando a pessoa, e perder a conversa de vista pra digitar
+     isso é o tipo de atrito que faz ninguém anotar. */
+  /* Clicar num lembrete da lista o traz pros campos acima. Editar onde se cria
+     é o que faz o formulário parecer um lugar, e não uma caixa de entrada só de
+     ida — e um recado marcado pro dia errado é o erro mais comum que existe. */
+  const carregarLembreteNaFicha = (t: Task) => {
+    setEditandoFicha(t);
+    setFichaTitulo(t.titulo);
+    setFichaDetalhe(t.detalhe ?? "");
+    setFichaDia(t.data);
+    setFichaHora(t.hora ?? "");
+    campoLembrete.current?.focus();
+  };
+
+  const salvarLembreteDaFicha = async () => {
+    const titulo = fichaTitulo.trim();
+    if (!titulo) return;
+    if (!aoVivo) {
+      setLembretesMaquete((p) => [...p, {
+        id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
+        titulo, detalhe: fichaDetalhe.trim(), data: fichaDia, hora: fichaHora || null, feita: false,
+      }]);
+      setFichaTitulo(""); setFichaDetalhe("");
+      return;
+    }
+    setSalvandoFicha(true);
+    try {
+      if (editandoFicha) {
+        await atualizarTaskWa(editandoFicha.id, {
+          titulo, detalhe: fichaDetalhe, dia: fichaDia, hora: fichaHora || null,
+        });
+      } else {
+        await criarTaskWa({
+          conversaId: lead.id,
+          titulo,
+          detalhe: fichaDetalhe,
+          dia: fichaDia,
+          hora: fichaHora || null,
+          criadoPor: user?.id ?? null,
+        });
+      }
+      invalidarTasks();
+      setEditandoFicha(null);
+      setFichaTitulo(""); setFichaDetalhe(""); setFichaHora("");
+      toast.success(editandoFicha
+        ? "Lembrete atualizado."
+        : (fichaDia === HOJE ? "Lembrete marcado pra hoje." : `Lembrete marcado pra ${fmtDiaCurto(fichaDia)}.`));
+      // O calendário do daily segue o lembrete recém-criado: marcar algo pra
+      // quinta e continuar olhando a terça faz parecer que não salvou.
+      if (fichaDia !== dia) setDia(fichaDia);
+    } catch (e) {
+      toast.error("Não consegui marcar: " + (e as Error).message);
+    } finally {
+      setSalvandoFicha(false);
+    }
   };
 
   /* Limpar depois de salvar não é higiene: sem isso, o próximo lembrete abre
@@ -1115,63 +1205,34 @@ export default function AtendimentoPage() {
     setAvisoRetida(false);
   };
 
+  /* PROGRAMAR AS MENSAGENS. Não cria mais lembrete nenhum: desde que os dois se
+     separaram, este diálogo só trata do que o CLIENTE recebe. O lembrete tem
+     caminho próprio, na ficha do cliente. O nome da função ficou como estava
+     porque ela ainda é o "salvar" deste diálogo. */
   const salvarTask = async (ignorarPendente = false) => {
-    const titulo = taskTitulo.trim();
-    if (!titulo) { toast.error("O lembrete precisa de um título."); return; }
-
-    /* Conteúdo escrito e não agendado segura o salvamento UMA vez. Não é
+    /* Conteúdo escrito e não preparado segura o salvamento UMA vez. Não é
        teimosia: o texto está a um clique de sumir sem nunca ter existido, e
-       quem escreveu acha que agendou. */
+       quem escreveu acha que já programou. */
     const sobrou = !!reterTexto.trim() || !!reterArquivo;
     if (sobrou && !ignorarPendente) { setAvisoRetida(true); return; }
     setAvisoRetida(false);
+
+    if (retidas.length === 0) { setTaskAberta(false); limparRetencao(); return; }
+
     if (!aoVivo) {
-      if (editando) {
-        setLembretesMaquete((p) => p.map((t) => (t.id === editando.id
-          ? { ...t, titulo, detalhe: taskDetalhe.trim(), data: taskDia, hora: taskHora || null }
-          : t)));
-        setTaskAberta(false);
-        return;
-      }
-      setLembretesMaquete((p) => [...p, {
-        id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
-        titulo, detalhe: taskDetalhe.trim(), data: taskDia, hora: taskHora || null, feita: false,
-      }]);
-      setTaskAberta(false);
+      toast.info("Na maquete nada é programado de verdade.");
+      setTaskAberta(false); limparRetencao();
       return;
     }
+
     setSalvandoTask(true);
     try {
-      let idDaTask: string | null = editando?.id ?? null;
-      if (editando) {
-        await atualizarTaskWa(editando.id, {
-          titulo, detalhe: taskDetalhe, dia: taskDia, hora: taskHora || null,
-        });
-      } else {
-        idDaTask = await criarTaskWa({
-          conversaId: lead.id,
-          titulo,
-          detalhe: taskDetalhe,
-          dia: taskDia,
-          hora: taskHora || null,
-          criadoPor: user?.id ?? null,
-        });
-      }
-      /* A RETENÇÃO SÓ NASCE DEPOIS QUE O LEMBRETE NASCEU, e o erro dela NÃO
-         desfaz o lembrete: são duas coisas com valores diferentes. Perder o
-         lembrete porque o upload de um vídeo falhou seria trocar um problema
-         pequeno (reanexar) por um grande (a pessoa achar que anotou e não ter
-         anotado). Se a mensagem falhar, o aviso diz exatamente isso. */
-      /* AS RETIDAS SÓ NASCEM DEPOIS QUE O LEMBRETE NASCEU, e o erro delas NÃO
-         desfaz o lembrete: são duas coisas com valores diferentes. Perder o
-         lembrete porque o upload de um vídeo falhou seria trocar um problema
-         pequeno (reanexar) por um grande (achar que anotou e não ter anotado). */
-      let agendadas = 0;
+      let feitas = 0;
       for (const r of retidas) {
         try {
           await reterMensagem({
             conversaId: lead.id,
-            taskId: idDaTask,
+            taskId: editando?.id ?? null,
             quando: r.quando,
             tipo: r.tipo,
             texto: r.texto,
@@ -1180,26 +1241,17 @@ export default function AtendimentoPage() {
             duracao: r.duracao,
             criadaPor: user?.id ?? null,
           });
-          agendadas++;
+          feitas++;
         } catch (e) {
-          toast.error("Uma mensagem não foi agendada: " + (e as Error).message);
+          toast.error("Uma mensagem não foi programada: " + (e as Error).message);
         }
       }
-      if (agendadas > 0) {
+      if (feitas > 0) {
         invalidarAgendadas();
-        toast.success(agendadas === 1
-          ? "Lembrete salvo e mensagem programada."
-          : `Lembrete salvo e ${agendadas} mensagens programadas.`);
+        toast.success(feitas === 1 ? "Mensagem programada." : `${feitas} mensagens programadas.`);
       }
-
-      invalidarTasks();
       setTaskAberta(false);
       limparRetencao();
-      // Leva o calendário pro dia da task recém-criada: marcar algo pra quinta
-      // e continuar olhando a terça faz parecer que não salvou.
-      if (taskDia !== dia) setDia(taskDia);
-    } catch (e) {
-      toast.error("Não consegui salvar: " + (e as Error).message);
     } finally {
       setSalvandoTask(false);
     }
@@ -2304,7 +2356,11 @@ export default function AtendimentoPage() {
                         tabIndex={-1}
                         title={l.fixadaEm ? "Soltar do topo" : "Fixar no topo"}
                         onClick={(e) => { e.stopPropagation(); alternarFixada(l); }}
-                        className={cn("absolute top-1 right-1 h-6 w-6 grid place-items-center rounded-md z-10 transition-all",
+                        /* CANTO DE BAIXO. Em cima ele caía debaixo do horário
+                           da última mensagem, que fica no mesmo lugar e é
+                           informação permanente — o alfinete some atrás dela e
+                           o clique pega a hora. Embaixo o canto está livre. */
+                        className={cn("absolute bottom-1 right-1 h-6 w-6 grid place-items-center rounded-md z-10 transition-all",
                           l.fixadaEm
                             ? "text-primary opacity-100"
                             : "text-muted-foreground/50 opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-white/[0.08]")}>
@@ -2993,7 +3049,7 @@ export default function AtendimentoPage() {
                     puladas={puladasDe(lead)}
                     tasksDoLead={tasksDoLead}
                     onEscolherEtapa={() => setEtapaAberta(true)}
-                    onNovaTask={novoLembrete}
+                    onNovaTask={() => campoLembrete.current?.focus()}
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
                   />
@@ -3023,51 +3079,90 @@ export default function AtendimentoPage() {
                     onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
                 )}
 
-                {/* ANOTAÇÕES — MURAL, NÃO CAMPO.
-                    Escrever a segunda coisa num campo único obriga a decidir
-                    onde enfiá-la no meio da primeira, e ninguém sabe quem
-                    escreveu o quê. Aqui cada nota é uma linha com autor e hora,
-                    a mais nova em cima: "o que ficou combinado da última vez" é
-                    a pergunta que se faz toda vez que essa conversa reabre. */}
+                {/* ═══ MARCAR UM LEMBRETE ═══
+                    Aqui era o mural de anotações. As duas coisas competiam pelo
+                    mesmo espaço e pela mesma pergunta — "o que fica registrado
+                    sobre essa pessoa?" — mas só uma delas tem CONSEQUÊNCIA: uma
+                    nota fica parada esperando alguém reler, um lembrete aparece
+                    no dia marcado e cobra. Numa tela de trabalho, o que tem
+                    consequência ganha o lugar.
+
+                    E o lembrete mora na FICHA, e não mais no diálogo junto da
+                    mensagem programada, porque são dois gestos com donos
+                    diferentes: o lembrete é uma anotação MINHA sobre o que EU
+                    faço; a mensagem programada é algo que o CLIENTE recebe. Um
+                    diálogo só, com os dois, fazia parecer que um dependia do
+                    outro — e fazia quem só queria anotar um recado configurar
+                    envio automático sem querer. */}
                 <div className="px-3 py-2.5 flex flex-col gap-2">
                   <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                    <StickyNote className="h-3 w-3" /> Anotações
-                    {anotacoes.length > 0 && (
-                      <span className="ml-auto tabular-nums opacity-70">{anotacoes.length}</span>
-                    )}
+                    <BellRing className="h-3 w-3" /> Marcar lembrete
                   </p>
 
-                  <Textarea
-                    value={rascunhoNota}
-                    onChange={(e) => setRascunhoNota(e.target.value)}
-                    onKeyDown={(e) => {
-                      // Enter quebra linha (nota é texto de recado). Ctrl+Enter
-                      // posta — o atalho de quem escreve muitas por dia.
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); postarNota(); }
-                    }}
-                    rows={3}
-                    placeholder="O que ficou combinado, o que ela contou, o que conferir depois…"
-                    className="text-[11.5px] resize-none" />
-                  <Button size="sm" className="h-7 text-[11px] self-end"
-                    onClick={postarNota} disabled={postandoNota || !rascunhoNota.trim()}>
-                    {postandoNota
-                      ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Postando…</>
-                      : <>Postar <Plus className="h-3 w-3 ml-1" /></>}
-                  </Button>
+                  <Input
+                    ref={campoLembrete}
+                    value={fichaTitulo}
+                    onChange={(e) => setFichaTitulo(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarLembreteDaFicha(); } }}
+                    placeholder="Ligar pra confirmar o extrato"
+                    className="h-8 text-[12px]" />
 
-                  <div className="flex flex-col gap-1.5">
-                    {anotacoes.length === 0 && (
-                      <p className="text-[11px] text-muted-foreground/60 py-1">Nenhuma anotação ainda.</p>
-                    )}
-                    {anotacoes.map((n) => (
-                      <div key={n.id} className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2">
-                        <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{n.texto}</p>
-                        <p className="text-[9.5px] text-muted-foreground/60 mt-1">
-                          {n.autorId ? nomeDoAutor({ id: n.autorId }) : "alguém"} · {quandoDaNota(n.quando)}
-                        </p>
-                      </div>
-                    ))}
+                  <Textarea
+                    value={fichaDetalhe}
+                    onChange={(e) => setFichaDetalhe(e.target.value)}
+                    rows={2}
+                    placeholder="o que ficou combinado, o que conferir"
+                    className="text-[11.5px] resize-none min-h-[48px]" />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <SeletorDeDia valor={fichaDia} onEscolher={setFichaDia} hojeISO={HOJE} />
+                    <SeletorDeHora valor={fichaHora} onEscolher={setFichaHora} />
                   </div>
+
+                  <div className="flex items-center gap-2 self-end">
+                    {editandoFicha && (
+                      <button
+                        onClick={() => {
+                          setEditandoFicha(null);
+                          setFichaTitulo(""); setFichaDetalhe(""); setFichaHora(""); setFichaDia(HOJE);
+                        }}
+                        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                        Cancelar
+                      </button>
+                    )}
+                    <Button size="sm" className="h-7 text-[11px]"
+                      onClick={salvarLembreteDaFicha}
+                      disabled={salvandoFicha || !fichaTitulo.trim()}>
+                      {salvandoFicha
+                        ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Salvando…</>
+                        : <>{editandoFicha ? "Salvar" : "Marcar"} <Check className="h-3 w-3 ml-1" /></>}
+                    </Button>
+                  </div>
+
+                  {/* O QUE JÁ ESTÁ MARCADO PRA ESSA PESSOA, em qualquer dia. A
+                      jornada mostra só os do dia que o calendário aponta, e um
+                      lembrete pra sexta ficaria invisível numa quarta. */}
+                  {lembretesDoLead.length > 0 && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      {lembretesDoLead.map((t) => (
+                        <div key={t.id}
+                          role="button" tabIndex={0}
+                          onClick={() => carregarLembreteNaFicha(t)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); carregarLembreteNaFicha(t); } }}
+                          className={cn("rounded-lg ring-1 px-2.5 py-2 cursor-pointer transition-colors",
+                            editandoFicha?.id === t.id
+                              ? "bg-primary/10 ring-primary/40"
+                              : "bg-white/[0.04] ring-white/[0.06] hover:ring-primary/40 hover:bg-white/[0.06]")}>
+                          <p className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-wide text-muted-foreground/70">
+                            <CalendarDays className="h-3 w-3 shrink-0" />
+                            {fmtDiaCurto(t.data)}
+                            {t.hora && <span className="tabular-nums">{horaBonita(t.hora)}</span>}
+                          </p>
+                          <p className="text-[11.5px] leading-snug mt-0.5 break-words">{t.titulo}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* ═══ AS MENSAGENS PROGRAMADAS DESTA PESSOA ═══
@@ -3316,8 +3411,8 @@ export default function AtendimentoPage() {
                   </div>
 
                   <div className="p-2 border-t border-white/[0.06] shrink-0">
-                    <Button size="sm" variant="outline" className="w-full h-8 text-[11px]" onClick={novoLembrete}>
-                      <BellRing className="h-3.5 w-3.5 mr-1.5" /> Lembrar de {lead.nome.split(" ")[0]}
+                    <Button size="sm" variant="outline" className="w-full h-8 text-[11px]" onClick={novaProgramada}>
+                      <Send className="h-3.5 w-3.5 mr-1.5" /> Programar mensagem
                     </Button>
                   </div>
                 </>
@@ -3776,60 +3871,16 @@ export default function AtendimentoPage() {
         <DialogContent className="max-w-md [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <BellRing className="h-4 w-4" /> {editando ? "Editar lembrete" : "Novo lembrete"}
+              <Send className="h-4 w-4" /> {editando ? "Editar programação" : "Nova mensagem programada"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              Sobre <span className="text-foreground/80">{editando?.lead ?? lead.nome}</span>.
-              {editando
-                ? " Mudar o dia adia o lembrete; as mensagens já programadas continuam com a hora delas."
-                : " Ele entra na fila do dia que você escolher."}
+              Para <span className="text-foreground/80">{editando?.lead ?? lead.nome}</span>.
+              {" "}Escreva como escreveria agora; ela sai sozinha na hora que você marcar,
+              mesmo com o sistema fechado.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] text-muted-foreground">O que fazer</span>
-              <Input
-                autoFocus
-                value={taskTitulo}
-                onChange={(e) => setTaskTitulo(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarTask(); } }}
-                placeholder="Ligar pra confirmar o extrato"
-                className="h-9 text-[13px]"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] text-muted-foreground">
-                Detalhe <span className="opacity-60">(opcional)</span>
-              </span>
-              <Textarea
-                value={taskDetalhe}
-                onChange={(e) => setTaskDetalhe(e.target.value)}
-                placeholder="o que ficou combinado, o que conferir"
-                className="text-[12.5px] min-h-[62px] resize-none"
-              />
-            </label>
-
-            {/* O DIA E A HORA SÃO NOSSOS, e não do sistema operacional. O
-                calendário branco do Windows aparecia como um pedaço de outro
-                programa no meio da tela, e o campo de hora era digitação pura,
-                onde errar um dígito agenda pra outra hora sem avisar. */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                  <CalendarDays className="h-3 w-3" /> Dia
-                </span>
-                <SeletorDeDia valor={taskDia} onEscolher={setTaskDia} hojeISO={HOJE} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> Hora <span className="opacity-60">(opcional)</span>
-                </span>
-                <SeletorDeHora valor={taskHora} onEscolher={setTaskHora} />
-              </div>
-            </div>
-
             {/* AS QUE JÁ ESTÃO NO BANCO, quando se está editando. Elas não
                 são as preparadas de baixo: aquelas ainda não existem, estas já
                 vão sair sozinhas e por isso aparecem primeiro, com a edição
@@ -3859,58 +3910,23 @@ export default function AtendimentoPage() {
               </div>
             )}
 
-            {/* ═══ RETER UMA MENSAGEM ═══
-                O lembrete diz o que EU faço; a retenção manda o cliente
-                receber. São duas coisas, e por isso a retenção tem horário
-                próprio: o lembrete pode ser pra amanhã e a mensagem sair daqui
-                a duas horas.
-
-                A BARRA É A MESMA DO CHAT, e isso é a decisão de desenho que
+            {/* ═══ A MENSAGEM ═══
+                A BARRA É A MESMA DO CHAT, e essa é a decisão de desenho que
                 importa aqui. Um formulário de "agendar mensagem" — campo
                 Mensagem, campo Anexo, botão Salvar — faria a pessoa preencher
                 um cadastro. A barra do chat ela já usa cem vezes por dia: o
                 clipe à esquerda, o campo no meio, o microfone e o botão de
                 mandar à direita, na mesma ordem e do mesmo tamanho. O gesto é
                 idêntico ao de responder agora; o que muda é só a hora em que
-                chega, e é isso que o botão do relógio diz.
+                chega.
 
-                Fica FECHADA por padrão, atrás de um clique. Uma mensagem que
-                sai sozinha para o cliente não pode ser algo em que se esbarra
-                enquanto se anota um recado. */}
+                Sem o painel dobrável que existia aqui: quando isto dividia o
+                diálogo com os campos do lembrete, esconder fazia sentido — era
+                a parte perigosa, que manda mensagem sozinha, e não podia ser
+                algo em que se esbarra anotando um recado. Agora o diálogo É
+                isto, e um painel fechado que guarda a única coisa da tela é só
+                um clique a mais. */}
             <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
-              <button type="button"
-                onClick={() => setReterAberta((v) => !v)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors">
-                <Send className={cn("h-3.5 w-3.5 shrink-0 transition-colors", reterAberta ? "text-primary" : "text-muted-foreground")} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-medium">Reter uma mensagem</span>
-                  <span className="block text-[10.5px] text-muted-foreground/70 truncate">
-                    {retidas.length > 0
-                      ? `${retidas.length} ${retidas.length === 1 ? "mensagem programada" : "mensagens programadas"} para ${lead.nome.split(" ")[0]}`
-                      : reterAberta
-                        ? `Escreva e aperte enviar. Sai para ${lead.nome.split(" ")[0]} na hora que você marcar.`
-                        : "Deixa uma mensagem programada para o cliente receber"}
-                  </span>
-                </span>
-                <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-300",
-                  reterAberta && "rotate-180")} />
-              </button>
-
-              {/* A ABERTURA DESLIZA. Aparecer de uma vez faria o diálogo pular
-                  de tamanho e a pessoa perder de vista o que estava lendo —
-                  além de não deixar claro que aquilo saiu de dentro do botão
-                  que ela acabou de apertar. A altura é animada por fora e o
-                  conteúdo tem `overflow-hidden` pra não vazar durante o
-                  movimento. */}
-              <AnimatePresence initial={false}>
-                {reterAberta && (
-                  <motion.div
-                    key="reter"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 34, mass: 0.9 }}
-                    className="overflow-hidden border-t border-white/[0.06]">
                     <div className="p-2.5 flex flex-col gap-2">
 
                       {/* AS JÁ PREPARADAS, como bolhas — porque é isso que
@@ -4069,15 +4085,12 @@ export default function AtendimentoPage() {
                         ) : (
                           <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
                             {retidas.length > 0
-                              ? "Sai sozinha na hora marcada, mesmo com o sistema fechado, quando você marcar o lembrete. Dá pra cancelar até a hora, pela conversa."
-                              : "Escreva e aperte enviar: a mensagem fica guardada aqui até você marcar o lembrete."}
+                              ? "Sai sozinha na hora marcada, mesmo com o sistema fechado, quando você confirmar. Dá pra cancelar até a hora, pela conversa."
+                              : "Escreva e aperte enviar: a mensagem fica guardada aqui até você confirmar embaixo."}
                           </p>
                         );
                       })()}
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           </div>
 
@@ -4119,10 +4132,11 @@ export default function AtendimentoPage() {
             <Button variant="ghost" size="sm" onClick={() => { setTaskAberta(false); limparRetencao(); }} disabled={salvandoTask}>
               Cancelar
             </Button>
-            <Button size="sm" onClick={() => salvarTask()} disabled={salvandoTask || !taskTitulo.trim()}>
+            <Button size="sm" onClick={() => salvarTask()}
+              disabled={salvandoTask || (retidas.length === 0 && !reterTexto.trim() && !reterArquivo)}>
               {salvandoTask
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
-                : <>Marcar lembrete <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Programando…</>
+                : <>Programar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4959,7 +4973,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
 
                   <button onClick={onNovaTask}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
-                    <Plus className="h-3.5 w-3.5" /> Adicionar lembrete
+                    <Plus className="h-3.5 w-3.5" /> Marcar lembrete
                   </button>
 
                   {proxima && (
