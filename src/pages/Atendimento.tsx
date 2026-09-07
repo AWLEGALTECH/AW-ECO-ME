@@ -71,6 +71,7 @@ import {
 } from "@/lib/followUp";
 import {
   useCadencias, reguaDoNumero, useInvalidarCadencia, salvarDegrauDaRegua,
+  type ReguasPorNumero,
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
@@ -2271,15 +2272,17 @@ export default function AtendimentoPage() {
        quem se aperta são as colunas, que já têm rolagem própria. Rolar a
        PÁGINA numa tela de atendimento é o pior dos dois mundos, porque leva
        embora o cabeçalho e o campo de digitar junto. */}
-    {/* A ALTURA VEM DA ÁREA VISÍVEL, e não da janela. Com `100dvh` fixo aqui, o
-       teclado do celular abria por baixo da bancada: a barra de digitar ficava
-       escondida atrás dele e a pessoa escrevia às cegas. `--app-altura` é medida
-       pela `visualViewport` (useAlturaDoApp) e encolhe junto com o teclado, o
-       que faz a barra encostar nele e o histórico ficar mais curto — em vez de o
-       app inteiro subir. No monitor as duas são iguais e nada muda. */}
-    <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
-                    min-h-0 overflow-hidden"
-      style={{ height: "calc(var(--app-altura, 100dvh) - 5rem)" }}>
+    {/* SEM CONTA DE ALTURA. Aqui havia um `calc(100dvh - 5rem)`, e ele estava
+       errado por baixo: a conta cobria o cabeçalho e o respiro, e ignorava as
+       áreas seguras do iPhone. Com entalhe em cima e barra de gesto embaixo, a
+       bancada ficava uns noventa pixels mais alta que o buraco onde mora — e a
+       moldura rolava exatamente essa sobra, levando embora o cartão do número e
+       o cabeçalho da conversa.
+       Agora a moldura não rola (ver SidebarLayout) e a altura vem dela: `h-full`
+       é o buraco inteiro, já descontado de tudo, sem nenhum número escrito à
+       mão pra ficar desatualizado no próximo ajuste de layout. */}
+    <div className="flex flex-col gap-2 px-3 py-3 sm:px-4 sm:py-4
+                    flex-1 min-h-0 overflow-hidden">
 
       {/* ── UMA FAIXA SÓ NO TOPO ──
           Aqui havia duas: um título "Atendimento" sozinho numa linha larga e,
@@ -6777,7 +6780,7 @@ function CentralFollowUp({ tasks, leads, hoje, cadencias, onConcluir, onAbrirCon
   /* AS RÉGUAS DE TODOS OS NÚMEROS, e não uma só: esta fila mistura leads dos
      números escolhidos, e "Follow-up de 5 dias" num cartão do Portal ao lado de
      um do escritório, que cobra em 7, seria o rótulo errado na metade da tela. */
-  cadencias: Map<string, Regua> | undefined;
+  cadencias: ReguasPorNumero | undefined;
   onConcluir: (id: string) => void;
   onAbrirConversa: (leadId: string) => void;
 }) {

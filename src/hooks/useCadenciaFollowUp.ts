@@ -42,45 +42,55 @@ export interface DegrauDaRegua {
  *
  * A tabela inteira cabe numa consulta: são cinco linhas por número.
  */
+/** As réguas por número, em minúsculas. Objeto simples, e não Map — ver abaixo. */
+export type ReguasPorNumero = Record<string, number[]>;
+
 export function useCadencias() {
   return useQuery({
     queryKey: ["wa", "followup", "cadencias"],
     // Como as mensagens padrão: isto muda quando alguém decide mudar, não com
     // o tempo. Recarregar sozinho seria consulta ao banco pra não ver diferença.
     staleTime: 60_000,
-    queryFn: async (): Promise<Map<string, Regua>> => {
+    /* ⚠️ RECORD, E NUNCA MAP. O cache do React Query é gravado em localStorage
+       como JSON (PersistQueryClientProvider), e `Map` não sobrevive à ida e
+       volta: ele vira `{}` no rehydrate. O sintoma não é uma lista vazia, é a
+       página inteira caindo com "t.get is not a function" no primeiro
+       carregamento depois de um recarregar — e só depois de um recarregar, o
+       que faz o defeito não aparecer em nenhum teste na primeira sessão.
+       Já mordeu esta base duas vezes antes (Esteira, Publicações). */
+    queryFn: async (): Promise<ReguasPorNumero> => {
       const { data, error } = await tabela("wa_followup_cadencia")
         .select("instancia, rodada, dias").order("instancia").order("rodada");
       if (error) throw error;
 
-      const porNumero = new Map<string, number[]>();
+      const porNumero: Record<string, number[]> = {};
       for (const l of (data || []) as DegrauDaRegua[]) {
         if (l.rodada < 1 || l.rodada > TOTAL_RODADAS) continue;
         const chave = (l.instancia ?? "").trim().toLowerCase();
-        const dias = porNumero.get(chave) ?? [];
+        const dias = porNumero[chave] ?? [];
         dias[l.rodada - 1] = l.dias;
-        porNumero.set(chave, dias);
+        porNumero[chave] = dias;
       }
 
-      const fora = new Map<string, Regua>();
-      for (const [chave, dias] of porNumero) fora.set(chave, reguaValida(dias));
+      const fora: ReguasPorNumero = {};
+      for (const chave of Object.keys(porNumero)) fora[chave] = [...reguaValida(porNumero[chave])];
       return fora;
     },
   });
 }
 
 /**
- * A régua de um número, a partir do mapa.
+ * A régua de um número.
  *
  * Número sem linha própria devolve o padrão de fábrica — número recém-ligado
  * já nasce cobrando, em vez de nascer sem régua nenhuma. A chave é minúscula
  * porque o nome vem digitado à mão da Evolution e ninguém garante a caixa.
  */
 export function reguaDoNumero(
-  mapa: Map<string, Regua> | undefined, instancia: string | null | undefined,
+  reguas: ReguasPorNumero | undefined, instancia: string | null | undefined,
 ): Regua {
-  if (!mapa || !instancia) return CADENCIA;
-  return mapa.get(instancia.trim().toLowerCase()) ?? CADENCIA;
+  if (!reguas || !instancia) return CADENCIA;
+  return reguas[instancia.trim().toLowerCase()] ?? CADENCIA;
 }
 
 /** A régua gravada de um número, já completada pelo padrão. */

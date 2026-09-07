@@ -29,17 +29,24 @@ export interface MarcaDeInstancia {
 }
 
 /** As marcas de todos os números, por nome em minúsculas. */
+export type MarcasPorNumero = Record<string, MarcaDeInstancia>;
+
 export function useMarcasDeInstancia() {
   return useQuery({
     queryKey: ["wa", "instancias", "marcas"],
     staleTime: 60_000,
-    queryFn: async (): Promise<Map<string, MarcaDeInstancia>> => {
+    /* ⚠️ RECORD, E NUNCA MAP. O cache do React Query é gravado em localStorage
+       como JSON, e `Map` não sobrevive: vira `{}` no rehydrate. O sintoma é a
+       página caindo com "t.get is not a function" — e só DEPOIS de recarregar,
+       o que faz o defeito passar batido em qualquer teste feito na mesma
+       sessão em que o código foi escrito. */
+    queryFn: async (): Promise<MarcasPorNumero> => {
       const { data, error } = await tabela("wa_instancia_marca")
         .select("instancia, apelido, cor, nome_exibido");
       if (error) throw error;
-      const m = new Map<string, MarcaDeInstancia>();
+      const m: MarcasPorNumero = {};
       for (const r of (data || []) as MarcaDeInstancia[]) {
-        m.set(String(r.instancia ?? "").trim().toLowerCase(), r);
+        m[String(r.instancia ?? "").trim().toLowerCase()] = r;
       }
       return m;
     },
@@ -52,9 +59,9 @@ export function useInvalidarMarcas() {
 }
 
 export const marcaDe = (
-  mapa: Map<string, MarcaDeInstancia> | undefined, instancia: string | null | undefined,
+  marcas: MarcasPorNumero | undefined, instancia: string | null | undefined,
 ): MarcaDeInstancia | undefined =>
-  mapa && instancia ? mapa.get(instancia.trim().toLowerCase()) : undefined;
+  marcas && instancia ? marcas[instancia.trim().toLowerCase()] : undefined;
 
 /**
  * Grava a etiqueta de um número.
@@ -90,5 +97,5 @@ export async function salvarMarcaDeInstancia(args: {
  * alguém renomeasse, e o sintoma seria uma caixa vazia sem explicação.
  */
 export const nomeNaTela = (
-  mapa: Map<string, MarcaDeInstancia> | undefined, instancia: string | null | undefined,
-): string => marcaDe(mapa, instancia)?.nome_exibido?.trim() || (instancia ?? "");
+  marcas: MarcasPorNumero | undefined, instancia: string | null | undefined,
+): string => marcaDe(marcas, instancia)?.nome_exibido?.trim() || (instancia ?? "");

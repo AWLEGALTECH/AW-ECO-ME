@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useAlturaDoApp } from "@/hooks/useAlturaDoApp";
+import { cn } from "@/lib/utils";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { UserPanel } from "@/components/UserPanel";
@@ -14,15 +14,16 @@ import { FinderPill } from "@/components/FinderPill";
 import { SpyProgressBar } from "@/components/SpyProgressBar";
 
 export function SidebarLayout() {
-  /* A ALTURA VEM DA ÁREA VISÍVEL DE VERDADE, e não da janela: é ela que encolhe
-     quando o teclado abre. Sem isso, o iOS empurra o app inteiro pra cima em vez
-     de encolhê-lo, e o cabeçalho some pro alto no primeiro toque num campo. */
-  useAlturaDoApp();
-
   const { user, loading, accessReady } = useAuth();
   const { palette } = useTheme();
   const isSei = palette === "sei";
   const location = useLocation();
+
+  /* AS TELAS QUE SE COMPORTAM COMO APLICATIVO, e não como documento: elas
+     ocupam exatamente a altura disponível e cuidam da própria rolagem por
+     dentro. Uma lista, e não uma propriedade da página, porque quem decide se
+     a moldura rola é a moldura — a página não tem como alcançá-la. */
+  const telaDeAplicativo = location.pathname.startsWith("/atendimento");
 
   // Guard de sessão: se a sessão expirou enquanto o user estava em uma rota
   // protegida, redireciona pra "/" (que mostra a tela de login). Antes,
@@ -108,7 +109,29 @@ export function SidebarLayout() {
               </header>
 
               <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col relative">
-                <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-3 sm:px-6 sm:py-6">
+                {/* ── QUEM ROLA, E QUEM NÃO ──
+                    A maioria das telas é documento: uma lista comprida que rola
+                    dentro desta caixa, com respiro em volta. O Atendimento é o
+                    contrário — é um APLICATIVO: cabeçalho parado, colunas com
+                    rolagem própria, campo de digitar colado embaixo. Numa caixa
+                    que rola, ele rolava junto, e o cartão do número e o
+                    cabeçalho da conversa saíam pelo topo.
+
+                    A tentação era a página se medir sozinha (`calc(100dvh -
+                    5rem)`), e foi o que eu fiz — e estava errado por baixo: a
+                    conta ignorava as áreas seguras do iPhone. Com entalhe em
+                    cima e barra de gesto embaixo, a página ficava uns noventa
+                    pixels mais alta que o buraco onde ela mora, e a caixa rolava
+                    exatamente essa sobra. O jeito de não errar a conta é não
+                    fazer conta: aqui a rolagem simplesmente não existe, e a
+                    altura vem da cadeia de flex, que já desconta tudo. */}
+                <div className={cn("flex-1 min-h-0 min-w-0 overflow-x-hidden",
+                  telaDeAplicativo
+                    /* `flex flex-col` pra página poder ser `flex-1`: altura em
+                       porcentagem depende do pai ter altura definida, e um item
+                       de flex nem sempre tem — `flex-1` não depende de nada. */
+                    ? "overflow-hidden flex flex-col"
+                    : "overflow-y-auto scrollbar-thin px-3 py-3 sm:px-6 sm:py-6")}>
                   <Outlet />
                 </div>
                 {/* Iframe persistente do Finder — sobreposto ao Outlet quando

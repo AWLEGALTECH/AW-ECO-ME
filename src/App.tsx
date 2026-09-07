@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { useAlturaDoApp } from "@/hooks/useAlturaDoApp";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -54,12 +55,23 @@ const persister = createSyncStoragePersister({
   throttleTime: 1000,
 });
 
+/* A ALTURA REAL DA TELA, medida uma vez para o aplicativo inteiro.
+ *
+ * Aqui em cima e não dentro do layout logado: a variável tem que existir desde o
+ * primeiro quadro, inclusive na tela de login e nas de erro. Um componente vazio
+ * porque hook só roda dentro de componente, e o App é uma expressão. */
+function AlturaDoApp() {
+  useAlturaDoApp();
+  return null;
+}
+
 const App = () => (
   <PersistQueryClientProvider
     client={queryClient}
     persistOptions={{ persister, maxAge: 24 * 60 * 60 * 1000, buster: "v5-socio-11-campos" }}
   >
     <TooltipProvider>
+      <AlturaDoApp />
       <Toaster />
       <Sonner />
       <AuthProvider>
