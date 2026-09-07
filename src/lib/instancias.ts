@@ -189,20 +189,63 @@ export const ehNomeDeCor = (x: unknown): x is NomeDeCor =>
  * deixaria de ser o atalho que ela existe pra ser.
  */
 export function corDaInstancia(nome: string, escolhida?: string | null): CorDeInstancia {
-  if (ehNomeDeCor(escolhida)) return CORES_DE_INSTANCIA[escolhida];
-  let h = 0;
-  const chave = String(nome ?? "").trim().toLowerCase();
-  for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
-  return CORES_DE_INSTANCIA[SORTEAVEIS[h % SORTEAVEIS.length]];
+  return CORES_DE_INSTANCIA[nomeDaCorEmUso(nome, escolhida)];
 }
 
 /** O nome da cor em uso — pra tela marcar a escolhida no seletor. */
 export function nomeDaCorEmUso(nome: string, escolhida?: string | null): NomeDeCor {
   if (ehNomeDeCor(escolhida)) return escolhida;
+  return SORTEAVEIS[hashDoNome(nome) % SORTEAVEIS.length];
+}
+
+function hashDoNome(nome: string): number {
   let h = 0;
   const chave = String(nome ?? "").trim().toLowerCase();
   for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
-  return SORTEAVEIS[h % SORTEAVEIS.length];
+  return h;
+}
+
+/**
+ * AS CORES DE UM CONJUNTO, GARANTIDAMENTE DIFERENTES ENTRE SI.
+ *
+ * `corDaInstancia` sorteia pelo nome, e sorteio não garante coisa nenhuma: com
+ * três números e seis cores, a chance de dois saírem iguais passa de um terço.
+ * E foi o que aconteceu — dois selos da mesma cor na mesma caixa, que é
+ * exatamente o problema que a cor existia pra resolver.
+ *
+ * A regra é a mesma do apelido: quem ESCOLHEU fica com o que escolheu, mesmo
+ * que dois escolham igual — discordar de uma decisão explícita não é papel da
+ * tela. O sorteio é que se afasta, andando na paleta até achar uma cor livre.
+ */
+export function coresDeInstancias(
+  nomes: string[],
+  escolhidas?: Map<string, string | null | undefined>,
+): Map<string, NomeDeCor> {
+  const fora = new Map<string, NomeDeCor>();
+  const lista = listaDeInstancias(nomes);
+
+  // Primeiro as escolhidas: elas ocupam a cor e o sorteio desvia das ocupadas.
+  const ocupadas = new Set<NomeDeCor>();
+  for (const nome of lista) {
+    const c = escolhidas?.get(nome);
+    if (ehNomeDeCor(c)) { fora.set(nome, c); ocupadas.add(c); }
+  }
+
+  for (const nome of lista) {
+    if (fora.has(nome)) continue;
+    const inicio = hashDoNome(nome) % SORTEAVEIS.length;
+    /* Anda na paleta a partir do sorteado. Se todas estiverem ocupadas — mais
+       números do que cores livres — volta pro sorteado mesmo: repetir cor é
+       ruim, e ficar sem cor é pior. */
+    let escolhida = SORTEAVEIS[inicio];
+    for (let k = 0; k < SORTEAVEIS.length; k++) {
+      const tentativa = SORTEAVEIS[(inicio + k) % SORTEAVEIS.length];
+      if (!ocupadas.has(tentativa)) { escolhida = tentativa; break; }
+    }
+    ocupadas.add(escolhida);
+    fora.set(nome, escolhida);
+  }
+  return fora;
 }
 
 /** "2 números", "3 números" — o rótulo da caixa cruzada. */

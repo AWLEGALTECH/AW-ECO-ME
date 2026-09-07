@@ -22,6 +22,10 @@ export interface MarcaDeInstancia {
   instancia: string;
   apelido: string | null;
   cor: NomeDeCor | null;
+  /* Como este número se chama NESTA TELA. O nome da Evolution continua sendo a
+     chave de tudo — conversa, webhook, despacho —; isto é só rótulo, e nada no
+     sistema procura por ele. */
+  nome_exibido: string | null;
 }
 
 /** As marcas de todos os números, por nome em minúsculas. */
@@ -31,7 +35,7 @@ export function useMarcasDeInstancia() {
     staleTime: 60_000,
     queryFn: async (): Promise<Map<string, MarcaDeInstancia>> => {
       const { data, error } = await tabela("wa_instancia_marca")
-        .select("instancia, apelido, cor");
+        .select("instancia, apelido, cor, nome_exibido");
       if (error) throw error;
       const m = new Map<string, MarcaDeInstancia>();
       for (const r of (data || []) as MarcaDeInstancia[]) {
@@ -63,14 +67,28 @@ export async function salvarMarcaDeInstancia(args: {
   instancia: string;
   apelido: string | null;
   cor: NomeDeCor | null;
+  nomeExibido?: string | null;
   por?: string | null;
 }) {
-  const apelido = args.apelido?.trim().slice(0, 6) || null;
   const { error } = await tabela("wa_instancia_marca").upsert({
     instancia: args.instancia,
-    apelido,
+    apelido: args.apelido?.trim().slice(0, 6) || null,
     cor: args.cor,
+    // Nome vazio também volta ao automático: apagar o rótulo é pedir o nome
+    // técnico de volta, não pedir um número sem nome.
+    nome_exibido: args.nomeExibido?.trim().slice(0, 60) || null,
     atualizado_por: args.por ?? null,
   }, { onConflict: "instancia" });
   if (error) throw new Error(error.message);
 }
+
+/**
+ * O nome de um número na tela: o escolhido, ou o da Evolution.
+ *
+ * Só rótulo. Toda comparação, filtro e chamada continua usando o nome real —
+ * misturar os dois faria uma conversa não achar o próprio número no dia em que
+ * alguém renomeasse, e o sintoma seria uma caixa vazia sem explicação.
+ */
+export const nomeNaTela = (
+  mapa: Map<string, MarcaDeInstancia> | undefined, instancia: string | null | undefined,
+): string => marcaDe(mapa, instancia)?.nome_exibido?.trim() || (instancia ?? "");

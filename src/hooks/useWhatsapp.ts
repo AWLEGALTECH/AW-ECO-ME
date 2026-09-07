@@ -32,6 +32,9 @@ export interface InstanciaRow {
   conversas: number | null;
   mensagens: number | null;
   sincronizado_em: string;
+  /* Quando a sessão subiu. Diferente de `sincronizado_em`, que é "quando a tela
+     conferiu isto" — quase sempre "há um minuto", e não explica nada. */
+  conectada_desde: string | null;
 }
 
 /** Iniciais como reserva: instância sem foto não pode virar círculo vazio. */
@@ -57,6 +60,11 @@ export function instanciaParaCard(i: InstanciaRow, agora = new Date()): Instanci
     naoLidas: 0,
     avatar: iniciaisDe(i.perfil_nome || i.nome),
     fotoUrl: i.foto_url,
+    jid: i.jid,
+    perfilNome: i.perfil_nome,
+    contatos: i.contatos ?? 0,
+    mensagens: i.mensagens ?? 0,
+    conectadaDesde: i.conectada_desde,
   };
 }
 
@@ -78,7 +86,7 @@ export function useInstancias() {
     refetchInterval: 60_000,
     queryFn: async (): Promise<InstanciaRow[]> => {
       const { data, error } = await tabela("wa_instancias")
-        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em")
+        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em, conectada_desde")
         .eq("ativa", true)
         .order("nome");
       if (error) throw error;

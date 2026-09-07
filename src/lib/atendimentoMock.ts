@@ -50,6 +50,18 @@ export interface Instancia {
   avatar: string;
   /** foto do perfil do WhatsApp; null cai nas iniciais */
   fotoUrl?: string | null;
+
+  /* ── O QUE A TELA DE CONFIGURAÇÃO DO NÚMERO MOSTRA ──
+     Nada disso aparece no cabeçalho: são as respostas de quem abriu a
+     engrenagem porque alguma coisa não está funcionando, e é justamente aí que
+     "o WhatsApp está conectado" precisa virar "conectado desde quando, com qual
+     jid, com quantas conversas do lado de lá". */
+  jid?: string | null;
+  perfilNome?: string | null;
+  contatos?: number;
+  mensagens?: number;
+  /** quando a sessão subiu; null quando o número não está de pé */
+  conectadaDesde?: string | null;
 }
 
 export const INSTANCIAS: Instancia[] = [

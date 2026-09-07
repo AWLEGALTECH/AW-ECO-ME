@@ -76,7 +76,8 @@ import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
   listaDeInstancias, apelidosDeInstancias, apelidoDeInstancia, corDaInstancia, rotuloDaSelecao,
-  mesmaInstancia, contemInstancia, nomeDaCorEmUso, CORES_DE_INSTANCIA, type NomeDeCor,
+  mesmaInstancia, contemInstancia, nomeDaCorEmUso, coresDeInstancias, CORES_DE_INSTANCIA,
+  type NomeDeCor,
 } from "@/lib/instancias";
 import {
   passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
@@ -87,7 +88,7 @@ import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
 } from "@/hooks/useRegraFollowUp";
 import {
-  useMarcasDeInstancia, useInvalidarMarcas, marcaDe, salvarMarcaDeInstancia,
+  useMarcasDeInstancia, useInvalidarMarcas, marcaDe, nomeNaTela, salvarMarcaDeInstancia,
 } from "@/hooks/useMarcaInstancia";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
@@ -378,6 +379,7 @@ export default function AtendimentoPage() {
      Qual número está sendo editado; null quando o pop está fechado. */
   const [marcaDe_, setMarcaDe_] = useState<string | null>(null);
   const [marcaApelido, setMarcaApelido] = useState("");
+  const [marcaNome, setMarcaNome] = useState("");
   const [marcaCor, setMarcaCor] = useState<NomeDeCor>("sky");
   const [salvandoMarca, setSalvandoMarca] = useState(false);
 
@@ -387,7 +389,8 @@ export default function AtendimentoPage() {
        mexer" apagar a escolha anterior. */
     setMarcaDe_(nome);
     setMarcaApelido(marcaDe(marcas, nome)?.apelido ?? apelidoDeInstancia(nome));
-    setMarcaCor(nomeDaCorEmUso(nome, marcaDe(marcas, nome)?.cor));
+    setMarcaNome(marcaDe(marcas, nome)?.nome_exibido ?? "");
+    setMarcaCor(coresEmUso.get(nome) ?? nomeDaCorEmUso(nome, marcaDe(marcas, nome)?.cor));
   };
 
   const salvarMarca = async () => {
@@ -400,6 +403,7 @@ export default function AtendimentoPage() {
            mudou a sigla, ela não escolheu uma — e gravar a escolha faria a
            etiqueta parar de acompanhar uma renomeação do número. */
         apelido: marcaApelido.trim() === apelidoDeInstancia(marcaDe_) ? null : marcaApelido,
+        nomeExibido: marcaNome,
         cor: marcaCor,
         por: user?.id ?? null,
       });
@@ -559,9 +563,23 @@ export default function AtendimentoPage() {
     nomesSelecionados,
     new Map(nomesSelecionados.map((n) => [n, marcaDe(marcas, n)?.apelido])),
   ), [nomesSelecionados, marcas]);
-  /** A cor de um número: a escolhida, ou a derivada do nome. */
+  /* AS CORES DE TODOS OS NÚMEROS, GARANTIDAMENTE DIFERENTES.
+     Sortear por hash não garante coisa nenhuma: com três números e seis cores,
+     a chance de dois saírem iguais passa de um terço — e saiu. Aqui elas são
+     resolvidas em conjunto: quem escolheu fica com o que escolheu, e o sorteio
+     anda na paleta até achar uma livre.
+     Sobre TODAS as instâncias e não só as selecionadas: a cor tem que ser a
+     mesma quando o número entra e sai da caixa, senão ela deixa de ser o atalho
+     que existe pra ser. */
+  const coresEmUso = useMemo(() => coresDeInstancias(
+    instancias.map((i) => i.nome),
+    new Map(instancias.map((i) => [i.nome, marcaDe(marcas, i.nome)?.cor])),
+  ), [instancias, marcas]);
   const corDe = (nome: string | null | undefined) =>
-    corDaInstancia(nome ?? "", marcaDe(marcas, nome)?.cor);
+    CORES_DE_INSTANCIA[coresEmUso.get(nome ?? "")
+      ?? nomeDaCorEmUso(nome ?? "", marcaDe(marcas, nome)?.cor)];
+  /** Como o número se chama NA TELA. Só rótulo: nenhuma busca usa isto. */
+  const nomeDe = (nome: string | null | undefined) => nomeNaTela(marcas, nome);
   const invalidarWa = useInvalidarWa();
 
   /* ── A FONTE DOS DADOS ──
@@ -898,7 +916,7 @@ export default function AtendimentoPage() {
       invalidarCadencia();
       invalidarTasks();
       toast.success(`${rotuloDaRodada(rodada)} agora é de ${dias} ${dias === 1 ? "dia" : "dias"}.`, {
-        description: `Vale para ${numeroDaRegua}.`,
+        description: `Vale para ${nomeDe(numeroDaRegua)}.`,
       });
     } catch (e) {
       toast.error((e as Error).message);
@@ -917,8 +935,8 @@ export default function AtendimentoPage() {
       await sincronizarFollowUps(numeroDaRegua).catch(() => {});
       invalidarTasks();
       toast.success(ativo
-        ? `Em ${numeroDaRegua}, todo mundo entra na régua.`
-        : `Em ${numeroDaRegua}, ninguém entra na régua sem ser escolhido.`);
+        ? `Em ${nomeDe(numeroDaRegua)}, todo mundo entra na régua.`
+        : `Em ${nomeDe(numeroDaRegua)}, ninguém entra na régua sem ser escolhido.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1597,11 +1615,14 @@ export default function AtendimentoPage() {
   const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
   const [diagnosticando, setDiagnosticando] = useState(false);
 
-  const rodarDiagnostico = async () => {
+  /* AS TRÊS AÇÕES DE MANUTENÇÃO recebem o número em vez de assumir o principal:
+     com a engrenagem aberta num número, "reconfigurar eventos" tem que
+     reconfigurar AQUELE, e não o que por acaso está selecionado no topo. */
+  const rodarDiagnostico = async (nome = instancia.nome) => {
     setDiagnosticando(true);
     setDiagnostico(null);
     try {
-      setDiagnostico(await diagnosticarInstancia(instancia.nome));
+      setDiagnostico(await diagnosticarInstancia(nome));
     } catch (e) {
       toast.error((e as Error).message, { duration: 12_000 });
     } finally {
@@ -1609,10 +1630,10 @@ export default function AtendimentoPage() {
     }
   };
 
-  const reconfigurarEventos = async () => {
+  const reconfigurarEventos = async (nome = instancia.nome) => {
     try {
-      const r = await reaplicarWebhook(instancia.nome);
-      toast.success(`Eventos reconfigurados em ${instancia.nome}.`, {
+      const r = await reaplicarWebhook(nome);
+      toast.success(`Eventos reconfigurados em ${nome}.`, {
         description: (r as { eventos?: string[] }).eventos?.join(", "),
         duration: 10_000,
       });
@@ -1624,10 +1645,10 @@ export default function AtendimentoPage() {
   /* A lista de conversas do aparelho. NÃO traz histórico: o WhatsApp não
      entrega mensagem antiga por API, e fingir que entregou seria pior que a
      caixa vazia. O que vem é quem existe — já dá pra abrir e responder. */
-  const importarDoAparelho = async () => {
-    const t = toast.loading(`Lendo as conversas de ${instancia.nome}…`);
+  const importarDoAparelho = async (nome = instancia.nome) => {
+    const t = toast.loading(`Lendo as conversas de ${nome}…`);
     try {
-      const r = await importarConversas(instancia.nome);
+      const r = await importarConversas(nome);
       invalidarWa();
       toast.success(
         r.importadas > 0
@@ -1968,7 +1989,7 @@ export default function AtendimentoPage() {
       }
       invalidarWa();
       setMoverAberto(false);
-      toast.success(`Conversa passou para ${moverPara}.`, {
+      toast.success(`Conversa passou para ${nomeDe(moverPara)}.`, {
         description: "O que sair daqui pra frente sai por esse número.",
       });
     } catch (e) {
@@ -2264,6 +2285,7 @@ export default function AtendimentoPage() {
         selecao={instanciasDaSelecao}
         apelidos={apelidos}
         corDe={corDe}
+        nomeDe={nomeDe}
         onEditarMarca={abrirMarca}
         onTrocar={trocarInstancia}
         onAlternar={alternarInstancia}
@@ -2302,6 +2324,7 @@ export default function AtendimentoPage() {
             escolhido={numeroDaRegua}
             apelidos={apelidos}
             corDe={corDe}
+            nomeDe={nomeDe}
             padraoAtivo={padraoDaRegua}
             onEscolher={setReguaDe}
             onMudarPadrao={mudarPadraoDaRegua} />
@@ -2339,6 +2362,7 @@ export default function AtendimentoPage() {
         <PainelAjustes
           instancias={instancias}
           instanciaId={instancia.id}
+          nomeDe={nomeDe}
           onEscolherInstancia={trocarInstancia}
           mudo={mudo}
           onAlternarMudo={alternarMudo}
@@ -3068,7 +3092,7 @@ export default function AtendimentoPage() {
                     </div>
                     <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
                       <Button size="sm" variant="outline" className="h-8 text-[11.5px]"
-                        onClick={importarDoAparelho}>
+                        onClick={() => importarDoAparelho()}>
                         <Inbox className="h-3.5 w-3.5 mr-1.5" /> Trazer conversas do aparelho
                       </Button>
                       <Button size="sm" className="h-8 text-[11.5px]" onClick={() => setNovaAberta(true)}>
@@ -4558,86 +4582,181 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── A ETIQUETA DE UM NÚMERO ──
-          Sigla e cor, com a prévia do selo do tamanho real que ele tem na
-          caixa. A prévia é o ponto: a decisão aqui é "consigo distinguir isso
-          de relance?", e um campo de texto com um seletor de cor ao lado não
-          responde essa pergunta — só o selo desenhado responde. */}
+      {/* ── AS CONFIGURAÇÕES DE UM NÚMERO ──
+          Tudo que é daquele número num lugar só: como ele se chama aqui, a
+          etiqueta que o identifica na caixa cruzada, o estado da sessão, e a
+          manutenção da ligação com a Evolution.
+          O QUE ELE É lá na Evolution fica em cima e não se edita: aquele nome é
+          CHAVE — é por ele que a conversa acha o número, o webhook casa a
+          mensagem e o despachante escolhe por onde mandar. Deixar editável aqui
+          seria oferecer um campo que quebra o sistema inteiro em silêncio. */}
       <Dialog open={marcaDe_ !== null} onOpenChange={(a) => { if (!salvandoMarca && !a) setMarcaDe_(null); }}>
-        <DialogContent className="max-w-sm [&>*]:min-w-0">
-          <DialogHeader>
-            <DialogTitle className="text-[15px] flex items-center gap-2">
-              <Pencil className="h-4 w-4" /> Etiqueta de {marcaDe_}
-            </DialogTitle>
-            <DialogDescription className="text-[12px]">
-              É o selo que aparece em cima da foto do contato na caixa cruzada, e
-              é ele que separa dois números com a mesma foto de perfil.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-lg [&>*]:min-w-0 max-h-[88vh] overflow-y-auto scrollbar-thin">
+          {(() => {
+            const alvo = instancias.find((i) => mesmaInstancia(i.nome, marcaDe_));
+            if (!marcaDe_) return null;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-[15px] flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    {nomeNaTela(marcas, marcaDe_)}
+                  </DialogTitle>
+                  <DialogDescription className="text-[12px]">
+                    O que vale só para este número. O que vale para a tela inteira
+                    fica na aba Ajustes.
+                  </DialogDescription>
+                </DialogHeader>
 
-          <div className="flex items-center gap-3">
-            <label className="flex flex-col gap-1.5 flex-1 min-w-0">
-              <span className="text-[11px] text-muted-foreground">Sigla</span>
-              <Input
-                autoFocus
-                value={marcaApelido}
-                maxLength={6}
-                onChange={(e) => setMarcaApelido(e.target.value.toUpperCase())}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarMarca(); } }}
-                placeholder={marcaDe_ ? apelidoDeInstancia(marcaDe_) : ""}
-                className="h-9 text-[13px] uppercase tracking-wide" />
-            </label>
+                {/* ── NOME NESTA TELA ── */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">Nome nesta tela</span>
+                  <Input
+                    value={marcaNome}
+                    maxLength={60}
+                    onChange={(e) => setMarcaNome(e.target.value)}
+                    placeholder={marcaDe_}
+                    className="h-9 text-[13px]" />
+                  <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                    Só rótulo. Na Evolution ele continua sendo{" "}
+                    <span className="text-foreground/70">{marcaDe_}</span>, e é esse
+                    nome que a conversa, o webhook e o despacho usam. Em branco, a
+                    tela mostra o nome técnico.
+                  </p>
+                </div>
 
-            {/* A PRÉVIA NO TAMANHO REAL, sobre um círculo do tamanho do avatar
-                do contato. Em corpo grande toda sigla parece legível; o teste
-                que importa é o de dezoito pixels. */}
-            <span className="flex flex-col gap-1.5 items-center shrink-0">
-              <span className="text-[11px] text-muted-foreground">Fica assim</span>
-              <span className="relative h-9 w-9 rounded-full bg-white/[0.06] ring-1 ring-white/10
-                               grid place-items-center text-[10px] text-muted-foreground">
-                AB
-                <span className={cn("absolute -bottom-1 -right-1 rounded px-[3px] py-[1px]",
-                  "text-[7.5px] font-bold leading-none tracking-wide ring-2 ring-[#0e1013]",
-                  CORES_DE_INSTANCIA[marcaCor].fundo, CORES_DE_INSTANCIA[marcaCor].texto)}>
-                  {marcaApelido.trim() || (marcaDe_ ? apelidoDeInstancia(marcaDe_) : "?")}
-                </span>
-              </span>
-            </span>
-          </div>
+                {/* ── A ETIQUETA ── */}
+                <div className="flex items-center gap-3">
+                  <label className="flex flex-col gap-1.5 flex-1 min-w-0">
+                    <span className="text-[11px] text-muted-foreground">Sigla da etiqueta</span>
+                    <Input
+                      value={marcaApelido}
+                      maxLength={6}
+                      onChange={(e) => setMarcaApelido(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarMarca(); } }}
+                      placeholder={apelidoDeInstancia(marcaDe_)}
+                      className="h-9 text-[13px] uppercase tracking-wide" />
+                  </label>
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] text-muted-foreground">Cor</span>
-            <div className="flex flex-wrap gap-1.5">
-              {(Object.keys(CORES_DE_INSTANCIA) as NomeDeCor[]).map((c) => (
-                <button key={c} onClick={() => setMarcaCor(c)} title={c}
-                  className={cn("h-7 w-7 rounded-lg grid place-items-center transition-transform",
-                    CORES_DE_INSTANCIA[c].fundo,
-                    marcaCor === c ? "ring-2 ring-white/70 scale-105" : "hover:scale-105 opacity-80")}>
-                  {marcaCor === c && (
-                    <Check className={cn("h-3.5 w-3.5", CORES_DE_INSTANCIA[c].texto)} strokeWidth={3} />
+                  {/* A PRÉVIA NO TAMANHO REAL, sobre um círculo do tamanho do
+                      avatar do contato. Em corpo grande toda sigla parece
+                      legível; o teste que importa é o de dezoito pixels. */}
+                  <span className="flex flex-col gap-1.5 items-center shrink-0">
+                    <span className="text-[11px] text-muted-foreground">Fica assim</span>
+                    <span className="relative h-9 w-9 rounded-full bg-white/[0.06] ring-1 ring-white/10
+                                     grid place-items-center text-[10px] text-muted-foreground">
+                      AB
+                      <span className={cn("absolute -bottom-1 -right-1 rounded px-[3px] py-[1px]",
+                        "text-[7.5px] font-bold leading-none tracking-wide ring-2 ring-[#0e1013]",
+                        CORES_DE_INSTANCIA[marcaCor].fundo, CORES_DE_INSTANCIA[marcaCor].texto)}>
+                        {marcaApelido.trim() || apelidoDeInstancia(marcaDe_)}
+                      </span>
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">Cor da etiqueta</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(CORES_DE_INSTANCIA) as NomeDeCor[]).map((c) => {
+                      /* A COR JÁ USADA POR OUTRO NÚMERO APARECE MARCADA. Duas
+                         etiquetas da mesma cor é o defeito que esta tela existe
+                         pra evitar — e escolher a cor do vizinho sem saber é o
+                         jeito mais fácil de recriá-lo à mão. */
+                      const dono = instancias.find((i) =>
+                        !mesmaInstancia(i.nome, marcaDe_) && coresEmUso.get(i.nome) === c);
+                      return (
+                        <button key={c} onClick={() => setMarcaCor(c)}
+                          title={dono ? `Já é a cor de ${nomeNaTela(marcas, dono.nome)}` : c}
+                          className={cn("relative h-7 w-7 rounded-lg grid place-items-center transition-transform",
+                            CORES_DE_INSTANCIA[c].fundo,
+                            marcaCor === c ? "ring-2 ring-white/70 scale-105"
+                                           : cn("hover:scale-105", dono ? "opacity-30" : "opacity-80"))}>
+                          {marcaCor === c && (
+                            <Check className={cn("h-3.5 w-3.5", CORES_DE_INSTANCIA[c].texto)} strokeWidth={3} />
+                          )}
+                          {dono && marcaCor !== c && (
+                            <span className="absolute -bottom-1 -right-1 h-2 w-2 rounded-full bg-[#0e1013]
+                                             ring-1 ring-white/30" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                    As apagadas já são de outro número. Âmbar, verde e vermelho
+                    querem dizer atraso, automação e falha nesta tela — use se
+                    quiser, é bom saber antes.
+                  </p>
+                </div>
+
+                {/* ── O QUE ELE É, DO OUTRO LADO ──
+                    Só leitura, e é aqui que se responde "por que não chega
+                    mensagem" antes de mexer em qualquer coisa: conectado desde
+                    quando, com qual número, com quantas conversas do lado de lá. */}
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 flex flex-col gap-2">
+                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60">
+                    Na Evolution
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                    <LinhaTecnica rotulo="Nome da instância" valor={marcaDe_} />
+                    <LinhaTecnica rotulo="Número" valor={alvo?.telefone ?? "sem número"} />
+                    <LinhaTecnica
+                      rotulo="Sessão"
+                      valor={alvo?.status === "conectado"
+                        ? (alvo?.conectadaDesde
+                            ? `de pé ${tempoNaEtapa(alvo.conectadaDesde)}`
+                            : "de pé")
+                        : "desconectada"}
+                      tom={alvo?.status === "conectado" ? "text-emerald-300" : "text-rose-300"} />
+                    <LinhaTecnica rotulo="Conferido" valor={alvo?.sincronizadoEm ?? "—"} />
+                    <LinhaTecnica rotulo="Perfil no WhatsApp" valor={alvo?.perfilNome || "sem nome"} />
+                    <LinhaTecnica rotulo="Conversas do aparelho" valor={String(alvo?.conversas ?? 0)} />
+                  </div>
+                  {alvo?.conectadaDesde && alvo.status === "conectado" && (
+                    <p className="text-[10px] text-muted-foreground/50 tabular-nums">
+                      Conectado desde {quandoDaPassagem(alvo.conectadaDesde)}.
+                    </p>
                   )}
-                </button>
-              ))}
-            </div>
-            {/* Três cores desta paleta já significam alguma coisa nesta tela, e
-                escolher uma delas não é erro — é só bom saber antes. */}
-            <p className="text-[10px] text-muted-foreground/60 leading-snug">
-              Nesta tela, âmbar costuma ser atraso, verde é mensagem automática e
-              vermelho é falha. Use se quiser; é bom saber antes.
-            </p>
-          </div>
+                  {alvo?.jid && (
+                    <p className="text-[9.5px] text-muted-foreground/40 font-mono truncate" title={alvo.jid}>
+                      {alvo.jid}
+                    </p>
+                  )}
+                </div>
 
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setMarcaDe_(null)} disabled={salvandoMarca}>
-              Cancelar
-            </Button>
-            <Button size="sm" onClick={salvarMarca}
-              disabled={salvandoMarca || !marcaApelido.trim()}>
-              {salvandoMarca
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
-                : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
-            </Button>
-          </DialogFooter>
+                {/* ── MANUTENÇÃO, deste número ──
+                    Os mesmos botões do menu, agora apontando pro número que a
+                    engrenagem abriu. No menu eles agem no principal, que é o
+                    certo lá; aqui seria errado. */}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                    onClick={() => rodarDiagnostico(marcaDe_)}>
+                    <Stethoscope className="h-3.5 w-3.5" /> Por que não chega mensagem?
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                    onClick={() => reconfigurarEventos(marcaDe_)}>
+                    <RefreshCw className="h-3.5 w-3.5" /> Reconfigurar eventos
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                    onClick={() => importarDoAparelho(marcaDe_)}>
+                    <Inbox className="h-3.5 w-3.5" /> Importar conversas
+                  </Button>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="ghost" size="sm" onClick={() => setMarcaDe_(null)} disabled={salvandoMarca}>
+                    Cancelar
+                  </Button>
+                  <Button size="sm" onClick={salvarMarca} disabled={salvandoMarca}>
+                    {salvandoMarca
+                      ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
+                      : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -4657,7 +4776,7 @@ export default function AtendimentoPage() {
             </DialogTitle>
             <DialogDescription className="text-[12px]">
               Hoje esta conversa é atendida por{" "}
-              <span className="text-foreground/80">{lead.instancia ?? instancia.nome}</span>.
+              <span className="text-foreground/80">{nomeDe(lead.instancia ?? instancia.nome)}</span>.
               O histórico inteiro vai junto — ele é nosso, não do número.
             </DialogDescription>
           </DialogHeader>
@@ -4684,7 +4803,7 @@ export default function AtendimentoPage() {
                           cor.fundo, cor.texto)}>
                           {apelidoDeInstancia(i.nome)}
                         </span>
-                        <span className="text-[12px] font-medium truncate">{i.nome}</span>
+                        <span className="text-[12px] font-medium truncate">{nomeDe(i.nome)}</span>
                       </span>
                       <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         <span className={cn("h-1 w-1 rounded-full",
@@ -6065,11 +6184,12 @@ function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolher
  * tela que vai divergir da outra na primeira mudança.
  */
 function PainelAjustes({
-  instancias, instanciaId, onEscolherInstancia, mudo, onAlternarMudo, regua,
+  instancias, instanciaId, nomeDe, onEscolherInstancia, mudo, onAlternarMudo, regua,
   agendadas, aoVivo, onAbrirRegua, onAbrirProgramadas, onReaplicarEventos, onDiagnosticar,
 }: {
   instancias: Instancia[];
   instanciaId: string;
+  nomeDe: (nome: string) => string;
   onEscolherInstancia: (id: string) => void;
   mudo: boolean;
   onAlternarMudo: () => void;
@@ -6126,7 +6246,7 @@ function PainelAjustes({
                   <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
                     i.status === "conectado" ? "bg-emerald-400" : "bg-muted-foreground/40")} />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[11.5px] truncate">{i.nome}</span>
+                    <span className="block text-[11.5px] truncate">{nomeDe(i.nome)}</span>
                     <span className="block text-[10px] text-muted-foreground/70 tabular-nums">
                       {telefoneBonito(i.telefone)} · {i.status === "conectado" ? "conectado" : "desconectado"}
                     </span>
@@ -6326,7 +6446,7 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, corDe, onEditarMarca, onTrocar, onAlternar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
+function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, corDe, nomeDe, onEditarMarca, onTrocar, onAlternar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
   instancia: Instancia; todas: Instancia[];
   /** os dados da tela são inventados — quem abre sem contexto precisa saber */
   maquete?: boolean;
@@ -6337,6 +6457,8 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
   apelidos: Map<string, string>;
   /** a cor da etiqueta de um número: a escolhida, ou a derivada do nome */
   corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  /** o nome que o número tem na tela; o da Evolution continua sendo a chave */
+  nomeDe: (nome: string) => string;
   onEditarMarca: (nome: string) => void;
   onTrocar: (id: string) => void;
   onAlternar: (id: string) => void;
@@ -6373,7 +6495,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
       <div className="shrink-0 flex items-center">
         {(varios ? selecao : [instancia]).slice(0, 3).map((i, k) => (
           <div key={i.id}
-            title={i.nome}
+            title={nomeDe(i.nome)}
             style={{ marginLeft: k === 0 ? 0 : "-0.85rem", zIndex: 10 - k }}
             className={cn("relative rounded-full overflow-hidden grid place-items-center font-semibold",
               "bg-white/[0.05] text-foreground/80 ring-1 ring-white/10",
@@ -6396,7 +6518,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
       <div className="min-w-0 flex-1 flex flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[13px] font-semibold truncate">
-            {rotuloDaSelecao(selecao.map((i) => i.nome), instancia.nome)}
+            {rotuloDaSelecao(selecao.map((i) => i.nome), nomeDe(instancia.nome))}
           </span>
           {/* CAIXA CRUZADA É UM MODO, e a tela diz isso em vez de deixar
               descobrir pelas linhas. Sem o selo, uma conversa de outro número no
@@ -6446,7 +6568,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
                     cor.fundo, cor.texto)}>
                     {apelidos.get(i.nome) ?? "?"}
                   </span>
-                  <span className="truncate max-w-[9rem]">{i.nome}</span>
+                  <span className="truncate max-w-[9rem]">{nomeDe(i.nome)}</span>
                   <span className={cn("h-1 w-1 rounded-full shrink-0",
                     i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
                 </span>
@@ -6526,7 +6648,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
                           cor.fundo, cor.texto)}>
                           {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
                         </span>
-                        <span className="block text-[12px] font-medium truncate">{i.nome}</span>
+                        <span className="block text-[12px] font-medium truncate">{nomeDe(i.nome)}</span>
                       </span>
                       <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
@@ -6543,20 +6665,19 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
                     )}
                   </button>
 
-                  {/* ── O LÁPIS DA ETIQUETA ──
-                      A sigla e a cor nasciam derivadas do nome, e derivar
-                      resolve o arranque e não a convivência: um hash distribui
-                      bem e não sabe o que aquele número significa, e as
-                      iniciais não têm como saber que "Dr. Matheus Enes
-                      Corporativo" é o ECO pra quem usa. O lápis fica AQUI, na
-                      linha do número, porque é aqui que se olha os selos lado a
-                      lado e se percebe qual deles está errado. */}
+                  {/* ── A ENGRENAGEM DO NÚMERO ──
+                      Era um lápis, e lápis prometia pouco: só a etiqueta. Como
+                      engrenagem ela vira a porta de TUDO que é daquele número —
+                      o nome que ele tem aqui, a etiqueta, o estado da sessão, a
+                      manutenção da ligação. Fica nesta linha porque é aqui que
+                      se olha os números lado a lado e se percebe qual deles
+                      está com problema. */}
                   <button
                     onClick={() => { setAberto(false); onEditarMarca(i.nome); }}
-                    title="Mudar a sigla e a cor deste número"
+                    title="Configurações deste número"
                     className="shrink-0 h-6 w-6 grid place-items-center rounded-md text-muted-foreground/40
                                hover:text-foreground hover:bg-white/[0.08] transition-colors">
-                    <Pencil className="h-3 w-3" />
+                    <SlidersHorizontal className="h-3 w-3" />
                   </button>
                 </div>
               );
@@ -6926,6 +7047,23 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
   );
 }
 
+/* Uma linha de informação técnica: rótulo pequeno em cima, valor embaixo.
+   Existe pra as seis linhas do painel do número saírem alinhadas sem repetir a
+   mesma marcação seis vezes — e pra "conectado" e "desconectado" ganharem cor
+   sem que a cor vire decisão de cada linha. */
+function LinhaTecnica({ rotulo, valor, tom }: { rotulo: string; valor: string; tom?: string }) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-[9px] uppercase tracking-[0.1em] text-muted-foreground/50">
+        {rotulo}
+      </span>
+      <span className={cn("block text-[11.5px] truncate", tom ?? "text-foreground/80")} title={valor}>
+        {valor}
+      </span>
+    </span>
+  );
+}
+
 /* ═══════════ A RÉGUA É DE QUEM ═══════════
  *
  * Com um número só, esta barra é uma linha discreta dizendo de quem é a régua
@@ -6939,12 +7077,13 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
  * lida em outra tela, viraria uma decisão que ninguém revisita.
  */
 function BarraDaReguaDoNumero({
-  numeros, escolhido, apelidos, corDe, padraoAtivo, onEscolher, onMudarPadrao,
+  numeros, escolhido, apelidos, corDe, nomeDe, padraoAtivo, onEscolher, onMudarPadrao,
 }: {
   numeros: Instancia[];
   escolhido: string | null;
   apelidos: Map<string, string>;
   corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
   padraoAtivo: boolean;
   onEscolher: (nome: string) => void;
   onMudarPadrao: (ativo: boolean) => void;
@@ -6958,7 +7097,7 @@ function BarraDaReguaDoNumero({
           Régua de
         </span>
         {numeros.length === 1 ? (
-          <span className="text-[12.5px] font-medium truncate">{numeros[0].nome}</span>
+          <span className="text-[12.5px] font-medium truncate">{nomeDe(numeros[0].nome)}</span>
         ) : (
           <span className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
             {numeros.map((i) => {
@@ -6966,14 +7105,14 @@ function BarraDaReguaDoNumero({
               const ativo = mesmaInstancia(i.nome, escolhido);
               return (
                 <button key={i.id} onClick={() => onEscolher(i.nome)}
-                  title={i.nome}
+                  title={nomeDe(i.nome)}
                   className={cn("flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] transition-colors",
                     ativo ? "bg-white/[0.09] text-foreground" : "text-muted-foreground hover:text-foreground")}>
                   <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide",
                     ativo ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
                     {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
                   </span>
-                  <span className="truncate max-w-[9rem]">{i.nome}</span>
+                  <span className="truncate max-w-[9rem]">{nomeDe(i.nome)}</span>
                 </button>
               );
             })}

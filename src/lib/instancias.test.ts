@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   listaDeInstancias, mesmaInstancia, contemInstancia, juntarPorRecente,
   apelidoDeInstancia, apelidosDeInstancias, corDaInstancia, rotuloDaSelecao,
-  nomeDaCorEmUso, CORES_DE_INSTANCIA,
+  nomeDaCorEmUso, coresDeInstancias, CORES_DE_INSTANCIA,
 } from "./instancias";
 
 describe("a lista de números escolhidos", () => {
@@ -203,5 +203,48 @@ describe("a cor escolhida a mão", () => {
   it("o nome da cor em uso acompanha o sorteio quando ninguém escolheu", () => {
     const nome = nomeDaCorEmUso("PORTAL DIREITO ABERTO");
     expect(CORES_DE_INSTANCIA[nome]).toEqual(corDaInstancia("PORTAL DIREITO ABERTO"));
+  });
+});
+
+describe("as cores de um conjunto", () => {
+  /* Sorteio não garante coisa nenhuma: com três números e seis cores, a chance
+     de dois saírem iguais passa de um terço. E saiu — dois selos da mesma cor
+     na mesma caixa, que é exatamente o problema que a cor existia pra resolver. */
+  it("nunca repete dentro do conjunto", () => {
+    const nomes = ["Um numero", "Outro numero", "Terceiro numero", "Quarto", "Quinto", "Sexto"];
+    const m = coresDeInstancias(nomes);
+    expect(new Set(m.values()).size).toBe(nomes.length);
+  });
+
+  it("a escolhida a mão fica, e o sorteio desvia dela", () => {
+    const m = coresDeInstancias(["A", "B", "C"], new Map([["A", "teal"]]));
+    expect(m.get("A")).toBe("teal");
+    expect(m.get("B")).not.toBe("teal");
+    expect(m.get("C")).not.toBe("teal");
+  });
+
+  /* Discordar de uma decisão explícita não é papel da tela: quem pintou os dois
+     de teal quis os dois de teal. O desvio existe pra salvar o SORTEIO. */
+  it("duas escolhas iguais a mão continuam iguais", () => {
+    const m = coresDeInstancias(["A", "B"], new Map([["A", "rose"], ["B", "rose"]]));
+    expect(m.get("A")).toBe("rose");
+    expect(m.get("B")).toBe("rose");
+  });
+
+  it("mais números que cores livres não deixa ninguém sem cor", () => {
+    const nomes = Array.from({ length: 12 }, (_, i) => `numero ${i}`);
+    const m = coresDeInstancias(nomes);
+    expect(m.size).toBe(12);
+    for (const n of nomes) expect(CORES_DE_INSTANCIA[m.get(n)!]).toBeTruthy();
+  });
+
+  it("cor inválida vinda do banco não ocupa lugar nem quebra", () => {
+    const m = coresDeInstancias(["A", "B"], new Map([["A", "verde-limao"]]));
+    expect(new Set(m.values()).size).toBe(2);
+  });
+
+  it("um número só continua com a cor que ele já tinha", () => {
+    expect(coresDeInstancias(["PORTAL DIREITO ABERTO"]).get("PORTAL DIREITO ABERTO"))
+      .toBe(nomeDaCorEmUso("PORTAL DIREITO ABERTO"));
   });
 });
