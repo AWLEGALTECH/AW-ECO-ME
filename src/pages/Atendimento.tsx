@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   MessageCircle, Search, Send, AlertTriangle, Check,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
@@ -297,6 +298,55 @@ export default function AtendimentoPage() {
      importa quando se está escrevendo. */
   const [detalheAberto, setDetalheAberto] = useState(true);
 
+  /* ═══ O CELULAR NÃO TEM QUATRO COLUNAS ═══
+   *
+   * No monitor, a caixa, a conversa, a ficha e os lembretes convivem porque há
+   * largura pra isso — e conviver é uma vantagem real: dá pra ler o histórico
+   * enquanto se olha a etapa do lead. Num telefone, tentar o mesmo produz
+   * quatro tiras de sessenta pixels onde nada se lê.
+   *
+   * Então o celular ganha o desenho que todo aplicativo de mensagem tem, porque
+   * é o que funciona: UMA COISA POR VEZ, empilhada, com volta. Lista de
+   * conversas; toca numa e ela ocupa a tela inteira; toca no nome e a ficha
+   * ocupa a tela inteira. Cada passo é um lugar, e o botão de voltar desfaz
+   * exatamente um passo — sem painel espremido, sem duas coisas disputando os
+   * mesmos pixels.
+   *
+   * `telaMobile` só existe no telefone. No monitor ele é ignorado e as quatro
+   * colunas continuam lado a lado: são dois desenhos para dois tamanhos, e não
+   * um desenho que encolhe até ficar ruim nos dois. */
+  const ehMobile = useIsMobile();
+  const [telaMobile, setTelaMobile] = useState<"caixa" | "conversa" | "ficha" | "lembretes">("caixa");
+
+  /* Voltar sempre desce um degrau: da ficha e dos lembretes pra conversa, da
+     conversa pra caixa. Um só caminho de volta é o que faz a pilha ser
+     previsível — a pessoa não precisa lembrar de onde veio. */
+  const voltarMobile = () => {
+    setTelaMobile((t) => (t === "ficha" || t === "lembretes" ? "conversa" : "caixa"));
+  };
+
+  /* O BOTÃO DE VOLTAR DO APARELHO desfaz um degrau da pilha, e não a navegação
+     do site. Sem isto, quem está lendo uma conversa e faz o gesto de voltar —
+     que no celular é o gesto mais usado que existe — sai do atendimento
+     inteiro, ou fecha a aba. Cada degrau empurra uma entrada no histórico e a
+     volta a consome.
+     Só no celular: no monitor não há pilha, e mexer no histórico do navegador
+     ali seria sequestrar o botão de voltar por nada. */
+  useEffect(() => {
+    if (!ehMobile || telaMobile === "caixa") return;
+    window.history.pushState({ telaAtendimento: telaMobile }, "");
+    const aoVoltar = () => voltarMobile();
+    window.addEventListener("popstate", aoVoltar);
+    return () => window.removeEventListener("popstate", aoVoltar);
+  }, [ehMobile, telaMobile]);
+
+  /* Sair do celular (girar a tela, abrir no monitor) volta a pilha pro começo:
+     as quatro colunas aparecem todas, e um `telaMobile` esquecido em "ficha"
+     faria a caixa nascer escondida na próxima vez que a janela encolhesse. */
+  useEffect(() => {
+    if (!ehMobile) setTelaMobile("caixa");
+  }, [ehMobile]);
+
   /* A LARGURA DA FICHA MORA NUM LUGAR SÓ — e essa é a correção de um buraco que
      apareceu na tela: o invólucro que anima a abertura tinha a largura escrita
      em JS ("17rem") e o cartão de dentro tinha a dele em classe do Tailwind.
@@ -501,6 +551,10 @@ export default function AtendimentoPage() {
   const estagioDe = (l: Lead): Estagio => estagios[l.id] ?? l.estagio;
   const abrir = (id: string) => {
     setSelecionadoId(id);
+    /* No celular, escolher uma conversa é ENTRAR nela: a lista sai e o
+       histórico ocupa a tela. No monitor não muda nada — a lista continua
+       visível ao lado, que é a vantagem de ter largura. */
+    if (ehMobile) setTelaMobile("conversa");
     if (aoVivo) marcarLida(id).then(invalidarWa).catch(() => {});
   };
   const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? l.etapasPuladas ?? [];
@@ -1606,6 +1660,12 @@ export default function AtendimentoPage() {
           As abas vieram morar no cartão, do lado direito, ancoradas no mesmo
           objeto — e o cartão passa a existir nas duas abas, porque a instância
           é o contexto dos dois painéis. */}
+      {/* A INSTÂNCIA E AS ABAS SÓ NA PRIMEIRA TELA DO CELULAR.
+          Elas respondem "por qual número, e olhando o quê" — perguntas que se
+          faz ao CHEGAR, não no meio de uma conversa. Mantê-las fixas roubaria
+          duas faixas de altura de uma tela que já é pequena, justamente onde o
+          histórico precisa de todo o espaço que houver. */}
+      {(!ehMobile || telaMobile === "caixa") && (
       <CardInstancia
         instancia={cartaoDaInstancia}
         todas={instancias}
@@ -1616,10 +1676,14 @@ export default function AtendimentoPage() {
         onImportar={importarDoAparelho}
         onDiagnosticar={rodarDiagnostico}
         abas={
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5 shrink-0">
+          /* No celular as quatro abas não cabem lado a lado sem virar texto
+             ilegível, então elas ROLAM de lado — o gesto natural do polegar —
+             em vez de encolher até não se ler. */
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5
+                          shrink-0 max-w-full overflow-x-auto scrollbar-thin">
             {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
-              <button key={k} onClick={() => setAba(k)}
-                className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors",
+              <button key={k} onClick={() => { setAba(k); if (ehMobile) setTelaMobile("caixa"); }}
+                className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
                 <Ico className="h-3.5 w-3.5" /> {rot}
               </button>
@@ -1627,6 +1691,7 @@ export default function AtendimentoPage() {
           </div>
         }
       />
+      )}
 
       {aba === "followup" ? (
         <CentralFollowUp
@@ -1634,14 +1699,14 @@ export default function AtendimentoPage() {
           leads={leadsBase}
           hoje={HOJE}
           onConcluir={concluir}
-          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); }}
+          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
         />
       ) : aba === "programadas" ? (
         <CentralProgramadas
           agendadas={agendadas}
           leads={leadsBase}
           onCancelar={cancelarProgramada}
-          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); }}
+          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
         />
       ) : aba === "funil" ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
@@ -1658,7 +1723,7 @@ export default function AtendimentoPage() {
               de empurrar a largura da página: sem eles, um nome comprido ou uma
               etiqueta larga vazam e a janela ganha barra horizontal. Quem
               aperta é a coluna, nunca a tela. */}
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex gap-2">
+          <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex gap-0 md:gap-2">
 
             {/* ═══ caixa ═══ */}
             {/* A CAIXA ALARGA QUANDO UMA BASE ABRE.
@@ -1668,8 +1733,12 @@ export default function AtendimentoPage() {
                 respostas passam a caber na própria fila, sem precisar abrir
                 cada ficha pra descobrir se vale falar com aquela pessoa. */}
             <SpotlightCard sutil className={cn(
-              "shrink-0 flex flex-col min-h-0 p-0 overflow-hidden transition-[width] duration-200",
-              caixa === "base" && baseAberta ? "w-[21rem] 2xl:w-[24rem]" : "w-[13.25rem] 2xl:w-[15.5rem]")}>
+              "flex flex-col min-h-0 p-0 overflow-hidden md:transition-[width] md:duration-200",
+              /* No celular a caixa é a tela inteira; no monitor é a primeira de
+                 quatro colunas, com largura própria. */
+              "w-full md:shrink-0",
+              ehMobile && telaMobile !== "caixa" && "hidden",
+              caixa === "base" && baseAberta ? "md:w-[21rem] 2xl:md:w-[24rem]" : "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -2190,7 +2259,11 @@ export default function AtendimentoPage() {
                  escreve daqui pra frente. Dizer isso, com os dois caminhos pra
                  sair do zero, vale mais que uma tela cheia de gente que não
                  existe. */
-              <SpotlightCard sutil className="flex-1 min-w-[15rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+              <SpotlightCard sutil className={cn("flex flex-col min-h-0 p-0 overflow-hidden bg-black/25",
+              /* Celular: a conversa é a tela toda, e some quando a pilha está
+                 na caixa ou na ficha. Monitor: a coluna elástica do meio. */
+              "w-full md:w-auto md:flex-1 md:min-w-[15rem]",
+              ehMobile && telaMobile !== "conversa" && "hidden")}>
                 <div className="flex-1 grid place-items-center p-8">
                   <div className="max-w-sm text-center flex flex-col items-center gap-3">
                     <span className="h-12 w-12 rounded-full grid place-items-center bg-white/[0.05] ring-1 ring-white/10">
@@ -2230,15 +2303,30 @@ export default function AtendimentoPage() {
                 mais leve da bancada, que é a lista que muda o dia todo. Sem isso
                 os quatro painéis eram a mesma superfície repetida e o olho não
                 sabia onde estava. */}
-            <SpotlightCard sutil className="flex-1 min-w-[15rem] flex flex-col min-h-0 p-0 overflow-hidden bg-black/25">
+            <SpotlightCard sutil className={cn("flex flex-col min-h-0 p-0 overflow-hidden bg-black/25",
+              /* Celular: a conversa é a tela toda, e some quando a pilha está
+                 na caixa ou na ficha. Monitor: a coluna elástica do meio. */
+              "w-full md:w-auto md:flex-1 md:min-w-[15rem]",
+              ehMobile && telaMobile !== "conversa" && "hidden")}>
               <div className="px-3.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
                 {/* A FOTO E O NOME SÃO O BOTÃO da ficha do cliente. Um alvo
                     grande, no lugar onde o olho já está quando a pergunta é
                     "quem é essa pessoa?" — e não mais um ícone no canto, que
                     ninguém encontra sem procurar. */}
+                {/* VOLTAR, só no celular. Na pilha, sair da conversa é um
+                    gesto tão frequente quanto entrar nela, e ele precisa estar
+                    onde a mão já vai: no canto de cima à esquerda, como em
+                    qualquer aplicativo de mensagem. */}
+                {ehMobile && (
+                  <button onClick={voltarMobile} title="Voltar para a caixa"
+                    className="shrink-0 -ml-1.5 h-8 w-8 grid place-items-center rounded-lg
+                               text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                )}
                 <button
-                  onClick={() => setDetalheAberto((v) => !v)}
-                  title={detalheAberto ? "Esconder o detalhe do cliente" : "Ver o detalhe do cliente"}
+                  onClick={() => (ehMobile ? setTelaMobile("ficha") : setDetalheAberto((v) => !v))}
+                  title={ehMobile ? "Ver o detalhe do cliente" : (detalheAberto ? "Esconder o detalhe do cliente" : "Ver o detalhe do cliente")}
                   className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors">
                 {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
                 <span className="relative shrink-0 self-start block h-8 w-8">
@@ -2320,6 +2408,24 @@ export default function AtendimentoPage() {
                     coisas opostas, e a segunda pessoa precisa resolver isso em
                     um clique — não caçando uma tela de configuração. Fica no
                     navegador, não na conta: é preferência da mesa, do momento. */}
+                {/* NO CELULAR, A PORTA DOS LEMBRETES fica aqui: é o único
+                    lugar de onde a quarta tela é alcançável, já que não há
+                    coluna ao lado. O contador diz se vale a pena entrar. */}
+                {ehMobile && (
+                  <button
+                    onClick={() => setTelaMobile("lembretes")}
+                    title="Lembretes do dia"
+                    className="relative shrink-0 h-8 w-8 grid place-items-center rounded-lg
+                               text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
+                    <ListChecks className="h-4 w-4" />
+                    {abertasHoje > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full
+                                       bg-primary text-[9px] font-semibold text-primary-foreground grid place-items-center">
+                        {abertasHoje}
+                      </span>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={alternarMudo}
                   title={mudo ? "Sons desligados" : "Sons ligados"}
@@ -2650,24 +2756,42 @@ export default function AtendimentoPage() {
                 falta espaço, o que sai é a CONSULTA, nunca a conversa. Abaixo
                 de 1280px o espaço acaba sozinho; acima disso, quem decide é
                 quem está atendendo. */}
+            {/* NO CELULAR A FICHA É UMA TELA, não uma coluna que desliza.
+                A animação de largura existe pro monitor, onde a conversa
+                encolhe pra dar espaço; no telefone não há o que encolher — a
+                ficha simplesmente toma o lugar da conversa, com volta no topo.
+                É a MESMA árvore nos dois casos, com o invólucro mudando de
+                papel: duplicar o conteúdo faria as duas versões divergirem na
+                primeira mudança, e a ficha é a parte da tela que mais muda. */}
             <AnimatePresence initial={false}>
-            {detalheAberto && (
+            {(ehMobile ? telaMobile === "ficha" : detalheAberto) && (
             <motion.div
               key="detalhe"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: larguraFicha, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={ehMobile ? false : { width: 0, opacity: 0 }}
+              animate={ehMobile ? { opacity: 1 } : { width: larguraFicha, opacity: 1 }}
+              exit={ehMobile ? { opacity: 0 } : { width: 0, opacity: 0 }}
               transition={{ type: "spring", stiffness: 420, damping: 42, mass: 0.9 }}
-              className="hidden xl:block shrink-0 min-h-0 overflow-hidden">
+              className={cn("min-h-0 overflow-hidden",
+                ehMobile ? "w-full" : "hidden xl:block shrink-0")}>
             {/* A largura fica NESTE div e não no cartão: o `SpotlightCard` não
                 recebe `style`, e a medida precisa ser a mesma que a animação usa
                 lá em cima — foi a divergência entre as duas que abriu a coluna
                 de vazio. Aqui elas leem a mesma variável. */}
-            <div style={{ width: larguraFicha }} className="h-full">
+            <div style={ehMobile ? undefined : { width: larguraFicha }}
+              className={cn("h-full", ehMobile && "w-full")}>
             <SpotlightCard sutil className={cn(
               "w-full h-full flex flex-col min-h-0 p-0 overflow-hidden bg-card backdrop-blur-none")}>
-              <div className="px-3 py-2 border-b border-white/[0.06] shrink-0">
-                <h2 className="text-[12.5px] font-semibold">Detalhe do cliente</h2>
+              <div className="px-3 py-2 border-b border-white/[0.06] shrink-0 flex items-center gap-2">
+                {ehMobile && (
+                  <button onClick={voltarMobile} title="Voltar para a conversa"
+                    className="shrink-0 -ml-1.5 h-8 w-8 grid place-items-center rounded-lg
+                               text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                )}
+                <h2 className="text-[12.5px] font-semibold min-w-0 truncate">
+                  {ehMobile ? lead.nome : "Detalhe do cliente"}
+                </h2>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
@@ -2893,9 +3017,15 @@ export default function AtendimentoPage() {
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
                 volta sozinho) e lembrete (o sino que alguém marcou). */}
-            <SpotlightCard sutil className={cn("shrink-0 flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.045] transition-[width] duration-200",
-              tarefasAbertas ? "w-[13.5rem] 2xl:w-[16rem]" : "w-[2.5rem]")}>
-              {tarefasAbertas ? (
+            {/* NO CELULAR OS LEMBRETES SÃO A QUARTA TELA. A barra estreita
+                recolhida não faz sentido num telefone: quarenta pixels de
+                coluna ao lado de uma conversa espremida é o pior dos dois
+                mundos. Ou o dia inteiro na tela, ou nada. */}
+            <SpotlightCard sutil className={cn("flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.045] md:transition-[width] md:duration-200",
+              ehMobile
+                ? cn("w-full", telaMobile !== "lembretes" && "hidden")
+                : cn("shrink-0", tarefasAbertas ? "w-[13.5rem] 2xl:w-[16rem]" : "w-[2.5rem]"))}>
+              {tarefasAbertas || ehMobile ? (
                 <>
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
                     <div className="flex items-center justify-between gap-2">
@@ -2917,9 +3047,13 @@ export default function AtendimentoPage() {
                             <CalendarioTasks dia={dia} onEscolher={setDia} comTask={diasComTask} />
                           </PopoverContent>
                         </Popover>
-                        <button onClick={() => setTarefasAbertas(false)} title="Recolher"
+                        <button
+                          onClick={() => (ehMobile ? voltarMobile() : setTarefasAbertas(false))}
+                          title={ehMobile ? "Voltar para a conversa" : "Recolher"}
                           className="text-muted-foreground hover:text-foreground">
-                          <PanelRightClose className="h-3.5 w-3.5" />
+                          {ehMobile
+                            ? <ChevronLeft className="h-4 w-4" />
+                            : <PanelRightClose className="h-3.5 w-3.5" />}
                         </button>
                       </div>
                     </div>
@@ -4807,7 +4941,11 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
        quando tem quatro.
        Solta, ela lê como cabeçalho: um título que não precisa de moldura pra
        existir. E o cartão que sobrou é o que de fato guarda trabalho. */
-    <div className="shrink-0 px-1 pb-0.5 flex items-center gap-3">
+    /* NO CELULAR ELE QUEBRA EM DUAS LINHAS. Foto, nome e o botão de trocar
+       ocupam a primeira; as abas descem pra segunda e rolam de lado. Numa
+       linha só, com 360px de largura, o nome truncaria em três letras e o
+       botão viraria um retângulo sem texto. */
+    <div className="shrink-0 px-1 pb-0.5 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2">
       {/* A FOTO DO PERFIL É IDENTIDADE, NÃO STATUS. Ela fica neutra: quem diz
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
@@ -4847,12 +4985,15 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
         <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
       </div>
 
-      {abas}
+      {/* `order` põe as abas depois do botão no celular e antes dele no
+          monitor, sem duplicar a marcação: é a mesma peça, em dois lugares. */}
+      <div className="order-last md:order-none w-full md:w-auto min-w-0">{abas}</div>
 
       <Popover open={aberto} onOpenChange={setAberto}>
         <PopoverTrigger asChild>
           <Button variant="outline" size="sm" className="h-8 shrink-0 text-[11.5px]">
-            <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Trocar instância
+            <ArrowLeftRight className="h-3.5 w-3.5 md:mr-1.5" />
+            <span className="hidden md:inline">Trocar instância</span>
             <ChevronsUpDown className="h-3 w-3 ml-1.5 opacity-60" />
           </Button>
         </PopoverTrigger>
