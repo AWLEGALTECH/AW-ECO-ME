@@ -132,6 +132,8 @@ export interface Lead {
      Diferente de `estagio = 'fechado'`, que quer dizer VIROU CLIENTE — muita
      gente que não fecha também merece parar de ser cobrada. */
   atendimentoFinalizadoEm?: string | null;
+  /** quando foi fixada no topo da caixa; null/ausente = não fixada */
+  fixadaEm?: string | null;
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
      porque a conversa inteira só é carregada pra aberta — sem isso, todo mundo
      que não está aberto aparece com o nome e mais nada. */

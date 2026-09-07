@@ -36,7 +36,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info,
@@ -54,7 +54,7 @@ import {
   useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
-  reaplicarWebhook, importarConversas, registrarInstancia, useInvalidarWa,
+  reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   diagnosticarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
@@ -173,10 +173,16 @@ export default function AtendimentoPage() {
      isto é o estado dela hoje — está sendo cobrada, está esperando a gente. Os
      dois se cruzam em vez de competir, e por isso são dois estados. */
   const [filtroExtra, setFiltroExtra] = useState<"followup" | "semResposta" | null>(null);
+  /* Recortes mais finos, cada um respondendo uma pergunta diferente: "quem está
+     na terceira cobrança?" e "quem veio da LP do Bradesco?". Separados porque se
+     cruzam — dá pra querer os dois ao mesmo tempo. */
+  const [filtroRodada, setFiltroRodada] = useState<number | null>(null);
+  const [filtroBase, setFiltroBase] = useState<string | null>(null);
   /* Quantos filtros estão ligados. O botão conta porque filtro ligado e
      invisível é a forma mais rápida de alguém concluir que "sumiram conversas"
      — e ir procurar defeito onde não há. */
-  const filtrosLigados = (filtroEtapa !== "todos" ? 1 : 0) + (filtroExtra ? 1 : 0);
+  const filtrosLigados = (filtroEtapa !== "todos" ? 1 : 0) + (filtroExtra ? 1 : 0)
+    + (filtroRodada !== null ? 1 : 0) + (filtroBase ? 1 : 0);
   const [busca, setBusca] = useState("");
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
@@ -559,7 +565,17 @@ export default function AtendimentoPage() {
   };
   const puladasDe = (l: Lead): Estagio[] => puladas[l.id] ?? l.etapasPuladas ?? [];
 
-  /* Avançar etapa, com a mesma regra da linha do tempo do processo: o que fica
+  /* Fixar e soltar. O estado vive no banco e não no navegador porque a fila é
+     compartilhada: quem fixa "a dona Maria vai fechar hoje" está avisando a
+     equipe, não organizando a própria tela. */
+  const alternarFixada = (l: Lead) => {
+    if (!aoVivo) return;
+    fixarConversaWa(l.id, !l.fixadaEm)
+      .then(invalidarWa)
+      .catch((e) => toast.error("Não consegui fixar: " + (e as Error).message));
+  };
+
+  /* Alterar etapa, com a mesma regra da linha do tempo do processo: o que fica
      entre a atual e o destino vira PULADA — não some, e não vira concluída. */
   const avancarEtapa = (l: Lead, alvo: Estagio) => {
     const i = ESTAGIOS.findIndex((e) => e.chave === estagioDe(l));
@@ -617,6 +633,18 @@ export default function AtendimentoPage() {
      diferente de "há uma cobrança marcada pra sexta", e as duas decidem coisas
      diferentes na hora de escrever. */
 
+  /* As bases que TÊM gente na caixa, com quantos. Listar campanha vazia é
+     oferecer um filtro que devolve nada — e ninguém confia num filtro depois
+     que ele devolve zero uma vez. */
+  const basesNaCaixa = useMemo(() => {
+    const conta = new Map<string, number>();
+    for (const l of leadsBase) {
+      if (!l.base) continue;
+      conta.set(l.base, (conta.get(l.base) ?? 0) + 1);
+    }
+    return [...conta.entries()].sort((a, b) => b[1] - a[1]);
+  }, [leadsBase]);
+
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return leadsBase
@@ -629,14 +657,29 @@ export default function AtendimentoPage() {
         if (filtroExtra === "semResposta") return l.ultimaFoi === "lead";
         return true;
       })
+      .filter((l) => filtroRodada === null || followUpPorLead.get(l.id)?.rodada === filtroRodada)
+      .filter((l) => !filtroBase || l.base === filtroBase)
       .filter((l) => !termo || l.nome.toLowerCase().includes(termo) || l.telefone.includes(termo))
+      /* A ORDEM DA CAIXA É A DA ÚLTIMA MENSAGEM, e mais nada.
+         Antes ela era "quem espera resposta nossa primeiro, depois há mais
+         tempo" — e isso tinha um efeito colateral que parecia bug: ABRIR uma
+         conversa mudava o lugar dela na fila. O motivo é que os dois critérios
+         saem das MENSAGENS, e as mensagens só são carregadas para a conversa
+         aberta; para as outras a conta era feita sobre uma lista vazia. Quem
+         clicava via a linha pular pro topo sozinha.
+         `ultima_em` existe em todas as linhas o tempo todo, vem do banco e só
+         muda quando alguém escreve. É o único critério que não se mexe por
+         causa de um clique — e é o que todo aplicativo de mensagem usa.
+         "Esperando resposta nossa" continua existindo: virou filtro e etiqueta,
+         que é onde uma urgência deve estar, sem embaralhar a ordem. */
       .sort((a, b) => {
-        const ra = a.ultimaFoi === "lead" ? 0 : 1;
-        const rb = b.ultimaFoi === "lead" ? 0 : 1;
-        if (ra !== rb) return ra - rb;
-        return b.horasSemResposta - a.horasSemResposta;
+        // As fixadas ficam em cima, a última fixada primeiro: pilha de papel.
+        const fa = a.fixadaEm ? Date.parse(a.fixadaEm) : 0;
+        const fb = b.fixadaEm ? Date.parse(b.fixadaEm) : 0;
+        if (fa !== fb) return fb - fa;
+        return (b.ultimaEm ? Date.parse(b.ultimaEm) : 0) - (a.ultimaEm ? Date.parse(a.ultimaEm) : 0);
       });
-  }, [filtroEtapa, filtroExtra, followUpPorLead, busca, leadsBase, estagios]);
+  }, [filtroEtapa, filtroExtra, filtroRodada, filtroBase, followUpPorLead, busca, leadsBase, estagios]);
 
   /* Ao vivo os lembretes vêm de `wa_tasks` e sobrevivem ao recarregar; na
      maquete continuam em memória, pra ela seguir servindo pra discutir formato
@@ -1863,9 +1906,63 @@ export default function AtendimentoPage() {
                           ))}
                         </div>
 
+                        {/* POR RODADA DA RÉGUA. "Quem está na terceira
+                            cobrança" é uma pergunta de trabalho: as mensagens
+                            de UP01 e UP05 são opostas, e quem vai escrever um
+                            lote quer o lote inteiro na mesma altura da régua. */}
+                        <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-2.5">
+                          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                            Rodada do follow-up
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {Array.from({ length: TOTAL_RODADAS }, (_, i) => i + 1).map((r) => {
+                              const n = leadsBase.filter((l) => followUpPorLead.get(l.id)?.rodada === r).length;
+                              return (
+                                <button key={r}
+                                  onClick={() => setFiltroRodada((v) => (v === r ? null : r))}
+                                  className={cn("rounded-full px-2 py-[2px] text-[10px] tabular-nums transition-colors ring-1 flex items-center gap-1",
+                                    filtroRodada === r
+                                      ? "bg-violet-400/20 text-violet-200 ring-violet-400/35"
+                                      : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground",
+                                    n === 0 && filtroRodada !== r && "opacity-45")}>
+                                  {rotuloDaRodada(r)}
+                                  {n > 0 && <span className="opacity-60">{n}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* POR BASE. De onde a pessoa veio muda a abordagem
+                            inteira, e quem trabalha uma campanha trabalha a
+                            base dela, não a caixa toda. Só aparecem as bases
+                            que TÊM gente na caixa: listar campanha vazia é
+                            oferecer um filtro que devolve nada. */}
+                        {basesNaCaixa.length > 0 && (
+                          <div className="flex flex-col gap-1.5 border-t border-white/[0.06] pt-2.5">
+                            <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                              Base
+                            </p>
+                            <div className="flex flex-col gap-0.5 max-h-[9rem] overflow-y-auto scrollbar-thin">
+                              {basesNaCaixa.map(([nome, n]) => (
+                                <button key={nome}
+                                  onClick={() => setFiltroBase((v) => (v === nome ? null : nome))}
+                                  className={cn("flex items-center gap-2 rounded-md px-2 py-1 text-[11.5px] transition-colors text-left",
+                                    filtroBase === nome
+                                      ? "bg-blue-400/15 text-blue-100 ring-1 ring-blue-400/30"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-white/[0.05]")}>
+                                  <Database className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="flex-1 truncate">{nome}</span>
+                                  <span className="tabular-nums opacity-60 shrink-0">{n}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         {filtrosLigados > 0 && (
                           <button
-                            onClick={() => { setFiltroEtapa("todos"); setFiltroExtra(null); }}
+                            onClick={() => { setFiltroEtapa("todos"); setFiltroExtra(null); setFiltroRodada(null); setFiltroBase(null); }}
                             className="text-[11px] text-muted-foreground hover:text-foreground
                                        underline underline-offset-2 self-start">
                             Limpar filtros
@@ -1891,6 +1988,23 @@ export default function AtendimentoPage() {
                                    bg-violet-400/12 text-violet-300 ring-1 ring-violet-400/25 hover:bg-violet-400/20 transition-colors">
                         {filtroExtra === "followup" ? "Follow-up" : "Sem resposta"}
                         <X className="h-3 w-3 opacity-60" />
+                      </button>
+                    )}
+                    {filtroRodada !== null && (
+                      <button onClick={() => setFiltroRodada(null)}
+                        className="h-7 shrink-0 flex items-center gap-1 rounded-md px-2 text-[10.5px] tabular-nums
+                                   bg-violet-400/12 text-violet-300 ring-1 ring-violet-400/25 hover:bg-violet-400/20 transition-colors">
+                        {rotuloDaRodada(filtroRodada)}
+                        <X className="h-3 w-3 opacity-60" />
+                      </button>
+                    )}
+                    {filtroBase && (
+                      <button onClick={() => setFiltroBase(null)}
+                        title={filtroBase}
+                        className="h-7 shrink-0 flex items-center gap-1 rounded-md px-2 text-[10.5px] max-w-[8rem]
+                                   bg-blue-400/12 text-blue-200 ring-1 ring-blue-400/25 hover:bg-blue-400/20 transition-colors">
+                        <span className="truncate">{filtroBase}</span>
+                        <X className="h-3 w-3 opacity-60 shrink-0" />
                       </button>
                     )}
                   </div>
@@ -2176,9 +2290,26 @@ export default function AtendimentoPage() {
                   const ativo = l.id === lead.id;
                   return (
                     <button key={l.id} onClick={() => abrir(l.id)}
-                      className={cn("w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
+                      className={cn("group w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
                         ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
                       {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
+
+                      {/* FIXAR. Aparece no hover, ou o tempo todo se já estiver
+                          fixada — um alfinete visível em cada linha da caixa
+                          seria ruído em cinquenta linhas para um gesto que se
+                          usa em três. Fica no canto oposto ao nome pra não
+                          disputar o alvo do clique que abre a conversa. */}
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        title={l.fixadaEm ? "Soltar do topo" : "Fixar no topo"}
+                        onClick={(e) => { e.stopPropagation(); alternarFixada(l); }}
+                        className={cn("absolute top-1 right-1 h-6 w-6 grid place-items-center rounded-md z-10 transition-all",
+                          l.fixadaEm
+                            ? "text-primary opacity-100"
+                            : "text-muted-foreground/50 opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-white/[0.08]")}>
+                        <Pin className={cn("h-3.5 w-3.5", l.fixadaEm && "fill-current")} />
+                      </span>
                       {/* O PINGO DE ONLINE FICA SOBRE A FOTO, no canto — que é
                           onde todo aplicativo de mensagem põe e onde o olho já
                           procura. Ao lado do nome ele empurrava o texto e fazia
@@ -2414,7 +2545,7 @@ export default function AtendimentoPage() {
                 {ehMobile && (
                   <button
                     onClick={() => setTelaMobile("lembretes")}
-                    title="Lembretes do dia"
+                    title="Daily — tudo que é do dia"
                     className="relative shrink-0 h-8 w-8 grid place-items-center rounded-lg
                                text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
                     <ListChecks className="h-4 w-4" />
@@ -3012,7 +3143,15 @@ export default function AtendimentoPage() {
             )}
             </AnimatePresence>
 
-            {/* ═══ Lembretes — retrátil ═══
+            {/* ═══ Daily — retrátil ═══
+                O painel se chamava "Lembretes", e o nome mentia por baixo: ele
+                junta as cobranças que a régua criou sozinha e os recados que
+                alguém marcou à mão. "Lembrete" é só a segunda metade, e o
+                filtro logo abaixo tinha um botão "Lembretes" DENTRO de uma
+                coluna chamada Lembretes.
+                "Daily" diz o que a coluna é de verdade: tudo que tem hora
+                marcada para hoje, venha de onde vier.
+
                 Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
                 ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
                 (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
@@ -3030,7 +3169,7 @@ export default function AtendimentoPage() {
                   <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
                     <div className="flex items-center justify-between gap-2">
                       <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
-                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Lembretes
+                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Daily
                       </h2>
                       <div className="flex items-center gap-1.5">
                         <Popover>
@@ -3183,7 +3322,7 @@ export default function AtendimentoPage() {
                   </div>
                 </>
               ) : (
-                <button onClick={() => setTarefasAbertas(true)} title="Abrir os lembretes do dia"
+                <button onClick={() => setTarefasAbertas(true)} title="Abrir o daily"
                   className="flex-1 flex flex-col items-center gap-3 py-3 hover:bg-white/[0.03] transition-colors">
                   <PanelRightOpen className="h-4 w-4 text-muted-foreground shrink-0" />
                   {abertasHoje > 0 && (
@@ -4826,7 +4965,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
                   {proxima && (
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
                       onClick={onEscolherEtapa}>
-                      <ArrowRight className="h-3.5 w-3.5" /> Avançar etapa
+                      <ArrowRight className="h-3.5 w-3.5" /> Alterar etapa
                     </Button>
                   )}
                 </motion.div>

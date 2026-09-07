@@ -103,7 +103,7 @@ export function useConversas(instancia: string | null) {
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
       let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, created_at")
+        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, created_at")
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
@@ -206,6 +206,20 @@ async function pedirEnvio(body: Record<string, unknown>) {
  * triagem e extrato, e é essa diferença que se olha depois pra entender o que
  * funcionou.
  */
+/**
+ * Fixa ou solta uma conversa no topo da caixa.
+ *
+ * Grava o INSTANTE, e não um sim/não: quem fixa três conversas quer as três em
+ * cima, mas numa ordem — e a única ordem que a pessoa consegue prever é a de
+ * fixação, a última em cima, como papel empilhado na mesa.
+ */
+export async function fixarConversaWa(conversaId: string, fixar: boolean) {
+  const { error } = await tabela("wa_conversas")
+    .update({ fixada_em: fixar ? new Date().toISOString() : null })
+    .eq("id", conversaId);
+  if (error) throw new Error(error.message);
+}
+
 export async function moverEtapaWa(conversaId: string, etapa: string, puladas: string[]) {
   const { error } = await tabela("wa_conversas")
     .update({ etapa, etapas_puladas: puladas }).eq("id", conversaId);
@@ -421,6 +435,7 @@ export function conversaParaLead(
     presencaEm: c.presenca_em,
     vistoEm: c.visto_em,
     atendimentoFinalizadoEm: c.atendimento_finalizado_em ?? null,
+    fixadaEm: c.fixada_em ?? null,
     dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
     conversa,
   };

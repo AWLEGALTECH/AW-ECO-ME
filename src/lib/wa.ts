@@ -41,6 +41,9 @@ export interface ConversaRow {
      alguém e o lead sai da cadência de follow-up. Diferente de
      `etapa = 'fechado'`, que significa que virou cliente. */
   atendimento_finalizado_em: string | null;
+  /* Quando alguém fixou a conversa no topo da caixa. Null = não fixada.
+     Timestamp e não booleano: quem fixa várias precisa de ordem entre elas. */
+  fixada_em: string | null;
   created_at: string;
 }
 
