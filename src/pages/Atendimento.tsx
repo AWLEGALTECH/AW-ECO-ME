@@ -56,6 +56,7 @@ import {
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
+  moverConversaDeInstancia,
   diagnosticarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
@@ -69,6 +70,10 @@ import {
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
+import {
+  listaDeInstancias, apelidosDeInstancias, apelidoDeInstancia, corDaInstancia, rotuloDaSelecao,
+  mesmaInstancia,
+} from "@/lib/instancias";
 import {
   passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
   type PassagemNaTela, type PassagemDeEtapa,
@@ -189,13 +194,35 @@ export default function AtendimentoPage() {
      mesa atende por um número, quem senta na outra atende por outro, e a mesma
      conta é usada pelos dois. Sem isto a aba abria sempre no primeiro da lista,
      e quem trabalha no segundo trocava de número toda manhã. */
-  const [instanciaId, setInstanciaId] = useState<string>(() => {
-    try { return localStorage.getItem(CHAVE_INSTANCIA) || INSTANCIAS[0].id; }
-    catch { return INSTANCIAS[0].id; }
+  /* UMA SELEÇÃO, E NÃO UM NÚMERO. A caixa passa a poder mostrar mais de um
+     número ao mesmo tempo, e o primeiro da lista continua sendo o PRINCIPAL:
+     é por ele que sai mensagem nova, é dele o QR, é ele que importa conversa.
+     Tudo isso precisa de um número só, e escolher sozinho qual dos dois seria
+     mandar mensagem pelo número que a pessoa não escolheu. */
+  const [instanciaIds, setInstanciaIds] = useState<string[]>(() => {
+    try {
+      const bruto = localStorage.getItem(CHAVE_INSTANCIA);
+      if (!bruto) return [INSTANCIAS[0].id];
+      // Compatível com o formato antigo, que guardava um id solto.
+      const lido = bruto.startsWith("[") ? JSON.parse(bruto) : [bruto];
+      return Array.isArray(lido) && lido.length > 0 ? lido : [INSTANCIAS[0].id];
+    } catch { return [INSTANCIAS[0].id]; }
   });
-  const trocarInstancia = (id: string) => {
-    setInstanciaId(id);
-    try { localStorage.setItem(CHAVE_INSTANCIA, id); } catch { /* sem storage, vale só nesta sessão */ }
+  const guardarSelecao = (ids: string[]) => {
+    setInstanciaIds(ids);
+    try { localStorage.setItem(CHAVE_INSTANCIA, JSON.stringify(ids)); }
+    catch { /* sem storage, vale só nesta sessão */ }
+  };
+  /** Trocar é ficar só com um. É o gesto antigo, e continua sendo o mais comum. */
+  const trocarInstancia = (id: string) => guardarSelecao([id]);
+  /** Marcar e desmarcar, mantendo a ordem de escolha e NUNCA esvaziando. */
+  const alternarInstancia = (id: string) => {
+    const tem = instanciaIds.includes(id);
+    /* Caixa sem número nenhum não é um estado útil: é uma tela vazia que parece
+       defeito. Desmarcar o último não faz nada, e a tela mostra o porquê
+       deixando o único marcado sem o gesto de desmarcar. */
+    if (tem && instanciaIds.length === 1) return;
+    guardarSelecao(tem ? instanciaIds.filter((x) => x !== id) : [...instanciaIds, id]);
   };
   const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
   /* OUTROS RECORTES, que não são etapa. Etapa é onde a pessoa está no funil;
@@ -332,6 +359,15 @@ export default function AtendimentoPage() {
      uma tela de CONSULTA, aberta o dia inteiro. Era assim que o mural antigo
      ficava: sempre aberto, sempre empurrando o resto da coluna pra baixo. */
   const [notaAberta, setNotaAberta] = useState(false);
+
+  /* ═══ PASSAR A CONVERSA PRO OUTRO NÚMERO ═══
+     Um diálogo, e não um clique direto na lista: a mudança tem uma consequência
+     que o clique sozinho não conta — o cliente não sabe que trocamos de número,
+     e a conversa dele no celular continua apontando pro antigo. Isso precisa
+     estar escrito na frente de quem vai decidir. */
+  const [moverAberto, setMoverAberto] = useState(false);
+  const [moverPara, setMoverPara] = useState<string | null>(null);
+  const [movendo, setMovendo] = useState(false);
   const [etapaAberta, setEtapaAberta] = useState(false);
   const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
   /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
@@ -457,7 +493,28 @@ export default function AtendimentoPage() {
      maquete só assume quando ela não respondeu ainda. */
   const { data: instRows = [] } = useInstancias();
   const instancias: Instancia[] = instRows.length > 0 ? instRows.map((i) => instanciaParaCard(i)) : INSTANCIAS;
-  const instancia = instancias.find((i) => i.id === instanciaId) ?? instancias[0];
+  /* A PRINCIPAL é a primeira da seleção que existe de verdade. Se a lista
+     guardada aponta pra um número que saiu do ar, cai na primeira disponível em
+     vez de deixar a tela sem instância nenhuma. */
+  const instancia = instancias.find((i) => instanciaIds.includes(i.id)) ?? instancias[0];
+  /* Os NOMES da seleção, na ordem em que a pessoa escolheu — é o que os hooks
+     usam pra montar a caixa cruzada. Instância que sumiu da lista da Evolution
+     simplesmente não entra. */
+  const nomesSelecionados = useMemo(
+    () => listaDeInstancias(
+      instanciaIds.map((id) => instancias.find((i) => i.id === id)?.nome).filter(Boolean) as string[],
+    ),
+    [instanciaIds, instancias],
+  );
+  /* Uma caixa cruzada muda o que a tela precisa dizer em cada linha: de quem é
+     essa conversa. Com um número só, dizer isso em cinquenta linhas seria
+     repetir a mesma palavra cinquenta vezes. */
+  const caixaCruzada = nomesSelecionados.length > 1;
+  const instanciasDaSelecao = useMemo(
+    () => instanciaIds.map((id) => instancias.find((i) => i.id === id)).filter(Boolean) as Instancia[],
+    [instanciaIds, instancias],
+  );
+  const apelidos = useMemo(() => apelidosDeInstancias(nomesSelecionados), [nomesSelecionados]);
   const invalidarWa = useInvalidarWa();
 
   /* ── A FONTE DOS DADOS ──
@@ -466,7 +523,7 @@ export default function AtendimentoPage() {
      conversão mora em useWhatsapp.ts), e evita a tela vazia de "nenhuma
      conversa" enquanto o número não foi conectado. O selo do cabeçalho diz em
      qual dos dois modos ela está. */
-  const { data: conversas = [] } = useConversas(instancia.nome);
+  const { data: conversas = [] } = useConversas(nomesSelecionados);
   /* AO VIVO É TER NÚMERO REGISTRADO — não é ter conversa.
      Antes era `conversas.length > 0`, e isso fazia um WhatsApp de verdade,
      conectado e configurado, mostrar as conversas INVENTADAS da maquete
@@ -676,7 +733,7 @@ export default function AtendimentoPage() {
      `tsc` não pega porque o uso está dentro de um hook. Já aconteceu três vezes
      nesta tela; a regra é simples: o que o corpo do componente usa, declara-se
      antes do primeiro uso. */
-  const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? instancia.nome : null);
+  const { data: lembretesDoBanco = [] } = useTasksWa(aoVivo ? nomesSelecionados : null);
   const lembretes = aoVivo ? lembretesDoBanco : lembretesMaquete;
 
   /* ESTAR NA CADÊNCIA É UMA ETIQUETA DO LEAD, não um item de uma lista à parte.
@@ -754,7 +811,7 @@ export default function AtendimentoPage() {
      maquete continuam em memória, pra ela seguir servindo pra discutir formato
      sem escrever nada no banco. */
   const invalidarTasks = useInvalidarTasksWa();
-  const { data: agendadas = [] } = useAgendadas(aoVivo ? instancia.nome : null);
+  const { data: agendadas = [] } = useAgendadas(aoVivo ? nomesSelecionados : null);
   const invalidarAgendadas = useInvalidarAgendadas();
   const { data: modelosRegua = [] } = useModelosFollowUp();
   const invalidarModelos = useInvalidarModelos();
@@ -1770,6 +1827,61 @@ export default function AtendimentoPage() {
       .catch((e) => toast.error("Não consegui apagar: " + (e as Error).message));
   };
 
+  /**
+   * Passa a conversa aberta para outro número.
+   *
+   * O NÚMERO DE DESTINO ENTRA NA SELEÇÃO junto, e isso não é firula: sem isso a
+   * conversa some da tela no segundo seguinte ao clique, e "sumiu" é
+   * indistinguível de "deu errado". Somando o destino à caixa, a conversa
+   * continua ali, agora com o selo do outro número — que é a confirmação visual
+   * de que funcionou.
+   */
+  const moverConversa = async () => {
+    if (!moverPara) return;
+    setMovendo(true);
+    try {
+      await moverConversaDeInstancia(lead.id, moverPara);
+      const destino = instancias.find((i) => mesmaInstancia(i.nome, moverPara));
+      if (destino && !instanciaIds.includes(destino.id)) {
+        guardarSelecao([...instanciaIds, destino.id]);
+      }
+      invalidarWa();
+      setMoverAberto(false);
+      toast.success(`Conversa passou para ${moverPara}.`, {
+        description: "O que sair daqui pra frente sai por esse número.",
+      });
+    } catch (e) {
+      const erro = e as Error & { conversaExistente?: string | null };
+      if (erro.conversaExistente) {
+        /* JÁ EXISTE CONVERSA COM ESSA PESSOA LÁ. Juntar as duas seria a resposta
+           bonita e é justamente a que não dá pra dar sozinho: as duas têm
+           histórico, etapa e mensagens marcadas próprias, e escolher qual
+           sobrevive é decisão de quem atende. O que dá pra fazer é levar até
+           ela. */
+        const id = erro.conversaExistente;
+        toast.error(erro.message, {
+          description: "Abra a que já existe e decida o que fazer com as duas.",
+          action: {
+            label: "Abrir a outra",
+            onClick: () => {
+              const destino = instancias.find((i) => mesmaInstancia(i.nome, moverPara));
+              if (destino && !instanciaIds.includes(destino.id)) {
+                guardarSelecao([...instanciaIds, destino.id]);
+              }
+              setSelecionadoId(id);
+              setMoverAberto(false);
+            },
+          },
+          duration: 12_000,
+        });
+      } else {
+        toast.error(erro.message);
+      }
+    } finally {
+      setMovendo(false);
+    }
+  };
+
   /* ── ABRIR CONVERSA COM QUEM AINDA NÃO ESCREVEU ──
      Metade do atendimento começa fora do WhatsApp: o lead ligou, deixou o
      número num formulário, veio por indicação. A caixa só conhece quem mandou
@@ -2028,7 +2140,10 @@ export default function AtendimentoPage() {
         instancia={cartaoDaInstancia}
         todas={instancias}
         maquete={!aoVivo}
+        selecao={instanciasDaSelecao}
+        apelidos={apelidos}
         onTrocar={trocarInstancia}
+        onAlternar={alternarInstancia}
         onConectar={abrirConexao}
         onReaplicar={reconfigurarEventos}
         onImportar={importarDoAparelho}
@@ -2691,6 +2806,32 @@ export default function AtendimentoPage() {
                           <span title="online agora"
                             className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                         )}
+
+                        {/* ── DE QUAL NÚMERO É ESTA CONVERSA ──
+                            Só na caixa cruzada: com um número só, repetir a
+                            mesma sigla em cinquenta linhas é tinta pra dizer o
+                            que o cabeçalho já disse.
+                            EMBAIXO DA FOTO, meio por cima, como o pingo de
+                            online fica em cima — os dois cantos livres do
+                            avatar, cada um com uma informação. E é SIGLA, não
+                            foto: duas instâncias do mesmo escritório têm a mesma
+                            logo, e aí a foto não distingue nada. A cor vem do
+                            nome e é sempre a mesma, então em dois dias ela vira
+                            o atalho e a sigla vira confirmação. */}
+                        {caixaCruzada && l.instancia && (() => {
+                          const cor = corDaInstancia(l.instancia);
+                          return (
+                            <span
+                              title={`Conversa de ${l.instancia}`}
+                              className={cn("absolute -bottom-1 -right-1 rounded px-[3px] py-[1px]",
+                                "text-[7.5px] font-bold leading-none tracking-wide ring-2 ring-[#0e1013]",
+                                cor.fundo, cor.texto)}>
+                              {apelidos.get(l.instancia)
+                                ?? [...apelidos.entries()].find(([n]) => mesmaInstancia(n, l.instancia))?.[1]
+                                ?? "?"}
+                            </span>
+                          );
+                        })()}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-1.5">
@@ -3646,6 +3787,35 @@ export default function AtendimentoPage() {
                     NÃO é o mesmo que a etapa "fechado": aquilo quer dizer VIROU
                     CLIENTE, e muita gente que não fechou também merece parar de
                     ser cobrada. */}
+                {/* ═══ PASSAR PRO OUTRO NÚMERO ═══
+                    Vizinho do "finalizar" porque são os dois gestos que TIRAM a
+                    conversa daqui — um encerra, o outro entrega. Ficam no fim
+                    pelo mesmo motivo: não se aperta por engano no meio de um
+                    atendimento vivo.
+                    O caso é sempre o mesmo: o lead entrou pelo Portal, virou
+                    caso do escritório, e daqui pra frente quem fala com ele é o
+                    Dr. Matheus, pelo número dele. Até aqui a saída era pedir pro
+                    cliente salvar outro número e recomeçar — perdendo o
+                    histórico exatamente quando ele passa a valer mais. */}
+                {aoVivo && instancias.length > 1 && !lead.atendimentoFinalizadoEm && (
+                  <div className="px-3 pt-3 flex flex-col gap-1.5">
+                    <button
+                      onClick={() => { setMoverPara(null); setMoverAberto(true); }}
+                      disabled={semConversas}
+                      className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px]
+                                 ring-1 ring-white/[0.08] bg-white/[0.03] text-muted-foreground
+                                 hover:text-foreground hover:bg-white/[0.06] transition-colors disabled:opacity-50">
+                      <ArrowLeftRight className="h-3.5 w-3.5" /> Mover para outro número
+                    </button>
+                    {lead.movidaDe && (
+                      <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                        Veio de <span className="text-foreground/70">{lead.movidaDe}</span>
+                        {lead.movidaEm ? ` em ${fmtDiaCurto(lead.movidaEm.slice(0, 10))}` : ""}.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="px-3 py-3 border-t border-white/[0.06]">
                   {lead.atendimentoFinalizadoEm ? (
                     <div className="flex flex-col gap-2">
@@ -4409,6 +4579,88 @@ export default function AtendimentoPage() {
               {salvandoModelo
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
                 : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── PASSAR A CONVERSA PRA OUTRO NÚMERO ──
+          O aviso do meio é o motivo de isto ser um diálogo e não um clique
+          direto: o cliente NÃO SABE que trocamos de número. A conversa dele, no
+          celular dele, continua sendo a com o número antigo — e se ele responder
+          por lá, a mensagem chega no número antigo e abre uma linha nova. Não é
+          defeito a consertar aqui: é como o WhatsApp funciona, e o único jeito
+          de o cliente migrar é a gente escrever primeiro pelo número novo.
+          O que não pode é isso ser descoberto três dias depois. */}
+      <Dialog open={moverAberto} onOpenChange={(a) => { if (!movendo) setMoverAberto(a); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <ArrowLeftRight className="h-4 w-4" /> Mover {lead.nome.split(" ")[0]} para outro número
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Hoje esta conversa é atendida por{" "}
+              <span className="text-foreground/80">{lead.instancia ?? instancia.nome}</span>.
+              O histórico inteiro vai junto — ele é nosso, não do número.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-1">
+            {instancias
+              .filter((i) => !mesmaInstancia(i.nome, lead.instancia ?? instancia.nome))
+              .map((i) => {
+                const cor = corDaInstancia(i.nome);
+                const escolhido = mesmaInstancia(i.nome, moverPara);
+                return (
+                  <button key={i.id} onClick={() => setMoverPara(i.nome)}
+                    className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ring-1",
+                      escolhido ? "bg-primary/12 ring-primary/30" : "ring-transparent hover:bg-white/[0.05]")}>
+                    <span className="h-8 w-8 shrink-0 rounded-full overflow-hidden grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+                      {i.fotoUrl
+                        ? <img src={i.fotoUrl} alt="" className="h-full w-full object-cover"
+                               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        : i.avatar}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide shrink-0",
+                          cor.fundo, cor.texto)}>
+                          {apelidoDeInstancia(i.nome)}
+                        </span>
+                        <span className="text-[12px] font-medium truncate">{i.nome}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span className={cn("h-1 w-1 rounded-full",
+                          i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
+                        <span className="tabular-nums">{i.telefone}</span>
+                      </span>
+                    </span>
+                    {escolhido && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  </button>
+                );
+              })}
+          </div>
+
+          <div className="rounded-lg ring-1 ring-amber-400/25 bg-amber-400/[0.06] p-2.5">
+            <p className="flex items-start gap-1.5 text-[11.5px] text-amber-200/90 leading-snug">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
+              <span>
+                O cliente não é avisado. No celular dele, a conversa continua sendo
+                a com o número antigo — se ele responder por lá, a mensagem chega
+                no antigo e abre uma linha nova. Para ele migrar de verdade,
+                escreva primeiro pelo número novo.
+              </span>
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setMoverAberto(false)} disabled={movendo}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={moverConversa} disabled={movendo || !moverPara}>
+              {movendo
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Movendo…</>
+                : <>Mover <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -6075,13 +6327,17 @@ function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null;
    pode conectar um terceiro número amanhã e aí o controle quebra. Aqui é botão
    que abre uma lista — cresce sozinha, e ainda cabe o status e o telefone de
    cada instância, que num segmentado não caberia. */
-function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
+function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, onTrocar, onAlternar, onConectar, onReaplicar, onImportar, onDiagnosticar }: {
   instancia: Instancia; todas: Instancia[];
   /** os dados da tela são inventados — quem abre sem contexto precisa saber */
   maquete?: boolean;
   /** as abas da página moram aqui: uma faixa no topo, não duas */
   abas?: React.ReactNode;
+  /** os números escolhidos, na ordem; o primeiro é o principal */
+  selecao: Instancia[];
+  apelidos: Map<string, string>;
   onTrocar: (id: string) => void;
+  onAlternar: (id: string) => void;
   onConectar: () => void;
   onReaplicar: () => void;
   onImportar: () => void;
@@ -6089,6 +6345,7 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
 }) {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
+  const varios = selecao.length > 1;
   return (
     /* SEM CARTÃO. A instância não é uma ferramenta da bancada — é o CONTEXTO
        dela: por qual número tudo aqui embaixo está acontecendo. Dentro de um
@@ -6106,21 +6363,55 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
           se o número está de pé é o selo ao lado do nome, e só ele. O mesmo
           recado em três lugares — anel colorido, pontinho na foto e selo —
           fazia o card inteiro parecer um alarme aceso. */}
-      <div className="h-11 w-11 shrink-0 rounded-full overflow-hidden grid place-items-center text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
-        {instancia.fotoUrl
-          ? <img src={instancia.fotoUrl} alt="" className="h-full w-full object-cover"
-                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-          : instancia.avatar}
+      {/* COM MAIS DE UM NÚMERO, AS FOTOS SE EMPILHAM. Uma foto só, num modo em
+          que a caixa mostra dois números, seria a tela dizendo o contrário do
+          que está fazendo. Empilhadas com um dedo de sobreposição, elas contam
+          quantos são antes de qualquer texto — e o anel escuro em volta de cada
+          uma é o que separa duas fotos parecidas encostadas. */}
+      <div className="shrink-0 flex items-center">
+        {(varios ? selecao : [instancia]).slice(0, 3).map((i, k) => (
+          <div key={i.id}
+            title={i.nome}
+            style={{ marginLeft: k === 0 ? 0 : "-0.85rem", zIndex: 10 - k }}
+            className={cn("relative rounded-full overflow-hidden grid place-items-center font-semibold",
+              "bg-white/[0.05] text-foreground/80 ring-1 ring-white/10",
+              varios ? "h-9 w-9 text-[11px] outline outline-2 outline-[#0d0f12]" : "h-11 w-11 text-[13px]")}>
+            {i.fotoUrl
+              ? <img src={i.fotoUrl} alt="" className="h-full w-full object-cover"
+                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+              : i.avatar}
+          </div>
+        ))}
+        {varios && selecao.length > 3 && (
+          <div style={{ marginLeft: "-0.85rem" }}
+            className="relative h-9 w-9 rounded-full grid place-items-center text-[10px] font-semibold
+                       bg-white/[0.10] text-foreground/70 ring-1 ring-white/10 outline outline-2 outline-[#0d0f12]">
+            +{selecao.length - 3}
+          </div>
+        )}
       </div>
 
       <div className="min-w-0 flex-1 flex flex-col gap-1">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[13px] font-semibold truncate">{instancia.nome}</span>
+          <span className="text-[13px] font-semibold truncate">
+            {rotuloDaSelecao(selecao.map((i) => i.nome), instancia.nome)}
+          </span>
+          {/* CAIXA CRUZADA É UM MODO, e a tela diz isso em vez de deixar
+              descobrir pelas linhas. Sem o selo, uma conversa de outro número no
+              meio da lista parece erro de filtro. */}
+          {varios && (
+            <span className="rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 shrink-0
+                             bg-sky-400/10 text-sky-300 ring-sky-400/25">
+              caixa cruzada
+            </span>
+          )}
+          {!varios && (
           <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 shrink-0",
             on ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25"
                : "bg-rose-400/10 text-rose-300 ring-rose-400/25")}>
             {on ? "conectado" : "desconectado"}
           </span>
+          )}
           {/* O selo de maquete perdeu a casa quando o título saiu, e veio pra
               cá — que é onde ele importa mesmo: colado no número, dizendo que
               aquele número e aquelas pessoas não existem. */}
@@ -6138,7 +6429,31 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
             que é o dia em que se abre o diagnóstico.
             O que sobrou responde a única pergunta que essa faixa existe pra
             responder: por qual número eu estou falando. */}
-        <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
+        {varios ? (
+          /* OS APELIDOS APARECEM AQUI PRIMEIRO, e não só nas linhas da caixa.
+             É onde se aprende o código: "PDA2 é o Portal, ME é o Matheus". Sem
+             esta legenda, o selo em cima da foto do contato seria uma sigla que
+             ninguém sabe ler — e o caso que ele existe pra resolver é justamente
+             o de dois números com a MESMA foto, onde não há de onde deduzir. */
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {selecao.map((i) => {
+              const cor = corDaInstancia(i.nome);
+              return (
+                <span key={i.id} className="flex items-center gap-1 text-[10px] text-muted-foreground min-w-0">
+                  <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide shrink-0",
+                    cor.fundo, cor.texto)}>
+                    {apelidos.get(i.nome) ?? "?"}
+                  </span>
+                  <span className="truncate max-w-[9rem]">{i.nome}</span>
+                  <span className={cn("h-1 w-1 rounded-full shrink-0",
+                    i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
+                </span>
+              );
+            })}
+          </span>
+        ) : (
+          <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
+        )}
       </div>
 
       {/* `order` põe as abas depois do botão no celular e antes dele no
@@ -6153,40 +6468,92 @@ function CardInstancia({ instancia, todas, maquete, abas, onTrocar, onConectar, 
             <ChevronsUpDown className="h-3 w-3 ml-1.5 opacity-60" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[17rem] p-1.5">
+        <PopoverContent align="end" className="w-[19rem] p-1.5">
           <p className="px-2 py-1 text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
             Números conectados
           </p>
+          {/* DOIS GESTOS NA MESMA LINHA, e a diferença entre eles é o ponto:
+              CLICAR NA LINHA é "quero trabalhar só neste" — o gesto antigo, o
+              mais comum, e o que fecha o popover.
+              MARCAR O QUADRADINHO é "quero este TAMBÉM" — soma o número à caixa
+              e não fecha nada, porque quem está montando uma caixa cruzada
+              costuma marcar mais de um.
+              Fundir os dois num clique só obrigaria a escolher qual dos dois
+              significados o clique tem, e o escolhido seria o errado metade das
+              vezes. */}
           <div className="flex flex-col gap-0.5">
             {todas.map((i) => {
-              const ativa = i.id === instancia.id;
+              const marcada = selecao.some((x) => x.id === i.id);
+              const principal = i.id === instancia.id;
               const iOn = i.status === "conectado";
+              const cor = corDaInstancia(i.nome);
               return (
-                <button key={i.id}
-                  onClick={() => { onTrocar(i.id); setAberto(false); }}
-                  className={cn("flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors",
-                    ativa ? "bg-white/[0.07]" : "hover:bg-white/[0.05]")}>
-                  <span className="h-8 w-8 shrink-0 rounded-full overflow-hidden grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
-                    {i.fotoUrl
-                      ? <img src={i.fotoUrl} alt="" className="h-full w-full object-cover"
-                             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                      : i.avatar}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] font-medium truncate">{i.nome}</span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                      <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
-                      <span className="tabular-nums">{i.telefone}</span>
-                      {i.naoLidas > 0 && (
-                        <span className="text-foreground/70 tabular-nums">· {i.naoLidas} não lidas</span>
-                      )}
+                <div key={i.id}
+                  className={cn("flex items-center gap-2 rounded-lg pl-1.5 pr-2 transition-colors",
+                    marcada ? "bg-white/[0.07]" : "hover:bg-white/[0.04]")}>
+                  <button
+                    onClick={() => onAlternar(i.id)}
+                    title={marcada
+                      ? (selecao.length === 1 ? "É o único número escolhido" : "Tirar da caixa")
+                      : "Somar este número à caixa"}
+                    disabled={marcada && selecao.length === 1}
+                    className={cn("h-4 w-4 shrink-0 rounded-[4px] grid place-items-center ring-1 transition-colors",
+                      marcada
+                        ? "bg-primary/80 ring-primary/60 text-primary-foreground"
+                        : "ring-white/[0.18] hover:ring-white/40",
+                      marcada && selecao.length === 1 && "opacity-60 cursor-default")}>
+                    {marcada && <Check className="h-3 w-3" strokeWidth={3} />}
+                  </button>
+
+                  <button
+                    onClick={() => { onTrocar(i.id); setAberto(false); }}
+                    title="Trabalhar só neste número"
+                    className="flex items-center gap-2.5 py-1.5 text-left min-w-0 flex-1">
+                    <span className="relative h-8 w-8 shrink-0 rounded-full overflow-hidden grid place-items-center text-[10.5px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+                      {i.fotoUrl
+                        ? <img src={i.fotoUrl} alt="" className="h-full w-full object-cover"
+                               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        : i.avatar}
                     </span>
-                  </span>
-                  {ativa && <Check className="h-3.5 w-3.5 text-foreground shrink-0" />}
-                </button>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        {/* O APELIDO TAMBÉM AQUI, e não só na caixa: é onde se
+                            aprende que sigla é de quem, e o único lugar que
+                            resolve dois números com a MESMA foto de perfil. */}
+                        <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide shrink-0",
+                          cor.fundo, cor.texto)}>
+                          {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                        </span>
+                        <span className="block text-[12px] font-medium truncate">{i.nome}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
+                        <span className="tabular-nums">{i.telefone}</span>
+                        {i.naoLidas > 0 && (
+                          <span className="text-foreground/70 tabular-nums">· {i.naoLidas} não lidas</span>
+                        )}
+                      </span>
+                    </span>
+                    {principal && varios && (
+                      <span className="shrink-0 text-[8.5px] uppercase tracking-wide text-muted-foreground/60">
+                        principal
+                      </span>
+                    )}
+                  </button>
+                </div>
               );
             })}
           </div>
+
+          {/* O QUE "PRINCIPAL" QUER DIZER, escrito onde a palavra aparece.
+              Conversa nova, QR e importação precisam de UM número, e escolher
+              sozinho qual seria mandar mensagem pelo número que ninguém pediu. */}
+          {varios && (
+            <p className="px-2 pt-1.5 text-[10px] text-muted-foreground/60 leading-snug">
+              A caixa mostra os {selecao.length} juntos. Conversa nova sai pelo principal
+              — clique num número pra torná-lo o principal.
+            </p>
+          )}
           <div className="mt-1 border-t border-white/[0.06] pt-1.5 flex flex-col gap-0.5">
             <button
               onClick={() => { setAberto(false); onConectar(); }}

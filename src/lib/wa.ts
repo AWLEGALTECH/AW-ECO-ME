@@ -48,6 +48,10 @@ export interface ConversaRow {
      mantido pelo trigger — a lista desenha cinquenta linhas e buscar a última
      mensagem de cada uma pra responder isso seria caro à toa. */
   ultima_automatica: boolean;
+  /* De onde a conversa veio, quando alguém a passou de um número para outro.
+     Null = sempre esteve onde está. */
+  movida_de: string | null;
+  movida_em: string | null;
   created_at: string;
 }
 

@@ -22,6 +22,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { listaDeInstancias } from "@/lib/instancias";
 import { telefoneBonito } from "@/lib/wa";
 import type { Task } from "@/lib/tasksAtendimento";
 
@@ -67,32 +68,47 @@ export function taskDaLinha(r: TaskRow): Task {
   };
 }
 
-export function useTasksWa(instancia: string | null) {
+export function useTasksWa(instancia: string | string[] | null) {
+  const nomes = listaDeInstancias(instancia);
   return useQuery({
-    queryKey: ["wa", "tasks", instancia],
-    enabled: !!instancia,
+    // Ordenada, pra escolher A e depois B cair no mesmo cache de B e depois A.
+    queryKey: ["wa", "tasks", [...nomes].sort().join("|")],
+    enabled: nomes.length > 0,
     refetchInterval: 60_000,
     queryFn: async (): Promise<Task[]> => {
       const hoje = new Date();
       const de = new Date(hoje); de.setDate(de.getDate() - 60);
       const ate = new Date(hoje); ate.setDate(ate.getDate() + 180);
 
-      const { data, error } = await tabela("wa_tasks")
-        // !inner porque a task só existe se a conversa existir, e é o join que
-        // permite filtrar pela instância — task da PDA não aparece no dia de
-        // quem está olhando o número do escritório.
-        .select("id, conversa_id, titulo, detalhe, dia, hora, feita, tipo, rodada, wa_conversas!inner(instancia, nome_wa, telefone)")
-        // CANCELADA NÃO É TASK. Ela existe pro histórico saber por que a
-        // cobrança deixou de fazer sentido — não pra reaparecer numa fila que
-        // ninguém pode trabalhar.
-        .is("cancelada_em", null)
-        .ilike("wa_conversas.instancia", instancia!)
-        .gte("dia", iso(de))
-        .lte("dia", iso(ate))
-        .order("dia")
-        .order("hora", { nullsFirst: false });
-      if (error) throw error;
-      return ((data || []) as TaskRow[]).map(taskDaLinha);
+      /* UMA CONSULTA POR NÚMERO, pelo mesmo motivo da caixa: o filtro é ILIKE
+         numa coluna de tabela EMBUTIDA, e montar isso dentro de um `or` do
+         PostgREST é onde se erra calado. São no máximo três, e vão juntas. */
+      const partes = await Promise.all(nomes.map(async (nome) => {
+        const { data, error } = await tabela("wa_tasks")
+          // !inner porque a task só existe se a conversa existir, e é o join que
+          // permite filtrar pela instância — task da PDA não aparece no dia de
+          // quem está olhando só o número do escritório.
+          .select("id, conversa_id, titulo, detalhe, dia, hora, feita, tipo, rodada, wa_conversas!inner(instancia, nome_wa, telefone)")
+          // CANCELADA NÃO É TASK. Ela existe pro histórico saber por que a
+          // cobrança deixou de fazer sentido — não pra reaparecer numa fila que
+          // ninguém pode trabalhar.
+          .is("cancelada_em", null)
+          .ilike("wa_conversas.instancia", nome)
+          .gte("dia", iso(de))
+          .lte("dia", iso(ate))
+          .order("dia")
+          .order("hora", { nullsFirst: false });
+        if (error) throw error;
+        return ((data || []) as TaskRow[]).map(taskDaLinha);
+      }));
+
+      /* Reordena o conjunto: cada consulta veio ordenada dentro do seu número, e
+         concatenar duas listas ordenadas não dá uma lista ordenada. O dia do
+         atendimento não tem número; tem hora. */
+      return partes.flat().sort((a, b) =>
+        a.data.localeCompare(b.data)
+        || (a.hora ?? "99:99").localeCompare(b.hora ?? "99:99")
+        || a.id.localeCompare(b.id));
     },
   });
 }

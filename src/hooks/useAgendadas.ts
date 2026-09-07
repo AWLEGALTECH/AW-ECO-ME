@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { TipoRetido } from "@/lib/retencao";
 import { resumoDasMidias, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { subirAnexos } from "@/lib/anexosBucket";
+import { listaDeInstancias } from "@/lib/instancias";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
@@ -57,21 +58,30 @@ export interface AgendadaRow {
  * na tela. As que FALHARAM entram porque são a única forma de alguém descobrir
  * que um envio não aconteceu.
  */
-export function useAgendadas(instancia: string | null) {
+export function useAgendadas(instancia: string | string[] | null) {
+  const nomes = listaDeInstancias(instancia);
   return useQuery({
-    queryKey: ["wa", "agendadas", instancia],
-    enabled: !!instancia,
+    queryKey: ["wa", "agendadas", [...nomes].sort().join("|")],
+    enabled: nomes.length > 0,
     // Mais curto que o das tasks: uma retenção que sai às 14:00 precisa sumir
     // da tela por volta das 14:00, e não no minuto seguinte ao próximo café.
     refetchInterval: 30_000,
     queryFn: async (): Promise<AgendadaRow[]> => {
-      const { data, error } = await tabela("wa_agendadas")
-        .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, etapa, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
-        .ilike("wa_conversas.instancia", instancia!)
-        .in("status", ["pendente", "enviando", "falhou"])
-        .order("quando");
-      if (error) throw error;
-      return (data || []) as AgendadaRow[];
+      // Uma por número, pelo mesmo motivo da caixa e das tasks: ILIKE em coluna
+      // de tabela embutida, dentro de `or`, é onde se erra calado.
+      const partes = await Promise.all(nomes.map(async (nome) => {
+        const { data, error } = await tabela("wa_agendadas")
+          .select("id, conversa_id, task_id, quando, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, etapa, status, tentativas, erro, enviada_em, criada_por, created_at, wa_conversas!inner(instancia)")
+          .ilike("wa_conversas.instancia", nome)
+          .in("status", ["pendente", "enviando", "falhou"])
+          .order("quando");
+        if (error) throw error;
+        return (data || []) as AgendadaRow[];
+      }));
+      // Reordena o conjunto: concatenar listas ordenadas não dá lista ordenada,
+      // e aqui a ordem É a informação — o que sai primeiro é o que se revisa.
+      return partes.flat().sort((a, b) =>
+        a.quando.localeCompare(b.quando) || a.id.localeCompare(b.id));
     },
   });
 }

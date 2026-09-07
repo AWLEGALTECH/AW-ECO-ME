@@ -12,6 +12,7 @@
 // a cada 10s — de sobra pra um atendimento humano, e sem peça nova.
 
 import { useEffect } from "react";
+import { juntarPorRecente, listaDeInstancias } from "@/lib/instancias";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -97,26 +98,81 @@ export function useInstancias() {
   return q;
 }
 
-export function useConversas(instancia: string | null) {
+const COLUNAS_CONVERSA =
+  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, created_at";
+
+/**
+ * A caixa — de um número ou de vários.
+ *
+ * UMA CONSULTA POR NÚMERO, e não um `or` com todos dentro. Parece desperdício e
+ * é o contrário: o filtro tem que ser ILIKE (o nome da instância é digitado à
+ * mão na Evolution e ninguém garante a caixa), e ILIKE dentro de `or` do
+ * PostgREST exige montar string de filtro com nome que tem espaço, ponto e
+ * acento. Uma consulta por número usa o mesmo filtro que já funciona há meses,
+ * são no máximo três, e elas vão juntas.
+ *
+ * O LIMITE TAMBÉM FICA MELHOR: 200 por número em vez de 200 no total. Numa
+ * caixa cruzada, o teto compartilhado faria o número mais movimentado engolir a
+ * cota do outro e sumir com metade da caixa dele.
+ */
+export function useConversas(instancia: string | string[] | null) {
+  const nomes = listaDeInstancias(instancia);
   return useQuery({
-    queryKey: ["wa", "conversas", instancia],
+    // A chave carrega os nomes ORDENADOS: escolher A e depois B tem que cair no
+    // mesmo cache de escolher B e depois A, senão trocar a ordem da seleção
+    // recarrega a caixa inteira à toa.
+    queryKey: ["wa", "conversas", [...nomes].sort().join("|")],
     refetchInterval: 10_000,
     queryFn: async (): Promise<ConversaRow[]> => {
-      let q = tabela("wa_conversas")
-        .select("id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, created_at")
+      const base = () => tabela("wa_conversas")
+        .select(COLUNAS_CONVERSA)
         .eq("arquivada", false)
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
-      // ILIKE e não EQ: o nome da instância na Evolution é digitado à mão e
-      // ninguém garante a caixa. "PORTAL DIREITO ABERTO" e "Portal Direito
-      // Aberto" são a mesma coisa pra quem configurou, e um EQ devolveria zero
-      // conversa sem dizer por quê — o pior tipo de tela vazia.
-      if (instancia) q = q.ilike("instancia", instancia);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data || []) as ConversaRow[];
+
+      if (nomes.length === 0) {
+        const { data, error } = await base();
+        if (error) throw error;
+        return (data || []) as ConversaRow[];
+      }
+
+      const partes = await Promise.all(nomes.map(async (nome) => {
+        // ILIKE e não EQ: o nome da instância na Evolution é digitado à mão e
+        // ninguém garante a caixa. "PORTAL DIREITO ABERTO" e "Portal Direito
+        // Aberto" são a mesma coisa pra quem configurou, e um EQ devolveria zero
+        // conversa sem dizer por quê — o pior tipo de tela vazia.
+        const { data, error } = await base().ilike("instancia", nome);
+        if (error) throw error;
+        return (data || []) as ConversaRow[];
+      }));
+
+      return juntarPorRecente(partes);
     },
   });
+}
+
+/**
+ * Passa uma conversa para outro número.
+ *
+ * A decisão inteira mora no banco (`fn_wa_mover_conversa`) porque a pergunta que
+ * decide — "o número de destino já falou com essa pessoa?" — não pode ser feita
+ * aqui: entre perguntar e mover cabe a mensagem que cria a linha concorrente, e
+ * o erro que voltaria seria "duplicate key value violates unique constraint",
+ * que não diz nada a ninguém.
+ */
+export async function moverConversaDeInstancia(conversaId: string, para: string) {
+  const { data, error } = await supabase.rpc("fn_wa_mover_conversa" as never, {
+    p_conversa: conversaId, p_para: para,
+  } as never);
+  if (error) throw new Error(error.message);
+  const bruto = data as unknown;
+  const r = (Array.isArray(bruto) ? bruto[0] : bruto) as
+    { ok: boolean; erro: string | null; conversa_existente: string | null } | null;
+  if (!r?.ok) {
+    const e = new Error(r?.erro || "Não consegui mover a conversa.");
+    (e as Error & { conversaExistente?: string | null }).conversaExistente = r?.conversa_existente ?? null;
+    throw e;
+  }
 }
 
 export function useMensagens(conversaId: string | null) {
@@ -431,6 +487,9 @@ export function conversaParaLead(
     importada: !!c.importada,
     etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
     base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? null) : null,
+    instancia: c.instancia,
+    movidaDe: c.movida_de ?? null,
+    movidaEm: c.movida_em ?? null,
     presenca: c.presenca,
     presencaEm: c.presenca_em,
     vistoEm: c.visto_em,

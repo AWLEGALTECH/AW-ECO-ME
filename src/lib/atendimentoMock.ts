@@ -120,6 +120,15 @@ export interface Lead {
   importada?: boolean;
   /** de qual base de leads essa pessoa veio, quando veio de alguma */
   base?: string | null;
+  /* POR QUAL NÚMERO essa conversa acontece. Passou a importar quando a caixa
+     virou cruzada: numa lista com dois números misturados, a linha sem dono é
+     pior que inútil — responder pelo número errado é um erro que o cliente vê e
+     a gente não. */
+  instancia?: string | null;
+  /* De onde ela veio, quando alguém a passou de um número para outro. Sem isto,
+     uma conversa que aparece na caixa do escritório parece ter nascido lá. */
+  movidaDe?: string | null;
+  movidaEm?: string | null;
   /* O que o WhatsApp contou sobre ele. Tudo opcional e frequentemente ausente:
      quem esconde o status não gera evento, e ausência é "não sei". */
   presenca?: string | null;
