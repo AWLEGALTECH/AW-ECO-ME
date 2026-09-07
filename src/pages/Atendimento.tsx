@@ -4427,26 +4427,38 @@ function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: st
     (diaDoISO(task.data).getTime() - diaDoISO(hoje).getTime()) / 86400000));
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] tabular-nums
+    /* EMPILHADAS, E NÃO LADO A LADO.
+       Em fila, as três viravam uma tira de texto miúdo que se lê como uma
+       coisa só — e são três respostas diferentes, cada uma decidindo uma parte
+       do que se vai escrever. Uma por linha, com o ícone alinhado à esquerda,
+       o olho pega as três em três batidas em vez de varrer uma tira.
+       E maiores: esta é a informação que se consulta ANTES de escrever pra
+       pessoa, não uma etiqueta de canto. */
+    <div className="flex flex-col gap-1 w-full">
+      <span className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] font-medium
                        bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30">
-        <Repeat className="h-2.5 w-2.5" />
-        {rotuloDaRodada(task.rodada ?? 1)}
+        <Repeat className="h-3.5 w-3.5 shrink-0" />
+        <span className="tabular-nums">{rotuloDaRodada(task.rodada ?? 1)}</span>
+        <span className="ml-auto text-[11px] font-normal opacity-70 tabular-nums">
+          {task.rodada ?? 1} de {TOTAL_RODADAS}
+        </span>
       </span>
-      <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px]
+
+      <span className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px]
                        bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.08]">
-        <Clock className="h-2.5 w-2.5" />
+        <Clock className="h-3.5 w-3.5 shrink-0" />
         {lead.diasParado === 0
           ? "calado desde hoje"
           : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
       </span>
-      <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[10px] ring-1",
+
+      <span className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ring-1",
         atrasada
-          ? "bg-amber-400/15 text-amber-300 ring-amber-400/30"
+          ? "bg-amber-400/15 text-amber-300 ring-amber-400/30 font-medium"
           : deHoje
             ? "bg-violet-400/20 text-violet-200 ring-violet-400/35 font-semibold"
             : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
-        <CalendarDays className="h-2.5 w-2.5" />
+        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
         {atrasada
           ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
           : deHoje
