@@ -18,6 +18,7 @@
 // mensagem, a conversa vira vitrine.
 
 import { useEffect, useRef, useState } from "react";
+import { useAudioAtendimento } from "@/hooks/useAudioAtendimento";
 import { Play, Pause, Download, Eye, FileText, ImageOff, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,11 @@ export interface MidiaProps {
   duracao: number | null;
   /** mensagem nossa (sai da direita) — muda só o contraste do chrome */
   nossa: boolean;
+  /* De qual conversa este áudio é. Só o tocador usa: quando alguém troca de
+     conversa no meio de um áudio, a barra flutuante precisa dizer de quem ele
+     é — "ainda tocando" sem dono é pior que silêncio. */
+  conversaId?: string;
+  conversaNome?: string;
 }
 
 /* ────────────────────────── baixar ────────────────────────── */
@@ -70,91 +76,48 @@ async function baixar(url: string, nome: string) {
 
 /* ────────────────────────── áudio ────────────────────────── */
 
-function Audio({ url, id, duracao, nossa }: { url: string; id: string; duracao: number | null; nossa: boolean }) {
-  const ref = useRef<HTMLAudioElement>(null);
-  const quadro = useRef<number | null>(null);
-  const [tocando, setTocando] = useState(false);
-  const [atual, setAtual] = useState(0);
-  const [doElemento, setDoElemento] = useState<number | null>(null);
+function Audio({ url, id, duracao, nossa, conversaId, conversaNome }: {
+  url: string; id: string; duracao: number | null; nossa: boolean;
+  conversaId?: string; conversaNome?: string;
+}) {
+  /* A BOLHA NÃO TEM MAIS ÁUDIO PRÓPRIO. Ela pergunta ao tocador da tela se é
+     ela que está tocando e desenha de acordo — é isso que faz o som continuar
+     quando alguém troca de conversa no meio de um áudio longo, que é
+     exatamente quando a pessoa troca. */
+  const { faixa, tocando, tempo, duracaoLida, velocidade, tocar, alternar, procurar, proximaVelocidade } =
+    useAudioAtendimento();
 
-  useEffect(() => {
-    const a = ref.current;
-    if (!a) return;
-    const lerDuracao = () => setDoElemento(a.duration);
-    const tocou = () => setTocando(true);
-    const pausou = () => setTocando(false);
-    const acabou = () => { setTocando(false); setAtual(0); };
-    lerDuracao();
-    a.addEventListener("loadedmetadata", lerDuracao);
-    a.addEventListener("durationchange", lerDuracao);
-    a.addEventListener("play", tocou);
-    a.addEventListener("pause", pausou);
-    a.addEventListener("ended", acabou);
-    return () => {
-      a.removeEventListener("loadedmetadata", lerDuracao);
-      a.removeEventListener("durationchange", lerDuracao);
-      a.removeEventListener("play", tocou);
-      a.removeEventListener("pause", pausou);
-      a.removeEventListener("ended", acabou);
-    };
-  }, []);
+  const minha = faixa?.id === id;
+  const rodando = minha && tocando;
+  const posicao = minha ? tempo : 0;
 
-  // O tempo anda por requestAnimationFrame e não por `timeupdate`: o evento
-  // nativo dispara a cada ~250ms e a barrinha anda aos trancos.
-  useEffect(() => {
-    if (!tocando) {
-      if (quadro.current) cancelAnimationFrame(quadro.current);
-      quadro.current = null;
-      return;
-    }
-    const passo = () => {
-      const a = ref.current;
-      if (a) setAtual(a.currentTime);
-      quadro.current = requestAnimationFrame(passo);
-    };
-    quadro.current = requestAnimationFrame(passo);
-    return () => { if (quadro.current) cancelAnimationFrame(quadro.current); };
-  }, [tocando]);
-
-  const pct = progressoDoAudio(atual, doElemento, duracao);
-  const total = duracaoExibida(doElemento, duracao);
+  const pct = progressoDoAudio(posicao, minha ? duracaoLida : null, duracao);
+  const total = duracaoExibida(minha ? duracaoLida : null, duracao);
   const barras = barrasDoAudio(id);
-
-  function alternar() {
-    const a = ref.current;
-    if (!a) return;
-    if (a.paused) a.play().catch(() => {}); else a.pause();
-  }
-
-  function procurar(e: React.MouseEvent<HTMLDivElement>) {
-    const a = ref.current;
-    if (!a) return;
-    // O clique só sabe onde cair se a duração for conhecida — com opus sem
-    // cabeçalho, a do elemento é Infinity e a gravada é a única utilizável.
-    const t = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : Number(duracao);
-    if (!Number.isFinite(t) || t <= 0) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    a.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * t;
-    setAtual(a.currentTime);
-  }
 
   return (
     <div className="flex items-center gap-2.5 min-w-[190px] max-w-[250px] py-0.5">
-      <audio ref={ref} src={url} preload="metadata" />
       <button
         type="button"
-        onClick={alternar}
-        aria-label={tocando ? "Pausar áudio" : "Tocar áudio"}
+        onClick={() => (minha
+          ? alternar()
+          : tocar({ id, url, duracao, conversaId: conversaId ?? "", conversaNome: conversaNome ?? "" }))}
+        aria-label={rodando ? "Pausar áudio" : "Tocar áudio"}
         className="h-8 w-8 rounded-full grid place-items-center shrink-0 transition-colors bg-primary/15 text-primary hover:bg-primary/25"
       >
-        {tocando ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-[1px]" />}
+        {rodando ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-[1px]" />}
       </button>
 
       <div className="flex-1 min-w-0">
         {/* As barras SÃO a barra de progresso: as que já passaram acendem.
             Uma barra lisa por cima das barrinhas seria o mesmo dado desenhado
             duas vezes. */}
-        <div className="flex items-end gap-[2px] h-6 cursor-pointer" onClick={procurar}>
+        <div className="flex items-end gap-[2px] h-6 cursor-pointer"
+          onClick={(e) => {
+            if (!minha) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            procurar((e.clientX - r.left) / r.width);
+          }}>
           {barras.map((altura, i) => {
             const passou = (i / barras.length) * 100 <= pct;
             return (
@@ -169,12 +132,27 @@ function Audio({ url, id, duracao, nossa }: { url: string; id: string; duracao: 
             );
           })}
         </div>
-        {/* Só o número. O ícone de microfone que o WhatsApp põe aqui, nesse
-            tamanho e nesse contraste, vira sujeira — e a bolha já é
-            reconhecível como áudio pelo play e pelas barras. */}
-        <div className="flex justify-end mt-0.5">
+
+        <div className="flex items-center justify-end gap-1.5 mt-0.5">
+          {/* A VELOCIDADE SÓ APARECE NA BOLHA QUE ESTÁ TOCANDO. Um "1x" em cada
+              áudio da conversa seria dezenas de botões repetindo a mesma
+              preferência — que é uma só e vale pra todos. */}
+          {minha && (
+            <button
+              type="button"
+              onClick={proximaVelocidade}
+              title="Velocidade da reprodução"
+              className="rounded-full px-1.5 py-[1px] text-[9.5px] font-semibold tabular-nums
+                         bg-white/[0.10] text-foreground/80 hover:bg-white/[0.18] transition-colors"
+            >
+              {velocidade}x
+            </button>
+          )}
+          {/* Só o número. O ícone de microfone que o WhatsApp põe aqui, nesse
+              tamanho e nesse contraste, vira sujeira — e a bolha já é
+              reconhecível como áudio pelo play e pelas barras. */}
           <span className="text-[9.5px] tabular-nums text-muted-foreground/70">
-            {tocando || atual > 0 ? duracaoCurta(atual) : (total ?? "")}
+            {rodando || posicao > 0 ? duracaoCurta(posicao) : (total ?? "")}
           </span>
         </div>
       </div>
@@ -331,7 +309,7 @@ const ESQUELETO: Record<Familia, string> = {
   texto: "h-5 w-24",
 };
 
-export function MidiaMensagem({ id, tipo, path, mime, nome, duracao, nossa }: MidiaProps) {
+export function MidiaMensagem({ id, tipo, path, mime, nome, duracao, nossa, conversaId, conversaNome }: MidiaProps) {
   const familia = familiaDaMidia(tipo, mime);
   const { data: url, isLoading } = useMidiaUrl(path);
 
@@ -356,7 +334,8 @@ export function MidiaMensagem({ id, tipo, path, mime, nome, duracao, nossa }: Mi
   const arquivo = nomeDoArquivo(familia, nome, mime, path);
 
   switch (familia) {
-    case "audio":     return <Audio url={url} id={id} duracao={duracao} nossa={nossa} />;
+    case "audio":     return <Audio url={url} id={id} duracao={duracao} nossa={nossa}
+                        conversaId={conversaId} conversaNome={conversaNome} />;
     case "imagem":    return <Imagem url={url} nome={arquivo} />;
     case "video":     return <Video url={url} />;
     case "documento": return <Documento url={url} nome={arquivo} mime={mime} path={path} />;

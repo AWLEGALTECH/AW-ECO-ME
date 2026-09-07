@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ProvedorDeAudio } from "@/hooks/useAudioAtendimento";
 import {
   MessageCircle, Search, Send, AlertTriangle, Check,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
@@ -877,6 +878,14 @@ export default function AtendimentoPage() {
      (O `requestAnimationFrame` que estava aqui existia pra esperar a medida da
      altura; num efeito de layout a medida já está pronta, e esperar um quadro
      era justamente pintar uma vez no lugar errado.) */
+  /* QUAL CONVERSA ESTÁ ABERTA, escrito no `body`. A barra flutuante do áudio
+     lê isto pra se calar quando a bolha já está visível — e ler do DOM evita
+     atravessar meia dúzia de componentes com um prop que nenhum deles usa. */
+  useEffect(() => {
+    document.body.setAttribute("data-conversa-aberta", lead.id);
+    return () => document.body.removeAttribute("data-conversa-aberta");
+  }, [lead.id]);
+
   useLayoutEffect(() => {
     /* Trocar de conversa zera o que já estava na tela: as bolhas da conversa
        nova são todas "antigas" pra quem acabou de abrir, e nenhuma deve
@@ -1803,14 +1812,20 @@ export default function AtendimentoPage() {
      um menor: numa tela de trabalho, margem larga em volta é espaço que sai da
      conversa. Header do app tem 3,5rem; com py-3 aqui a conta fecha em 5rem. */
   return (
-    /* A BANCADA CABE NA JANELA, SEMPRE. Aqui havia um `min-h-[40rem]`, e ele
+    /* O PROVEDOR DE ÁUDIO ENVOLVE A PÁGINA INTEIRA, e é isso que faz um áudio
+       sobreviver à troca de conversa: o elemento vive aqui em cima, onde nada
+       o desmonta. Dentro das bolhas ele morreria junto com a conversa que sai
+       da tela — que é exatamente o momento em que a pessoa quer continuar
+       ouvindo. */
+    <ProvedorDeAudio>
+    {/* A BANCADA CABE NA JANELA, SEMPRE. Aqui havia um `min-h-[40rem]`, e ele
        era a causa da barra de rolagem: em qualquer janela com menos de 640px
        de área útil — notebook de 768px com as barras do navegador, por exemplo
        — a altura mínima ganhava da altura real e empurrava a página pra baixo.
        O jeito certo é o contrário: a bancada ocupa exatamente o que existe, e
        quem se aperta são as colunas, que já têm rolagem própria. Rolar a
        PÁGINA numa tela de atendimento é o pior dos dois mundos, porque leva
-       embora o cabeçalho e o campo de digitar junto. */
+       embora o cabeçalho e o campo de digitar junto. */}
     <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
                     h-[calc(100dvh-5rem)] min-h-0 overflow-hidden">
 
@@ -2482,21 +2497,22 @@ export default function AtendimentoPage() {
                           <span title="online agora"
                             className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
                         )}
-                        {/* O ROBÔ EMBAIXO DA FOTO, e o online em cima: são dois
-                            fatos diferentes sobre a mesma pessoa e não podem
-                            disputar o mesmo canto. Este diz quem falou por
-                            último; aquele, se ela está no aparelho agora. */}
-                        {l.ultimaAutomatica && (
-                          <span title="a última mensagem saiu por automação"
-                            className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full grid place-items-center
-                                       bg-emerald-400 ring-2 ring-[#0e1013]">
-                            <Bot className="h-2 w-2 text-[#0e1013]" />
-                          </span>
-                        )}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-1.5">
                           <span className="text-[12px] font-medium truncate flex-1">{l.nome}</span>
+                          {/* O ROBÔ ANTES DA HORA, e sem círculo em volta. Ele
+                              qualifica a última mensagem — "isto subiu sozinho"
+                              — e a hora é exatamente o carimbo dessa mensagem;
+                              os dois juntos formam uma informação só. Sobre a
+                              foto ele disputava espaço com o pingo de online,
+                              que fala de outra coisa, e o círculo o fazia
+                              parecer um status da PESSOA. */}
+                          {l.ultimaAutomatica && (
+                            <span title="a última mensagem saiu por automação" className="shrink-0 flex">
+                              <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                            </span>
+                          )}
                           <span className="text-[9.5px] text-muted-foreground shrink-0">{l.ultimaHora}</span>
                         </span>
                         {/* DIGITANDO GANHA DA PRÉVIA. Quem está escrevendo agora
@@ -2832,6 +2848,8 @@ export default function AtendimentoPage() {
                       {msg.midiaPath && (
                         <MidiaMensagem
                           id={msg.id ?? msg.chave}
+                          conversaId={lead.id}
+                          conversaNome={lead.nome}
                           tipo={msg.tipo ?? null}
                           path={msg.midiaPath}
                           mime={msg.midiaMime ?? null}
@@ -4486,6 +4504,7 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </ProvedorDeAudio>
   );
 }
 
