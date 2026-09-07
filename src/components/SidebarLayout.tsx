@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useAlturaDoApp } from "@/hooks/useAlturaDoApp";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { UserPanel } from "@/components/UserPanel";
@@ -13,6 +14,11 @@ import { FinderPill } from "@/components/FinderPill";
 import { SpyProgressBar } from "@/components/SpyProgressBar";
 
 export function SidebarLayout() {
+  /* A ALTURA VEM DA ÁREA VISÍVEL DE VERDADE, e não da janela: é ela que encolhe
+     quando o teclado abre. Sem isso, o iOS empurra o app inteiro pra cima em vez
+     de encolhê-lo, e o cabeçalho some pro alto no primeiro toque num campo. */
+  useAlturaDoApp();
+
   const { user, loading, accessReady } = useAuth();
   const { palette } = useTheme();
   const isSei = palette === "sei";
@@ -50,8 +56,14 @@ export function SidebarLayout() {
             Respeitamos a safe area no topo/base (com border-box a altura segue
             100dvh, só a área útil encolhe, sem overflow). */}
         <div
-          className="flex flex-col h-dvh w-full overflow-hidden bg-background"
-          style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+          className="flex flex-col w-full overflow-hidden bg-background"
+          style={{
+            /* `100dvh` fica de reserva pro primeiro quadro, antes de a medida
+               existir — e é o que vale no monitor, onde as duas são iguais. */
+            height: "var(--app-altura, 100dvh)",
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
         >
           {/* Faixa do topo no SEI — azul escuro #155f9b com texto branco
               (replica o "CONSELHO FEDERAL DE MEDICINA" do SEI real). */}

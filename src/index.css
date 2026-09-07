@@ -4,12 +4,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* A PÁGINA NÃO ROLA. NUNCA.
+ *
+ * O que rola são as listas de dentro — a caixa, a conversa, a ficha —, cada uma
+ * com a sua barra. O DOCUMENTO fica parado, como a janela de um aplicativo:
+ * `overflow: hidden` já dizia isso e não bastava no celular, porque o navegador
+ * ainda oferece dois movimentos por conta própria.
+ *
+ * `overscroll-behavior: none` mata os dois: a elástica de puxar além do fim (que
+ * balança a tela inteira e parece defeito) e o puxar-pra-atualizar do Android,
+ * que recarrega a página no meio de uma conversa por causa de um gesto que a
+ * pessoa fez pra ler mensagem antiga.
+ *
+ * `--app-altura` é medida pela `visualViewport` em useAlturaDoApp: é ela que
+ * encolhe quando o teclado abre. Com `100dvh` sozinho, o iOS empurraria o app
+ * inteiro pra cima em vez de encolhê-lo. O `100dvh` fica como reserva pro
+ * primeiro quadro, antes de a medida existir. */
 html, body, #root {
-  height: 100dvh;
+  height: var(--app-altura, 100dvh);
   width: 100vw;
   overflow: hidden;
+  overscroll-behavior: none;
   margin: 0;
   padding: 0;
+}
+
+/* O toque não espera meio segundo pra saber se era duplo, e não pisca cinza
+   ao encostar: as duas coisas denunciam "isto é um site" no primeiro toque. */
+body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @layer base {
@@ -295,6 +319,11 @@ html, body, #root {
   .scrollbar-thin {
     scrollbar-width: none;
     -ms-overflow-style: none;
+    /* A ROLAGEM PARA ONDE A LISTA ACABA. Sem isto, chegar ao fim da conversa e
+       continuar arrastando passa o movimento adiante — o painel de trás rola, e
+       no celular o documento inteiro balança. É o gesto mais comum de todos
+       (ler mensagem antiga) causando o efeito mais estranho de todos. */
+    overscroll-behavior: contain;
   }
   .scrollbar-hidden::-webkit-scrollbar,
   .scrollbar-thin::-webkit-scrollbar {

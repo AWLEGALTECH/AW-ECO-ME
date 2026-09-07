@@ -1186,6 +1186,21 @@ export default function AtendimentoPage() {
      acima seria jogado pro fim a cada dois segundos. Rolar é interrupção, e só
      mensagem nova justifica. */
   useLayoutEffect(() => { descer(); }, [msgsDaAberta.length, pendentesDaAberta.length]);
+
+  /* O TECLADO ABRE E A CONVERSA CONTINUA NO FIM.
+     Quando o teclado sobe, a área visível encolhe e o histórico fica mais
+     curto — e o pedaço que some é justamente o de baixo, onde está a última
+     mensagem. Sem isto, tocar no campo pra responder esconde exatamente o que a
+     pessoa ia responder, e ela tem que rolar de volta antes de escrever.
+     Vale nos dois: no monitor a janela não muda de altura e o efeito nunca
+     dispara. */
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const aoMudar = () => descer();
+    vv.addEventListener("resize", aoMudar);
+    return () => vv.removeEventListener("resize", aoMudar);
+  }, []);
   /* ═══ AS BOLHAS DA CONVERSA, com identidade estável ═══
      *
      * A reconciliação entre a bolha otimista e a linha do banco acontece AQUI,
@@ -2256,8 +2271,15 @@ export default function AtendimentoPage() {
        quem se aperta são as colunas, que já têm rolagem própria. Rolar a
        PÁGINA numa tela de atendimento é o pior dos dois mundos, porque leva
        embora o cabeçalho e o campo de digitar junto. */}
+    {/* A ALTURA VEM DA ÁREA VISÍVEL, e não da janela. Com `100dvh` fixo aqui, o
+       teclado do celular abria por baixo da bancada: a barra de digitar ficava
+       escondida atrás dele e a pessoa escrevia às cegas. `--app-altura` é medida
+       pela `visualViewport` (useAlturaDoApp) e encolhe junto com o teclado, o
+       que faz a barra encostar nele e o histórico ficar mais curto — em vez de o
+       app inteiro subir. No monitor as duas são iguais e nada muda. */}
     <div className="flex flex-col gap-2 -mx-3 -my-3 sm:-mx-6 sm:-my-6 px-3 py-3 sm:px-4
-                    h-[calc(100dvh-5rem)] min-h-0 overflow-hidden">
+                    min-h-0 overflow-hidden"
+      style={{ height: "calc(var(--app-altura, 100dvh) - 5rem)" }}>
 
       {/* ── UMA FAIXA SÓ NO TOPO ──
           Aqui havia duas: um título "Atendimento" sozinho numa linha larga e,
