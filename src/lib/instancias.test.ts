@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   listaDeInstancias, mesmaInstancia, contemInstancia, juntarPorRecente,
   apelidoDeInstancia, apelidosDeInstancias, corDaInstancia, rotuloDaSelecao,
+  nomeDaCorEmUso, CORES_DE_INSTANCIA,
 } from "./instancias";
 
 describe("a lista de números escolhidos", () => {
@@ -134,5 +135,73 @@ describe("o rótulo do cartão", () => {
   it("mais de um diz quantos são", () => {
     expect(rotuloDaSelecao(["A", "B"], "A")).toBe("2 números");
     expect(rotuloDaSelecao(["A", "B", "C"], "A")).toBe("3 números");
+  });
+});
+
+/* A ETIQUETA ESCOLHIDA A MÃO.
+ *
+ * O automático continua sendo o padrão — a tabela pode ficar vazia para sempre.
+ * O que estes testes protegem é a convivência entre os dois: onde alguém
+ * escolheu, a escolha vale intacta; onde ninguém escolheu, nada muda. */
+describe("a etiqueta escolhida a mão", () => {
+  it("a sigla escrita vence a derivada do nome", () => {
+    const m = apelidosDeInstancias(
+      ["Dr. Matheus Enes Corporativo", "PORTAL DIREITO ABERTO"],
+      new Map([["Dr. Matheus Enes Corporativo", "ECO"]]));
+    expect(m.get("Dr. Matheus Enes Corporativo")).toBe("ECO");
+    expect(m.get("PORTAL DIREITO ABERTO")).toBe("PDA");
+  });
+
+  /* Quem escreveu "ECO" nos dois quis dizer isso. Corrigir a escolha da pessoa
+     com "ECO·2" seria a tela discordando de uma decisão explícita — o desempate
+     existe pra salvar o AUTOMÁTICO, que é palpite. */
+  it("sigla repetida escolhida a mão sai intacta, sem sufixo", () => {
+    const m = apelidosDeInstancias(["A um", "B dois"],
+      new Map([["A um", "ECO"], ["B dois", "ECO"]]));
+    expect([...m.values()]).toEqual(["ECO", "ECO"]);
+  });
+
+  it("sigla vazia ou só espaço cai no automático", () => {
+    const m = apelidosDeInstancias(["PORTAL DIREITO ABERTO"],
+      new Map([["PORTAL DIREITO ABERTO", "   "]]));
+    expect(m.get("PORTAL DIREITO ABERTO")).toBe("PDA");
+  });
+
+  it("sigla comprida é cortada no que cabe no selo", () => {
+    const m = apelidosDeInstancias(["X"], new Map([["X", "ABCDEFGHIJ"]]));
+    expect(m.get("X")).toBe("ABCDEF");
+  });
+
+  it("sem escolha nenhuma, tudo continua como era", () => {
+    const antes = apelidosDeInstancias(["PORTAL DIREITO ABERTO 2", "Dr. Matheus Enes"]);
+    const depois = apelidosDeInstancias(["PORTAL DIREITO ABERTO 2", "Dr. Matheus Enes"], new Map());
+    expect([...depois.entries()]).toEqual([...antes.entries()]);
+  });
+});
+
+describe("a cor escolhida a mão", () => {
+  it("vence o sorteio", () => {
+    expect(corDaInstancia("qualquer nome", "rose")).toEqual(CORES_DE_INSTANCIA.rose);
+    expect(nomeDaCorEmUso("qualquer nome", "rose")).toBe("rose");
+  });
+
+  it("cor inválida cai no sorteio em vez de quebrar", () => {
+    expect(corDaInstancia("PDA", "verde-limao")).toEqual(corDaInstancia("PDA"));
+    expect(corDaInstancia("PDA", null)).toEqual(corDaInstancia("PDA"));
+  });
+
+  /* Âmbar, verde e vermelho já significam atraso, automação e falha nesta tela.
+     Escolher uma delas é legítimo; o SORTEIO entregar uma não é. */
+  it("o sorteio nunca entrega uma cor que já quer dizer outra coisa", () => {
+    const reservadas = [CORES_DE_INSTANCIA.amber, CORES_DE_INSTANCIA.emerald, CORES_DE_INSTANCIA.rose];
+    for (let i = 0; i < 300; i++) {
+      const c = corDaInstancia(`instancia numero ${i}`);
+      expect(reservadas).not.toContain(c);
+    }
+  });
+
+  it("o nome da cor em uso acompanha o sorteio quando ninguém escolheu", () => {
+    const nome = nomeDaCorEmUso("PORTAL DIREITO ABERTO");
+    expect(CORES_DE_INSTANCIA[nome]).toEqual(corDaInstancia("PORTAL DIREITO ABERTO"));
   });
 });

@@ -123,10 +123,21 @@ export function apelidoDeInstancia(nome: string): string {
  * necessário: duas instâncias parecidas, com a mesma foto, viram dois selos
  * "PDA" — e a tela continua sem dizer qual é qual, agora com mais tinta.
  */
-export function apelidosDeInstancias(nomes: string[]): Map<string, string> {
+export function apelidosDeInstancias(
+  nomes: string[],
+  /** os escolhidos a mão, por nome de instância; o resto se deriva */
+  escolhidos?: Map<string, string | null | undefined>,
+): Map<string, string> {
   const fora = new Map<string, string>();
   const usados = new Map<string, number>();
   for (const nome of listaDeInstancias(nomes)) {
+    /* O ESCOLHIDO A MÃO SAI INTACTO, sem sufixo de desempate. Quem escreveu
+       "ECO" nos dois quis dizer isso; corrigir a escolha da pessoa com um
+       "ECO·2" seria a tela discordando de uma decisão explícita. O desempate
+       existe pra salvar o AUTOMÁTICO, que é palpite. */
+    const escolhido = escolhidos?.get(nome)?.trim();
+    if (escolhido) { fora.set(nome, escolhido.slice(0, 6)); continue; }
+
     const base = apelidoDeInstancia(nome);
     const quantos = usados.get(base) ?? 0;
     usados.set(base, quantos + 1);
@@ -135,32 +146,63 @@ export function apelidosDeInstancias(nomes: string[]): Map<string, string> {
   return fora;
 }
 
-/* As cores dos selos. Escolhidas pra se distinguirem no escuro mesmo em
-   dezoito pixels, e pra não colidirem com os significados que a tela já usa:
-   âmbar é atraso, vermelho é falha, verde é automação. */
-const CORES = [
-  { anel: "ring-sky-400/50",     fundo: "bg-sky-500",     texto: "text-sky-50" },
-  { anel: "ring-violet-400/50",  fundo: "bg-violet-500",  texto: "text-violet-50" },
-  { anel: "ring-teal-400/50",    fundo: "bg-teal-500",    texto: "text-teal-50" },
-  { anel: "ring-pink-400/50",    fundo: "bg-pink-500",    texto: "text-pink-50" },
-  { anel: "ring-orange-400/50",  fundo: "bg-orange-500",  texto: "text-orange-50" },
-  { anel: "ring-indigo-400/50",  fundo: "bg-indigo-500",  texto: "text-indigo-50" },
-];
+/* AS CORES DOS SELOS.
+ *
+ * Escolhidas pra se distinguirem no escuro mesmo em dezoito pixels. As três
+ * primeiras posições são as neutras de propósito: âmbar, verde e vermelho já
+ * têm significado nesta tela (atraso, automação, falha), então elas existem na
+ * paleta mas ficam no fim — quem quiser usar, usa; o sorteio não vai entregar
+ * um selo verde que parece dizer "deu certo".
+ *
+ * O NOME DA COR É A CHAVE, e não o valor: o banco guarda "sky", e é aqui que
+ * "sky" vira fundo, texto e anel. Guardar `#38bdf8` do outro lado espalharia
+ * decisão de tema pelo banco, e mexer no tema viraria migração de dado. */
+export const CORES_DE_INSTANCIA = {
+  sky:     { anel: "ring-sky-400/50",     fundo: "bg-sky-500",     texto: "text-sky-50" },
+  violet:  { anel: "ring-violet-400/50",  fundo: "bg-violet-500",  texto: "text-violet-50" },
+  teal:    { anel: "ring-teal-400/50",    fundo: "bg-teal-500",    texto: "text-teal-50" },
+  pink:    { anel: "ring-pink-400/50",    fundo: "bg-pink-500",    texto: "text-pink-50" },
+  orange:  { anel: "ring-orange-400/50",  fundo: "bg-orange-500",  texto: "text-orange-50" },
+  indigo:  { anel: "ring-indigo-400/50",  fundo: "bg-indigo-500",  texto: "text-indigo-50" },
+  slate:   { anel: "ring-slate-400/50",   fundo: "bg-slate-500",   texto: "text-slate-50" },
+  emerald: { anel: "ring-emerald-400/50", fundo: "bg-emerald-500", texto: "text-emerald-50" },
+  amber:   { anel: "ring-amber-400/50",   fundo: "bg-amber-500",   texto: "text-amber-950" },
+  rose:    { anel: "ring-rose-400/50",    fundo: "bg-rose-500",    texto: "text-rose-50" },
+} as const;
 
-export type CorDeInstancia = (typeof CORES)[number];
+export type NomeDeCor = keyof typeof CORES_DE_INSTANCIA;
+export type CorDeInstancia = (typeof CORES_DE_INSTANCIA)[NomeDeCor];
+
+/** As que o sorteio pode entregar: as que não têm significado próprio na tela. */
+const SORTEAVEIS: NomeDeCor[] = ["sky", "violet", "teal", "pink", "orange", "indigo"];
+
+export const ehNomeDeCor = (x: unknown): x is NomeDeCor =>
+  typeof x === "string" && x in CORES_DE_INSTANCIA;
 
 /**
- * A cor de um número, estável.
+ * A cor de um número. A escolhida, se alguém escolheu; senão, uma derivada do
+ * nome.
  *
- * Derivada do NOME e não da posição na lista: pela posição, tirar um número da
- * seleção repintaria os outros, e a cor deixaria de ser o atalho que ela existe
- * pra ser. O mesmo número tem a mesma cor hoje, amanhã e na tela do colega.
+ * O SORTEIO CONTINUA SENDO O PADRÃO, e é isso que faz número novo já nascer com
+ * etiqueta sem ninguém configurar nada. Derivada do NOME e não da posição na
+ * lista: pela posição, tirar um número da seleção repintaria os outros, e a cor
+ * deixaria de ser o atalho que ela existe pra ser.
  */
-export function corDaInstancia(nome: string): CorDeInstancia {
+export function corDaInstancia(nome: string, escolhida?: string | null): CorDeInstancia {
+  if (ehNomeDeCor(escolhida)) return CORES_DE_INSTANCIA[escolhida];
   let h = 0;
   const chave = String(nome ?? "").trim().toLowerCase();
   for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
-  return CORES[h % CORES.length];
+  return CORES_DE_INSTANCIA[SORTEAVEIS[h % SORTEAVEIS.length]];
+}
+
+/** O nome da cor em uso — pra tela marcar a escolhida no seletor. */
+export function nomeDaCorEmUso(nome: string, escolhida?: string | null): NomeDeCor {
+  if (ehNomeDeCor(escolhida)) return escolhida;
+  let h = 0;
+  const chave = String(nome ?? "").trim().toLowerCase();
+  for (let i = 0; i < chave.length; i++) h = (h * 31 + chave.charCodeAt(i)) >>> 0;
+  return SORTEAVEIS[h % SORTEAVEIS.length];
 }
 
 /** "2 números", "3 números" — o rótulo da caixa cruzada. */
