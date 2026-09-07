@@ -68,6 +68,7 @@ import {
   useCadenciaFollowUp, useInvalidarCadencia, salvarDegrauDaRegua,
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
   passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
   type PassagemNaTela, type PassagemDeEtapa,
@@ -104,7 +105,7 @@ import {
   sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
 } from "@/hooks/useTasksWa";
 import {
-  useAnotacoes, postarAnotacao, useInvalidarAnotacoes, quandoDaNota,
+  useAnotacoes, postarAnotacao, apagarAnotacao, useInvalidarAnotacoes, quandoDaNota,
 } from "@/hooks/useAnotacoesWa";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -183,8 +184,19 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "funil">("atendimento");
-  const [instanciaId, setInstanciaId] = useState<string>(INSTANCIAS[0].id);
+  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "funil" | "config">("atendimento");
+  /* QUAL NÚMERO ABRE. Guardado no navegador e não na conta: quem senta nesta
+     mesa atende por um número, quem senta na outra atende por outro, e a mesma
+     conta é usada pelos dois. Sem isto a aba abria sempre no primeiro da lista,
+     e quem trabalha no segundo trocava de número toda manhã. */
+  const [instanciaId, setInstanciaId] = useState<string>(() => {
+    try { return localStorage.getItem(CHAVE_INSTANCIA) || INSTANCIAS[0].id; }
+    catch { return INSTANCIAS[0].id; }
+  });
+  const trocarInstancia = (id: string) => {
+    setInstanciaId(id);
+    try { localStorage.setItem(CHAVE_INSTANCIA, id); } catch { /* sem storage, vale só nesta sessão */ }
+  };
   const [filtroEtapa, setFiltroEtapa] = useState<"todos" | Estagio>("todos");
   /* OUTROS RECORTES, que não são etapa. Etapa é onde a pessoa está no funil;
      isto é o estado dela hoje — está sendo cobrada, está esperando a gente. Os
@@ -315,6 +327,11 @@ export default function AtendimentoPage() {
   const [salvandoTask, setSalvandoTask] = useState(false);
   const [rascunhoNota, setRascunhoNota] = useState("");
   const [postandoNota, setPostandoNota] = useState(false);
+  /* A NOTA ABRE NUM POP, como o lembrete. Um campo de texto aberto no meio da
+     ficha pede pra ser preenchido toda vez que alguém passa o olho, e a ficha é
+     uma tela de CONSULTA, aberta o dia inteiro. Era assim que o mural antigo
+     ficava: sempre aberto, sempre empurrando o resto da coluna pra baixo. */
+  const [notaAberta, setNotaAberta] = useState(false);
   const [etapaAberta, setEtapaAberta] = useState(false);
   const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
   /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
@@ -1734,12 +1751,23 @@ export default function AtendimentoPage() {
     try {
       await postarAnotacao(lead.id, texto, user?.id ?? null);
       setRascunhoNota("");
+      setNotaAberta(false);
       invalidarAnotacoes();
     } catch (e) {
       toast.error("Não consegui postar: " + (e as Error).message);
     } finally {
       setPostandoNota(false);
     }
+  };
+
+  /* APAGAR SEM CONFIRMAÇÃO, e de propósito: uma nota é o que alguém escreveu de
+     qualquer jeito sobre o cliente, e não tem consequência nenhuma. Um diálogo
+     de "tem certeza?" pra cada linha rabiscada faria pensar duas vezes antes de
+     rabiscar — que é o oposto do que essa caixa serve. */
+  const tirarNota = (id: string) => {
+    apagarAnotacao(id)
+      .then(invalidarAnotacoes)
+      .catch((e) => toast.error("Não consegui apagar: " + (e as Error).message));
   };
 
   /* ── ABRIR CONVERSA COM QUEM AINDA NÃO ESCREVEU ──
@@ -2000,7 +2028,7 @@ export default function AtendimentoPage() {
         instancia={cartaoDaInstancia}
         todas={instancias}
         maquete={!aoVivo}
-        onTrocar={setInstanciaId}
+        onTrocar={trocarInstancia}
         onConectar={abrirConexao}
         onReaplicar={reconfigurarEventos}
         onImportar={importarDoAparelho}
@@ -2011,7 +2039,7 @@ export default function AtendimentoPage() {
              em vez de encolher até não se ler. */
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5
                           shrink-0 max-w-full overflow-x-auto scrollbar-thin">
-            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["funil", "Funil", Trophy]] as const).map(([k, rot, Ico]) => (
+            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["funil", "Funil", Trophy], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => { setAba(k); if (ehMobile) setTelaMobile("caixa"); }}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -2055,6 +2083,21 @@ export default function AtendimentoPage() {
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           <PainelFunil emRisco={abertasHoje} />
         </div>
+      ) : aba === "config" ? (
+        <PainelAjustes
+          instancias={instancias}
+          instanciaId={instancia.id}
+          onEscolherInstancia={trocarInstancia}
+          mudo={mudo}
+          onAlternarMudo={alternarMudo}
+          regua={regua}
+          agendadas={agendadas}
+          aoVivo={aoVivo}
+          onAbrirRegua={() => setAba("followup")}
+          onAbrirProgramadas={() => setAba("programadas")}
+          onReaplicarEventos={reconfigurarEventos}
+          onDiagnosticar={rodarDiagnostico}
+        />
       ) : (
         <>
 
@@ -2902,7 +2945,7 @@ export default function AtendimentoPage() {
                   quem está conversando não olha pros lados — olha pra conversa.
                   A faixa põe o que ficou combinado com ESTA pessoa no caminho
                   do olho, logo abaixo do nome dela, e some quando não há nada. */}
-              {tasksDoCabecalho.length > 0 && (
+              {(tasksDoCabecalho.length > 0 || anotacoes.length > 0) && (
                 <div className="px-3 py-2 border-b border-white/[0.06] shrink-0 flex gap-2 overflow-x-auto scrollbar-thin">
                   {tasksDoCabecalho.map((t) => {
                     const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
@@ -2980,6 +3023,35 @@ export default function AtendimentoPage() {
                       </div>
                     );
                   })}
+
+                  {/* ── AS NOTAS, NA MESMA FAIXA ──
+                      Mesmo lugar das tasks porque respondem à mesma pergunta no
+                      mesmo momento: estou com a conversa aberta, o que eu já sei
+                      dessa pessoa? Mas com DESENHO MAIS LEVE, e isso é o
+                      conteúdo: sem moldura, sem ícone em quadrado, sem botão de
+                      concluir. Uma nota não é trabalho a fazer, é coisa
+                      lembrada. Dar a ela a mesma caixa da cobrança faria as duas
+                      parecerem igualmente urgentes, e a faixa deixaria de
+                      ordenar o olho. */}
+                  {anotacoes.slice(0, 4).map((n) => (
+                    <div key={n.id}
+                      role="button" tabIndex={0}
+                      title={n.texto}
+                      onClick={() => { setRascunhoNota(""); setNotaAberta(true); }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setNotaAberta(true); } }}
+                      className="shrink-0 w-[11.5rem] rounded-xl border border-dashed border-white/[0.07]
+                                 bg-transparent px-2.5 py-2 cursor-pointer transition-colors
+                                 hover:border-white/[0.16] hover:bg-white/[0.025]
+                                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                      <span className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-muted-foreground/50">
+                        <StickyNote className="h-2.5 w-2.5 shrink-0" />
+                        <span className="tabular-nums normal-case">{quandoDaNota(n.quando)}</span>
+                      </span>
+                      <span className="block text-[10.5px] text-muted-foreground leading-snug mt-0.5 line-clamp-2">
+                        {n.texto}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -3199,10 +3271,10 @@ export default function AtendimentoPage() {
                       {/* O EMOJI FICA COLADO NO CLIPE, e não do lado do enviar:
                           os dois são "o que entra na mensagem"; o enviar é "o
                           que sai". */}
-                      <SeletorDeEmoji onEscolher={(e) => {
-                        setRascunho((t) => t + e);
-                        campoResposta.current?.focus();
-                      }} />
+                      {/* SEM `focus()` no campo. Ele parecia gentileza e era o
+                          que fechava a galeria a cada escolha: devolver o foco
+                          ao textarea é, pro popover, foco saindo dele. */}
+                      <SeletorDeEmoji onEscolher={(e) => setRascunho((t) => t + e)} />
 
                       {/* MESMO GESTO DA MENSAGEM PROGRAMADA, na barra onde a
                           mensagem é escrita. Ela existia só no botão lá da
@@ -3485,6 +3557,56 @@ export default function AtendimentoPage() {
                         {t.hora && <span className="tabular-nums">{horaBonita(t.hora)}</span>}
                       </p>
                       <p className="text-[11.5px] leading-snug mt-0.5 break-words">{t.titulo}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ═══ NOTAS ═══
+                    O mural voltou, e agora com o lugar certo: DEPOIS dos
+                    lembretes. Ele tinha sido tirado porque disputava espaço com
+                    o lembrete e perdia — um lembrete tem consequência, aparece
+                    no dia e cobra; uma nota fica parada esperando alguém reler.
+                    Só que "menos importante" não é "não serve": metade do que se
+                    sabe de um cliente não vira tarefa nem mensagem. É o nome da
+                    esposa, o horário em que ele atende, o motivo de ter sumido
+                    em maio. Sem um lugar pra isso, essa metade some com quem
+                    atendeu daquela vez.
+                    NADA AQUI DISPARA: não agenda, não cobra, não sai pro
+                    cliente. É rascunho sobre a pessoa, e a caixa inteira é
+                    desenhada pra deixar escrever de qualquer jeito. */}
+                <div className="px-3 py-2.5 border-t border-white/[0.06] flex flex-col gap-2">
+                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
+                    <StickyNote className="h-3 w-3" /> Notas
+                    {anotacoes.length > 0 && (
+                      <span className="ml-auto tabular-nums opacity-70">{anotacoes.length}</span>
+                    )}
+                  </p>
+
+                  <button
+                    onClick={() => { setRascunhoNota(""); setNotaAberta(true); }}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed
+                               border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5
+                               text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                    <Plus className="h-3.5 w-3.5" /> Escrever nota
+                  </button>
+
+                  {anotacoes.map((n) => (
+                    <div key={n.id}
+                      className="group/nota rounded-lg bg-white/[0.025] ring-1 ring-white/[0.05] px-2.5 py-2">
+                      <p className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground/60">
+                        <span className="tabular-nums">{quandoDaNota(n.quando)}</span>
+                        {n.autorId && <span className="truncate">· {nomeDoAutor({ id: n.autorId })}</span>}
+                        <button
+                          onClick={() => tirarNota(n.id)}
+                          title="Apagar esta nota"
+                          className="ml-auto shrink-0 opacity-0 group-hover/nota:opacity-100
+                                     text-muted-foreground/50 hover:text-red-300 transition-all">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </p>
+                      <p className="text-[11.5px] leading-snug mt-0.5 whitespace-pre-wrap break-words">
+                        {n.texto}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -4282,6 +4404,50 @@ export default function AtendimentoPage() {
               disabled={salvandoModelo ||
                 (!modeloTexto.trim() && modeloAnexos.length + modeloMantidos.length === 0)}>
               {salvandoModelo
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
+                : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── O POP DA NOTA ──
+          Menor que todos os outros, e com um campo só. É proposital: nada aqui
+          tem consequência — não agenda, não cobra, não sai pro cliente. O peso
+          da janela conta o peso do que ela faz, e esta faz a coisa mais leve da
+          tela. Sem título, sem data, sem tipo: escrever uma nota não pode custar
+          quatro decisões. */}
+      <Dialog open={notaAberta} onOpenChange={(a) => { if (!postandoNota) setNotaAberta(a); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <StickyNote className="h-4 w-4" /> Nota sobre {lead.nome.split(" ")[0]}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Fica guardada aqui e não faz mais nada: não agenda, não cobra, não
+              vai pro cliente. É o que você sabe sobre essa pessoa e não vira tarefa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Textarea
+            autoFocus
+            value={rascunhoNota}
+            rows={5}
+            onChange={(e) => setRascunhoNota(e.target.value)}
+            onKeyDown={(e) => {
+              // Ctrl+Enter salva; Enter sozinho quebra a linha. O contrário do
+              // chat, e pelo motivo certo: aqui se escreve parágrafo, não recado.
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); postarNota(); }
+            }}
+            placeholder="O que você quiser lembrar sobre essa pessoa…"
+            className="text-[12.5px] resize-none scrollbar-thin" />
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setNotaAberta(false)} disabled={postandoNota}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={postarNota} disabled={postandoNota || !rascunhoNota.trim()}>
+              {postandoNota
                 ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
                 : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
             </Button>
@@ -5565,6 +5731,196 @@ function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolher
   );
 }
 
+/* ═══════════════════════ OS AJUSTES DO ATENDIMENTO ═══════════════════════
+ *
+ * A aba nasce quase vazia de propósito, e é assim que uma tela de ajustes deve
+ * nascer: com o que já existe espalhado e precisa de casa, e não com uma lista
+ * de opções inventadas para ela parecer completa. Opção que ninguém pediu é
+ * opção que ninguém mexe — e cada uma delas é um jeito a mais de o sistema se
+ * comportar diferente entre duas pessoas, sem que nenhuma das duas saiba por quê.
+ *
+ * O QUE ENTROU AQUI tem uma coisa em comum: são decisões que valem para a tela
+ * inteira e não para a conversa aberta. O som, o número que abre, a régua, o que
+ * sai sozinho. O que é DA CONVERSA continua na conversa — etapa, lembrete, nota,
+ * cobrança —, porque ninguém procura ajustes para responder um cliente.
+ *
+ * O QUE NÃO ESTÁ AQUI, ESTÁ DITO. Cada bloco que só mostra e não muda tem o
+ * botão que leva onde se muda. Uma tela de ajustes que repete editores é uma
+ * tela que vai divergir da outra na primeira mudança.
+ */
+function PainelAjustes({
+  instancias, instanciaId, onEscolherInstancia, mudo, onAlternarMudo, regua,
+  agendadas, aoVivo, onAbrirRegua, onAbrirProgramadas, onReaplicarEventos, onDiagnosticar,
+}: {
+  instancias: Instancia[];
+  instanciaId: string;
+  onEscolherInstancia: (id: string) => void;
+  mudo: boolean;
+  onAlternarMudo: () => void;
+  regua: Regua;
+  agendadas: AgendadaRow[];
+  aoVivo: boolean;
+  onAbrirRegua: () => void;
+  onAbrirProgramadas: () => void;
+  onReaplicarEventos: () => void;
+  onDiagnosticar: () => void;
+}) {
+  const pendentes = agendadas.filter((a) => a.status === "pendente").length;
+  const falhas = agendadas.filter((a) => a.status === "falhou").length;
+
+  const Bloco = ({ titulo, descricao, children }: {
+    titulo: string; descricao: string; children: React.ReactNode;
+  }) => (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3.5 flex flex-col gap-2.5">
+      <div>
+        <h3 className="text-[12.5px] font-medium">{titulo}</h3>
+        <p className="text-[11px] text-muted-foreground/80 leading-snug mt-0.5">{descricao}</p>
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+            Ajustes do atendimento
+          </h2>
+          <p className="text-[11.5px] text-muted-foreground mt-0.5">
+            O que vale para a tela inteira. O que é de uma conversa continua na
+            conversa: etapa, lembrete, nota e cobrança se mexem lá, com o cliente
+            na frente.
+          </p>
+        </div>
+
+        <div className="grid gap-2.5 md:grid-cols-2">
+          {/* ── O NÚMERO QUE ABRE ── */}
+          <Bloco
+            titulo="Número que abre por padrão"
+            descricao="Vale só neste computador. Quem senta nesta mesa atende por um número, quem senta na outra atende por outro, e a conta é a mesma.">
+            <div className="flex flex-col gap-1">
+              {instancias.map((i) => (
+                <button key={i.id} onClick={() => onEscolherInstancia(i.id)}
+                  className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors",
+                    i.id === instanciaId
+                      ? "bg-primary/12 ring-1 ring-primary/30"
+                      : "hover:bg-white/[0.05] ring-1 ring-transparent")}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
+                    i.status === "conectado" ? "bg-emerald-400" : "bg-muted-foreground/40")} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11.5px] truncate">{i.nome}</span>
+                    <span className="block text-[10px] text-muted-foreground/70 tabular-nums">
+                      {telefoneBonito(i.telefone)} · {i.status === "conectado" ? "conectado" : "desconectado"}
+                    </span>
+                  </span>
+                  {i.id === instanciaId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </Bloco>
+
+          {/* ── O SOM ── */}
+          <Bloco
+            titulo="Aviso sonoro de mensagem nova"
+            descricao="Também vale só neste computador. Quem atende de fone e quem atende com cliente na sala querem coisas opostas.">
+            <button onClick={onAlternarMudo}
+              className={cn("flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors text-left",
+                mudo ? "bg-white/[0.04] hover:bg-white/[0.07]" : "bg-emerald-400/10 ring-1 ring-emerald-400/25")}>
+              {mudo
+                ? <VolumeX className="h-4 w-4 shrink-0 text-muted-foreground" />
+                : <Volume2 className="h-4 w-4 shrink-0 text-emerald-400" />}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11.5px]">{mudo ? "Desligado" : "Ligado"}</span>
+                <span className="block text-[10px] text-muted-foreground/70">
+                  {mudo ? "nada toca quando chega mensagem" : "um bipe curto por mensagem que chega"}
+                </span>
+              </span>
+            </button>
+          </Bloco>
+
+          {/* ── A RÉGUA, SÓ DE LEITURA ──
+              Mostrar aqui e editar lá não é meio caminho: é a única forma de a
+              régua não existir em dois lugares e divergir no primeiro ajuste. */}
+          <Bloco
+            titulo="A régua de follow-up"
+            descricao="De quantos em quantos dias de silêncio cada cobrança vence. Vale para o escritório inteiro.">
+            <div className="flex flex-wrap gap-1.5">
+              {regua.map((d, i) => (
+                <span key={i}
+                  className="rounded-lg bg-violet-400/10 ring-1 ring-violet-400/25 px-2 py-1
+                             text-[11px] tabular-nums text-violet-200">
+                  {rotuloDaRodada(i + 1)} · {d} {d === 1 ? "dia" : "dias"}
+                </span>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] self-start"
+              onClick={onAbrirRegua}>
+              <Pencil className="h-3.5 w-3.5" /> Ajustar na aba Follow-up
+            </Button>
+          </Bloco>
+
+          {/* ── O QUE SAI SOZINHO ──
+              O único bloco que não é preferência: é ESTADO. As mensagens
+              programadas são a única coisa do módulo que acontece sem ninguém na
+              frente da tela, e "quantas estão a caminho, quantas falharam" é a
+              pergunta que ninguém faz até o dia em que devia ter feito. */}
+          <Bloco
+            titulo="O que sai sozinho"
+            descricao="As mensagens programadas disparam com o escritório fechado. Este é o estado da fila agora.">
+            <div className="flex gap-2">
+              <span className="flex-1 rounded-lg bg-white/[0.04] px-2.5 py-2">
+                <span className="block text-[17px] font-semibold tabular-nums leading-none">{pendentes}</span>
+                <span className="block text-[10px] text-muted-foreground/70 mt-0.5">a caminho</span>
+              </span>
+              <span className={cn("flex-1 rounded-lg px-2.5 py-2",
+                falhas > 0 ? "bg-red-400/10 ring-1 ring-red-400/25" : "bg-white/[0.04]")}>
+                <span className={cn("block text-[17px] font-semibold tabular-nums leading-none",
+                  falhas > 0 && "text-red-300")}>{falhas}</span>
+                <span className="block text-[10px] text-muted-foreground/70 mt-0.5">falharam</span>
+              </span>
+            </div>
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] self-start"
+              onClick={onAbrirProgramadas}>
+              <Clock className="h-3.5 w-3.5" /> Ver a fila
+            </Button>
+          </Bloco>
+
+          {/* ── A LIGAÇÃO COM O WHATSAPP ──
+              Os dois botões que já existiam no cartão da instância, também aqui,
+              e não no lugar dele: lá são socorro no meio do trabalho, aqui são
+              manutenção. É o mesmo código nos dois — botão repetido chamando a
+              mesma função não diverge; editor repetido diverge. */}
+          <Bloco
+            titulo="A ligação com o WhatsApp"
+            descricao="Quando a mensagem para de chegar sem erro nenhum na tela, o problema costuma ser a lista de eventos do webhook."><div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                onClick={onDiagnosticar} disabled={!aoVivo}>
+                <Stethoscope className="h-3.5 w-3.5" /> Diagnosticar
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                onClick={onReaplicarEventos} disabled={!aoVivo}>
+                <RefreshCw className="h-3.5 w-3.5" /> Reaplicar eventos
+              </Button>
+            </div>
+          </Bloco>
+        </div>
+
+        {/* O QUE AINDA NÃO SE AJUSTA, DITO EM VOZ ALTA. Uma tela de ajustes que
+            some com o que não tem faz a pessoa procurar por dez minutos algo que
+            não existe. */}
+        <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+          Ainda não se ajusta por aqui: o texto das mensagens padrão da régua (fica
+          na aba Follow-up), as etapas da jornada e a janela de horário em que as
+          programadas podem sair — hoje elas saem na hora marcada, qualquer que
+          seja.
+        </p>
+      </SpotlightCard>
+    </div>
+  );
+}
+
 /* ── AS PASSAGENS POR UMA ETAPA ──────────────────────────────────────────
  *
  * "Entrou aqui em 05/09" é uma frase; "entrou aqui em 05/09 e de novo em 12/09,
@@ -5992,27 +6348,27 @@ function TiraDeAnexos({ itens }: {
   );
 }
 
-/* O SELETOR DE EMOJI.
+/* O SELETOR DE EMOJI — uma galeria, como a do celular.
  *
- * Uma lista curada, e não a tabela Unicode inteira. Um seletor completo tem
- * milhares de figuras e uma busca por nome em inglês — e quem atende cliente usa
- * as mesmas quinze o dia todo. A lista aqui é a de um escritório: confirmação,
- * atenção, documento, prazo, cordialidade. Cabe numa tela, sem rolagem e sem
- * biblioteca nova no pacote.
+ * Uma lista corrida, sem títulos de categoria: ninguém procura "🙏" pensando
+ * "isso é da categoria pessoas", procura passando o olho. A separação por grupo
+ * parece organização e na prática é atrito, porque obriga a decidir onde
+ * procurar antes de procurar.
  *
- * OS RECENTES FICAM NA FRENTE, no navegador de quem usa. É a única
- * personalização que um seletor pequeno precisa: em uma semana a primeira linha
- * vira a lista pessoal de quem está atendendo.
+ * ELE NÃO FECHA AO ESCOLHER, e essa foi a correção que faltava. Quem escreve
+ * "👍🙏" escolhe dois seguidos; fechar no primeiro obriga a reabrir e reachar o
+ * lugar de onde parou. O que fechava era o `focus()` que eu mandava pro campo
+ * depois de inserir: focar fora do popover é, pro Radix, sair dele. Agora o
+ * cursor fica onde está — o texto já vai pro campo do mesmo jeito.
+ *
+ * O HISTÓRICO MORA NO NAVEGADOR, não no banco. É preferência de quem está
+ * sentado naquela mesa: os quinze emojis que ESTA pessoa usa, do jeito que o
+ * teclado do celular faz. Guardar isso na conta seria sincronizar entre
+ * máquinas um dado que não vale a viagem, e criar linha de banco pra cada
+ * clique num emoji.
  */
-const EMOJIS: Array<{ grupo: string; itens: string[] }> = [
-  { grupo: "Confirmar", itens: ["👍", "✅", "🙌", "🤝", "👏", "💪", "🎯", "⭐"] },
-  { grupo: "Conversar", itens: ["🙂", "😀", "😊", "😉", "😅", "🥰", "🙏", "😌"] },
-  { grupo: "Atenção",   itens: ["⚠️", "❗", "❓", "🔴", "🟡", "🟢", "⏰", "⌛"] },
-  { grupo: "Trabalho",  itens: ["📄", "📎", "📅", "📌", "✍️", "⚖️", "🏛️", "📊"] },
-  { grupo: "Contato",   itens: ["📱", "📞", "💬", "📍", "💰", "🧾", "📷", "🔗"] },
-];
-
-const CHAVE_RECENTES = "aweco.emojis.recentes";
+const CHAVE_RECENTES = "aw:atendimento:emojis";
+const CHAVE_INSTANCIA = "aw:atendimento:instancia";
 
 function SeletorDeEmoji({ onEscolher }: { onEscolher: (e: string) => void }) {
   const [aberto, setAberto] = useState(false);
@@ -6021,34 +6377,28 @@ function SeletorDeEmoji({ onEscolher }: { onEscolher: (e: string) => void }) {
   useEffect(() => {
     try {
       const bruto = localStorage.getItem(CHAVE_RECENTES);
-      if (bruto) setRecentes(JSON.parse(bruto).slice(0, 8));
+      if (bruto) setRecentes(JSON.parse(bruto).slice(0, MAX_RECENTES));
     } catch { /* navegador sem storage: some a linha de recentes, o resto serve */ }
   }, []);
 
   const escolher = (e: string) => {
     onEscolher(e);
     setRecentes((p) => {
-      const novo = [e, ...p.filter((x) => x !== e)].slice(0, 8);
+      const novo = comOEscolhido(p, e);
       try { localStorage.setItem(CHAVE_RECENTES, JSON.stringify(novo)); } catch { /* idem */ }
       return novo;
     });
-    /* NÃO FECHA. Quem manda "👍🙏" escolhe dois seguidos, e fechar a cada
-       escolha obrigaria a reabrir pro segundo. Fecha no Esc, no clique fora ou
-       no próprio botão. */
   };
 
-  const Linha = ({ titulo, itens }: { titulo: string; itens: string[] }) => (
-    <div>
-      <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1">{titulo}</p>
-      <div className="grid grid-cols-8 gap-0.5">
-        {itens.map((e) => (
-          <button key={e} type="button" onClick={() => escolher(e)}
-            className="h-7 w-7 grid place-items-center rounded-md text-[17px] leading-none
-                       hover:bg-white/[0.10] transition-colors">
-            {e}
-          </button>
-        ))}
-      </div>
+  const Grade = ({ itens }: { itens: string[] }) => (
+    <div className="grid grid-cols-8 gap-0.5">
+      {itens.map((e, i) => (
+        <button key={`${e}-${i}`} type="button" onClick={() => escolher(e)}
+          className="h-7 w-7 grid place-items-center rounded-md text-[18px] leading-none
+                     hover:bg-white/[0.12] active:scale-95 transition-all">
+          {e}
+        </button>
+      ))}
     </div>
   );
 
@@ -6060,9 +6410,28 @@ function SeletorDeEmoji({ onEscolher }: { onEscolher: (e: string) => void }) {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" side="top"
-        className="w-[15.5rem] max-h-[min(20rem,60vh)] overflow-y-auto scrollbar-thin p-2.5 flex flex-col gap-2.5">
-        {recentes.length > 0 && <Linha titulo="Usados agora há pouco" itens={recentes} />}
-        {EMOJIS.map((g) => <Linha key={g.grupo} titulo={g.grupo} itens={g.itens} />)}
+        /* O FOCO NÃO SAI DAQUI. Sem isto o popover se fecha assim que o clique
+           devolve o foco pro campo de texto, que é exatamente o que acontece a
+           cada emoji escolhido. */
+        onOpenAutoFocus={(ev) => ev.preventDefault()}
+        onFocusOutside={(ev) => ev.preventDefault()}
+        className="w-[16.5rem] p-2 flex flex-col gap-2">
+        {recentes.length > 0 && (
+          <>
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50 mb-1 px-0.5">
+                Usados agora há pouco
+              </p>
+              <Grade itens={recentes} />
+            </div>
+            <span className="h-px bg-white/[0.07]" />
+          </>
+        )}
+        {/* A GALERIA ROLA, o resto do popover não. Os recentes ficam parados no
+            topo: eles são o atalho, e um atalho que some ao rolar não é atalho. */}
+        <div className="max-h-[min(17rem,45vh)] overflow-y-auto scrollbar-thin pr-0.5">
+          <Grade itens={EMOJIS} />
+        </div>
       </PopoverContent>
     </Popover>
   );
