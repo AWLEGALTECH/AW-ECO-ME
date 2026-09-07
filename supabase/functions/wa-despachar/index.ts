@@ -162,6 +162,11 @@ Deno.serve(async (req: Request) => {
         midia_nome: a.midia_nome,
         duracao: a.duracao,
         enviado_por: a.criada_por,
+        /* SAIU SOZINHA, e a tela precisa saber. Sem esta marca, uma conversa
+           que sobe ao topo às três da manhã parece movimento de gente — e
+           alguém pode responder de manhã a um "oi, tudo bem?" que ele mesmo
+           agendou, achando que o cliente escreveu. */
+        automatica: true,
       }).select("id").single();
 
       if (eIns) {

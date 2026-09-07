@@ -134,6 +134,10 @@ export interface Lead {
   atendimentoFinalizadoEm?: string | null;
   /** quando foi fixada no topo da caixa; null/ausente = não fixada */
   fixadaEm?: string | null;
+  /* A última mensagem saiu SOZINHA, pelo despachante. A conversa subiu na caixa
+     sem que ninguém tenha trabalhado nela — e quem abre precisa saber disso
+     antes de responder a um "oi, tudo bem?" que ele mesmo agendou. */
+  ultimaAutomatica?: boolean;
   /* O que a lista mostra embaixo do nome. Vem de `wa_conversas.ultima_previa`,
      porque a conversa inteira só é carregada pra aberta — sem isso, todo mundo
      que não está aberto aparece com o nome e mais nada. */

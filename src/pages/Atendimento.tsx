@@ -36,7 +36,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info,
@@ -2360,6 +2360,20 @@ export default function AtendimentoPage() {
                         ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
                       {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
 
+                      {/* SUBIU SOZINHA. A conversa está no alto porque o
+                          despachante soltou uma mensagem programada, não porque
+                          alguém trabalhou nela — e a diferença importa muito:
+                          sem a marca, quem abre a caixa de manhã pode responder
+                          a um "oi, tudo bem?" que ele mesmo agendou, achando que
+                          o cliente escreveu.
+                          Verde e à esquerda, no mesmo lugar da barra da conversa
+                          ativa, porque as duas dizem a mesma categoria de coisa:
+                          "olha esta linha aqui". A marca some sozinha quando o
+                          lead responde — a última mensagem passa a ser dele. */}
+                      {l.ultimaAutomatica && !ativo && (
+                        <span className="absolute left-0 inset-y-0 w-[2px] bg-emerald-400/80" />
+                      )}
+
                       {/* FIXAR. Aparece no hover, ou o tempo todo se já estiver
                           fixada — um alfinete visível em cada linha da caixa
                           seria ruído em cinquenta linhas para um gesto que se
@@ -2399,6 +2413,17 @@ export default function AtendimentoPage() {
                         {estaOnline(l.presenca, l.presencaEm) && (
                           <span title="online agora"
                             className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
+                        )}
+                        {/* O ROBÔ EMBAIXO DA FOTO, e o online em cima: são dois
+                            fatos diferentes sobre a mesma pessoa e não podem
+                            disputar o mesmo canto. Este diz quem falou por
+                            último; aquele, se ela está no aparelho agora. */}
+                        {l.ultimaAutomatica && (
+                          <span title="a última mensagem saiu por automação"
+                            className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full grid place-items-center
+                                       bg-emerald-400 ring-2 ring-[#0e1013]">
+                            <Bot className="h-2 w-2 text-[#0e1013]" />
+                          </span>
                         )}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -3031,8 +3056,19 @@ export default function AtendimentoPage() {
                       <ResumoFollowUp task={followUpDoLead} lead={lead} hoje={HOJE} />
                     </div>
                   )}
+                  {/* DUAS LINHAS, E NÃO UMA. A data e a contagem respondem
+                      perguntas diferentes: "quando ela chegou" é registro, se
+                      cruza com campanha e com planilha; "há quantos dias está
+                      no funil" é diagnóstico, e é o número que decide se um
+                      lead está encalhado. Na mesma linha, separadas por um
+                      ponto, as duas viravam uma tira só e a segunda — que é a
+                      que cobra ação — se perdia no fim dela. */}
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
-                    valor={`${fmtDiaLongo(lead.chegouEm)} · há ${diasEntre(lead.chegouEm, HOJE)} dia${diasEntre(lead.chegouEm, HOJE) === 1 ? "" : "s"}`} />
+                    valor={fmtDiaLongo(lead.chegouEm)} />
+                  <Campo icone={<Clock className="h-3 w-3" />} rotulo="No funil"
+                    valor={diasEntre(lead.chegouEm, HOJE) === 0
+                      ? "chegou hoje"
+                      : `${diasEntre(lead.chegouEm, HOJE)} ${diasEntre(lead.chegouEm, HOJE) === 1 ? "dia" : "dias"}`} />
                 </div>
 
                 {/* ═══ O FOLLOW-UP DESTE CLIENTE ═══
@@ -3983,6 +4019,36 @@ export default function AtendimentoPage() {
                 isto, e um painel fechado que guarda a única coisa da tela é só
                 um clique a mais. */}
             <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
+                    {/* PRA QUEM VAI, logo acima da barra de escrever — a mesma
+                        faixa que fica no topo da conversa, com foto, nome,
+                        número e etiquetas.
+                        Não é enfeite: esta janela abre a partir de vários
+                        lugares (a jornada, o rodapé do daily, um lembrete), e a
+                        conversa por trás dela pode nem ser a que a pessoa
+                        estava lendo. Uma mensagem que sai sozinha, horas
+                        depois, pro cliente errado, é o erro mais caro que este
+                        módulo pode cometer — e o mais fácil de evitar: basta a
+                        cara da pessoa estar na frente de quem escreve. */}
+                    <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5">
+                      <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold
+                                       bg-white/[0.05] ring-1 ring-white/10">
+                        {iniciais(lead.nome)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12.5px] font-medium truncate">{lead.nome}</span>
+                        <span className="block text-[10.5px] text-muted-foreground tabular-nums truncate">
+                          {telefoneBonito(lead.telefone)}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1 shrink-0">
+                        <span className="rounded px-1.5 py-[2px] text-[9.5px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
+                          {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                        </span>
+                        <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
+                          followUp={followUpPorLead.get(lead.id)?.rodada ?? null} />
+                      </span>
+                    </div>
+
                     <div className="p-2.5 flex flex-col gap-2">
 
                       {/* AS JÁ PREPARADAS, como bolhas — porque é isso que
@@ -5029,7 +5095,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
 
                   <button onClick={onNovaTask}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
-                    <Plus className="h-3.5 w-3.5" /> Nova mensagem programada
+                    <Plus className="h-3.5 w-3.5" /> Programar mensagem
                   </button>
 
                   {proxima && (

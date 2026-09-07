@@ -44,6 +44,10 @@ export interface ConversaRow {
   /* Quando alguém fixou a conversa no topo da caixa. Null = não fixada.
      Timestamp e não booleano: quem fixa várias precisa de ordem entre elas. */
   fixada_em: string | null;
+  /* A última mensagem saiu por automação. Espelho de `wa_mensagens.automatica`,
+     mantido pelo trigger — a lista desenha cinquenta linhas e buscar a última
+     mensagem de cada uma pra responder isso seria caro à toa. */
+  ultima_automatica: boolean;
   created_at: string;
 }
 
