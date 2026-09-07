@@ -6,22 +6,26 @@
 //
 // O ARRANJO:
 //
-//   ┌──────────── instância conectada ────────────┐
-//   ├─ caixa ─┬─ conversa ─┬─ detalhe ─┬ hoje ▸ ──┤
+//   ┌──────── instância(s) conectada(s) ────────┐
+//   ├─ caixa ──┬───── conversa ─────┬─ detalhe ──┤
 //
-// UM PAINEL SÓ, NÃO QUATRO CARTÕES. As colunas dividem borda em vez de flutuar
+// UM PAINEL SÓ, NÃO TRÊS CARTÕES. As colunas dividem borda em vez de flutuar
 // separadas com respiro entre elas: cartão solto pede margem, sombra e canto
-// arredondado em cada um, e o olho passa a ler quatro objetos em vez de uma
+// arredondado em cada um, e o olho passa a ler três objetos em vez de uma
 // bancada. Aqui a divisão é uma linha de 1px, e a bancada ocupa a janela.
 //
-// A quarta coluna existe porque tudo que descreve o LEAD (etapa, espera, banco,
-// descontos, perfil, anotação) estava espremido embaixo do campo de digitar —
-// lugar de quem escreve, não de quem consulta. Separado, o meio fica só com a
+// A terceira coluna existe porque tudo que descreve o LEAD (etapa, espera,
+// banco, descontos, perfil, nota) estava espremido embaixo do campo de digitar
+// — lugar de quem escreve, não de quem consulta. Separado, o meio fica só com a
 // conversa e a leitura de cada coisa acontece onde ela é procurada.
 //
-// A coluna de missões recolhe: em tela apertada ela vira uma faixa fina com o
-// placar, e volta inteira com um clique. A fila em si (ordem de culpa, pontos,
-// cadência de follow-up) mora em src/lib/tasksAtendimento.ts, testada.
+// ERAM QUATRO. A quarta era o Daily: a coluna do dia, com placar, filtro de
+// tipo e calendário. Ela saiu porque tudo que mostrava ganhou casa melhor — a
+// cobrança do lead está na ficha dele, na hora de escrever; a fila do dia
+// inteira está na aba Follow-up; o que sai sozinho, na aba Programadas. Virou o
+// quarto lugar de olhar as mesmas linhas, e cobrava largura das outras três.
+// A fila em si (ordem de culpa, pontos, cadência) mora em
+// src/lib/tasksAtendimento.ts, testada.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -35,8 +39,8 @@ import { ProvedorDeAudio } from "@/hooks/useAudioAtendimento";
 import {
   MessageCircle, Search, Send, AlertTriangle, Check,
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
-  PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
-  ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
+  RefreshCw, StickyNote,
+  CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
@@ -48,7 +52,7 @@ import {
   INSTANCIAS, type Lead, type Origem, type Estagio, type Mensagem, type Instancia,
 } from "@/lib/atendimentoMock";
 import {
-  ordenarTasks, progressoTasks, proximaCobranca, ROTULO_TIPO,
+  ordenarTasks, proximaCobranca, ROTULO_TIPO,
   horaBonita, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
@@ -243,7 +247,6 @@ export default function AtendimentoPage() {
   const [selecionadoId, setSelecionadoId] = useState<string>(LEADS[0].id);
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
   const [dia, setDia] = useState(HOJE);
-  const [tipoTask, setTipoTask] = useState<"todas" | TipoTask>("todas");
   const [rascunho, setRascunho] = useState("");
   /* OS ANEXOS DA BARRA DO CHAT — no plural. Era um só, e escolher o segundo
      trocava o primeiro sem avisar: nada dizia nada, o nome no campo apenas
@@ -409,12 +412,12 @@ export default function AtendimentoPage() {
      importa quando se está escrevendo. */
   const [detalheAberto, setDetalheAberto] = useState(true);
 
-  /* ═══ O CELULAR NÃO TEM QUATRO COLUNAS ═══
+  /* ═══ O CELULAR NÃO TEM TRÊS COLUNAS ═══
    *
-   * No monitor, a caixa, a conversa, a ficha e os lembretes convivem porque há
-   * largura pra isso — e conviver é uma vantagem real: dá pra ler o histórico
-   * enquanto se olha a etapa do lead. Num telefone, tentar o mesmo produz
-   * quatro tiras de sessenta pixels onde nada se lê.
+   * No monitor, a caixa, a conversa e a ficha convivem porque há largura pra
+   * isso — e conviver é uma vantagem real: dá pra ler o histórico enquanto se
+   * olha a etapa do lead. Num telefone, tentar o mesmo produz três tiras de
+   * oitenta pixels onde nada se lê.
    *
    * Então o celular ganha o desenho que todo aplicativo de mensagem tem, porque
    * é o que funciona: UMA COISA POR VEZ, empilhada, com volta. Lista de
@@ -423,17 +426,17 @@ export default function AtendimentoPage() {
    * exatamente um passo — sem painel espremido, sem duas coisas disputando os
    * mesmos pixels.
    *
-   * `telaMobile` só existe no telefone. No monitor ele é ignorado e as quatro
+   * `telaMobile` só existe no telefone. No monitor ele é ignorado e as três
    * colunas continuam lado a lado: são dois desenhos para dois tamanhos, e não
    * um desenho que encolhe até ficar ruim nos dois. */
   const ehMobile = useIsMobile();
-  const [telaMobile, setTelaMobile] = useState<"caixa" | "conversa" | "ficha" | "lembretes">("caixa");
+  const [telaMobile, setTelaMobile] = useState<"caixa" | "conversa" | "ficha">("caixa");
 
-  /* Voltar sempre desce um degrau: da ficha e dos lembretes pra conversa, da
-     conversa pra caixa. Um só caminho de volta é o que faz a pilha ser
-     previsível — a pessoa não precisa lembrar de onde veio. */
+  /* Voltar sempre desce um degrau: da ficha pra conversa, da conversa pra
+     caixa. Um só caminho de volta é o que faz a pilha ser previsível — a pessoa
+     não precisa lembrar de onde veio. */
   const voltarMobile = () => {
-    setTelaMobile((t) => (t === "ficha" || t === "lembretes" ? "conversa" : "caixa"));
+    setTelaMobile((t) => (t === "ficha" ? "conversa" : "caixa"));
   };
 
   /* O BOTÃO DE VOLTAR DO APARELHO desfaz um degrau da pilha, e não a navegação
@@ -452,7 +455,7 @@ export default function AtendimentoPage() {
   }, [ehMobile, telaMobile]);
 
   /* Sair do celular (girar a tela, abrir no monitor) volta a pilha pro começo:
-     as quatro colunas aparecem todas, e um `telaMobile` esquecido em "ficha"
+     as três colunas aparecem todas, e um `telaMobile` esquecido em "ficha"
      faria a caixa nascer escondida na próxima vez que a janela encolhesse. */
   useEffect(() => {
     if (!ehMobile) setTelaMobile("caixa");
@@ -475,17 +478,6 @@ export default function AtendimentoPage() {
     mq.addEventListener("change", ver);
     return () => mq.removeEventListener("change", ver);
   }, []);
-
-  /* QUATRO COLUNAS NÃO CABEM EM TODA TELA, e fingir que cabem é pior que
-     esconder uma. Espremidas, TODAS ficam ruins ao mesmo tempo: o nome do lead
-     trunca na caixa, a bolha da mensagem vira uma tira, a ficha corta o texto.
-     Fechada, a coluna some inteira e as outras três ficam boas — e o botão de
-     abrir continua ali, a um clique.
-     O corte é por largura da JANELA, não do monitor: quem usa a 100% de zoom
-     numa tela de 1366 tem menos espaço real que quem usa a 80% na mesma tela, e
-     é o espaço real que decide. */
-  const [tarefasAbertas, setTarefasAbertas] = useState(
-    () => typeof window === "undefined" || window.innerWidth >= 1450);
 
   const { user } = useAuth();
   const { display: nomeDoAutor } = useUserDisplayNames();
@@ -1097,7 +1089,6 @@ export default function AtendimentoPage() {
     [dia, lembretes],
   );
 
-  const tasksVisiveis = tasksDoDia.filter((t) => tipoTask === "todas" || t.tipo === tipoTask);
   const tasksDoLead = tasksDoDia.filter((t) => t.leadId === lead.id);
   /* A cobrança em aberto deste lead — e ela NÃO sai de `tasksDoLead`: aquela
      lista é do dia que o calendário está mostrando, e a cobrança quase nunca
@@ -1133,12 +1124,10 @@ export default function AtendimentoPage() {
     if (tasksDoLead.some((t) => t.id === followUpDoLead.id)) return tasksDoLead;
     return [followUpDoLead, ...tasksDoLead];
   }, [tasksDoLead, followUpDoLead]);
-  const prog = progressoTasks(tasksDoDia);
   const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
 
   /* Dias com task, pro calendário marcar. Uma linha por task, contra a lista
      inteira — não há mais recálculo por dia porque não há mais conta. */
-  const diasComTask = useMemo(() => new Set(lembretes.map((t) => t.data)), [lembretes]);
 
 
   /* CONCLUIR PASSA A PERGUNTAR ANTES.
@@ -2216,10 +2205,17 @@ export default function AtendimentoPage() {
       ) : (
         <>
 
-          {/* ── a bancada: quatro painéis, perto mas cada um o seu ──
-              Colar tudo numa caixa só apagava a divisão de trabalho: a caixa,
-              a conversa, o cliente e o dia são quatro coisas diferentes. Um gap
-              curto mantém cada uma como objeto próprio sem espalhar a tela. */}
+          {/* ── a bancada: três painéis, perto mas cada um o seu ──
+              Colar tudo numa caixa só apagava a divisão de trabalho: a caixa, a
+              conversa e o cliente são três coisas diferentes. Um gap curto
+              mantém cada uma como objeto próprio sem espalhar a tela.
+
+              ERAM QUATRO. O Daily — a coluna do dia, com o placar e o filtro de
+              tipo — saiu: tudo que ele mostrava passou a ter casa melhor. A
+              cobrança do lead está na ficha dele, na hora de escrever; a fila do
+              dia inteira está na aba Follow-up; o que vai sair sozinho está na
+              aba Programadas. A coluna virou o quarto lugar de olhar as mesmas
+              linhas, e o preço dela era largura das outras três. */}
           {/* `min-w-0` e `overflow-hidden` são o que impedem uma coluna teimosa
               de empurrar a largura da página: sem eles, um nome comprido ou uma
               etiqueta larga vazam e a janela ganha barra horizontal. Quem
@@ -2236,7 +2232,7 @@ export default function AtendimentoPage() {
             <SpotlightCard sutil className={cn(
               "flex flex-col min-h-0 p-0 overflow-hidden md:transition-[width] md:duration-200",
               /* No celular a caixa é a tela inteira; no monitor é a primeira de
-                 quatro colunas, com largura própria. */
+                 três colunas, com largura própria. */
               "w-full md:shrink-0",
               ehMobile && telaMobile !== "caixa" && "hidden",
               caixa === "base" && baseAberta ? "md:w-[21rem] 2xl:md:w-[24rem]" : "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
@@ -2941,13 +2937,11 @@ export default function AtendimentoPage() {
             ) : (
               <>
             {/* ═══ conversa — só a conversa ═══ */}
-            {/* Três profundidades de propósito: a caixa e as tasks no nível base, a
-                conversa REBAIXADA (é a mesa onde os balões pousam, e escurecer o
-                fundo faz eles existirem), o detalhe do cliente OPACO — superfície
-                sólida, sem vidro, porque é ficha que se lê — e as tasks no vidro
-                mais leve da bancada, que é a lista que muda o dia todo. Sem isso
-                os quatro painéis eram a mesma superfície repetida e o olho não
-                sabia onde estava. */}
+            {/* Três profundidades de propósito: a caixa no nível base, a conversa
+                REBAIXADA (é a mesa onde os balões pousam, e escurecer o fundo faz
+                eles existirem) e o detalhe do cliente OPACO — superfície sólida,
+                sem vidro, porque é ficha que se lê. Sem isso os painéis eram a
+                mesma superfície repetida e o olho não sabia onde estava. */}
             <SpotlightCard sutil className={cn("flex flex-col min-h-0 p-0 overflow-hidden bg-black/25",
               /* Celular: a conversa é a tela toda, e some quando a pilha está
                  na caixa ou na ficha. Monitor: a coluna elástica do meio. */
@@ -3053,24 +3047,6 @@ export default function AtendimentoPage() {
                     coisas opostas, e a segunda pessoa precisa resolver isso em
                     um clique — não caçando uma tela de configuração. Fica no
                     navegador, não na conta: é preferência da mesa, do momento. */}
-                {/* NO CELULAR, A PORTA DOS LEMBRETES fica aqui: é o único
-                    lugar de onde a quarta tela é alcançável, já que não há
-                    coluna ao lado. O contador diz se vale a pena entrar. */}
-                {ehMobile && (
-                  <button
-                    onClick={() => setTelaMobile("lembretes")}
-                    title="Daily — tudo que é do dia"
-                    className="relative shrink-0 h-8 w-8 grid place-items-center rounded-lg
-                               text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors">
-                    <ListChecks className="h-4 w-4" />
-                    {abertasHoje > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full
-                                       bg-primary text-[9px] font-semibold text-primary-foreground grid place-items-center">
-                        {abertasHoje}
-                      </span>
-                    )}
-                  </button>
-                )}
                 <button
                   onClick={alternarMudo}
                   title={mudo ? "Sons desligados" : "Sons ligados"}
@@ -3854,202 +3830,6 @@ export default function AtendimentoPage() {
             )}
             </AnimatePresence>
 
-            {/* ═══ Daily — retrátil ═══
-                O painel se chamava "Lembretes", e o nome mentia por baixo: ele
-                junta as cobranças que a régua criou sozinha e os recados que
-                alguém marcou à mão. "Lembrete" é só a segunda metade, e o
-                filtro logo abaixo tinha um botão "Lembretes" DENTRO de uma
-                coluna chamada Lembretes.
-                "Daily" diz o que a coluna é de verdade: tudo que tem hora
-                marcada para hoje, venha de onde vier.
-
-                Mesmo desenho da tela de Tarefas do jurídico: o quadradinho do
-                ícone, título, subtítulo e chip do tipo. Lá os tipos são ação
-                (raio) e monitoramento (olho); aqui são follow-up (o ciclo que
-                volta sozinho) e lembrete (o sino que alguém marcou). */}
-            {/* NO CELULAR OS LEMBRETES SÃO A QUARTA TELA. A barra estreita
-                recolhida não faz sentido num telefone: quarenta pixels de
-                coluna ao lado de uma conversa espremida é o pior dos dois
-                mundos. Ou o dia inteiro na tela, ou nada. */}
-            <SpotlightCard sutil className={cn("flex flex-col min-h-0 p-0 overflow-hidden bg-white/[0.045] md:transition-[width] md:duration-200",
-              ehMobile
-                ? cn("w-full", telaMobile !== "lembretes" && "hidden")
-                : cn("shrink-0", tarefasAbertas ? "w-[13.5rem] 2xl:w-[16rem]" : "w-[2.5rem]"))}>
-              {tarefasAbertas || ehMobile ? (
-                <>
-                  <div className="px-3 pt-2.5 pb-2.5 border-b border-white/[0.06] flex flex-col gap-2 shrink-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
-                        <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Daily
-                      </h2>
-                      <div className="flex items-center gap-1.5">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button title="Escolher o dia"
-                              className={cn("flex items-center gap-1 rounded px-1.5 py-[2px] text-[10.5px] transition-colors",
-                                dia === HOJE ? "text-muted-foreground hover:text-foreground"
-                                             : "bg-sky-400/10 text-sky-300 ring-1 ring-sky-400/25")}>
-                              <CalendarDays className="h-3.5 w-3.5" />
-                              {dia === HOJE ? "Hoje" : fmtDiaCurto(dia)}
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent align="end" className="w-auto p-2">
-                            <CalendarioTasks dia={dia} onEscolher={setDia} comTask={diasComTask} />
-                          </PopoverContent>
-                        </Popover>
-                        <button
-                          onClick={() => (ehMobile ? voltarMobile() : setTarefasAbertas(false))}
-                          title={ehMobile ? "Voltar para a conversa" : "Recolher"}
-                          className="text-muted-foreground hover:text-foreground">
-                          {ehMobile
-                            ? <ChevronLeft className="h-4 w-4" />
-                            : <PanelRightClose className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* barra de CONCLUSÃO do dia — quanto da lista saiu */}
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                        <motion.div
-                          className={cn("h-full rounded-full", prog.concluido ? "bg-emerald-400" : "bg-foreground/45")}
-                          initial={false} animate={{ width: `${prog.pct}%` }}
-                          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }} />
-                      </div>
-                      <span className="text-[10.5px] text-muted-foreground tabular-nums shrink-0">
-                        {prog.feitas}/{prog.total}
-                      </span>
-                    </div>
-
-                    <div className="flex gap-1">
-                      {([["todas", "Todos"], ["follow_up", "Follow-up"], ["lembrete", "Manuais"]] as const).map(([k, rot]) => (
-                        <button key={k} onClick={() => setTipoTask(k)}
-                          className={cn("rounded-full px-2 py-[2px] text-[10px] transition-colors ring-1",
-                            tipoTask === k
-                              ? "bg-white/[0.10] text-foreground ring-white/20"
-                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.07] hover:text-foreground")}>
-                          {rot}
-                        </button>
-                      ))}
-                    </div>
-
-                    <AnimatePresence>
-                      {prog.concluido && (
-                        <motion.p
-                          initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                          className="flex items-center gap-1.5 text-[10.5px] text-emerald-300 bg-emerald-400/10 ring-1 ring-emerald-400/25 rounded-md px-2 py-1">
-                          <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
-                          Dia fechado.
-                        </motion.p>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-1.5 flex flex-col gap-1.5">
-                    {tasksVisiveis.length === 0 ? (
-                      <p className="text-[11.5px] text-muted-foreground text-center py-6">
-                        Nada pra {dia === HOJE ? "hoje" : "este dia"}.
-                      </p>
-                    ) : tasksVisiveis.map((t) => {
-                      const Icone = t.tipo === "follow_up" ? Repeat : BellRing;
-                      const fu = t.tipo === "follow_up";
-                      return (
-                        <div key={t.id}
-                          role="button" tabIndex={0}
-                          onClick={() => abrirLembrete(t)}
-                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirLembrete(t); } }}
-                          className={cn(
-                            "flex flex-col text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] p-2.5",
-                            "cursor-pointer transition-colors hover:border-primary/40 hover:bg-white/[0.05]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
-                            t.feita && "opacity-70",
-                          )}>
-                          {/* MESMA CABEÇA DO CARD DO JURÍDICO: o quadradinho do
-                              ícone à esquerda e o estado à direita. Lá o desfecho
-                              é um check que aparece quando concluiu; aqui ele
-                              também É o botão que conclui — caixa de seleção não
-                              existe em nenhum dos dois. */}
-                          <div className="flex items-start justify-between gap-2">
-                            <span className={cn("h-7 w-7 rounded-xl grid place-items-center shrink-0 ring-1",
-                              fu ? "bg-primary/12 ring-primary/25 text-primary"
-                                 : "bg-amber-400/10 ring-amber-400/25 text-amber-300")}>
-                              <Icone className="h-3.5 w-3.5" />
-                            </span>
-                            <button onClick={(e) => { e.stopPropagation(); concluir(t.id); }}
-                              title={t.feita ? "Reabrir" : "Concluir"}
-                              className={cn("shrink-0 transition-colors",
-                                t.feita ? "text-emerald-400"
-                                        : "text-muted-foreground/35 hover:text-emerald-400/70")}>
-                              <CheckCircle2 className="h-[18px] w-[18px]" />
-                            </button>
-                          </div>
-
-                          <div className="text-left">
-                            <p className="text-[9.5px] uppercase tracking-wide text-muted-foreground mt-2 flex items-center gap-1.5">
-                              {ROTULO_TIPO[t.tipo]}
-                              {t.hora && (
-                                <span className="inline-flex items-center gap-1 rounded px-1 py-[1px] text-[9.5px] font-semibold tabular-nums normal-case tracking-normal bg-primary/15 text-primary">
-                                  <Clock className="h-2.5 w-2.5" />{horaBonita(t.hora)}
-                                </span>
-                              )}
-                            </p>
-                            <p className={cn("text-[12.5px] font-medium leading-tight mt-0.5 line-clamp-2",
-                              t.feita && "line-through")}>
-                              {t.titulo}
-                            </p>
-                            <p className="text-[10.5px] text-muted-foreground mt-0.5 line-clamp-2">{t.detalhe}</p>
-
-                            <div className="mt-2 pt-2 border-t border-white/[0.06] flex flex-col gap-1">
-                              {t.feita ? (
-                                <span className="inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-emerald-500/15 text-emerald-400 ring-emerald-500/30">
-                                  <CheckCircle2 className="h-3 w-3" /> Concluído
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center self-start rounded-full px-2 py-0.5 text-[9.5px] font-medium ring-1 bg-white/[0.06] text-muted-foreground ring-white/[0.10]">
-                                  {fu ? `${diasDaRodada(t.rodada ?? 1, regua) ?? "?"} dias sem resposta` : "Marcado por você"}
-                                </span>
-                              )}
-                              {/* O NOME ABRE A CONVERSA; o resto do cartão abre
-                                  o lembrete pra editar. Duas ações diferentes
-                                  precisam de dois alvos, e o nome é o alvo
-                                  natural de "me leva até essa pessoa". */}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); abrir(t.leadId); }}
-                                className="text-[10px] text-muted-foreground truncate text-left
-                                           hover:text-foreground hover:underline underline-offset-2 transition-colors">
-                                {t.lead}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="p-2 border-t border-white/[0.06] shrink-0">
-                    <Button size="sm" variant="outline" className="w-full h-8 text-[11px]" onClick={novaProgramada}>
-                      <Send className="h-3.5 w-3.5 mr-1.5" /> Programar mensagem
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <button onClick={() => setTarefasAbertas(true)} title="Abrir o daily"
-                  className="flex-1 flex flex-col items-center gap-3 py-3 hover:bg-white/[0.03] transition-colors">
-                  <PanelRightOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                  {abertasHoje > 0 && (
-                    <span className="h-5 w-5 rounded-full bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30 grid place-items-center text-[10px] font-semibold tabular-nums">
-                      {abertasHoje}
-                    </span>
-                  )}
-                  {/* Sem rótulo escrito na vertical: texto de lado obriga a
-                      inclinar a cabeça pra ler três letras que o ícone e o
-                      contador já dizem. O placar "2/5" é o que informa. */}
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {prog.feitas}/{prog.total}
-                  </span>
-                </button>
-              )}
-            </SpotlightCard>
               </>
             )}
           </div>
@@ -5531,38 +5311,42 @@ function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: st
     (diaDoISO(task.data).getTime() - diaDoISO(hoje).getTime()) / 86400000));
 
   return (
-    /* EMPILHADAS, E NÃO LADO A LADO.
-       Em fila, as três viravam uma tira de texto miúdo que se lê como uma
-       coisa só — e são três respostas diferentes, cada uma decidindo uma parte
-       do que se vai escrever. Uma por linha, com o ícone alinhado à esquerda,
-       o olho pega as três em três batidas em vez de varrer uma tira.
-       E maiores: esta é a informação que se consulta ANTES de escrever pra
-       pessoa, não uma etiqueta de canto. */
+    /* SÓ O UP GANHA BOLHA. Os três eram três pastilhas empilhadas, e três
+       pastilhas do mesmo tamanho não hierarquizam nada: a moldura repetida faz
+       tudo parecer igualmente importante e o dossiê inteiro vira um monte de
+       botão que não é botão.
+       O UP fica na bolha porque é ETIQUETA — um nome curto, que se procura de
+       relance e que é a mesma coisa que aparece no cartão da fila. Os outros
+       dois são FRASES, e frase em pastilha se lê pior: o olho para na moldura
+       antes de chegar no texto. Fora dela, eles viram o que sempre foram, duas
+       linhas de leitura. */
     <div className="flex flex-col gap-1 w-full">
-      <span className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] font-medium
-                       bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30">
-        <Repeat className="h-3.5 w-3.5 shrink-0" />
-        <span className="tabular-nums">{rotuloDaRodada(task.rodada ?? 1)}</span>
-        <span className="ml-auto text-[11px] font-normal opacity-70 tabular-nums">
+      <span className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-medium
+                         bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30 shrink-0">
+          <Repeat className="h-3 w-3 shrink-0" />
+          <span className="tabular-nums">{rotuloDaRodada(task.rodada ?? 1)}</span>
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
           {task.rodada ?? 1} de {TOTAL_RODADAS}
         </span>
       </span>
 
-      <span className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px]
-                       bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.08]">
-        <Clock className="h-3.5 w-3.5 shrink-0" />
+      <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+        <Clock className="h-3.5 w-3.5 shrink-0 opacity-70" />
         {lead.diasParado === 0
           ? "calado desde hoje"
           : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
       </span>
 
-      <span className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ring-1",
-        atrasada
-          ? "bg-amber-400/15 text-amber-300 ring-amber-400/30 font-medium"
-          : deHoje
-            ? "bg-violet-400/20 text-violet-200 ring-violet-400/35 font-semibold"
-            : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
-        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+      {/* A COR CONTINUA, o fundo é que sai. O atraso e o "é hoje" são a única
+          coisa aqui que muda o que se faz agora, e tirar a marca junto com a
+          moldura apagaria a informação em vez de despoluí-la. */}
+      <span className={cn("flex items-center gap-1.5 text-[11.5px]",
+        atrasada ? "text-amber-300 font-medium"
+                 : deHoje ? "text-violet-200 font-medium"
+                          : "text-muted-foreground")}>
+        <CalendarDays className="h-3.5 w-3.5 shrink-0 opacity-70" />
         {atrasada
           ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
           : deHoje
@@ -6237,68 +6021,6 @@ function PassagensDaEtapa({ passagens, agendadas, eAtual }: {
           <span className="truncate opacity-80">{a.texto || a.midia_nome || "mensagem"}</span>
         </p>
       ))}
-    </div>
-  );
-}
-
-/* ── o calendário das tasks ───────────────────────────────────────────────
-   Grade do mês com bolinha nos dias que têm task. O follow-up é recalculado por
-   dia, então andar pra frente mostra quem VAI precisar de cobrança — o que é
-   metade da graça de ter cadência. */
-function CalendarioTasks({ dia, onEscolher, comTask }: {
-  dia: string; onEscolher: (d: string) => void; comTask: Set<string>;
-}) {
-  const [a, m] = dia.split("-").map(Number);
-  const [mesVisto, setMesVisto] = useState({ ano: a, mes: m - 1 });
-  const primeiro = new Date(mesVisto.ano, mesVisto.mes, 1);
-  const inicio = new Date(mesVisto.ano, mesVisto.mes, 1 - primeiro.getDay());
-  const dias: Date[] = [];
-  for (let i = 0; i < 42; i++) dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() + i));
-  const iso = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const nomeMes = new Date(mesVisto.ano, mesVisto.mes, 1)
-    .toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-
-  return (
-    <div className="w-[15rem]">
-      <div className="flex items-center justify-between mb-1.5">
-        <button className="text-muted-foreground hover:text-foreground"
-          onClick={() => setMesVisto((v) => v.mes === 0 ? { ano: v.ano - 1, mes: 11 } : { ...v, mes: v.mes - 1 })}>
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </button>
-        <span className="text-[11.5px] font-medium first-letter:uppercase">{nomeMes}</span>
-        <button className="text-muted-foreground hover:text-foreground"
-          onClick={() => setMesVisto((v) => v.mes === 11 ? { ano: v.ano + 1, mes: 0 } : { ...v, mes: v.mes + 1 })}>
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="grid grid-cols-7 gap-0.5 text-center">
-        {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => (
-          <span key={i} className="text-[9px] text-muted-foreground/60 py-0.5">{d}</span>
-        ))}
-        {dias.map((d) => {
-          const k = iso(d);
-          const doMes = d.getMonth() === mesVisto.mes;
-          const sel = k === dia;
-          return (
-            <button key={k} onClick={() => onEscolher(k)}
-              className={cn("relative h-7 rounded text-[11px] tabular-nums transition-colors",
-                sel ? "bg-white/[0.10] text-foreground ring-1 ring-white/25"
-                    : doMes ? "hover:bg-white/[0.06]" : "text-muted-foreground/30",
-                k === HOJE && !sel && "ring-1 ring-white/15")}>
-              {d.getDate()}
-              {comTask.has(k) && (
-                <span className={cn("absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full",
-                  sel ? "bg-foreground" : "bg-muted-foreground/60")} />
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <button onClick={() => onEscolher(HOJE)}
-        className="w-full mt-1.5 rounded-md py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/[0.05]">
-        Voltar pra hoje
-      </button>
     </div>
   );
 }
