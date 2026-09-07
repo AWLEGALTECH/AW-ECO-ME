@@ -22,7 +22,6 @@ import {
 import { RUBRICAS_FECHAMENTO, RUBRICA_LABEL } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { hojeISO, mesDeHoje } from "@/lib/hoje";
-import { mesPorExtenso } from "@/lib/mesRef";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -30,14 +29,16 @@ import { cn } from "@/lib/utils";
 interface Fechamento {
   id: string;
   data: string;
-  /* O MÊS DO FECHAMENTO NÃO É O MÊS DA DATA.
-     Regra do escritório, valendo da virada agosto→setembro/2026 em diante:
-     tudo que fecha até o 5º dia útil conta no mês anterior — o mês vai até o 5º
-     dia útil do seguinte. Antes disso é o mês da própria data; mês já fechado e
-     pago não muda de número por causa de régua nova. Quem decide é o banco,
-     numa coluna gerada (fechamentos.competencia): a régua fica num lugar só, e
-     a tela nunca discorda de um relatório em SQL. Dia útil aqui exclui feriado,
-     inclusive o 5 e o 7 de setembro. */
+  /* O MÊS DE UM FECHAMENTO É O MÊS DA ASSINATURA. Sem exceção.
+     Já valeu outra coisa — o que fechasse até o 5º dia útil contava no mês
+     anterior —, e a regra custava caro na leitura: no dia 3 de setembro, um
+     fechamento daquele dia aparecia somando em agosto, e a tela precisava de uma
+     etiqueta explicando por que a data e o mês não batiam.
+     Quem decide continua sendo o banco, numa coluna gerada
+     (`fechamentos.competencia`): a régua fica num lugar só, e a tela nunca
+     discorda de um relatório em SQL. Hoje ela é simplesmente o mês da data — o
+     campo continua existindo porque é ele que a tela lê, e porque uma régua
+     ainda pode mudar sem que a tela precise saber. */
   competencia: string;
   cliente_nome: string;
   cliente_id: string | null;
@@ -717,14 +718,11 @@ export default function Fechamentos() {
                               </div>
                               <div className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 flex-wrap">
                                 <CalendarDays className="h-3 w-3" /> {fmtData(f.data)}
-                                {/* Fechado no mês seguinte mas contado neste: sem
-                                    dizer isso, a data no cartão parece defeito. */}
-                                {(f.data || "").slice(0, 7) !== f.competencia && (
-                                  <span className="rounded px-1.5 py-[1px] text-[10px] bg-sky-400/10 text-sky-300/90 ring-1 ring-sky-400/20"
-                                    title="Fechado até o 5º dia útil — conta no mês anterior">
-                                    conta em {mesPorExtenso(f.competencia).nome.slice(0, 3).toLowerCase()}
-                                  </span>
-                                )}
+                                {/* A etiqueta "conta em ago" saiu daqui junto com a
+                                    regra que a exigia: a data do cartão e o mês da
+                                    coluna são a mesma coisa agora, e uma etiqueta
+                                    dizendo isso seria repetir o que já está escrito
+                                    do lado. */}
                                 <span className="text-muted-foreground/50">·</span>
                                 {f.rubricas?.length || 0} {(f.rubricas?.length || 0) === 1 ? "rubrica válida" : "rubricas válidas"}
                               </div>
