@@ -236,6 +236,7 @@ export default function AtendimentoPage() {
      formulário serve aos dois porque são a mesma coisa; uma tela separada de
      edição repetiria cada campo e divergiria no primeiro ajuste. */
   const [editandoFicha, setEditandoFicha] = useState<Task | null>(null);
+  const [fichaAberta, setFichaAberta] = useState(false);
   const campoLembrete = useRef<HTMLInputElement>(null);
   /* QUAL LEMBRETE ESTÁ SENDO EDITADO. Null quando é um novo.
      O mesmo diálogo serve pros dois porque são a mesma coisa: um lembrete com
@@ -1112,16 +1113,28 @@ export default function AtendimentoPage() {
      palavras não merece uma janela que cobre a conversa: quem anota "ligar
      amanhã" está olhando a pessoa, e perder a conversa de vista pra digitar
      isso é o tipo de atrito que faz ninguém anotar. */
-  /* Clicar num lembrete da lista o traz pros campos acima. Editar onde se cria
-     é o que faz o formulário parecer um lugar, e não uma caixa de entrada só de
-     ida — e um recado marcado pro dia errado é o erro mais comum que existe. */
-  const carregarLembreteNaFicha = (t: Task) => {
+  /* O pop do lembrete, nos dois modos. Criar e editar usam a MESMA janela
+     porque são a mesma coisa; uma tela separada de edição repetiria cada campo
+     e divergiria no primeiro ajuste. */
+  const abrirLembreteNovo = () => {
+    setEditandoFicha(null);
+    setFichaTitulo("");
+    setFichaDetalhe("");
+    setFichaDia(HOJE);
+    setFichaHora("");
+    setFichaAberta(true);
+  };
+
+  /* Clicar num lembrete da lista abre ele pra corrigir — marcar no dia errado é
+     o erro mais comum que existe nisso, e sem edição a saída seria concluir e
+     refazer. */
+  const abrirLembreteEdicao = (t: Task) => {
     setEditandoFicha(t);
     setFichaTitulo(t.titulo);
     setFichaDetalhe(t.detalhe ?? "");
     setFichaDia(t.data);
     setFichaHora(t.hora ?? "");
-    campoLembrete.current?.focus();
+    setFichaAberta(true);
   };
 
   const salvarLembreteDaFicha = async () => {
@@ -1132,7 +1145,7 @@ export default function AtendimentoPage() {
         id: `lb-${Date.now()}`, tipo: "lembrete", leadId: lead.id, lead: lead.nome,
         titulo, detalhe: fichaDetalhe.trim(), data: fichaDia, hora: fichaHora || null, feita: false,
       }]);
-      setFichaTitulo(""); setFichaDetalhe("");
+      setFichaTitulo(""); setFichaDetalhe(""); setFichaAberta(false);
       return;
     }
     setSalvandoFicha(true);
@@ -1153,6 +1166,7 @@ export default function AtendimentoPage() {
       }
       invalidarTasks();
       setEditandoFicha(null);
+      setFichaAberta(false);
       setFichaTitulo(""); setFichaDetalhe(""); setFichaHora("");
       toast.success(editandoFicha
         ? "Lembrete atualizado."
@@ -3049,7 +3063,7 @@ export default function AtendimentoPage() {
                     puladas={puladasDe(lead)}
                     tasksDoLead={tasksDoLead}
                     onEscolherEtapa={() => setEtapaAberta(true)}
-                    onNovaTask={() => campoLembrete.current?.focus()}
+                    onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
                   />
@@ -3096,73 +3110,46 @@ export default function AtendimentoPage() {
                     envio automático sem querer. */}
                 <div className="px-3 py-2.5 flex flex-col gap-2">
                   <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                    <BellRing className="h-3 w-3" /> Marcar lembrete
+                    <BellRing className="h-3 w-3" /> Lembretes
+                    {lembretesDoLead.length > 0 && (
+                      <span className="ml-auto tabular-nums opacity-70">{lembretesDoLead.length}</span>
+                    )}
                   </p>
 
-                  <Input
-                    ref={campoLembrete}
-                    value={fichaTitulo}
-                    onChange={(e) => setFichaTitulo(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarLembreteDaFicha(); } }}
-                    placeholder="Ligar pra confirmar o extrato"
-                    className="h-8 text-[12px]" />
-
-                  <Textarea
-                    value={fichaDetalhe}
-                    onChange={(e) => setFichaDetalhe(e.target.value)}
-                    rows={2}
-                    placeholder="o que ficou combinado, o que conferir"
-                    className="text-[11.5px] resize-none min-h-[48px]" />
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <SeletorDeDia valor={fichaDia} onEscolher={setFichaDia} hojeISO={HOJE} />
-                    <SeletorDeHora valor={fichaHora} onEscolher={setFichaHora} />
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end">
-                    {editandoFicha && (
-                      <button
-                        onClick={() => {
-                          setEditandoFicha(null);
-                          setFichaTitulo(""); setFichaDetalhe(""); setFichaHora(""); setFichaDia(HOJE);
-                        }}
-                        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                        Cancelar
-                      </button>
-                    )}
-                    <Button size="sm" className="h-7 text-[11px]"
-                      onClick={salvarLembreteDaFicha}
-                      disabled={salvandoFicha || !fichaTitulo.trim()}>
-                      {salvandoFicha
-                        ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Salvando…</>
-                        : <>{editandoFicha ? "Salvar" : "Marcar"} <Check className="h-3 w-3 ml-1" /></>}
-                    </Button>
-                  </div>
+                  {/* UM BOTÃO, E NÃO UM FORMULÁRIO ABERTO.
+                      Quatro campos esperando texto no meio da ficha pedem para
+                      serem preenchidos toda vez que alguém passa o olho — e a
+                      ficha é uma tela de CONSULTA, aberta o dia inteiro. O
+                      formulário aberto também empurrava o resto da coluna pra
+                      baixo por algo que se usa poucas vezes ao dia.
+                      O pop resolve os dois: o gesto continua a um clique e o
+                      espaço volta pra informação. */}
+                  <button
+                    onClick={() => abrirLembreteNovo()}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed
+                               border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5
+                               text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                    <Plus className="h-3.5 w-3.5" /> Marcar lembrete
+                  </button>
 
                   {/* O QUE JÁ ESTÁ MARCADO PRA ESSA PESSOA, em qualquer dia. A
                       jornada mostra só os do dia que o calendário aponta, e um
                       lembrete pra sexta ficaria invisível numa quarta. */}
-                  {lembretesDoLead.length > 0 && (
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      {lembretesDoLead.map((t) => (
-                        <div key={t.id}
-                          role="button" tabIndex={0}
-                          onClick={() => carregarLembreteNaFicha(t)}
-                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); carregarLembreteNaFicha(t); } }}
-                          className={cn("rounded-lg ring-1 px-2.5 py-2 cursor-pointer transition-colors",
-                            editandoFicha?.id === t.id
-                              ? "bg-primary/10 ring-primary/40"
-                              : "bg-white/[0.04] ring-white/[0.06] hover:ring-primary/40 hover:bg-white/[0.06]")}>
-                          <p className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-wide text-muted-foreground/70">
-                            <CalendarDays className="h-3 w-3 shrink-0" />
-                            {fmtDiaCurto(t.data)}
-                            {t.hora && <span className="tabular-nums">{horaBonita(t.hora)}</span>}
-                          </p>
-                          <p className="text-[11.5px] leading-snug mt-0.5 break-words">{t.titulo}</p>
-                        </div>
-                      ))}
+                  {lembretesDoLead.map((t) => (
+                    <div key={t.id}
+                      role="button" tabIndex={0}
+                      onClick={() => abrirLembreteEdicao(t)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirLembreteEdicao(t); } }}
+                      className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2 cursor-pointer
+                                 hover:ring-primary/40 hover:bg-white/[0.06] transition-colors">
+                      <p className="flex items-center gap-1.5 text-[9.5px] uppercase tracking-wide text-muted-foreground/70">
+                        <CalendarDays className="h-3 w-3 shrink-0" />
+                        {fmtDiaCurto(t.data)}
+                        {t.hora && <span className="tabular-nums">{horaBonita(t.hora)}</span>}
+                      </p>
+                      <p className="text-[11.5px] leading-snug mt-0.5 break-words">{t.titulo}</p>
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 {/* ═══ AS MENSAGENS PROGRAMADAS DESTA PESSOA ═══
@@ -3862,11 +3849,80 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── NOVO LEMBRETE ──
-          Título, detalhe, dia e hora. A hora é opcional porque metade dos
-          lembretes não tem hora ("passar o extrato hoje") e obrigar um horário
-          faria a atendente inventar um — e um horário inventado vira alarme
-          falso na fila do dia. */}
+      {/* ── O POP DO LEMBRETE ──
+          Pequeno de propósito: são quatro campos e nenhuma decisão perigosa —
+          nada aqui sai para o cliente. O diálogo grande é o da mensagem
+          programada, e a diferença de tamanho entre os dois é intencional: o
+          peso da janela conta o peso do que ela faz. */}
+      <Dialog open={fichaAberta} onOpenChange={(a) => { if (!salvandoFicha) setFichaAberta(a); }}>
+        <DialogContent className="max-w-sm [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <BellRing className="h-4 w-4" /> {editandoFicha ? "Editar lembrete" : "Marcar lembrete"}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Sobre <span className="text-foreground/80">{lead.nome}</span>. É uma anotação sua:
+              aparece no daily do dia que você escolher, e não vai para o cliente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">O que fazer</span>
+              <Input
+                autoFocus
+                ref={campoLembrete}
+                value={fichaTitulo}
+                onChange={(e) => setFichaTitulo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvarLembreteDaFicha(); } }}
+                placeholder="Ligar pra confirmar o extrato"
+                className="h-9 text-[13px]" />
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">
+                Detalhe <span className="opacity-60">(opcional)</span>
+              </span>
+              <Textarea
+                value={fichaDetalhe}
+                onChange={(e) => setFichaDetalhe(e.target.value)}
+                placeholder="o que ficou combinado, o que conferir"
+                className="text-[12.5px] min-h-[62px] resize-none" />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3" /> Dia
+                </span>
+                <SeletorDeDia valor={fichaDia} onEscolher={setFichaDia} hojeISO={HOJE} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Hora <span className="opacity-60">(opcional)</span>
+                </span>
+                <SeletorDeHora valor={fichaHora} onEscolher={setFichaHora} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setFichaAberta(false)} disabled={salvandoFicha}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={salvarLembreteDaFicha} disabled={salvandoFicha || !fichaTitulo.trim()}>
+              {salvandoFicha
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
+                : <>{editandoFicha ? "Salvar" : "Marcar"} <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── NOVA MENSAGEM PROGRAMADA ──
+          A janela grande, e a diferença de tamanho pro pop do lembrete é
+          intencional: aqui se decide algo que SAI para o cliente, sozinho, com
+          o escritório fechado. O peso da janela conta o peso do que ela faz. */}
       <Dialog open={taskAberta} onOpenChange={(a) => { if (!salvandoTask) { setTaskAberta(a); if (!a) limparRetencao(); } }}>
         <DialogContent className="max-w-md [&>*]:min-w-0">
           <DialogHeader>
@@ -4973,7 +5029,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, onEscolherEtapa, onNovaTask,
 
                   <button onClick={onNovaTask}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
-                    <Plus className="h-3.5 w-3.5" /> Marcar lembrete
+                    <Plus className="h-3.5 w-3.5" /> Nova mensagem programada
                   </button>
 
                   {proxima && (
