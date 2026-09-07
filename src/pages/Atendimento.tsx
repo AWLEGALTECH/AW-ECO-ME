@@ -36,7 +36,7 @@ import {
   Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   PanelRightClose, PanelRightOpen, RefreshCw, StickyNote,
   ListChecks, CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info,
@@ -82,6 +82,10 @@ import {
   useAgendadas, useInvalidarAgendadas, reterMensagem, cancelarAgendada, editarAgendada,
   type AgendadaRow,
 } from "@/hooks/useAgendadas";
+import {
+  useModelosFollowUp, useInvalidarModelos, salvarModeloFollowUp, alternarModeloAtivo,
+  type ModeloFollowUp,
+} from "@/hooks/useModelosFollowUp";
 import {
   useTasksWa, criarTaskWa, alternarTaskWa, atualizarTaskWa, useInvalidarTasksWa,
   sincronizarFollowUps, concluirFollowUp, finalizarAtendimento,
@@ -237,6 +241,19 @@ export default function AtendimentoPage() {
      edição repetiria cada campo e divergiria no primeiro ajuste. */
   const [editandoFicha, setEditandoFicha] = useState<Task | null>(null);
   const [fichaAberta, setFichaAberta] = useState(false);
+
+  /* ═══ O EDITOR DA MENSAGEM PADRÃO ═══
+     Campos próprios, e não os da retenção: as duas usam a mesma barra e a mesma
+     ideia, mas uma é o texto de UMA mensagem para UM lead e a outra é a regra da
+     casa para uma rodada inteira. Compartilhar estado faria um rascunho vazar
+     no outro, e o que vazaria aqui viraria a mensagem de todo mundo. */
+  const [modeloRodada, setModeloRodada] = useState<number | null>(null);
+  const [modeloTexto, setModeloTexto] = useState("");
+  const [modeloArquivo, setModeloArquivo] = useState<File | null>(null);
+  const [modeloDuracao, setModeloDuracao] = useState<number | null>(null);
+  const [modeloGravando, setModeloGravando] = useState(false);
+  const [salvandoModelo, setSalvandoModelo] = useState(false);
+  const seletorModelo = useRef<HTMLInputElement>(null);
   const campoLembrete = useRef<HTMLInputElement>(null);
   /* QUAL LEMBRETE ESTÁ SENDO EDITADO. Null quando é um novo.
      O mesmo diálogo serve pros dois porque são a mesma coisa: um lembrete com
@@ -703,6 +720,8 @@ export default function AtendimentoPage() {
   const invalidarTasks = useInvalidarTasksWa();
   const { data: agendadas = [] } = useAgendadas(aoVivo ? instancia.nome : null);
   const invalidarAgendadas = useInvalidarAgendadas();
+  const { data: modelosRegua = [] } = useModelosFollowUp();
+  const invalidarModelos = useInvalidarModelos();
 
   /* A CADÊNCIA SE PÕE EM DIA SOZINHA. Cria a cobrança de quem acabou de
      silenciar e cancela a de quem respondeu, fechou ou foi arquivado — as duas
@@ -1027,6 +1046,45 @@ export default function AtendimentoPage() {
       a.status === "pendente" &&
       (a.task_id === editando.id || (!a.task_id && a.conversa_id === editando.leadId)));
   }, [editando, agendadas]);
+
+  /* Abre o editor já com o que estiver escrito. Um editor em branco sobre um
+     texto que existe é o jeito mais rápido de alguém apagar sem querer o que
+     outra pessoa escreveu. */
+  const abrirModelo = (rodada: number) => {
+    const m = modelosRegua.find((x) => x.rodada === rodada);
+    setModeloRodada(rodada);
+    setModeloTexto(m?.texto ?? "");
+    setModeloArquivo(null);
+    setModeloDuracao(null);
+  };
+
+  const salvarModelo = async () => {
+    if (modeloRodada === null) return;
+    const tipo = modeloArquivo ? tipoDoMime(modeloArquivo.type) : "texto";
+    if (tipo === "texto" && !modeloTexto.trim()) {
+      toast.error("Escreva a mensagem ou anexe um arquivo.");
+      return;
+    }
+    setSalvandoModelo(true);
+    try {
+      await salvarModeloFollowUp({
+        rodada: modeloRodada,
+        tipo,
+        texto: modeloTexto,
+        arquivo: modeloArquivo,
+        nomeArquivo: modeloArquivo?.name ?? null,
+        duracao: modeloDuracao,
+        por: user?.id ?? null,
+      });
+      invalidarModelos();
+      toast.success(`Mensagem padrão do ${rotuloDaRodada(modeloRodada)} salva.`);
+      setModeloRodada(null);
+    } catch (e) {
+      toast.error("Não consegui salvar: " + (e as Error).message);
+    } finally {
+      setSalvandoModelo(false);
+    }
+  };
 
   const cancelarProgramada = (id: string) => {
     cancelarAgendada(id)
@@ -1803,13 +1861,23 @@ export default function AtendimentoPage() {
       )}
 
       {aba === "followup" ? (
-        <CentralFollowUp
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2">
+          <ModelosDaRegua
+            modelos={modelosRegua}
+            onEditar={abrirModelo}
+            onAlternar={(r, ativo) => {
+              alternarModeloAtivo(r, ativo)
+                .then(invalidarModelos)
+                .catch((e) => toast.error((e as Error).message));
+            }} />
+          <CentralFollowUp
           tasks={lembretes}
           leads={leadsBase}
           hoje={HOJE}
           onConcluir={concluir}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
-        />
+          />
+        </div>
       ) : aba === "programadas" ? (
         <CentralProgramadas
           agendadas={agendadas}
@@ -3040,8 +3108,10 @@ export default function AtendimentoPage() {
                         hoje e muda toda semana. Juntas, a segunda fazia a
                         primeira parecer variável. Ela tem bloco próprio logo
                         abaixo, onde cabem os números que lhe dão sentido. */}
-                    <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
-                      tamanho="grande" />
+                    <span className="w-full flex flex-col gap-1 [&>span]:w-full">
+                      <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
+                        tamanho="grande" />
+                    </span>
                   </div>
                   {/* O FOLLOW-UP NO DOSSIÊ, sempre que existe — inclusive
                       quando a cobrança é pra daqui a três semanas. Saber que a
@@ -3885,6 +3955,99 @@ export default function AtendimentoPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── O EDITOR DA MENSAGEM PADRÃO ──
+          A MESMA BARRA DO CHAT, e pelo mesmo motivo de sempre: quem escreve
+          cobrança escreve mensagem, não preenche campo de configuração. Um
+          formulário com "Texto do template" faria a pessoa pensar em sistema
+          quando ela precisa pensar no cliente que vai ler aquilo.
+          A diferença é que aqui não há destinatário: o que se escreve vale pra
+          todo mundo que cair nessa rodada, e o cabeçalho diz isso em vez de
+          mostrar uma foto. */}
+      <Dialog open={modeloRodada !== null} onOpenChange={(a) => { if (!salvandoModelo && !a) setModeloRodada(null); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Repeat className="h-4 w-4" /> Mensagem padrão do {modeloRodada ? rotuloDaRodada(modeloRodada) : ""}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              Vale para quem estiver com{" "}
+              <span className="text-foreground/80">
+                {modeloRodada ? diasDaRodada(modeloRodada) : 0} dias sem responder
+              </span>. Escreva como escreveria pra uma pessoa: é isso que vai ser
+              mandado. Por ora ela não sai sozinha — serve pra quem for cobrar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <div className="p-2.5 flex flex-col gap-2">
+              {modeloArquivo && (
+                <div className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5 w-fit">
+                  {modeloArquivo.type.startsWith("image/")
+                    ? <img src={URL.createObjectURL(modeloArquivo)} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
+                    : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
+                  <span className="text-[11.5px] truncate max-w-[180px]" title={modeloArquivo.name}>{modeloArquivo.name}</span>
+                  <button type="button" onClick={() => { setModeloArquivo(null); setModeloDuracao(null); }}
+                    title="Tirar o anexo"
+                    className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5">
+                {!modeloGravando && (
+                  <>
+                    <input ref={seletorModelo} type="file" className="hidden"
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                      onChange={(e) => { setModeloArquivo(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+                    <Button size="sm" variant="ghost" title="Anexar arquivo"
+                      className="h-9 w-9 p-0 shrink-0" onClick={() => seletorModelo.current?.click()}>
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+
+                {!modeloGravando && (
+                  <Textarea
+                    value={modeloTexto}
+                    rows={1}
+                    onChange={(e) => setModeloTexto(e.target.value)}
+                    placeholder={modeloArquivo ? "Legenda (opcional)…" : "A mensagem desta rodada…"}
+                    className="min-h-9 max-h-[9rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin" />
+                )}
+
+                {!modeloArquivo && (
+                  <GravadorDeAudio
+                    onEnviar={async (audio, segundos) => {
+                      const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+                      setModeloArquivo(new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }));
+                      setModeloDuracao(segundos);
+                    }}
+                    onGravandoChange={setModeloGravando} />
+                )}
+              </div>
+
+              <p className="text-[10.5px] text-muted-foreground/60 leading-snug">
+                Quem for cobrar vê esta mensagem pronta. Trocar o texto aqui muda
+                para todo mundo, daqui pra frente.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setModeloRodada(null)} disabled={salvandoModelo}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={salvarModelo}
+              disabled={salvandoModelo || (!modeloTexto.trim() && !modeloArquivo)}>
+              {salvandoModelo
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Salvando…</>
+                : <>Salvar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── O POP DO LEMBRETE ──
           Pequeno de propósito: são quatro campos e nenhuma decisão perigosa —
           nada aqui sai para o cliente. O diálogo grande é o da mensagem
@@ -4394,10 +4557,18 @@ function SeloContato({ origem, base, followUp, tamanho = "pequeno" }: {
 }) {
   if (!origem && !base && !followUp) return null;
   const g = tamanho === "grande";
+  /* NO TAMANHO GRANDE, A MESMA CAIXA DAS LINHAS DE FOLLOW-UP.
+     A ficha ganhou as três linhas do follow-up com 12px e altura de toque, e a
+     origem ficou ao lado com 10px e cara de etiqueta de canto — duas medidas
+     diferentes para dois campos vizinhos do mesmo bloco. Quem lê não vê duas
+     escolhas, vê um descuido: o menor parece menos importante sem que ninguém
+     tenha decidido isso.
+     No tamanho pequeno nada muda: lá ele convive com o nome do lead numa linha
+     de lista, e crescer roubaria o espaço do nome. */
   const caixa = g
-    ? "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] ring-1"
+    ? "inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ring-1"
     : "inline-flex items-center gap-1 rounded px-1.5 py-[1px] text-[9px] ring-1";
-  const ico = g ? "h-2.5 w-2.5" : "h-2.5 w-2.5";
+  const ico = g ? "h-3.5 w-3.5" : "h-2.5 w-2.5";
   const saiu = origem === "outbound";
 
   return (
@@ -5437,6 +5608,122 @@ function CentralFollowUp({ tasks, leads, hoje, onConcluir, onAbrirConversa }: {
         )}
       </SpotlightCard>
     </div>
+  );
+}
+
+/* ═══════════ AS MENSAGENS PADRÃO DA RÉGUA ═══════════
+ *
+ * Um cartão à parte, acima da fila. A fila responde "quem eu cobro hoje"; isto
+ * responde "o que a gente diz em cada rodada" — uma é trabalho do dia, a outra é
+ * decisão do escritório, tomada uma vez e revista de vez em quando. Misturar as
+ * duas faria a decisão virar item de lista.
+ *
+ * CADA RODADA COM O TEMPO ESCRITO, porque é o tempo que justifica o tom: "1 dia
+ * sem responder" pede um lembrete leve, "60 dias" pede uma mensagem de
+ * encerramento. Sem o número ao lado, os cinco textos parecem cinco variações
+ * arbitrárias do mesmo recado.
+ *
+ * A MENSAGEM APARECE COMO ELA VAI CHEGAR — uma bolha, do lado de quem envia,
+ * com o anexo se houver. Um campo de formulário mostrando o mesmo texto não
+ * responde a única pergunta que importa aqui: isso está bom pra mandar pra um
+ * cliente?
+ *
+ * POR ORA NADA DISPARA SOZINHO, e o cartão diz isso em voz alta. A retenção já
+ * mostrou o tamanho do cuidado que uma mensagem automática exige; ligar cinco
+ * delas de uma vez, para a carteira inteira, seria começar pelo lado perigoso.
+ */
+function ModelosDaRegua({ modelos, onEditar, onAlternar }: {
+  modelos: ModeloFollowUp[];
+  onEditar: (rodada: number) => void;
+  onAlternar: (rodada: number, ativo: boolean) => void;
+}) {
+  const porRodada = new Map(modelos.map((m) => [m.rodada, m]));
+
+  return (
+    <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
+      <div>
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+          Mensagens padrão da régua
+        </h2>
+        <p className="text-[11.5px] text-muted-foreground mt-0.5">
+          O que a gente diz em cada rodada. Escrever do zero toda vez faz a mesma
+          cobrança sair de cinco jeitos — e a quinta rodada sair com o texto da
+          primeira. Por ora elas não saem sozinhas: servem pra quem vai escrever.
+        </p>
+      </div>
+
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: TOTAL_RODADAS }, (_, i) => i + 1).map((r) => {
+          const m = porRodada.get(r);
+          const vazio = !m || (!m.texto && !m.midia_path);
+          const dias = diasDaRodada(r) ?? 0;
+
+          return (
+            <div key={r}
+              className={cn("flex flex-col rounded-2xl border p-3 transition-colors",
+                m?.ativo === false
+                  ? "border-white/[0.05] bg-white/[0.015] opacity-60"
+                  : "border-white/[0.07] bg-white/[0.03]")}>
+              <div className="flex items-center gap-2">
+                <span className="h-7 w-7 rounded-xl bg-violet-400/12 ring-1 ring-violet-400/25 grid place-items-center shrink-0">
+                  <Repeat className="h-3.5 w-3.5 text-violet-300" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-medium tabular-nums">{rotuloDaRodada(r)}</span>
+                  <span className="block text-[10.5px] text-muted-foreground">
+                    {dias} {dias === 1 ? "dia" : "dias"} sem responder
+                  </span>
+                </span>
+                {m && !vazio && (
+                  <button
+                    onClick={() => onAlternar(r, !(m.ativo ?? true))}
+                    title={m.ativo === false ? "Ligar esta mensagem" : "Desligar sem apagar o texto"}
+                    className={cn("shrink-0 h-6 w-6 grid place-items-center rounded-md transition-colors",
+                      m.ativo === false
+                        ? "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.08]"
+                        : "text-emerald-400 hover:bg-emerald-400/10")}>
+                    {m.ativo === false ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+              </div>
+
+              {/* A MENSAGEM COMO ELA CHEGA. Bolha do nosso lado, com o anexo se
+                  houver — a pergunta aqui é "isso está bom pra mandar?", e um
+                  campo de formulário não responde isso. */}
+              <div className="mt-2.5 min-h-[3.5rem] flex">
+                {vazio ? (
+                  <p className="text-[11px] text-muted-foreground/50 self-center">
+                    Nenhuma mensagem escrita ainda.
+                  </p>
+                ) : (
+                  <div className="self-end ml-auto w-fit max-w-full rounded-2xl rounded-tr-sm
+                                  bg-white/[0.08] ring-1 ring-white/[0.10] px-3 py-2">
+                    {m?.midia_nome && (
+                      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
+                        <Paperclip className="h-3 w-3 shrink-0" />
+                        <span className="truncate max-w-[12rem]">{m.midia_nome}</span>
+                      </p>
+                    )}
+                    {m?.texto && (
+                      <p className="text-[12.5px] leading-snug whitespace-pre-wrap break-words">{m.texto}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => onEditar(r)}
+                className="mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed
+                           border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5
+                           text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                <Pencil className="h-3.5 w-3.5" /> {vazio ? "Escrever" : "Editar"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </SpotlightCard>
   );
 }
 
