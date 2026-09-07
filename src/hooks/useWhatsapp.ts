@@ -99,7 +99,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, created_at";
+  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -490,6 +490,7 @@ export function conversaParaLead(
     instancia: c.instancia,
     movidaDe: c.movida_de ?? null,
     movidaEm: c.movida_em ?? null,
+    followupAtivo: c.followup_ativo ?? null,
     presenca: c.presenca,
     presencaEm: c.presenca_em,
     vistoEm: c.visto_em,

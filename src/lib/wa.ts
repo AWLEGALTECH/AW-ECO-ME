@@ -52,6 +52,9 @@ export interface ConversaRow {
      Null = sempre esteve onde está. */
   movida_de: string | null;
   movida_em: string | null;
+  /* Null = este contato segue a regra do número. True/false = decisão explícita
+     dele, e vence a regra. */
+  followup_ativo: boolean | null;
   created_at: string;
 }
 

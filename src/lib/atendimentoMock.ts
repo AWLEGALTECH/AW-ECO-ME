@@ -129,6 +129,11 @@ export interface Lead {
      uma conversa que aparece na caixa do escritório parece ter nascido lá. */
   movidaDe?: string | null;
   movidaEm?: string | null;
+  /* A DECISÃO DESTE CONTATO sobre a régua. Indefinido/null = segue a regra do
+     número; true/false = escolha explícita, e vence a regra. Os três estados
+     são necessários: sem o null, mudar a regra do número não pegaria em ninguém
+     que já existe. */
+  followupAtivo?: boolean | null;
   /* O que o WhatsApp contou sobre ele. Tudo opcional e frequentemente ausente:
      quem esconde o status não gera evento, e ausência é "não sei". */
   presenca?: string | null;

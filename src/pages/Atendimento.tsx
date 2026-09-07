@@ -70,19 +70,22 @@ import {
   CADENCIA as CADENCIA_PADRAO, type Regua,
 } from "@/lib/followUp";
 import {
-  useCadenciaFollowUp, useInvalidarCadencia, salvarDegrauDaRegua,
+  useCadencias, reguaDoNumero, useInvalidarCadencia, salvarDegrauDaRegua,
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
   listaDeInstancias, apelidosDeInstancias, apelidoDeInstancia, corDaInstancia, rotuloDaSelecao,
-  mesmaInstancia,
+  mesmaInstancia, contemInstancia,
 } from "@/lib/instancias";
 import {
   passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
   type PassagemNaTela, type PassagemDeEtapa,
 } from "@/lib/jornada";
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
+import {
+  useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
+} from "@/hooks/useRegraFollowUp";
 import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
@@ -805,20 +808,82 @@ export default function AtendimentoPage() {
   const invalidarTasks = useInvalidarTasksWa();
   const { data: agendadas = [] } = useAgendadas(aoVivo ? nomesSelecionados : null);
   const invalidarAgendadas = useInvalidarAgendadas();
-  const { data: modelosRegua = [] } = useModelosFollowUp();
+  /* ═══ QUAL NÚMERO A ABA DE FOLLOW-UP ESTÁ CONFIGURANDO ═══
+     A régua deixou de ser do escritório e passou a ser de cada número, então
+     "salvar a régua" virou uma frase incompleta: a régua de quem? Com um número
+     escolhido não há dúvida; com dois, editar sem dizer qual seria escrever no
+     escuro — e a chance de acertar é metade. */
+  const [reguaDe, setReguaDe] = useState<string | null>(null);
+  const numeroDaRegua = useMemo(() => {
+    // O escolhido só vale enquanto ele estiver na seleção: tirar um número da
+    // caixa não pode deixar a aba configurando um número que saiu da tela.
+    if (reguaDe && contemInstancia(nomesSelecionados, reguaDe)) return reguaDe;
+    return nomesSelecionados[0] ?? null;
+  }, [reguaDe, nomesSelecionados]);
+
+  const { data: modelosRegua = [] } = useModelosFollowUp(numeroDaRegua);
   const invalidarModelos = useInvalidarModelos();
+  const { data: padraoDaRegua = true } = useRegraFollowUp(numeroDaRegua);
+  const invalidarRegra = useInvalidarRegra();
   /* A RÉGUA EM USO. Vem do banco, e é a MESMA que `fn_wa_cadencia()` lê para
      agendar a próxima cobrança: mudar o número na tela muda a fila de amanhã
      porque os dois lados olham a mesma linha, não porque um avisou o outro. */
-  const { data: regua = CADENCIA_PADRAO } = useCadenciaFollowUp();
+  /* A RÉGUA QUE A ABA EDITA é a do número escolhido; a que a CONVERSA mostra é
+     a do número dela. São perguntas diferentes e podem apontar pra números
+     diferentes ao mesmo tempo — quem está configurando o Portal pode ter uma
+     conversa do escritório aberta ao lado. */
+  /* TODAS AS RÉGUAS DE UMA VEZ. A fila de follow-up mostra leads de todos os
+     números escolhidos, e cada cartão precisa do degrau DA RÉGUA DELE — com um
+     hook por número isso viraria hook dentro de laço, que o React não permite. */
+  const { data: cadencias } = useCadencias();
+  const regua = reguaDoNumero(cadencias, numeroDaRegua);
   const invalidarCadencia = useInvalidarCadencia();
 
   const mudarDegrau = async (rodada: number, dias: number) => {
+    if (!numeroDaRegua) { toast.error("Escolha o número antes de mexer na régua."); return; }
     try {
-      await salvarDegrauDaRegua(rodada, dias, user?.id ?? null);
+      await salvarDegrauDaRegua(numeroDaRegua, rodada, dias, user?.id ?? null);
       invalidarCadencia();
       invalidarTasks();
-      toast.success(`${rotuloDaRodada(rodada)} agora é de ${dias} ${dias === 1 ? "dia" : "dias"}.`);
+      toast.success(`${rotuloDaRodada(rodada)} agora é de ${dias} ${dias === 1 ? "dia" : "dias"}.`, {
+        description: `Vale para ${numeroDaRegua}.`,
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  /* A CHAVE DO NÚMERO: todo mundo entra na régua, ou ninguém entra.
+     Depois de mudar, a sincronização roda na hora — sem isso a chave só teria
+     efeito na próxima varredura, e quem acabou de desligar veria a fila cheia
+     por mais uma hora achando que não funcionou. */
+  const mudarPadraoDaRegua = async (ativo: boolean) => {
+    if (!numeroDaRegua) return;
+    try {
+      await salvarRegraFollowUp(numeroDaRegua, ativo, user?.id ?? null);
+      invalidarRegra();
+      await sincronizarFollowUps(numeroDaRegua).catch(() => {});
+      invalidarTasks();
+      toast.success(ativo
+        ? `Em ${numeroDaRegua}, todo mundo entra na régua.`
+        : `Em ${numeroDaRegua}, ninguém entra na régua sem ser escolhido.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  /* LIGAR E DESLIGAR UM CONTATO. Três estados: ligado, desligado, e "segue o
+     número" — e o terceiro é o que faz a chave do número continuar valendo pra
+     quem nunca teve opinião gravada. */
+  const mudarFollowUpDoLead = async (ativo: boolean | null) => {
+    try {
+      const ficou = await followUpDoContato(lead.id, ativo);
+      invalidarWa();
+      invalidarTasks();
+      toast.success(ativo === null
+        ? (ficou ? "Voltou a seguir o número: entra na régua." : "Voltou a seguir o número: fora da régua.")
+        : ficou ? "Follow-up ligado para este contato."
+                : "Follow-up desligado. As cobranças abertas foram canceladas.");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -889,6 +954,20 @@ export default function AtendimentoPage() {
      `semConversas` é quem decide o que aparece. */
   const semConversas = aoVivo && leadsBase.length === 0;
   const lead: Lead = leadsBase.find((l) => l.id === idAberto) ?? lista[0] ?? leadsBase[0] ?? LEAD_VAZIO;
+
+  /* A RÉGUA DA CONVERSA ABERTA é a do NÚMERO DELA, e não a do número que a aba
+     de follow-up está configurando: dá pra estar ajustando o Portal com uma
+     conversa do escritório aberta ao lado, e os dois painéis têm que falar cada
+     um da sua régua.
+     Declarada aqui, depois de `lead`, e não lá em cima com as outras: ela lê
+     `lead.instancia`, e `const` não é içado — antes da declaração, a tela
+     inteira cai com "Cannot access before initialization". Já aconteceu quatro
+     vezes neste arquivo. */
+  const reguaDaConversa = reguaDoNumero(cadencias, lead.instancia ?? instancia.nome);
+  /* A regra do número DA CONVERSA, pra ficha poder explicar o que "segue o
+     número" quer dizer nesta conversa específica — que é a única forma de o
+     estado do meio não ser um enigma. */
+  const { data: padraoDoNumeroDoLead = true } = useRegraFollowUp(lead.instancia ?? instancia.nome ?? null);
   /* ENVIO OTIMISTA: a bolha nasce no enter, não no OK da Evolution.
      Antes o texto ficava preso no campo até a resposta chegar, e quem digita
      via a mensagem parada ali e apertava enter de novo — duas mensagens iguais
@@ -1184,6 +1263,7 @@ export default function AtendimentoPage() {
     setSalvandoModelo(true);
     try {
       await salvarModeloFollowUp({
+        instancia: numeroDaRegua ?? "",
         rodada: modeloRodada,
         texto: modeloTexto,
         anexosNovos: modeloAnexos,
@@ -2157,13 +2237,26 @@ export default function AtendimentoPage() {
 
       {aba === "followup" ? (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2">
+          {/* ── DE QUAL NÚMERO É A RÉGUA QUE ESTOU EDITANDO ──
+              A régua deixou de ser do escritório e passou a ser de cada número,
+              então "salvar a régua" virou frase incompleta: a régua de quem?
+              Com um número escolhido não há dúvida e a barra some. Com dois, ela
+              aparece e OBRIGA a escolher, porque a alternativa é escrever no
+              escuro com metade de chance de acertar. */}
+          <BarraDaReguaDoNumero
+            numeros={instanciasDaSelecao}
+            escolhido={numeroDaRegua}
+            apelidos={apelidos}
+            padraoAtivo={padraoDaRegua}
+            onEscolher={setReguaDe}
+            onMudarPadrao={mudarPadraoDaRegua} />
           <ModelosDaRegua
             modelos={modelosRegua}
             regua={regua}
             onMudarDia={mudarDegrau}
             onEditar={abrirModelo}
             onAlternar={(r, ativo) => {
-              alternarModeloAtivo(r, ativo)
+              alternarModeloAtivo(numeroDaRegua ?? "", r, ativo)
                 .then(invalidarModelos)
                 .catch((e) => toast.error((e as Error).message));
             }} />
@@ -2171,7 +2264,7 @@ export default function AtendimentoPage() {
           tasks={lembretes}
           leads={leadsBase}
           hoje={HOJE}
-          regua={regua}
+          cadencias={cadencias}
           onConcluir={concluir}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
           />
@@ -3084,7 +3177,7 @@ export default function AtendimentoPage() {
                               "Follow-up": qual régua é essa muda o que se
                               escreve, e o rótulo genérico não muda nada. */}
                           <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/70 flex items-center gap-1">
-                            {t.tipo === "follow_up" ? rotuloDoDegrau(t.rodada ?? 1, regua) : ROTULO_TIPO[t.tipo]}
+                            {t.tipo === "follow_up" ? rotuloDoDegrau(t.rodada ?? 1, reguaDaConversa) : ROTULO_TIPO[t.tipo]}
                             {t.data !== dia && (
                               <span className="text-muted-foreground/50 tabular-nums normal-case">
                                 · {t.data < dia ? "venceu" : "vence"} {fmtDiaCurto(t.data)}
@@ -3574,7 +3667,7 @@ export default function AtendimentoPage() {
                     que ninguém vai mexer agora. */}
                 {followUpDoLead && followUpDoLead.data <= HOJE && (
                   <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={regua}
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
                     onAbrir={() => campoResposta.current?.focus()}
                     onConcluir={() => concluir(followUpDoLead.id)} />
                 )}
@@ -3614,7 +3707,7 @@ export default function AtendimentoPage() {
                     divergirem na primeira mudança. */}
                 {!(followUpDoLead && followUpDoLead.data <= HOJE) && (
                   <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={regua}
+                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
                     onAbrir={() => campoResposta.current?.focus()}
                     onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
                 )}
@@ -3763,6 +3856,52 @@ export default function AtendimentoPage() {
                     NÃO é o mesmo que a etapa "fechado": aquilo quer dizer VIROU
                     CLIENTE, e muita gente que não fechou também merece parar de
                     ser cobrada. */}
+                {/* ═══ A RÉGUA DESTE CONTATO ═══
+                    Fica no fim, junto dos outros dois gestos que mudam o que o
+                    sistema faz sozinho com essa pessoa — e não no painel de
+                    follow-up lá em cima, que é onde se lê o estado da cobrança.
+                    Ler e decidir são momentos diferentes: o de cima acontece
+                    antes de escrever, este acontece quando alguém conclui que
+                    essa pessoa não deve mais ser cobrada.
+
+                    TRÊS ESTADOS, e não um interruptor. "Segue o número" é o
+                    estado em que a maioria vive, e é ele que faz a chave do
+                    número continuar valendo: se toda conversa nascesse com sim
+                    ou não gravado, mudar a regra do número não pegaria em
+                    ninguém que já existe. */}
+                {aoVivo && !lead.atendimentoFinalizadoEm && (
+                  <div className="px-3 pt-3 flex flex-col gap-1.5">
+                    <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
+                      <Repeat className="h-3 w-3" /> Cobrança automática
+                    </p>
+                    <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
+                      {([[null, "Segue o número"], [true, "Ligado"], [false, "Desligado"]] as const).map(([v, rot]) => {
+                        const marcado = (lead.followupAtivo ?? null) === v;
+                        return (
+                          <button key={String(v)} onClick={() => mudarFollowUpDoLead(v)}
+                            className={cn("flex-1 rounded-md px-1.5 py-1 text-[10.5px] transition-colors",
+                              marcado
+                                ? v === false ? "bg-white/[0.10] text-foreground"
+                                  : v === true ? "bg-emerald-400/15 text-emerald-300"
+                                  : "bg-white/[0.09] text-foreground"
+                                : "text-muted-foreground hover:text-foreground")}>
+                            {rot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                      {lead.followupAtivo === false
+                        ? "Este contato não entra na régua, mesmo que o número cobre todo mundo."
+                        : lead.followupAtivo === true
+                          ? "Este contato entra na régua, mesmo que o número não cobre ninguém."
+                          : padraoDoNumeroDoLead
+                            ? "Segue o número: entra na régua sozinho quando ficar sem responder."
+                            : "Segue o número: não entra na régua sem ser ligado aqui."}
+                    </p>
+                  </div>
+                )}
+
                 {/* ═══ PASSAR PRO OUTRO NÚMERO ═══
                     Vizinho do "finalizar" porque são os dois gestos que TIRAM a
                     conversa daqui — um encerra, o outro entrega. Ficam no fim
@@ -6331,11 +6470,14 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, onT
  * esperando resposta não aparece aqui: aquilo é caixa não respondida, urgência
  * de hoje, e misturar as duas faria o caso urgente sumir embaixo da rotina.
  */
-function CentralFollowUp({ tasks, leads, hoje, regua, onConcluir, onAbrirConversa }: {
+function CentralFollowUp({ tasks, leads, hoje, cadencias, onConcluir, onAbrirConversa }: {
   tasks: Task[];
   leads: Lead[];
   hoje: string;
-  regua: Regua;
+  /* AS RÉGUAS DE TODOS OS NÚMEROS, e não uma só: esta fila mistura leads dos
+     números escolhidos, e "Follow-up de 5 dias" num cartão do Portal ao lado de
+     um do escritório, que cobra em 7, seria o rótulo errado na metade da tela. */
+  cadencias: Map<string, Regua> | undefined;
   onConcluir: (id: string) => void;
   onAbrirConversa: (leadId: string) => void;
 }) {
@@ -6368,7 +6510,7 @@ function CentralFollowUp({ tasks, leads, hoje, regua, onConcluir, onAbrirConvers
               task={t}
               diasSemResposta={porLead.get(t.leadId)?.diasParado ?? 0}
               hoje={hoje}
-              regua={regua}
+              regua={reguaDoNumero(cadencias, porLead.get(t.leadId)?.instancia)}
               onAbrir={() => onAbrirConversa(t.leadId)}
               onConcluir={() => onConcluir(t.id)}
             />
@@ -6624,6 +6766,87 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
         </span>
       )}
     </button>
+  );
+}
+
+/* ═══════════ A RÉGUA É DE QUEM ═══════════
+ *
+ * Com um número só, esta barra é uma linha discreta dizendo de quem é a régua
+ * que está na tela. Com dois ou três, ela é o seletor — e é ele que impede o
+ * erro mais caro desta aba: ajustar a cadência do Portal achando que está
+ * ajustando a do escritório, e descobrir três dias depois pela fila errada.
+ *
+ * A CHAVE DO PADRÃO MORA AQUI e não nos Ajustes, apesar de ser configuração:
+ * ela é a pergunta ANTERIOR a tudo que a aba mostra. "Quem entra na régua" vem
+ * antes de "de quantos em quantos dias" e antes de "o que a gente escreve" — e
+ * lida em outra tela, viraria uma decisão que ninguém revisita.
+ */
+function BarraDaReguaDoNumero({
+  numeros, escolhido, apelidos, padraoAtivo, onEscolher, onMudarPadrao,
+}: {
+  numeros: Instancia[];
+  escolhido: string | null;
+  apelidos: Map<string, string>;
+  padraoAtivo: boolean;
+  onEscolher: (nome: string) => void;
+  onMudarPadrao: (ativo: boolean) => void;
+}) {
+  if (numeros.length === 0) return null;
+
+  return (
+    <SpotlightCard sutil className="rounded-xl p-3 flex flex-wrap items-center gap-x-4 gap-y-2.5">
+      <span className="flex items-center gap-2 min-w-0">
+        <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 shrink-0">
+          Régua de
+        </span>
+        {numeros.length === 1 ? (
+          <span className="text-[12.5px] font-medium truncate">{numeros[0].nome}</span>
+        ) : (
+          <span className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
+            {numeros.map((i) => {
+              const cor = corDaInstancia(i.nome);
+              const ativo = mesmaInstancia(i.nome, escolhido);
+              return (
+                <button key={i.id} onClick={() => onEscolher(i.nome)}
+                  title={i.nome}
+                  className={cn("flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] transition-colors",
+                    ativo ? "bg-white/[0.09] text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                  <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide",
+                    ativo ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
+                    {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                  </span>
+                  <span className="truncate max-w-[9rem]">{i.nome}</span>
+                </button>
+              );
+            })}
+          </span>
+        )}
+      </span>
+
+      {/* ── DE QUE LADO ESTE NÚMERO COMEÇA ──
+          Dois jeitos opostos e os dois certos, dependendo do número. No Portal,
+          cobrar todo mundo é o certo: são leads de anúncio, e sumir é o
+          comportamento normal deles. No número do escritório é o contrário — a
+          maioria é cliente com processo andando, e cobrança automática ali
+          constrange quem já pagou. */}
+      <span className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5 ml-auto">
+        {([[true, "Todo mundo entra"], [false, "Ninguém entra"]] as const).map(([v, rot]) => (
+          <button key={String(v)} onClick={() => onMudarPadrao(v)}
+            className={cn("rounded-md px-2.5 py-1 text-[11px] transition-colors",
+              padraoAtivo === v
+                ? v ? "bg-emerald-400/15 text-emerald-300" : "bg-white/[0.09] text-foreground"
+                : "text-muted-foreground hover:text-foreground")}>
+            {rot}
+          </button>
+        ))}
+      </span>
+
+      <p className="w-full text-[10.5px] text-muted-foreground/60 leading-snug">
+        {padraoAtivo
+          ? "Neste número, quem fica sem responder entra na régua sozinho. Dá pra tirar um contato pela ficha dele."
+          : "Neste número, ninguém entra na régua sozinho. Só cobra quem for ligado na ficha, um a um."}
+      </p>
+    </SpotlightCard>
   );
 }
 

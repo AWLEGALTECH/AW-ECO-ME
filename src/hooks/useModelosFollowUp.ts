@@ -21,6 +21,8 @@ import { subirAnexos } from "@/lib/anexosBucket";
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
 export interface ModeloFollowUp {
+  /** de qual número é esta mensagem padrão */
+  instancia?: string;
   rodada: number;
   tipo: TipoRetido;
   texto: string | null;
@@ -36,15 +38,19 @@ export interface ModeloFollowUp {
   updated_at: string;
 }
 
-export function useModelosFollowUp() {
+export function useModelosFollowUp(instancia: string | null) {
   return useQuery({
-    queryKey: ["wa", "followup", "modelos"],
+    queryKey: ["wa", "followup", "modelos", instancia],
+    enabled: !!instancia,
     // Não recarrega sozinho: isto muda quando alguém decide mudar, não com o
     // tempo. Um intervalo aqui seria consulta ao banco para não ver diferença.
     staleTime: 60_000,
     queryFn: async (): Promise<ModeloFollowUp[]> => {
       const { data, error } = await tabela("wa_followup_modelos")
         .select("rodada, tipo, texto, midia_path, midia_mime, midia_nome, duracao, midias, ativo, atualizado_por, updated_at")
+        // Cada número tem o seu tom: o que o Portal escreve na cobrança de 15
+        // dias não é o que o escritório escreve pro mesmo degrau.
+        .ilike("instancia", instancia!)
         .order("rodada");
       if (error) throw error;
       return (data || []) as ModeloFollowUp[];
@@ -71,6 +77,7 @@ export function useInvalidarModelos() {
  * escolheu, e sem lugar nenhum na tela pra descobrir isso antes do cliente.
  */
 export async function salvarModeloFollowUp(args: {
+  instancia: string;
   rodada: number;
   texto?: string | null;
   /** os que ainda estão no computador de quem escreve */
@@ -79,16 +86,18 @@ export async function salvarModeloFollowUp(args: {
   anexosMantidos?: Midia[];
   por?: string | null;
 }) {
+  if (!args.instancia) throw new Error("Escolha o número antes de escrever a mensagem.");
   const subidos = await subirAnexos(args.anexosNovos ?? [], `agendados/modelos/${args.rodada}`);
   const midias = [...(args.anexosMantidos ?? []), ...subidos];
 
   const { error } = await tabela("wa_followup_modelos").upsert({
+    instancia: args.instancia,
     rodada: args.rodada,
     texto: args.texto?.trim() || null,
     ...resumoDasMidias(midias),
     ativo: true,
     atualizado_por: args.por ?? null,
-  }, { onConflict: "rodada" });
+  }, { onConflict: "instancia,rodada" });
   if (error) throw new Error(error.message);
 }
 
@@ -98,8 +107,8 @@ export async function salvarModeloFollowUp(args: {
  * Apagar para "desligar" perderia o que já foi escrito — e a decisão de não usar
  * agora quase nunca é a decisão de jogar fora.
  */
-export async function alternarModeloAtivo(rodada: number, ativo: boolean) {
+export async function alternarModeloAtivo(instancia: string, rodada: number, ativo: boolean) {
   const { error } = await tabela("wa_followup_modelos")
-    .update({ ativo }).eq("rodada", rodada);
+    .update({ ativo }).ilike("instancia", instancia).eq("rodada", rodada);
   if (error) throw new Error(error.message);
 }

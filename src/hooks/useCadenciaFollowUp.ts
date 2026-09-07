@@ -12,11 +12,12 @@
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { reguaValida, TOTAL_RODADAS, type Regua } from "@/lib/followUp";
+import { CADENCIA, reguaValida, TOTAL_RODADAS, type Regua } from "@/lib/followUp";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
 export interface DegrauDaRegua {
+  instancia: string;
   rodada: number;
   dias: number;
   updated_at: string;
@@ -30,27 +31,73 @@ export interface DegrauDaRegua {
  * ter que decidir o que fazer com uma régua de três degraus, e a alternativa
  * (não mostrar nada) esconderia a fila do dia por causa de uma linha faltando.
  */
-export function useCadenciaFollowUp() {
+/**
+ * TODAS as réguas de uma vez, num mapa por número.
+ *
+ * Uma consulta só, e não uma por número, porque a tela precisa de várias ao
+ * mesmo tempo e não sabe de antemão quantas: a fila de follow-up mostra leads
+ * de todos os números escolhidos, e cada cartão tem que dizer o degrau DA
+ * RÉGUA DELE. Com um hook por número isso viraria hook dentro de laço, que o
+ * React não permite; com o mapa, é uma leitura e um `get`.
+ *
+ * A tabela inteira cabe numa consulta: são cinco linhas por número.
+ */
+export function useCadencias() {
   return useQuery({
-    queryKey: ["wa", "followup", "cadencia"],
+    queryKey: ["wa", "followup", "cadencias"],
     // Como as mensagens padrão: isto muda quando alguém decide mudar, não com
     // o tempo. Recarregar sozinho seria consulta ao banco pra não ver diferença.
     staleTime: 60_000,
-    queryFn: async (): Promise<Regua> => {
+    queryFn: async (): Promise<Map<string, Regua>> => {
       const { data, error } = await tabela("wa_followup_cadencia")
-        .select("rodada, dias").order("rodada");
+        .select("instancia, rodada, dias").order("instancia").order("rodada");
       if (error) throw error;
-      const linhas = (data || []) as DegrauDaRegua[];
-      const dias: number[] = [];
-      for (const l of linhas) if (l.rodada >= 1 && l.rodada <= TOTAL_RODADAS) dias[l.rodada - 1] = l.dias;
-      return reguaValida(dias);
+
+      const porNumero = new Map<string, number[]>();
+      for (const l of (data || []) as DegrauDaRegua[]) {
+        if (l.rodada < 1 || l.rodada > TOTAL_RODADAS) continue;
+        const chave = (l.instancia ?? "").trim().toLowerCase();
+        const dias = porNumero.get(chave) ?? [];
+        dias[l.rodada - 1] = l.dias;
+        porNumero.set(chave, dias);
+      }
+
+      const fora = new Map<string, Regua>();
+      for (const [chave, dias] of porNumero) fora.set(chave, reguaValida(dias));
+      return fora;
     },
   });
 }
 
+/**
+ * A régua de um número, a partir do mapa.
+ *
+ * Número sem linha própria devolve o padrão de fábrica — número recém-ligado
+ * já nasce cobrando, em vez de nascer sem régua nenhuma. A chave é minúscula
+ * porque o nome vem digitado à mão da Evolution e ninguém garante a caixa.
+ */
+export function reguaDoNumero(
+  mapa: Map<string, Regua> | undefined, instancia: string | null | undefined,
+): Regua {
+  if (!mapa || !instancia) return CADENCIA;
+  return mapa.get(instancia.trim().toLowerCase()) ?? CADENCIA;
+}
+
+/** A régua gravada de um número, já completada pelo padrão. */
+async function lerCadencia(instancia: string): Promise<number[]> {
+  const { data, error } = await tabela("wa_followup_cadencia")
+    .select("rodada, dias").ilike("instancia", instancia).order("rodada");
+  if (error) throw new Error(error.message);
+  const dias: number[] = [];
+  for (const l of (data || []) as DegrauDaRegua[]) {
+    if (l.rodada >= 1 && l.rodada <= TOTAL_RODADAS) dias[l.rodada - 1] = l.dias;
+  }
+  return [...reguaValida(dias)];
+}
+
 export function useInvalidarCadencia() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: ["wa", "followup", "cadencia"] });
+  return () => qc.invalidateQueries({ queryKey: ["wa", "followup", "cadencias"] });
 }
 
 /**
@@ -62,12 +109,29 @@ export function useInvalidarCadencia() {
  * aqui é traduzir a recusa para uma frase que se entenda sem saber o que é
  * `check_violation`.
  */
-export async function salvarDegrauDaRegua(rodada: number, dias: number, por?: string | null) {
+export async function salvarDegrauDaRegua(
+  instancia: string, rodada: number, dias: number, por?: string | null,
+) {
   if (!Number.isFinite(dias) || dias < 1 || dias > 365) {
     throw new Error("O degrau precisa estar entre 1 e 365 dias.");
   }
+  if (!instancia) throw new Error("Escolha o número antes de mexer na régua.");
+
+  /* A RÉGUA DE UM NÚMERO PRECISA EXISTIR INTEIRA PRA MUDAR UM DEGRAU. Números
+     sem linha própria funcionam com o padrão de fábrica, e mexer só no degrau 2
+     criaria uma régua de UM degrau — que o banco leria como a régua toda, e a
+     cobrança pararia na primeira rodada. Então o primeiro ajuste materializa os
+     cinco, e o resto continua igual ao que já valia. */
+  const atuais = await lerCadencia(instancia);
+  const linhas = atuais.map((d, i) => ({
+    instancia,
+    rodada: i + 1,
+    dias: i + 1 === rodada ? Math.round(dias) : d,
+    atualizado_por: por ?? null,
+  }));
+
   const { error } = await tabela("wa_followup_cadencia")
-    .upsert({ rodada, dias: Math.round(dias), atualizado_por: por ?? null }, { onConflict: "rodada" });
+    .upsert(linhas, { onConflict: "instancia,rodada" });
   if (error) {
     throw new Error(/precisa subir|check/i.test(error.message)
       ? "Cada rodada tem que esperar mais dias que a anterior."
