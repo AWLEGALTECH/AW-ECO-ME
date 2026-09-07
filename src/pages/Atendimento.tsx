@@ -2811,6 +2811,39 @@ export default function AtendimentoPage() {
                             {t.hora && <span className="text-primary font-semibold tabular-nums mr-1">{horaBonita(t.hora)}</span>}
                             {t.detalhe}
                           </span>
+
+                          {/* ── A MENSAGEM PADRÃO, ONDE ELA SERVE ──
+                              Escrever a régua e não ter como usá-la é guardar
+                              texto num lugar que ninguém abre na hora de
+                              cobrar. Este botão traz a mensagem da rodada pro
+                              campo de digitar, com o campo aberto e o texto
+                              editável: quem cobra continua lendo antes de
+                              mandar, que é o ponto de ela não sair sozinha. */}
+                          {(() => {
+                            if (t.tipo !== "follow_up" || t.feita) return null;
+                            const mod = modelosRegua.find(
+                              (x) => x.rodada === (t.rodada ?? 1) && x.ativo !== false);
+                            if (!mod || !mod.texto) return null;
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRascunho(mod.texto ?? "");
+                                  campoResposta.current?.focus();
+                                  const anexos = midiasDaLinha(mod).length;
+                                  if (anexos > 0) {
+                                    toast.info(anexos === 1
+                                      ? "Esta rodada tem 1 anexo padrão: anexe pelo clipe antes de mandar."
+                                      : `Esta rodada tem ${anexos} anexos padrão: anexe pelo clipe antes de mandar.`);
+                                  }
+                                }}
+                                className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-[2px]
+                                           text-[9.5px] bg-violet-400/12 text-violet-200 ring-1 ring-violet-400/25
+                                           hover:bg-violet-400/20 transition-colors">
+                                <MessageSquareText className="h-2.5 w-2.5" /> Usar a mensagem da rodada
+                              </button>
+                            );
+                          })()}
                         </span>
                         <button onClick={(e) => { e.stopPropagation(); concluir(t.id); }}
                           title={t.feita ? "Reabrir" : "Concluir"}
@@ -5848,25 +5881,26 @@ function ModelosDaRegua({ modelos, regua, onEditar, onAlternar, onMudarDia }: {
 
             return (
               <div key={r} className="relative w-[16.5rem] shrink-0 flex flex-col">
-                {/* O TRILHO. Atravessa o cartão na altura do marcador e segue
-                    pelo vão até o próximo, o que faz as cinco lerem como uma
-                    linha do tempo e não como cinco caixas. */}
-                <span aria-hidden
-                  className={cn("absolute top-[0.68rem] left-[0.68rem] h-px bg-white/[0.12]",
-                    i === TOTAL_RODADAS - 1 ? "right-1/2" : "-right-3")} />
+                <span className="block text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1">
+                  {rotuloDaRodada(r)}
+                </span>
 
-                <div className="relative flex items-center gap-2 mb-2">
+                {/* O TRILHO. Corre na altura do marcador e segue pelo vão até o
+                    próximo, o que faz as cinco lerem como uma linha do tempo e
+                    não como cinco caixas soltas. A faixa é só do marcador, sem
+                    texto por cima, pra linha não cortar palavra nenhuma. */}
+                <div className="relative h-[1.35rem] mb-1.5">
+                  <span aria-hidden
+                    className={cn("absolute top-1/2 left-[0.68rem] h-px bg-white/[0.12]",
+                      i === TOTAL_RODADAS - 1 ? "right-1/2" : "-right-3")} />
                   <span className={cn(
-                    "h-[1.35rem] w-[1.35rem] rounded-full grid place-items-center shrink-0 text-[10px] font-semibold tabular-nums",
+                    "relative h-[1.35rem] w-[1.35rem] rounded-full grid place-items-center text-[10px] font-semibold tabular-nums",
                     desligada
                       ? "bg-[#14161a] ring-1 ring-white/[0.12] text-muted-foreground/50"
                       : vazio
                         ? "bg-[#14161a] ring-1 ring-dashed ring-white/[0.20] text-muted-foreground"
                         : "bg-violet-400/20 ring-1 ring-violet-400/40 text-violet-200")}>
                     {r}
-                  </span>
-                  <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 bg-[#101215] px-1">
-                    {rotuloDaRodada(r)}
                   </span>
                 </div>
 
