@@ -4131,7 +4131,10 @@ export default function AtendimentoPage() {
             {passoConexao === "pronto" && (
               <Button size="sm" onClick={() => {
                 setConexaoAberta(false);
-                if (instConectando) setInstanciaId(instConectando);
+                /* `trocarInstancia` e não `setInstanciaId`: quem acabou de
+                   conectar um número quer trabalhar nele, e abrir amanhã no
+                   antigo desfaz calado o que a pessoa acabou de fazer. */
+                if (instConectando) trocarInstancia(instConectando);
               }}>
                 Abrir esse número <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
               </Button>
