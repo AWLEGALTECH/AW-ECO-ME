@@ -399,17 +399,8 @@ export const LEMBRETES: Task[] = [
 /** Dias seguidos sem deixar ninguém sem resposta. Exemplo. */
 export const SEQUENCIA_DIAS = 5;
 
-/** Placar do mês, pra aba de gestão. Exemplo. */
-export const PLACAR_MES = [
-  { pessoa: "Adria",   pontos: 1840, leads: 96, fechados: 33 },
-  { pessoa: "Kelvia",  pontos: 420,  leads: 22, fechados: 6 },
-];
-
-/** Como o funil do mês ficaria, se fosse medido. Exemplo. */
-export const FUNIL_MES: { estagio: Estagio | "perdido"; rotulo: string; n: number }[] = [
-  { estagio: "chegou",   rotulo: "Chegaram",         n: 214 },
-  { estagio: "triagem",  rotulo: "Foram triados",    n: 168 },
-  { estagio: "extrato",  rotulo: "Mandaram extrato", n: 74 },
-  { estagio: "proposta", rotulo: "Receberam proposta", n: 58 },
-  { estagio: "fechado",  rotulo: "Fecharam",         n: 42 },
-];
+/* O PLACAR E O FUNIL DO MÊS saíram junto com a aba que os desenhava. Eram
+   números inventados — 214 chegaram, 42 fecharam — e uma aba inteira montada em
+   cima deles. Números de exemplo numa tela de trabalho envelhecem mal: com o
+   tempo, alguém para de lembrar que são exemplo e começa a citá-los.
+   Quando o funil for medido de verdade, ele nasce dos dados. */

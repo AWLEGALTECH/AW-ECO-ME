@@ -38,7 +38,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { ProvedorDeAudio } from "@/hooks/useAudioAtendimento";
 import {
   MessageCircle, Search, Send, AlertTriangle, Check,
-  Flame, Trophy, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
+  Flame, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   RefreshCw, StickyNote,
   CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
@@ -48,7 +48,7 @@ import {
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  LEADS, LEMBRETES, ESTAGIOS, ORIGENS, PLACAR_MES, FUNIL_MES,
+  LEADS, LEMBRETES, ESTAGIOS, ORIGENS,
   INSTANCIAS, type Lead, type Origem, type Estagio, type Mensagem, type Instancia,
 } from "@/lib/atendimentoMock";
 import {
@@ -201,7 +201,7 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "funil" | "config">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "config">("atendimento");
   /* QUAL NÚMERO ABRE. Guardado no navegador e não na conta: quem senta nesta
      mesa atende por um número, quem senta na outra atende por outro, e a mesma
      conta é usada pelos dois. Sem isto a aba abria sempre no primeiro da lista,
@@ -1289,7 +1289,6 @@ export default function AtendimentoPage() {
     if (tasksDoLead.some((t) => t.id === followUpDoLead.id)) return tasksDoLead;
     return [followUpDoLead, ...tasksDoLead];
   }, [tasksDoLead, followUpDoLead]);
-  const abertasHoje = tasksDoDia.filter((t) => !t.feita).length;
 
   /* Dias com task, pro calendário marcar. Uma linha por task, contra a lista
      inteira — não há mais recálculo por dia porque não há mais conta. */
@@ -2324,7 +2323,7 @@ export default function AtendimentoPage() {
              em vez de encolher até não se ler. */
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5
                           shrink-0 max-w-full overflow-x-auto scrollbar-thin">
-            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["funil", "Funil", Trophy], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
+            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => { setAba(k); if (ehMobile) setTelaMobile("caixa"); }}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -2379,10 +2378,6 @@ export default function AtendimentoPage() {
           onCancelar={cancelarProgramada}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
         />
-      ) : aba === "funil" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-          <PainelFunil emRisco={abertasHoje} />
-        </div>
       ) : aba === "config" ? (
         <PainelAjustes
           instancias={instancias}
@@ -7397,95 +7392,6 @@ function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa }: {
           </>
         )}
       </SpotlightCard>
-    </div>
-  );
-}
-
-/* ─────────────────────────── a aba do gestor ─────────────────────────── */
-function PainelFunil({ emRisco }: { emRisco: number }) {
-  const topo = FUNIL_MES[0].n;
-  return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">Funil do mês</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-0.5">
-            De cada 100 que chegam, quantos sobrevivem a cada passo. Hoje as três primeiras
-            linhas não existem em lugar nenhum — é isso que o módulo passa a medir.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 mt-1">
-          {FUNIL_MES.map((f, i) => {
-            const anterior = i === 0 ? null : FUNIL_MES[i - 1].n;
-            const passagem = anterior ? Math.round((f.n / anterior) * 100) : 100;
-            return (
-              <div key={f.estagio} className="flex items-center gap-3">
-                <span className="w-[9.5rem] shrink-0 text-[12px] text-muted-foreground">{f.rotulo}</span>
-                <span className="flex-1 h-6 rounded bg-white/[0.04] overflow-hidden">
-                  <span className="block h-full bg-emerald-400/25 border-r-2 border-emerald-400"
-                    style={{ width: `${Math.round((f.n / topo) * 100)}%` }} />
-                </span>
-                <span className="w-10 text-right text-[13px] font-semibold tabular-nums">{f.n}</span>
-                <span className={cn("w-12 text-right text-[11px] tabular-nums",
-                  passagem < 50 ? "text-amber-300" : "text-muted-foreground")}>
-                  {i === 0 ? "" : `${passagem}%`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-[11.5px] text-muted-foreground border-t border-white/[0.06] pt-2.5">
-          A maior queda é de <span className="text-amber-300">triados para extrato recebido (44%)</span> —
-          o gargalo que a gente já suspeitava, agora com número.
-        </p>
-      </SpotlightCard>
-
-      <div className="flex flex-col gap-3">
-        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-1">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Em risco agora</p>
-          <p className={cn("text-3xl font-semibold tabular-nums", emRisco > 0 ? "text-amber-300" : "text-emerald-400")}>
-            {emRisco}
-          </p>
-          <p className="text-[11.5px] text-muted-foreground">
-            pessoas esperando resposta ou sem próximo passo definido
-          </p>
-        </SpotlightCard>
-
-        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-2.5">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Placar do mês</p>
-          {PLACAR_MES.map((p, i) => (
-            <div key={p.pessoa} className="flex items-center gap-2.5">
-              <span className={cn("h-6 w-6 rounded-full grid place-items-center text-[11px] font-semibold",
-                i === 0 ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30" : "bg-white/[0.05] text-muted-foreground")}>
-                {i + 1}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-medium">{p.pessoa}</span>
-                <span className="block text-[10.5px] text-muted-foreground">
-                  {p.leads} leads · {p.fechados} fechados
-                </span>
-              </span>
-              <span className="text-[13px] font-semibold tabular-nums">{p.pontos}</span>
-            </div>
-          ))}
-        </SpotlightCard>
-
-        <SpotlightCard sutil className="rounded-xl p-4">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-2">Por origem</p>
-          {(Object.keys(ORIGENS) as Origem[]).map((o) => {
-            const n = LEADS.filter((l) => l.origem === o).length;
-            return (
-              <div key={o} className="flex items-center justify-between py-1 text-[12px]">
-                <span className="text-muted-foreground">{ORIGENS[o].rotulo}</span>
-                <span className="tabular-nums">{n}</span>
-              </div>
-            );
-          })}
-          <p className="text-[10.5px] text-muted-foreground/70 mt-2 flex items-center gap-1">
-            <ChevronRight className="h-3 w-3" /> amarrar com o custo por lead do Meta Ads
-          </p>
-        </SpotlightCard>
-      </div>
     </div>
   );
 }
