@@ -27,7 +27,7 @@
 // A fila em si (ordem de culpa, pontos, cadência) mora em
 // src/lib/tasksAtendimento.ts, testada.
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
@@ -3318,7 +3318,7 @@ export default function AtendimentoPage() {
                   A faixa põe o que ficou combinado com ESTA pessoa no caminho
                   do olho, logo abaixo do nome dela, e some quando não há nada. */}
               {(tasksDoCabecalho.length > 0 || anotacoes.length > 0) && (
-                <div className="px-3 py-2 border-b border-white/[0.06] shrink-0 flex gap-2 overflow-x-auto scrollbar-thin">
+                <FaixaQueRola className="px-3 py-2 border-b border-white/[0.06] shrink-0">
                   {tasksDoCabecalho.map((t) => {
                     const Ico = t.tipo === "follow_up" ? Repeat : BellRing;
                     return (
@@ -3424,7 +3424,7 @@ export default function AtendimentoPage() {
                       </span>
                     </div>
                   ))}
-                </div>
+                </FaixaQueRola>
               )}
 
               {/* A CHAVE É A CONVERSA, e isso não é detalhe: ela faz a coluna
@@ -7195,6 +7195,113 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
         </span>
       )}
     </button>
+  );
+}
+
+/* ── UMA FAIXA QUE ROLA DE LADO, E QUE AVISA QUE ROLA ────────────────────
+ *
+ * A faixa de lembretes e notas já rolava: `overflow-x-auto` está lá desde
+ * sempre. O que faltava era o SINAL de que rola — este projeto esconde toda
+ * barra de rolagem, então o quarto cartão aparecia cortado na borda e parecia
+ * um cartão quebrado, não um cartão que continua.
+ *
+ * A RESPOSTA É O DEGRADÊ NAS PONTAS, e só do lado que tem mais. Uma sombra
+ * permanente nas duas bordas seria enfeite: ela precisa dizer "tem coisa ali",
+ * e dizer isso quando não tem é ruído que se aprende a ignorar — e aí, no dia
+ * em que tem, ninguém vê.
+ *
+ * As setinhas aparecem junto, e no HOVER: quem tem trackpad arrasta de lado sem
+ * pensar, quem tem mouse de roda não tem gesto nenhum pra isso. O botão é pra
+ * segunda pessoa, e some pra primeira.
+ */
+function FaixaQueRola({ className, children }: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const caixa = useRef<HTMLDivElement>(null);
+  const [temAntes, setTemAntes] = useState(false);
+  const [temDepois, setTemDepois] = useState(false);
+
+  const medir = useCallback(() => {
+    const el = caixa.current;
+    if (!el) return;
+    /* A margem de 2px evita o piscar no fim do arrasto: com o cálculo exato, um
+       resto de sub-pixel deixa a seta acendendo e apagando enquanto o dedo
+       encosta no limite. */
+    setTemAntes(el.scrollLeft > 2);
+    setTemDepois(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  /* Mede quando o conteúdo muda de tamanho, e não só na rolagem: marcar um
+     lembrete a mais é exatamente o momento em que a faixa passa a caber menos,
+     e ninguém rolou nada pra isso acontecer. */
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    medir();
+    const obs = new ResizeObserver(medir);
+    obs.observe(el);
+    for (const filho of Array.from(el.children)) obs.observe(filho);
+    return () => obs.disconnect();
+  }, [medir, children]);
+
+  /* Só desbota o lado que TEM mais. Desbotar sempre seria enfeite — a ponta
+     precisa dizer "tem coisa ali", e dizer isso quando não tem é ruído que se
+     aprende a ignorar; no dia em que tem, ninguém vê. */
+  const mascara = useMemo(() => {
+    if (!temAntes && !temDepois) return undefined;
+    const ini = temAntes ? "transparent 0, black 2.5rem" : "black 0";
+    const fim = temDepois ? "black calc(100% - 2.5rem), transparent 100%" : "black 100%";
+    return `linear-gradient(to right, ${ini}, ${fim})`;
+  }, [temAntes, temDepois]);
+
+  const andar = (dir: 1 | -1) => {
+    const el = caixa.current;
+    if (!el) return;
+    // Uma "página" menos um pedaço: o cartão da borda continua visível depois
+    // do salto, e é ele que diz que o movimento foi contínuo.
+    el.scrollBy({ left: dir * (el.clientWidth * 0.8), behavior: "smooth" });
+  };
+
+  return (
+    <div className={cn("relative group/faixa", className)}>
+      {/* A PONTA SOME PELO CONTEÚDO, e não por uma sombra por cima.
+          O caminho óbvio seria um degradê da cor do painel sobre a borda — e
+          essa cor não existe: o painel é `bg-black/25` sobre o fundo da página,
+          então qualquer cor fixa que eu escrevesse aqui apareceria como uma
+          faixa levemente diferente. A máscara desbota o PRÓPRIO conteúdo até o
+          transparente, e por isso funciona sobre qualquer fundo, em qualquer
+          tema, sem eu precisar acertar cor nenhuma. */}
+      <div ref={caixa} onScroll={medir}
+        /* `overscroll-x-contain`: no celular, arrastar além da última carta não
+           pode virar o gesto de voltar do navegador. */
+        className="flex gap-2 overflow-x-auto overscroll-x-contain scrollbar-thin"
+        style={{
+          maskImage: mascara,
+          WebkitMaskImage: mascara,
+        }}>
+        {children}
+      </div>
+
+      {temAntes && (
+        <button onClick={() => andar(-1)} aria-label="Ver os anteriores"
+          className="absolute left-0.5 top-1/2 -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full
+                     bg-white/[0.10] ring-1 ring-white/[0.14] text-foreground/80 backdrop-blur-sm
+                     opacity-0 group-hover/faixa:opacity-100 focus-visible:opacity-100
+                     hover:bg-white/[0.16] transition-all">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+      {temDepois && (
+        <button onClick={() => andar(1)} aria-label="Ver os próximos"
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full
+                     bg-white/[0.10] ring-1 ring-white/[0.14] text-foreground/80 backdrop-blur-sm
+                     opacity-0 group-hover/faixa:opacity-100 focus-visible:opacity-100
+                     hover:bg-white/[0.16] transition-all">
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+    </div>
   );
 }
 
