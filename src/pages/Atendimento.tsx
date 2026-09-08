@@ -2264,6 +2264,46 @@ export default function AtendimentoPage() {
     void dispararTexto(nova);
   };
 
+  /* "FALHOU" TEM DUAS ORIGENS, e o botão precisa servir às duas.
+   *
+   * A primeira nunca chegou ao banco: o envio quebrou aqui, a bolha vive na
+   * lista de pendentes e o texto está na memória da tela. É a original, e
+   * `reenviar` continua sendo o caminho dela.
+   *
+   * A segunda apareceu em 08/09: a Evolution ACEITOU a mensagem, gravou linha
+   * com id do WhatsApp, e só depois mandou `ERROR`. A linha existe no banco,
+   * com status "falhou", e não há pendente nenhum pra achar — o `find` voltava
+   * `undefined` e o clique não fazia nada. Um botão que não faz nada é pior
+   * que nenhum botão: quem clica sai acreditando que reenviou.
+   *
+   * MÍDIA FICA DE FORA DE PROPÓSITO. O arquivo não está mais na mão da tela, e
+   * refazer o caminho pediria baixar do bucket pra subir de novo. O botão some,
+   * em vez de existir e falhar calado — que é o defeito que esta tela toda
+   * acabou de levar duas horas pra descobrir.
+   */
+  type MsgQueFalhou = { id?: string | null; midiaPath?: string | null; texto?: string | null };
+
+  const pendenteDaMensagem = (msg: MsgQueFalhou) =>
+    pendentesDaAberta.find((x) => x.id === msg.id);
+
+  const podeReenviar = (msg: MsgQueFalhou) =>
+    !!pendenteDaMensagem(msg) || (!msg.midiaPath && !!msg.texto?.trim());
+
+  const tentarDeNovo = (msg: MsgQueFalhou) => {
+    const p = pendenteDaMensagem(msg);
+    if (p) { reenviar(p); return; }
+
+    const texto = msg.texto?.trim();
+    if (!texto || msg.midiaPath) return;
+    /* Mensagem NOVA, e não a mesma ressuscitada. A linha antiga fica no
+       histórico marcada como não entregue — apagá-la esconderia que a primeira
+       tentativa existiu, e é ela que explica por que o cliente ficou sem
+       resposta por duas horas. */
+    const nova = novaPendente(lead.id, texto);
+    setPendentes((ps) => [...ps, nova]);
+    void dispararTexto(nova);
+  };
+
   const enviar = async () => {
     if (anexos.length > 0) { await mandarAnexos(); return; }
     const texto = rascunho.trim();
@@ -3511,19 +3551,25 @@ export default function AtendimentoPage() {
                           cabeça o que tinha escrito pra digitar de novo. */}
                       {msg.status === "falhou" && (
                         <span className="flex items-center justify-end gap-2 mt-1">
-                          <button
-                            onClick={() => {
-                              const p = pendentesDaAberta.find((x) => x.id === msg.id);
-                              if (p) reenviar(p);
-                            }}
-                            className="inline-flex items-center gap-1 text-[10px] text-foreground/80 hover:text-foreground underline underline-offset-2">
-                            <RotateCcw className="h-3 w-3" /> tentar de novo
-                          </button>
-                          <button
-                            onClick={() => setPendentes((ps) => remover(ps, String(msg.id)))}
-                            className="text-[10px] text-muted-foreground/70 hover:text-foreground">
-                            descartar
-                          </button>
+                          {podeReenviar(msg) && (
+                            <button
+                              onClick={() => tentarDeNovo(msg)}
+                              className="inline-flex items-center gap-1 text-[10px] text-foreground/80 hover:text-foreground underline underline-offset-2">
+                              <RotateCcw className="h-3 w-3" /> tentar de novo
+                            </button>
+                          )}
+                          {/* Descartar só existe pra bolha que nunca virou
+                              linha: ela mora na memória da tela e sai de lá. A
+                              que já está no banco não se descarta por um botão
+                              de canto de bolha — some da tela e continua no
+                              histórico, que é a pior combinação possível. */}
+                          {pendenteDaMensagem(msg) && (
+                            <button
+                              onClick={() => setPendentes((ps) => remover(ps, String(msg.id)))}
+                              className="text-[10px] text-muted-foreground/70 hover:text-foreground">
+                              descartar
+                            </button>
+                          )}
                         </span>
                       )}
                     </div>

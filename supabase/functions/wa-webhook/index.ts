@@ -201,8 +201,18 @@ Deno.serve(async (req: Request) => {
   // separado do que traz mensagem nova.
   if (evento === "messages.update" || evento === "messages.edit") {
     const lista = Array.isArray(corpo?.data) ? corpo.data : [corpo?.data];
+    // ERROR PRECISA ESTAR AQUI. Ele não estava, e o `continue` lá embaixo
+    // descartava o evento calado: a mensagem ficava em "enviada" para sempre —
+    // na tela, um risquinho igualzinho ao de uma que saiu.
+    //
+    // Aconteceu de verdade em 08/09: a instância PORTAL DIREITO ABERTO
+    // reconectou, perdeu a tabela de contatos e passou a endereçar pelo
+    // telefone cru sem o nono dígito. A Evolution avisou ONZE vezes que as
+    // mensagens não saíram, para seis clientes, e nós ignoramos as onze.
+    // Uma integração que só sabe ouvir boa notícia não está ouvindo.
     const mapa: Record<string, string> = {
       SERVER_ACK: "enviada", DELIVERY_ACK: "entregue", READ: "lida", PLAYED: "tocada",
+      ERROR: "falhou",
     };
     let mexidas = 0;
     for (const u of lista) {
@@ -213,6 +223,8 @@ Deno.serve(async (req: Request) => {
       // A função no banco só deixa o status ANDAR PRA FRENTE: a Evolution
       // reentrega fora de ordem, e um "entregue" atrasado chegando depois do
       // "lida" faria a mensagem deslerse na cara de quem está olhando.
+      // `falhou` é a exceção tratada lá dentro: grava sobre "enviada" e cede a
+      // uma entrega confirmada, pra um ERROR atrasado não desfazer uma entrega.
       const { error } = await sb.rpc("fn_wa_status_mensagem", {
         p_id_whatsapp: idWa, p_status: status,
       });
