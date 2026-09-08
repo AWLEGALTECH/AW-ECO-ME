@@ -44,7 +44,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info, Smile,
+  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -85,6 +85,7 @@ import {
   type PassagemNaTela, type PassagemDeEtapa,
 } from "@/lib/jornada";
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
+import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
 } from "@/hooks/useRegraFollowUp";
@@ -558,6 +559,13 @@ export default function AtendimentoPage() {
   );
   /* AS ETIQUETAS ESCOLHIDAS A MÃO. Onde não houver escolha, o apelido continua
      sendo derivado do nome — a tabela pode ficar vazia pra sempre. */
+  /* QUAIS SEÇÕES DA FICHA FICAM ABERTAS. A escolha vale pra TODAS as conversas,
+     e não por conversa: quem fecha "Programadas" fechou porque não usa
+     Programadas, não porque não usa as daquele cliente. E a ficha mudando de
+     forma a cada conversa aberta faria o olho perder a referência de onde as
+     coisas estão, que é justamente o que uma ficha precisa ter. */
+  const { aberta: secaoAberta, alternar: alternarSecao } = useSecoesDaFicha();
+
   const { data: marcas } = useMarcasDeInstancia();
   const invalidarMarcas = useInvalidarMarcas();
   const apelidos = useMemo(() => apelidosDeInstancias(
@@ -3699,11 +3707,13 @@ export default function AtendimentoPage() {
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-                {/* dossiê */}
-                {/* Sem o rótulo "Dossiê": o cartão já se chama "Detalhe do
-                    cliente" duas linhas acima, e um título dentro do outro só
-                    empurra o conteúdo pra baixo. */}
-                <div className="px-3 py-2.5 border-b border-white/[0.06] flex flex-col gap-2">
+                {/* ═══ DOSSIÊ ═══
+                    Ganhou título quando as seções viraram retráteis: sem ele,
+                    era o único bloco sem alça — e um bloco sem alça no meio de
+                    seis que fecham parece defeito, não escolha. */}
+                <SecaoFicha id="dossie" titulo="Dossiê" aberta={secaoAberta("dossie")} onAlternar={alternarSecao}
+                  icone={<ClipboardList className="h-3 w-3 shrink-0" />}>
+                <div className="flex flex-col gap-2">
                   {/* A ORIGEM NÃO SE ESCOLHE. Ela responde "quem falou
                       primeiro", e disso o sistema sabe mais que qualquer um:
                       se a primeira mensagem foi dele, ele veio até nós; se
@@ -3750,6 +3760,7 @@ export default function AtendimentoPage() {
                       ? "chegou hoje"
                       : `${diasEntre(lead.chegouEm, HOJE)} ${diasEntre(lead.chegouEm, HOJE) === 1 ? "dia" : "dias"}`} />
                 </div>
+                </SecaoFicha>
 
                 {/* ═══ O FOLLOW-UP DESTE CLIENTE ═══
                     Bloco próprio, e não uma etiqueta perdida na origem. Aqui o
@@ -3772,8 +3783,8 @@ export default function AtendimentoPage() {
                 )}
 
                 {/* jornada */}
-                <div className="px-3 py-3 border-b border-white/[0.06]">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-2.5">Jornada</p>
+                <SecaoFicha id="jornada" titulo="Jornada" aberta={secaoAberta("jornada")} onAlternar={alternarSecao}
+                  icone={<ArrowRight className="h-3 w-3 shrink-0" />}>
                   <JornadaLead
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
@@ -3785,7 +3796,7 @@ export default function AtendimentoPage() {
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
                   />
-                </div>
+                </SecaoFicha>
 
                 {/* ── O FOLLOW-UP DESTE CLIENTE ────────────────────────────
                     A central responde "quem eu cobro hoje". Esta janela
@@ -3805,10 +3816,14 @@ export default function AtendimentoPage() {
                     é a MESMA informação — duplicar o desenho faria as duas
                     divergirem na primeira mudança. */}
                 {!(followUpDoLead && followUpDoLead.data <= HOJE) && (
-                  <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
-                    onAbrir={() => campoResposta.current?.focus()}
-                    onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
+                  <SecaoFicha id="followup" titulo="Follow-up" aberta={secaoAberta("followup")}
+                    onAlternar={alternarSecao} icone={<Repeat className="h-3 w-3 shrink-0" />}>
+                    <PainelFollowUpDoLead
+                      task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
+                      semMoldura
+                      onAbrir={() => campoResposta.current?.focus()}
+                      onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
+                  </SecaoFicha>
                 )}
 
                 {/* ═══ MARCAR UM LEMBRETE ═══
@@ -3826,13 +3841,10 @@ export default function AtendimentoPage() {
                     diálogo só, com os dois, fazia parecer que um dependia do
                     outro — e fazia quem só queria anotar um recado configurar
                     envio automático sem querer. */}
-                <div className="px-3 py-2.5 flex flex-col gap-2">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                    <BellRing className="h-3 w-3" /> Lembretes
-                    {lembretesDoLead.length > 0 && (
-                      <span className="ml-auto tabular-nums opacity-70">{lembretesDoLead.length}</span>
-                    )}
-                  </p>
+                <SecaoFicha id="lembretes" titulo="Lembretes" aberta={secaoAberta("lembretes")}
+                  onAlternar={alternarSecao} contador={lembretesDoLead.length}
+                  icone={<BellRing className="h-3 w-3 shrink-0" />}>
+                <div className="flex flex-col gap-2">
 
                   {/* UM BOTÃO, E NÃO UM FORMULÁRIO ABERTO.
                       Quatro campos esperando texto no meio da ficha pedem para
@@ -3869,6 +3881,7 @@ export default function AtendimentoPage() {
                     </div>
                   ))}
                 </div>
+                </SecaoFicha>
 
                 {/* ═══ NOTAS ═══
                     O mural voltou, e agora com o lugar certo: DEPOIS dos
@@ -3883,13 +3896,10 @@ export default function AtendimentoPage() {
                     NADA AQUI DISPARA: não agenda, não cobra, não sai pro
                     cliente. É rascunho sobre a pessoa, e a caixa inteira é
                     desenhada pra deixar escrever de qualquer jeito. */}
-                <div className="px-3 py-2.5 border-t border-white/[0.06] flex flex-col gap-2">
-                  <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                    <StickyNote className="h-3 w-3" /> Notas
-                    {anotacoes.length > 0 && (
-                      <span className="ml-auto tabular-nums opacity-70">{anotacoes.length}</span>
-                    )}
-                  </p>
+                <SecaoFicha id="notas" titulo="Notas" aberta={secaoAberta("notas")}
+                  onAlternar={alternarSecao} contador={anotacoes.length}
+                  icone={<StickyNote className="h-3 w-3 shrink-0" />}>
+                <div className="flex flex-col gap-2">
 
                   <button
                     onClick={() => { setRascunhoNota(""); setNotaAberta(true); }}
@@ -3919,6 +3929,7 @@ export default function AtendimentoPage() {
                     </div>
                   ))}
                 </div>
+                </SecaoFicha>
 
                 {/* ═══ AS MENSAGENS PROGRAMADAS DESTA PESSOA ═══
                     A conversa mostra as que estão no fim do histórico; a aba
@@ -3927,17 +3938,17 @@ export default function AtendimentoPage() {
                     caminho pra ela? Sem isso, o risco é escrever à mão o que já
                     vai sair sozinho daqui a uma hora. */}
                 {agendadasDaAberta.length > 0 && (
-                  <div className="px-3 py-3 border-b border-white/[0.06] flex flex-col gap-2">
-                    <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                      <Clock className="h-3 w-3" /> Programadas
-                      <span className="ml-auto tabular-nums opacity-70">{agendadasDaAberta.length}</span>
-                    </p>
-                    {agendadasDaAberta.map((a) => (
-                      <CardProgramada key={a.id} a={a} nome={lead.nome}
-                        onAbrir={() => campoResposta.current?.focus()}
-                        onCancelar={() => cancelarProgramada(a.id)} />
-                    ))}
-                  </div>
+                  <SecaoFicha id="programadas" titulo="Programadas" aberta={secaoAberta("programadas")}
+                    onAlternar={alternarSecao} contador={agendadasDaAberta.length}
+                    icone={<Clock className="h-3 w-3 shrink-0" />}>
+                    <div className="flex flex-col gap-2">
+                      {agendadasDaAberta.map((a) => (
+                        <CardProgramada key={a.id} a={a} nome={lead.nome}
+                          onAbrir={() => campoResposta.current?.focus()}
+                          onCancelar={() => cancelarProgramada(a.id)} />
+                      ))}
+                    </div>
+                  </SecaoFicha>
                 )}
 
                 {/* ═══ A TRAVA, no fim de tudo ═══
@@ -5786,12 +5797,17 @@ function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: st
  * vira a próxima coisa a fazer. Quem abre a conversa precisa disso antes de
  * escrever "oi, tudo bem?" para alguém que está esperando o terceiro toque.
  */
-function PainelFollowUpDoLead({ task, feitos, lead, hoje, regua, onAbrir, onConcluir }: {
+function PainelFollowUpDoLead({ task, feitos, lead, hoje, regua, semMoldura, onAbrir, onConcluir }: {
   task: Task | null;
   feitos: Task[];
   lead: Lead;
   hoje: string;
   regua: Regua;
+  /* NA POSIÇÃO DE REPOUSO ele mora dentro de uma seção retrátil, que já traz
+     título e respiro — repetir os dois aqui daria dois títulos "Follow-up", um
+     dentro do outro. Na posição de HOJE ele continua solto e destacado, porque
+     ali ele não é seção: é a próxima coisa a fazer. */
+  semMoldura?: boolean;
   onAbrir: () => void;
   onConcluir: () => void;
 }) {
@@ -5800,8 +5816,10 @@ function PainelFollowUpDoLead({ task, feitos, lead, hoje, regua, onAbrir, onConc
   const agora = !!task && task.data <= hoje;
 
   return (
-    <div className={cn("px-3 py-3 border-b flex flex-col gap-2",
-      agora ? "border-violet-400/20 bg-violet-400/[0.05]" : "border-white/[0.06]")}>
+    <div className={cn("flex flex-col gap-2",
+      semMoldura ? "" : "px-3 py-3 border-b",
+      !semMoldura && (agora ? "border-violet-400/20 bg-violet-400/[0.05]" : "border-white/[0.06]"))}>
+      {!semMoldura && (
       <p className={cn("text-[9px] uppercase tracking-[0.12em] flex items-center gap-1",
         agora ? "text-violet-300" : "text-muted-foreground/70")}>
         <Repeat className="h-3 w-3" /> Follow-up
@@ -5811,6 +5829,7 @@ function PainelFollowUpDoLead({ task, feitos, lead, hoje, regua, onAbrir, onConc
           </span>
         )}
       </p>
+      )}
 
       {task ? (
         /* Sem repetir os três números: eles já estão no dossiê, algumas linhas
@@ -7064,6 +7083,56 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
         </span>
       )}
     </button>
+  );
+}
+
+/* ── UMA SEÇÃO DA FICHA ──────────────────────────────────────────────────
+ *
+ * A ficha juntou muita coisa, e cada pedaço se justifica: origem, follow-up,
+ * dossiê, jornada, lembretes, programadas, notas. Juntos viram uma coluna que
+ * se rola inteira pra achar a etapa — e o remédio não é tirar informação, é
+ * deixar cada um fechar o que não usa.
+ *
+ * O TÍTULO CRESCEU. Eram nove pixels em maiúsculas espaçadas, que é tamanho de
+ * legenda e não de divisor: os blocos corriam um no outro e a coluna lia como
+ * um texto só. Agora ele é a alça da seção, e alça precisa ser vista antes do
+ * conteúdo.
+ *
+ * O CONTADOR FICA VISÍVEL COM A SEÇÃO FECHADA, e é o que torna fechar uma
+ * escolha barata: quem fechou "Lembretes" continua sabendo que existem dois lá
+ * dentro, e reabre quando isso importar. Sem ele, fechar viraria esquecer.
+ */
+function SecaoFicha({
+  id, titulo, icone, contador, aberta, onAlternar, children, semDivisor,
+}: {
+  id: SecaoDaFicha;
+  titulo: string;
+  icone?: React.ReactNode;
+  /** aparece do lado do título, e sobrevive à seção fechada */
+  contador?: number;
+  aberta: boolean;
+  onAlternar: (id: SecaoDaFicha) => void;
+  children: React.ReactNode;
+  semDivisor?: boolean;
+}) {
+  return (
+    <div className={cn(!semDivisor && "border-b border-white/[0.06]")}>
+      <button
+        onClick={() => onAlternar(id)}
+        className="w-full px-3 py-2.5 flex items-center gap-1.5 text-left
+                   text-muted-foreground hover:text-foreground transition-colors group/sec">
+        {icone}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">{titulo}</span>
+        {contador !== undefined && contador > 0 && (
+          <span className="rounded-full bg-white/[0.07] px-1.5 text-[9.5px] tabular-nums">
+            {contador}
+          </span>
+        )}
+        <ChevronDown className={cn("ml-auto h-3.5 w-3.5 shrink-0 opacity-50 transition-transform",
+          !aberta && "-rotate-90")} />
+      </button>
+      {aberta && <div className="px-3 pb-3">{children}</div>}
+    </div>
   );
 }
 
