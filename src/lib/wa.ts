@@ -55,6 +55,12 @@ export interface ConversaRow {
   /* Null = este contato segue a regra do número. True/false = decisão explícita
      dele, e vence a regra. */
   followup_ativo: boolean | null;
+  /* Conversas da mesma pessoa em números diferentes, ligadas por um repasse.
+     Null = esta conversa nunca foi repassada. */
+  grupo_id: string | null;
+  /* Quem tem a custódia responde. False = a conversa foi repassada adiante e
+     este número ficou só com a leitura. */
+  pode_escrever: boolean;
   created_at: string;
 }
 

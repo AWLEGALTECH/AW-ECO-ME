@@ -107,7 +107,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, created_at";
+  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, pode_escrever, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -183,19 +183,80 @@ export async function moverConversaDeInstancia(conversaId: string, para: string)
   }
 }
 
-export function useMensagens(conversaId: string | null) {
+/**
+ * O histórico de uma conversa — e do GRUPO dela, quando ela já foi repassada.
+ *
+ * Uma conversa repassada tem uma linha por número, cada uma com as mensagens que
+ * passaram por ali. Mostrar só as da linha aberta partiria a história no meio
+ * exatamente onde ela fica interessante: quem recebeu o repasse veria uma
+ * conversa que começa do nada, e quem repassou veria a dele parar no dia em que
+ * passou adiante.
+ *
+ * O grupo vem por parâmetro e não é buscado aqui porque quem chama já tem a
+ * conversa na mão — pedir a linha de novo só pra ler uma coluna seria uma
+ * consulta a mais em cada troca de conversa.
+ */
+export function useMensagens(conversaId: string | null, grupoId?: string | null) {
   return useQuery({
-    queryKey: ["wa", "mensagens", conversaId],
+    queryKey: ["wa", "mensagens", grupoId ? `g:${grupoId}` : conversaId],
     enabled: !!conversaId,
     refetchInterval: 5_000,
     queryFn: async (): Promise<MensagemRow[]> => {
+      const colunas = "id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, criada_em";
+
+      /* SEM GRUPO, uma consulta só, como sempre foi. O caminho de duas etapas
+         abaixo custa uma ida a mais ao banco, e conversa nunca repassada — que
+         é a esmagadora maioria — não tem por que pagar isso a cada cinco
+         segundos. */
+      if (!grupoId) {
+        const { data, error } = await tabela("wa_mensagens")
+          .select(colunas).eq("conversa_id", conversaId)
+          .order("criada_em", { ascending: true }).limit(300);
+        if (error) throw error;
+        return (data || []) as MensagemRow[];
+      }
+
+      const { data: irmas, error: eIrmas } = await tabela("wa_conversas")
+        .select("id").eq("grupo_id", grupoId);
+      if (eIrmas) throw eIrmas;
+      const ids = ((irmas || []) as { id: string }[]).map((c) => c.id);
+      if (ids.length === 0) return [];
+
       const { data, error } = await tabela("wa_mensagens")
-        .select("id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, criada_em")
-        .eq("conversa_id", conversaId)
-        .order("criada_em", { ascending: true })
-        .limit(300);
+        .select(colunas).in("conversa_id", ids)
+        .order("criada_em", { ascending: true }).limit(300);
       if (error) throw error;
       return (data || []) as MensagemRow[];
+    },
+  });
+}
+
+/**
+ * As passagens de custódia de um grupo.
+ *
+ * É o que desenha a linha divisória no meio do histórico: "daqui pra baixo quem
+ * atende é o número X". Sai do log e não de uma conta em cima das mensagens
+ * porque repassar de volta, e de novo, tem que continuar desenhando certo — e
+ * porque uma passagem sem mensagem nenhuma depois dela também é verdade e
+ * também precisa aparecer.
+ */
+export interface PassagemDeCustodia {
+  id: string;
+  instancia: string;
+  de: string | null;
+  desde: string;
+}
+
+export function useCustodia(grupoId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["wa", "custodia", grupoId],
+    enabled: !!grupoId,
+    staleTime: 30_000,
+    queryFn: async (): Promise<PassagemDeCustodia[]> => {
+      const { data, error } = await tabela("wa_custodia")
+        .select("id, instancia, de, desde").eq("grupo_id", grupoId!).order("desde");
+      if (error) throw error;
+      return (data || []) as PassagemDeCustodia[];
     },
   });
 }
@@ -499,6 +560,8 @@ export function conversaParaLead(
     movidaDe: c.movida_de ?? null,
     movidaEm: c.movida_em ?? null,
     followupAtivo: c.followup_ativo ?? null,
+    grupoId: c.grupo_id ?? null,
+    podeEscrever: c.pode_escrever !== false,
     presenca: c.presenca,
     presencaEm: c.presenca_em,
     vistoEm: c.visto_em,

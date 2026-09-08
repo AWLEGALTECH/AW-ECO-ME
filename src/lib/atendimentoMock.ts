@@ -146,6 +146,12 @@ export interface Lead {
      são necessários: sem o null, mudar a regra do número não pegaria em ninguém
      que já existe. */
   followupAtivo?: boolean | null;
+  /* O grupo de conversas da mesma pessoa, quando ela já foi repassada entre
+     números. Null/ausente = nunca foi. */
+  grupoId?: string | null;
+  /* Este número pode responder? False quando a conversa foi repassada adiante:
+     ela continua visível e legível aqui, e muda. */
+  podeEscrever?: boolean;
   /* O que o WhatsApp contou sobre ele. Tudo opcional e frequentemente ausente:
      quem esconde o status não gera evento, e ausência é "não sei". */
   presenca?: string | null;

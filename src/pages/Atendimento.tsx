@@ -27,7 +27,7 @@
 // A fila em si (ordem de culpa, pontos, cadência) mora em
 // src/lib/tasksAtendimento.ts, testada.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ import {
   Flame, ChevronRight, Landmark, BadgeCheck, Sparkles, Inbox,
   RefreshCw, StickyNote,
   CalendarDays, Repeat, BellRing, ChevronLeft, CheckCircle2,
-  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, X, Paperclip, Loader2, FileText,
+  ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, GitBranch, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList,
@@ -56,7 +56,8 @@ import {
   horaBonita, type Task, type TipoTask,
 } from "@/lib/tasksAtendimento";
 import {
-  useConversas, useMensagens, useInstancias, conversaParaLead, instanciaParaCard,
+  useConversas, useMensagens, useCustodia, useInstancias, conversaParaLead, instanciaParaCard,
+  type PassagemDeCustodia,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
@@ -624,7 +625,15 @@ export default function AtendimentoPage() {
      vivas, a aberta é a primeira delas. */
   const idAberto = idDaConversaAberta(selecionadoId, conversas);
 
-  const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? idAberto : null);
+  /* O GRUPO DA CONVERSA ABERTA, quando ela já foi repassada. Lido da lista que
+     a caixa já trouxe: pedir a linha de novo só pra ler uma coluna seria uma
+     consulta a mais em cada troca de conversa. */
+  const grupoDaAberta = useMemo(
+    () => conversas.find((c) => c.id === idAberto)?.grupo_id ?? null,
+    [conversas, idAberto]);
+  const { data: msgsDaAberta = [] } = useMensagens(aoVivo ? idAberto : null, grupoDaAberta);
+  /* AS PASSAGENS DE CUSTÓDIA, pra linha divisória no meio do histórico. */
+  const { data: custodia = [] } = useCustodia(aoVivo ? grupoDaAberta : null);
   /* A presença da conversa aberta é olhada de perto (3s): "digitando" dura
      três segundos, e a lista, que recarrega a cada dez, nunca pegaria. */
   const { data: presencaViva } = usePresencaDaConversa(idAberto, aoVivo);
@@ -1247,6 +1256,24 @@ export default function AtendimentoPage() {
       ...vivas.map(bolhaDaPendente).map((b) => ({ ...b, chave: b.id })),
     ] as Array<Mensagem & { chave: string }>;
   }, [lead.conversa, enviadas, lead.id, pendentesDaAberta, msgsDaAberta]);
+
+  /* ONDE A CONVERSA TROCOU DE MÃO.
+     Cada passagem de custódia vira uma linha no meio do histórico, presa à
+     PRIMEIRA mensagem que veio depois dela. Presa a uma mensagem, e não
+     desenhada no fim: o histórico é do grupo inteiro, e uma passagem que
+     aconteceu no meio de agosto precisa aparecer no meio de agosto.
+     Uma passagem sem nenhuma mensagem depois — repassou e ninguém falou ainda —
+     fica sem âncora e é desenhada no fim, que é onde ela está mesmo. */
+  const divisoresDeCustodia = useMemo(() => {
+    const porMensagem = new Map<string, PassagemDeCustodia>();
+    const soltas: PassagemDeCustodia[] = [];
+    for (const p of custodia) {
+      const primeira = msgsDaAberta.find((m) => m.criada_em >= p.desde);
+      if (primeira && !porMensagem.has(primeira.id)) porMensagem.set(primeira.id, p);
+      else if (!primeira) soltas.push(p);
+    }
+    return { porMensagem, soltas };
+  }, [custodia, msgsDaAberta]);
 
 
   /* AS TASKS DO DIA ESCOLHIDO — TODAS GRAVADAS AGORA.
@@ -2945,7 +2972,14 @@ export default function AtendimentoPage() {
                   return (
                     <button key={l.id} onClick={() => abrir(l.id)}
                       className={cn("group w-full text-left px-2.5 py-2 border-b border-white/[0.04] transition-colors flex gap-2 relative",
-                        ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]")}>
+                        ativo ? "bg-white/[0.07]" : "hover:bg-white/[0.03]",
+                        /* MEIO MORTA: a conversa foi repassada e este número só
+                           lê. Apagada, e não escondida — o histórico continua
+                           aqui, e quem atendeu essa pessoa por três semanas
+                           precisa poder reler o que combinou com ela.
+                           O `hover` devolve a opacidade: o que está apagado por
+                           estado, e não por defeito, tem que reagir ao dedo. */
+                        l.podeEscrever === false && !ativo && "opacity-45 hover:opacity-80")}>
                       {ativo && <span className="absolute left-0 inset-y-0 w-[2px] bg-foreground/40" />}
 
                       {/* SUBIU SOZINHA. A conversa está no alto porque o
@@ -3039,9 +3073,30 @@ export default function AtendimentoPage() {
                               foto ele disputava espaço com o pingo de online,
                               que fala de outra coisa, e o círculo o fazia
                               parecer um status da PESSOA. */}
-                          {l.ultimaAutomatica && (
-                            <span title="a última mensagem saiu por automação" className="shrink-0 flex">
-                              <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                          {/* OS SELOS EMPILHAM, um por cima do outro, quando
+                              coincidem. Lado a lado eles roubariam a largura do
+                              nome — que é o que se lê primeiro numa lista de
+                              cinquenta linhas — e três símbolos numa fileira
+                              viram uma tira que ninguém decifra. Empilhados,
+                              cada um continua sendo um símbolo. */}
+                          {(l.ultimaAutomatica || l.grupoId) && (
+                            <span className="shrink-0 flex flex-col items-center gap-[1px]">
+                              {l.ultimaAutomatica && (
+                                <Bot className="h-3.5 w-3.5 text-emerald-400"
+                                  aria-label="a última mensagem saiu por automação" />
+                              )}
+                              {/* REPASSADA E MUDA: este número entregou a
+                                  conversa e ficou só com a leitura. */}
+                              {l.grupoId && l.podeEscrever === false && (
+                                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/50"
+                                  aria-label="repassada para outro número" />
+                              )}
+                              {/* RECEBIDA: chegou aqui por repasse, e este
+                                  número é quem responde. */}
+                              {l.grupoId && l.podeEscrever !== false && l.movidaDe && (
+                                <ArrowDownLeft className="h-3.5 w-3.5 text-sky-300/80"
+                                  aria-label="recebida de outro número" />
+                              )}
                             </span>
                           )}
                           <span className="text-[9.5px] text-muted-foreground shrink-0">{l.ultimaHora}</span>
@@ -3393,7 +3448,14 @@ export default function AtendimentoPage() {
                      Por isso a pergunta é feita sobre a CHAVE, e a chave da
                      linha do banco é herdada da pendente que ela confirma. */
                   const nova = !primeiraPintura.current && !jaNaTela.current.has(msg.chave);
+                  const passagem = msg.id ? divisoresDeCustodia.porMensagem.get(msg.id) : undefined;
                   return (
+                  <React.Fragment key={`f-${msg.chave}`}>
+                  {passagem && (
+                    <LinhaDeCustodia passagem={passagem}
+                      instancia={instancias.find((i) => mesmaInstancia(i.nome, passagem.instancia))}
+                      nome={nomeDe(passagem.instancia)} />
+                  )}
                   <div
                     key={msg.chave}
                     /* Sem framer aqui. A animação é uma classe CSS que roda uma
@@ -3465,8 +3527,17 @@ export default function AtendimentoPage() {
                       )}
                     </div>
                   </div>
+                  </React.Fragment>
                   );
                 })}
+
+                {/* A passagem sem mensagem depois dela: repassou e ninguém
+                    falou ainda. Fica no fim, que é onde ela está mesmo. */}
+                {divisoresDeCustodia.soltas.map((p) => (
+                  <LinhaDeCustodia key={p.id} passagem={p}
+                    instancia={instancias.find((i) => mesmaInstancia(i.nome, p.instancia))}
+                    nome={nomeDe(p.instancia)} />
+                ))}
 
                 {/* O BALÃO DE DIGITANDO FICA NO FIM DA CONVERSA, onde a próxima
                     mensagem vai nascer — e não num rótulo no cabeçalho. É onde
@@ -3550,6 +3621,36 @@ export default function AtendimentoPage() {
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
+                {/* ── ESTA CONVERSA FOI REPASSADA, E ESTE NÚMERO SÓ LÊ ──
+                    No lugar do campo de digitar, e não como um aviso acima
+                    dele: campo desabilitado com um recado ao lado é um convite a
+                    tentar escrever e descobrir depois. Aqui não há campo, e a
+                    frase diz quem está atendendo agora.
+                    A porta reabre sozinha se o cliente escrever para ESTE
+                    número — ele não sabe que mudamos, e recusar seria deixar
+                    uma pessoa falando sozinha com um número mudo. */}
+                {lead.podeEscrever === false ? (
+                  <div className="px-3 py-3 flex items-start gap-2.5">
+                    <span className="h-7 w-7 shrink-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.08]
+                                     grid place-items-center">
+                      <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/70" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] text-foreground/80">
+                        Este atendimento passou para{" "}
+                        <span className="text-foreground">
+                          {nomeDe(custodia[custodia.length - 1]?.instancia ?? "outro número")}
+                        </span>.
+                      </span>
+                      <span className="block text-[10.5px] text-muted-foreground/70 leading-snug mt-0.5">
+                        Por {nomeDe(lead.instancia)} dá pra ler o histórico, não pra responder.
+                        Se {lead.nome.split(" ")[0]} escrever para este número, ele volta a
+                        aceitar resposta.
+                      </span>
+                    </span>
+                  </div>
+                ) : (
+                <>
                 {/* O anexo escolhido fica VISÍVEL antes de ir. Anexar e mandar
                     no mesmo clique é o jeito de mandar o arquivo errado pro
                     cliente errado, e no WhatsApp não existe desfazer. */}
@@ -3648,6 +3749,8 @@ export default function AtendimentoPage() {
                     </Button>
                   )}
                 </div>
+                </>
+                )}
               </div>
             </SpotlightCard>
 
@@ -3733,19 +3836,13 @@ export default function AtendimentoPage() {
                         tamanho="grande" />
                     </span>
                   </div>
-                  {/* O FOLLOW-UP NO DOSSIÊ, sempre que existe — inclusive
-                      quando a cobrança é pra daqui a três semanas. Saber que a
-                      pessoa está na régua, em que rodada, e há quanto tempo
-                      está calada muda o tom de QUALQUER mensagem que se mande
-                      hoje, e não só no dia da cobrança. O que espera o dia
-                      certo é o cartão da tarefa, que é trabalho; isto é
-                      contexto, e contexto se lê antes de escrever. */}
-                  {followUpDoLead && (
-                    <div className="flex flex-col gap-1 items-start">
-                      <span className="text-[9.5px] text-muted-foreground/70">Follow-up</span>
-                      <ResumoFollowUp task={followUpDoLead} lead={lead} hoje={HOJE} />
-                    </div>
-                  )}
+                  {/* O RESUMO DO FOLLOW-UP SAIU DAQUI e foi pra seção de
+                      follow-up, que é onde ele se explica. Aqui ele era um
+                      bloco de três linhas no meio da origem e da data de
+                      chegada: três assuntos diferentes um embaixo do outro, e o
+                      dossiê deixava de responder a pergunta simples que ele
+                      existe pra responder — de onde essa pessoa veio e há
+                      quanto tempo ela está aqui. */}
                   {/* DUAS LINHAS, E NÃO UMA. A data e a contagem respondem
                       perguntas diferentes: "quando ela chegou" é registro, se
                       cruza com campanha e com planilha; "há quantos dias está
@@ -3775,16 +3872,76 @@ export default function AtendimentoPage() {
                     ficha inteira existe pra decidir o que fazer com a pessoa, e
                     o que fazer hoje não pode estar abaixo de uma linha do tempo
                     que ninguém vai mexer agora. */}
-                {followUpDoLead && followUpDoLead.data <= HOJE && (
-                  <PainelFollowUpDoLead
-                    task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
-                    onAbrir={() => campoResposta.current?.focus()}
-                    onConcluir={() => concluir(followUpDoLead.id)} />
-                )}
+                {/* ── FOLLOW-UP, UMA SEÇÃO SÓ E SEMPRE AQUI ──
+                    Antes ele aparecia em dois lugares: solto acima da jornada
+                    quando vencia hoje, e mais abaixo quando era pra depois. A
+                    ideia era boa — o de hoje é trabalho, o de depois é consulta
+                    — e o preço era a ficha mudar de forma conforme o dia, com o
+                    mesmo bloco ora aqui, ora ali. Numa coluna que agora abre e
+                    fecha por seção, isso vira dois lugares pra procurar a mesma
+                    coisa.
+                    Ficou um só, antes da jornada, e a URGÊNCIA VIRA COR em vez
+                    de posição: vencido ou de hoje acende em violeta.
+                    Aqui dentro mora tudo que é da régua desta pessoa: em que
+                    rodada está, há quanto tempo está calada, quando vence a
+                    próxima, e a chave de ligar ou desligar a cobrança. Estavam
+                    em três lugares diferentes da mesma coluna. */}
+                <SecaoFicha id="followup" titulo="Follow-up" aberta={secaoAberta("followup")}
+                  onAlternar={alternarSecao} icone={<Repeat className="h-3 w-3 shrink-0" />}>
+                  <div className="flex flex-col gap-3.5">
+                    {followUpDoLead && (
+                      <ResumoFollowUp task={followUpDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa} />
+                    )}
+                    <PainelFollowUpDoLead
+                      task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
+                      semMoldura
+                      onAbrir={() => campoResposta.current?.focus()}
+                      onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
+
+                    {/* ── A CHAVE DESTE CONTATO ──
+                        Veio do fim da coluna pra cá, junto do que ela decide.
+                        Lá embaixo, entre "mover de número" e "finalizar
+                        atendimento", ela era uma terceira coisa parecida com as
+                        outras duas; aqui ela é a última linha do assunto que já
+                        está sendo lido. */}
+                    {aoVivo && !lead.atendimentoFinalizadoEm && (
+                      <div className="flex flex-col gap-2 pt-1 border-t border-white/[0.06]">
+                        <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">
+                          Cobrança automática
+                        </p>
+                        <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
+                          {([[null, "Segue o número"], [true, "Ligado"], [false, "Desligado"]] as const).map(([v, rot]) => {
+                            const marcado = (lead.followupAtivo ?? null) === v;
+                            return (
+                              <button key={String(v)} onClick={() => mudarFollowUpDoLead(v)}
+                                className={cn("flex-1 rounded-md px-1.5 py-1.5 text-[10.5px] transition-colors",
+                                  marcado
+                                    ? v === false ? "bg-white/[0.10] text-foreground"
+                                      : v === true ? "bg-emerald-400/15 text-emerald-300"
+                                      : "bg-white/[0.09] text-foreground"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-white/[0.05]")}>
+                                {rot}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[10.5px] text-muted-foreground/60 leading-relaxed">
+                          {lead.followupAtivo === false
+                            ? "Este contato não entra na régua, mesmo que o número cobre todo mundo."
+                            : lead.followupAtivo === true
+                              ? "Este contato entra na régua, mesmo que o número não cobre ninguém."
+                              : padraoDoNumeroDoLead
+                                ? "Segue o número: entra na régua sozinho quando ficar sem responder."
+                                : "Segue o número: não entra na régua sem ser ligado aqui."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </SecaoFicha>
 
                 {/* jornada */}
                 <SecaoFicha id="jornada" titulo="Jornada" aberta={secaoAberta("jornada")} onAlternar={alternarSecao}
-                  icone={<ArrowRight className="h-3 w-3 shrink-0" />}>
+                  icone={<GitBranch className="h-3 w-3 shrink-0" />}>
                   <JornadaLead
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
@@ -3810,22 +3967,6 @@ export default function AtendimentoPage() {
                     O cartão é o mesmo da central e o mesmo da aba Tarefas, de
                     propósito: forma repetida é o que dispensa aprender a ler
                     de novo em cada lugar. */}
-                {/* O MESMO PAINEL, na posição de repouso: quando a cobrança é
-                    de outro dia (ou não há nenhuma), ela é consulta e fica
-                    depois da jornada. Um componente só nas duas posições porque
-                    é a MESMA informação — duplicar o desenho faria as duas
-                    divergirem na primeira mudança. */}
-                {!(followUpDoLead && followUpDoLead.data <= HOJE) && (
-                  <SecaoFicha id="followup" titulo="Follow-up" aberta={secaoAberta("followup")}
-                    onAlternar={alternarSecao} icone={<Repeat className="h-3 w-3 shrink-0" />}>
-                    <PainelFollowUpDoLead
-                      task={followUpDoLead} feitos={feitosDoLead} lead={lead} hoje={HOJE} regua={reguaDaConversa}
-                      semMoldura
-                      onAbrir={() => campoResposta.current?.focus()}
-                      onConcluir={() => { if (followUpDoLead) concluir(followUpDoLead.id); }} />
-                  </SecaoFicha>
-                )}
-
                 {/* ═══ MARCAR UM LEMBRETE ═══
                     Aqui era o mural de anotações. As duas coisas competiam pelo
                     mesmo espaço e pela mesma pergunta — "o que fica registrado
@@ -3966,52 +4107,6 @@ export default function AtendimentoPage() {
                     NÃO é o mesmo que a etapa "fechado": aquilo quer dizer VIROU
                     CLIENTE, e muita gente que não fechou também merece parar de
                     ser cobrada. */}
-                {/* ═══ A RÉGUA DESTE CONTATO ═══
-                    Fica no fim, junto dos outros dois gestos que mudam o que o
-                    sistema faz sozinho com essa pessoa — e não no painel de
-                    follow-up lá em cima, que é onde se lê o estado da cobrança.
-                    Ler e decidir são momentos diferentes: o de cima acontece
-                    antes de escrever, este acontece quando alguém conclui que
-                    essa pessoa não deve mais ser cobrada.
-
-                    TRÊS ESTADOS, e não um interruptor. "Segue o número" é o
-                    estado em que a maioria vive, e é ele que faz a chave do
-                    número continuar valendo: se toda conversa nascesse com sim
-                    ou não gravado, mudar a regra do número não pegaria em
-                    ninguém que já existe. */}
-                {aoVivo && !lead.atendimentoFinalizadoEm && (
-                  <div className="px-3 pt-3 flex flex-col gap-1.5">
-                    <p className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70 flex items-center gap-1">
-                      <Repeat className="h-3 w-3" /> Cobrança automática
-                    </p>
-                    <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
-                      {([[null, "Segue o número"], [true, "Ligado"], [false, "Desligado"]] as const).map(([v, rot]) => {
-                        const marcado = (lead.followupAtivo ?? null) === v;
-                        return (
-                          <button key={String(v)} onClick={() => mudarFollowUpDoLead(v)}
-                            className={cn("flex-1 rounded-md px-1.5 py-1 text-[10.5px] transition-colors",
-                              marcado
-                                ? v === false ? "bg-white/[0.10] text-foreground"
-                                  : v === true ? "bg-emerald-400/15 text-emerald-300"
-                                  : "bg-white/[0.09] text-foreground"
-                                : "text-muted-foreground hover:text-foreground")}>
-                            {rot}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground/60 leading-snug">
-                      {lead.followupAtivo === false
-                        ? "Este contato não entra na régua, mesmo que o número cobre todo mundo."
-                        : lead.followupAtivo === true
-                          ? "Este contato entra na régua, mesmo que o número não cobre ninguém."
-                          : padraoDoNumeroDoLead
-                            ? "Segue o número: entra na régua sozinho quando ficar sem responder."
-                            : "Segue o número: não entra na régua sem ser ligado aqui."}
-                    </p>
-                  </div>
-                )}
-
                 {/* ═══ PASSAR PRO OUTRO NÚMERO ═══
                     Vizinho do "finalizar" porque são os dois gestos que TIRAM a
                     conversa daqui — um encerra, o outro entrega. Ficam no fim
@@ -4424,7 +4519,7 @@ export default function AtendimentoPage() {
         <DialogContent className="max-w-sm [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <ArrowRight className="h-4 w-4" /> Mover etapa
+              <GitBranch className="h-4 w-4" /> Mover etapa
             </DialogTitle>
             <DialogDescription className="text-[12px]">
               <span className="text-foreground/80">{lead.nome}</span> está em{" "}
@@ -5731,7 +5826,9 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
  * dia da cobrança. O que espera o dia certo é o CARTÃO da tarefa, que é
  * trabalho; isto é contexto, e contexto se lê antes de escrever.
  */
-function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: string }) {
+function ResumoFollowUp({ task, lead, hoje, regua }: {
+  task: Task; lead: Lead; hoje: string; regua: Regua;
+}) {
   const atrasada = task.data < hoje;
   const deHoje = task.data === hoje;
   const faltam = Math.max(0, Math.round(
@@ -5747,39 +5844,54 @@ function ResumoFollowUp({ task, lead, hoje }: { task: Task; lead: Lead; hoje: st
        dois são FRASES, e frase em pastilha se lê pior: o olho para na moldura
        antes de chegar no texto. Fora dela, eles viram o que sempre foram, duas
        linhas de leitura. */
-    <div className="flex flex-col gap-1 w-full">
-      <span className="flex items-center gap-2">
+    /* MAIOR E MAIS ESPAÇADO, de propósito. Esta é a informação que se lê ANTES
+       de escrever pra pessoa, e ela vinha em três linhas de onze pixels
+       coladas — tamanho de rodapé para o que decide o texto da mensagem.
+       O degrau em corpo grande é a âncora: "de 5 dias" é o que diz o tom, e é a
+       primeira coisa que o olho pega. */
+    <div className="flex flex-col gap-3 w-full">
+      <div className="flex items-baseline gap-2.5">
         <span className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-medium
-                         bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30 shrink-0">
+                         bg-violet-400/15 text-violet-200 ring-1 ring-violet-400/30 shrink-0 self-center">
           <Repeat className="h-3 w-3 shrink-0" />
           <span className="tabular-nums">{rotuloDaRodada(task.rodada ?? 1)}</span>
         </span>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          {task.rodada ?? 1} de {TOTAL_RODADAS}
+        <span className="min-w-0">
+          <span className="block text-[15px] font-semibold leading-none tabular-nums">
+            {diasDaRodada(task.rodada ?? 1, regua) ?? "?"}{" "}
+            <span className="text-[11.5px] font-normal text-muted-foreground">
+              {(diasDaRodada(task.rodada ?? 1, regua) ?? 0) === 1 ? "dia de régua" : "dias de régua"}
+            </span>
+          </span>
+          <span className="block text-[10.5px] text-muted-foreground/70 tabular-nums mt-1">
+            rodada {task.rodada ?? 1} de {TOTAL_RODADAS}
+          </span>
         </span>
-      </span>
+      </div>
 
-      <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-        <Clock className="h-3.5 w-3.5 shrink-0 opacity-70" />
-        {lead.diasParado === 0
-          ? "calado desde hoje"
-          : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
-      </span>
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <Clock className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          {lead.diasParado === 0
+            ? "calado desde hoje"
+            : `${lead.diasParado} ${lead.diasParado === 1 ? "dia" : "dias"} sem responder`}
+        </span>
 
-      {/* A COR CONTINUA, o fundo é que sai. O atraso e o "é hoje" são a única
-          coisa aqui que muda o que se faz agora, e tirar a marca junto com a
-          moldura apagaria a informação em vez de despoluí-la. */}
-      <span className={cn("flex items-center gap-1.5 text-[11.5px]",
-        atrasada ? "text-amber-300 font-medium"
-                 : deHoje ? "text-violet-200 font-medium"
-                          : "text-muted-foreground")}>
-        <CalendarDays className="h-3.5 w-3.5 shrink-0 opacity-70" />
-        {atrasada
-          ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
-          : deHoje
-            ? "cobrança é hoje"
-            : `próximo em ${faltam} ${faltam === 1 ? "dia" : "dias"}`}
-      </span>
+        {/* A COR CONTINUA, o fundo é que sai. O atraso e o "é hoje" são a única
+            coisa aqui que muda o que se faz agora, e tirar a marca junto com a
+            moldura apagaria a informação em vez de despoluí-la. */}
+        <span className={cn("flex items-center gap-2 text-[12px]",
+          atrasada ? "text-amber-300 font-medium"
+                   : deHoje ? "text-violet-200 font-medium"
+                            : "text-muted-foreground")}>
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          {atrasada
+            ? `venceu há ${diasDeAtraso(task.data, hoje)} ${diasDeAtraso(task.data, hoje) === 1 ? "dia" : "dias"}`
+            : deHoje
+              ? "cobrança é hoje"
+              : `próximo toque em ${faltam} ${faltam === 1 ? "dia" : "dias"}`}
+        </span>
+      </div>
     </div>
   );
 }
@@ -6187,7 +6299,7 @@ function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolher
                       a etapa que mais precisa de saída era a única sem nenhuma. */}
                   <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] mt-0.5"
                     onClick={onEscolherEtapa}>
-                    <ArrowRight className="h-3.5 w-3.5" /> Alterar etapa
+                    Alterar etapa
                   </Button>
                 </motion.div>
               )}
@@ -7086,6 +7198,49 @@ function DegrauEditavel({ dias, salto, onSalvar }: {
   );
 }
 
+/* ── A LINHA QUE MARCA A TROCA DE MÃO ────────────────────────────────────
+ *
+ * No meio do histórico, com a foto e o nome de quem assumiu dali pra baixo.
+ * Sem ela, uma conversa repassada lê como uma conversa só, e a mudança de tom
+ * no meio — outro atendente, outro número, às vezes outro assunto — não tem
+ * explicação nenhuma na tela.
+ *
+ * É UMA LINHA E NÃO UM CARTÃO. O que aconteceu aqui não é uma mensagem: é uma
+ * mudança de contexto, e mudança de contexto se marca como as datas se marcam,
+ * atravessando a conversa. Um cartão competiria com os balões pela leitura.
+ */
+function LinhaDeCustodia({ passagem, instancia, nome }: {
+  passagem: PassagemDeCustodia;
+  instancia?: Instancia;
+  nome: string;
+}) {
+  return (
+    <div className="my-3 flex items-center gap-2.5">
+      <span className="h-px flex-1 bg-white/[0.08]" />
+      <span className="flex items-center gap-2 rounded-full bg-white/[0.04] ring-1 ring-white/[0.07]
+                       pl-1 pr-3 py-1 shrink-0 max-w-[75%]">
+        <span className="h-6 w-6 shrink-0 rounded-full overflow-hidden grid place-items-center
+                         text-[9px] font-semibold bg-white/[0.06] text-foreground/70 ring-1 ring-white/10">
+          {instancia?.fotoUrl
+            ? <img src={instancia.fotoUrl} alt="" className="h-full w-full object-cover"
+                   onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+            : (instancia?.avatar ?? "?")}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[10.5px] leading-tight truncate">
+            <span className="text-muted-foreground/70">passou para </span>
+            <span className="text-foreground/85 font-medium">{nome}</span>
+          </span>
+          <span className="block text-[9px] text-muted-foreground/50 tabular-nums leading-tight">
+            {quandoDaPassagem(passagem.desde)}
+          </span>
+        </span>
+      </span>
+      <span className="h-px flex-1 bg-white/[0.08]" />
+    </div>
+  );
+}
+
 /* ── UMA SEÇÃO DA FICHA ──────────────────────────────────────────────────
  *
  * A ficha juntou muita coisa, e cada pedaço se justifica: origem, follow-up,
@@ -7119,19 +7274,52 @@ function SecaoFicha({
     <div className={cn(!semDivisor && "border-b border-white/[0.06]")}>
       <button
         onClick={() => onAlternar(id)}
-        className="w-full px-3 py-2.5 flex items-center gap-1.5 text-left
-                   text-muted-foreground hover:text-foreground transition-colors group/sec">
-        {icone}
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">{titulo}</span>
+        /* O CABEÇALHO REAGE AO DEDO ANTES DO CLIQUE: o fundo acende de leve e o
+           ícone desliza um fio pra dentro. É o que diz "isto abre" sem precisar
+           de um "clique para expandir" escrito. */
+        className="w-full px-3 py-3 flex items-center gap-2 text-left
+                   text-muted-foreground hover:text-foreground hover:bg-white/[0.025]
+                   transition-colors duration-200 group/sec">
+        {icone && (
+          <span className="shrink-0 transition-transform duration-200 group-hover/sec:translate-x-0.5">
+            {icone}
+          </span>
+        )}
+        <span className="text-[11.5px] font-semibold uppercase tracking-[0.08em]">{titulo}</span>
         {contador !== undefined && contador > 0 && (
-          <span className="rounded-full bg-white/[0.07] px-1.5 text-[9.5px] tabular-nums">
+          <span className="rounded-full bg-white/[0.07] px-1.5 py-[1px] text-[9.5px] tabular-nums
+                           transition-colors group-hover/sec:bg-white/[0.12]">
             {contador}
           </span>
         )}
-        <ChevronDown className={cn("ml-auto h-3.5 w-3.5 shrink-0 opacity-50 transition-transform",
+        <ChevronDown className={cn(
+          "ml-auto h-3.5 w-3.5 shrink-0 opacity-40 transition-all duration-300 group-hover/sec:opacity-80",
           !aberta && "-rotate-90")} />
       </button>
-      {aberta && <div className="px-3 pb-3">{children}</div>}
+
+      {/* ABRE DESLIZANDO, e não de um quadro pro outro.
+          O corte seco parece defeito: o conteúdo aparece do nada e empurra
+          tudo abaixo dele de uma vez, e o olho perde onde estava. A altura
+          animada faz o resto da coluna acompanhar, e aí a pessoa vê PARA ONDE
+          as coisas foram em vez de reencontrá-las.
+          `AnimatePresence` com `initial={false}`: na primeira pintura as
+          seções já nascem no lugar, sem uma cascata de abertura toda vez que se
+          troca de conversa. */}
+      <AnimatePresence initial={false}>
+        {aberta && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              height: { type: "spring", stiffness: 320, damping: 34, mass: 0.85 },
+              opacity: { duration: 0.18 },
+            }}
+            className="overflow-hidden">
+            <div className="px-3 pb-4">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
