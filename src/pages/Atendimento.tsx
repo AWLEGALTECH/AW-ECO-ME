@@ -62,7 +62,7 @@ import {
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   moverConversaDeInstancia,
-  diagnosticarInstancia, assinarPresenca, type Diagnostico,
+  diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
@@ -1665,6 +1665,7 @@ export default function AtendimentoPage() {
      estão marcados, que é a coisa que nunca dá pra ver de fora. */
   const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
   const [diagnosticando, setDiagnosticando] = useState(false);
+  const [reiniciando, setReiniciando] = useState(false);
 
   /* AS TRÊS AÇÕES DE MANUTENÇÃO recebem o número em vez de assumir o principal:
      com a engrenagem aberta num número, "reconfigurar eventos" tem que
@@ -1678,6 +1679,28 @@ export default function AtendimentoPage() {
       toast.error((e as Error).message, { duration: 12_000 });
     } finally {
       setDiagnosticando(false);
+    }
+  };
+
+  /* REINICIAR O NÚMERO. Diferente de reconfigurar eventos: aquilo reaponta o
+     webhook (a porta de ENTRADA), isto levanta a sessão de novo (a de SAÍDA).
+     Em 08/09 o problema era só a segunda, e a tela só sabia mexer na primeira —
+     por isso o "Reconfigurar e conferir de novo" respondia, com razão, que
+     estava tudo certo, enquanto nenhuma mensagem saía. */
+  const reiniciarNumero = async (nome = instancia.nome) => {
+    setReiniciando(true);
+    const t = toast.loading(`Reiniciando ${nome}…`);
+    try {
+      await reiniciarInstancia(nome);
+      toast.success(`${nome} reiniciada.`, {
+        id: t,
+        description: "A sessão volta em alguns segundos. Mande uma mensagem de teste pra confirmar que saiu.",
+        duration: 12_000,
+      });
+    } catch (e) {
+      toast.error((e as Error).message, { id: t, duration: 12_000 });
+    } finally {
+      setReiniciando(false);
     }
   };
 
@@ -4331,9 +4354,28 @@ export default function AtendimentoPage() {
             </div>
           )}
 
-          <DialogFooter>
+          {/* CONFIGURAÇÃO CERTA E MENSAGEM QUE NÃO SAI SÃO COISAS DIFERENTES.
+              Este diálogo responde sobre a porta de ENTRADA — webhook, URL,
+              token — e responde bem. Em 08/09 ele disse "está tudo certo", e
+              estava: o que tinha quebrado era a sessão de SAÍDA, do lado da
+              Evolution. Quem lia a tela ficava sem próximo passo, porque o
+              único botão aqui reconfigurava justamente a metade que estava boa.
+              A frase abaixo existe pra separar as duas perguntas antes que
+              alguém passe uma tarde reconfigurando o que não está quebrado. */}
+          <p className="text-[10.5px] text-muted-foreground/70 leading-snug border-t border-white/[0.06] pt-3">
+            Isto confere o que <strong>chega</strong>. Se o problema é mensagem que <strong>não sai</strong> —
+            fica no relógio ou vira triângulo de falha —, a configuração pode estar certa e ainda assim
+            nada sair: aí o conserto é reiniciar o número, que levanta a sessão sem desfazer o pareamento.
+          </p>
+
+          <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="ghost" size="sm" className="h-8 text-[12px]"
               onClick={() => setDiagnostico(null)}>Fechar</Button>
+            <Button variant="outline" size="sm" className="h-8 text-[12px] gap-1.5"
+              disabled={reiniciando}
+              onClick={() => reiniciarNumero()}>
+              <RotateCcw className="h-3.5 w-3.5" /> {reiniciando ? "Reiniciando…" : "Reiniciar o número"}
+            </Button>
             <Button size="sm" className="h-8 text-[12px] gap-1.5"
               disabled={diagnosticando}
               onClick={async () => { await reconfigurarEventos(); await rodarDiagnostico(); }}>

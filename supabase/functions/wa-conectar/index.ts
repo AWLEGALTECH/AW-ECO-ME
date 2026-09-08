@@ -20,6 +20,7 @@
 //   webhook      reaplica a configuração de webhook numa instância existente
 //   diagnostico  LÊ o webhook que está gravado lá e compara com o exigido aqui
 //   importar     traz a lista de conversas do aparelho pra caixa
+//   reiniciar    levanta a sessão de novo, SEM desfazer o pareamento
 //   desconectar  derruba a sessão (a instância continua existindo)
 //
 // DUAS CHAVES, DOIS NÍVEIS. A Evolution tem a chave GLOBAL do servidor (a que
@@ -455,6 +456,48 @@ Deno.serve(async (req: Request) => {
       if (error) return json({ ok: false, error: error.message });
 
       return json({ ok: true, instancia: nome, importadas: recorte.length, total: lista.length, ignoradas });
+    }
+
+    /* ─────────────────────────── reiniciar ───────────────────────────
+     *
+     * REINICIAR NÃO É DESCONECTAR, e a distância entre as duas é a diferença
+     * entre um clique e uma tarde parada. `logout` derruba o pareamento: o
+     * número sai do ar e só volta quando alguém estiver fisicamente com o
+     * celular pra ler um QR. `restart` só levanta o socket de novo, com a
+     * sessão que já está lá.
+     *
+     * Isto existe por causa de 08/09. A instância PORTAL DIREITO ABERTO
+     * reconectou às 19:35 e, daquele minuto em diante, TODA mensagem enviada
+     * voltou com ERROR — dez de dez chegaram antes, zero de catorze depois.
+     * Recebia normalmente, e o painel dizia "conectado". O único conserto era
+     * reiniciar o socket, e não havia botão nenhum para isso aqui dentro: o
+     * "Reconfigurar e conferir de novo" da tela de diagnóstico só reaponta o
+     * webhook, que era justamente a parte que não estava quebrada.
+     *
+     * Enquanto o botão não existia, a saída era abrir o painel da Evolution —
+     * que nem todo mundo que atende tem, e ninguém tem às onze da noite.
+     */
+    if (acao === "reiniciar") {
+      /* Duas formas conhecidas entre versões da v2. Custa um request e evita um
+         "não deu nada" que ninguém liga ao verbo HTTP. Mesmo raciocínio do
+         `apontarWebhook` logo acima. */
+      let ultimo = "";
+      let reiniciou = false;
+      for (const metodo of ["POST", "PUT"]) {
+        const r = await fetch(`${base}/instance/restart/${encodeURIComponent(nome)}`, {
+          method: metodo, headers: cab,
+        });
+        if (r.ok) { reiniciou = true; break; }
+        ultimo = explica401(r.status, await r.text());
+      }
+      if (!reiniciou) return json({ ok: false, error: ultimo });
+
+      /* O socket volta em alguns segundos, e o estado logo depois do restart
+         ainda diz "connecting". Devolver isso como se fosse o resultado final
+         faria a tela anunciar um fracasso que é só o meio do caminho — então
+         quem lê o estado é o `connection.update` que chega no webhook, como em
+         todo o resto do sistema. Aqui só se diz que o pedido foi aceito. */
+      return json({ ok: true, instancia: nome, reiniciada: true });
     }
 
     // ─────────────────────────── desconectar ───────────────────────────

@@ -485,6 +485,23 @@ export async function assinarPresenca(conversaId: string) {
 }
 export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desconectar", instancia: nome });
 
+/**
+ * REINICIAR O SOCKET DO NÚMERO, sem desfazer o pareamento.
+ *
+ * Existe por causa de 08/09: a instância reconectou sozinha às 19:35 e daquele
+ * minuto em diante toda mensagem enviada voltou com ERROR — dez de dez tinham
+ * chegado antes, zero de catorze chegaram depois. Recebia normalmente, o painel
+ * dizia "conectado", e o diagnóstico daqui dizia (corretamente) que webhook,
+ * URL e token estavam certos. Nada na tela estava errado; o que estava errado
+ * era a sessão do lado da Evolution, e não havia daqui nenhum jeito de mexer
+ * nela.
+ *
+ * NÃO CONFUNDIR COM `desconectarInstancia`, que faz logout: aquela derruba o
+ * pareamento e exige alguém com o celular na mão pra ler um QR. Esta só levanta
+ * a sessão que já existe — é o conserto barato, e era o que estava faltando.
+ */
+export const reiniciarInstancia = (nome: string) => pedirConexao({ acao: "reiniciar", instancia: nome });
+
 export function useInvalidarWa() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["wa"] });
