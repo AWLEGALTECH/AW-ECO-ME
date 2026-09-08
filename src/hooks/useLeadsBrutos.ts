@@ -76,6 +76,37 @@ export function useFontes(instancia: string | null, opcoes?: { incluirInativas?:
   });
 }
 
+/**
+ * O nome de cada base pelo id — de TODAS as instâncias, ligadas ou não.
+ *
+ * É a etiqueta do cartão de conversa, e ela responde a uma pergunta sobre o
+ * PASSADO: de onde essa pessoa veio. `useFontes` responde a outra, sobre o
+ * presente: qual fila este número trabalha agora. Usar a segunda para a
+ * primeira funcionava só enquanto uma base nunca mudasse de número — no dia em
+ * que a Bradesco saiu do PDA INBOUND para o PDA OUTBOUND, as 19 conversas que
+ * ela já tinha aberto no número antigo perderiam a etiqueta e passariam a
+ * parecer gente que apareceu do nada.
+ *
+ * Pelo mesmo motivo de as desligadas entrarem: quem veio de uma base continua
+ * tendo vindo dela depois que ela é desligada, e continua depois que ela muda
+ * de número.
+ */
+export function useNomesDasBases() {
+  return useQuery({
+    queryKey: ["leads", "fontes", "nomes"],
+    // Nome de base muda quando alguém renomeia, o que é raro; recarregar sozinho
+    // seria consulta ao banco pra não ver diferença.
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<Record<string, string>> => {
+      const { data, error } = await tabela("leads_fontes").select("id, nome");
+      if (error) throw error;
+      const mapa: Record<string, string> = {};
+      for (const f of (data || []) as { id: string; nome: string }[]) mapa[f.id] = f.nome;
+      return mapa;
+    },
+  });
+}
+
 export function useLeadsBrutos(fonteIds: string[]) {
   const chave = [...fonteIds].sort().join(",");
   return useQuery({

@@ -102,7 +102,7 @@ import {
   type Pendente,
 } from "@/lib/envioOtimista";
 import {
-  useFontes, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
+  useFontes, useNomesDasBases, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
@@ -609,10 +609,11 @@ export default function AtendimentoPage() {
      se vê quando NENHUM número está ligado. */
   const aoVivo = instRows.length > 0;
 
-  /* As bases são lidas cedo porque a etiqueta do cartão precisa do NOME delas:
-     a conversa guarda o id da base, e id na tela é ruído. Inclui as desligadas
-     — a conversa que veio de uma base desligada continua tendo vindo dela. */
-  const { data: fontesTodas = [] } = useFontes(instancia.nome, { incluirInativas: true });
+  /* As bases LIGADAS NESTE NÚMERO — a fila que ele trabalha. O nome delas para
+     a etiqueta do cartão vem de outro lugar (`useNomesDasBases`), porque são
+     perguntas diferentes: esta é sobre o que este número faz hoje, a outra é
+     sobre de onde a pessoa veio um dia. */
+  const { data: fontes = [] } = useFontes(instancia.nome);
 
   /* QUAL CONVERSA ESTÁ ABERTA, DE VERDADE.
      `selecionadoId` nasce com o id da MAQUETE ("l1"), porque na primeira
@@ -743,9 +744,10 @@ export default function AtendimentoPage() {
   );
   useEffect(() => { aoAtualizar(sinaisDeSom); }, [sinaisDeSom, aoAtualizar]);
 
-  const nomeDaBase = useMemo(
-    () => Object.fromEntries(fontesTodas.map((f) => [f.id, f.nome])) as Record<string, string>,
-    [fontesTodas]);
+  /* A etiqueta lê TODAS as bases, e não só as deste número: a conversa guarda
+     de onde a pessoa veio, e isso não deixa de ser verdade quando a base muda
+     de número depois. */
+  const { data: nomeDaBase = {} } = useNomesDasBases();
 
   const leadsBase: Lead[] = aoVivo
     ? conversas.map((c) => conversaParaLead(c, c.id === idAberto ? msgsDaAberta : [], new Date(), nomeDaBase))
@@ -1003,7 +1005,6 @@ export default function AtendimentoPage() {
   const invalidarAnotacoes = useInvalidarAnotacoes();
 
   /* ── A OUTRA CAIXA: quem nunca escreveu ── */
-  const fontes = useMemo(() => fontesTodas.filter((f) => f.ativa), [fontesTodas]);
   const { data: brutos = [] } = useLeadsBrutos(fontes.map((f) => f.id));
   const { data: resumoBases = {} } = useResumoBases(fontes.length > 0);
   const invalidarLeads = useInvalidarLeads();
