@@ -647,12 +647,15 @@ export default function ProcessoDetail() {
             <div className="flex items-start gap-2 text-[15px] min-w-0">
               <Landmark className="h-4 w-4 text-primary/70 shrink-0 mt-[3px]" />
               <div className="min-w-0">
+                {/* BLOCO, e não inline. Como `<span>`, o nome dividia a linha
+                    com o balão logo abaixo (que é inline-block) e os dois se
+                    sobrepunham: o aviso aparecia por cima do nome do réu. */}
                 {form.requeridos.length > 0 ? (
-                  <span className="font-medium break-words">
+                  <span className="block font-medium break-words">
                     {nomesDasChaves(form.requeridos, reusCatalogo).join("  ·  ")}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">Requerido não informado</span>
+                  <span className="block text-muted-foreground">Requerido não informado</span>
                 )}
                 {/* A PROCEDÊNCIA É UM BALÃO QUE SE FECHA, NÃO UMA LINHA FIXA.
                     Ela é útil na primeira vez que se abre o processo e vira
@@ -671,8 +674,8 @@ export default function ProcessoDetail() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -6, scale: 0.96 }}
                       transition={{ duration: 0.24, ease: EASE, delay: 0.15 }}
-                      className="relative mt-2 inline-block max-w-[22rem] rounded-lg border border-amber-400/25
-                                 bg-amber-400/[0.08] py-1.5 pl-2.5 pr-7 text-[11px] leading-snug text-amber-200/90"
+                      className="relative mt-2 block w-fit max-w-[22rem] rounded-lg border border-white/[0.12]
+                                 bg-white/[0.05] py-1.5 pl-2.5 pr-7 text-[11px] leading-snug text-muted-foreground"
                     >
                       {/* O bico aponta pro nome do réu, pra ficar claro de onde
                           o aviso está saindo. Mesma cor do balão: alfa igual
@@ -681,15 +684,15 @@ export default function ProcessoDetail() {
                       <span
                         aria-hidden
                         className="absolute -top-[5px] left-4 h-2 w-2 rotate-45 border-l border-t
-                                   border-amber-400/25 bg-amber-400/[0.08]"
+                                   border-white/[0.12] bg-white/[0.05]"
                       />
                       {fonteDoRequerido(form.requerido_origem)}
                       <button
                         onClick={fecharAvisoOrigem}
                         title="Ok, entendi"
                         aria-label="Fechar aviso"
-                        className="absolute right-1 top-1 rounded p-0.5 text-amber-200/60
-                                   hover:bg-amber-400/15 hover:text-amber-100 transition-colors"
+                        className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground/60
+                                   hover:bg-white/10 hover:text-foreground transition-colors"
                       >
                         <X className="h-3 w-3" />
                       </button>
