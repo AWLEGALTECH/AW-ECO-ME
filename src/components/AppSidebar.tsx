@@ -8,7 +8,7 @@
  *
  * O item ativo é um único indicador que desliza entre os itens (layoutId),
  * translúcido na cor do tema, como a barra do dashboard. O ícone responde ao
- * mouse com um leve crescimento; nada pisca, nada gira.
+ * mouse como no Atendimento: desliza um fio para o lado e acende; não cresce.
  */
 import { useEffect, useState } from "react";
 import { NavLink } from "@/components/NavLink";
@@ -73,11 +73,13 @@ const adminItems: NavItem[] = [
 const ITEM = "relative group/item rounded-xl mx-1 h-11 gap-3 [&>svg]:size-5 md:h-8 md:gap-2 md:[&>svg]:size-4 transition-colors duration-200";
 const ROTULO = "text-[15px] md:text-sm";
 
-/** Ícone que responde ao mouse: cresce um pouco e sobe um fio. */
+/** Ícone que responde ao mouse como o cabeçalho das seções da ficha no
+ *  Atendimento: não cresce, desliza um fio para a direita e acende (sai do
+ *  cinza apagado e vai para a cor cheia do texto). */
 function Icone({ icon: I, ativo }: { icon: LucideIcon; ativo: boolean }) {
   return (
-    <I className={`relative shrink-0 transition-transform duration-200 ease-out group-hover/item:scale-110 group-hover/item:-translate-y-px
-                   ${ativo ? "text-primary" : ""}`} />
+    <I className={`relative shrink-0 transition-[transform,color] duration-200 group-hover/item:translate-x-0.5
+                   ${ativo ? "text-primary" : "text-sidebar-foreground/60 group-hover/item:text-sidebar-accent-foreground"}`} />
   );
 }
 
@@ -210,7 +212,7 @@ export function AppSidebar() {
   };
 
   const conteudoDoItem = (item: NavItem) => (
-    <span className={`${ROTULO} relative flex-1 flex items-center justify-between gap-1 transition-transform duration-200 group-hover/item:translate-x-0.5`}>
+    <span className={`${ROTULO} relative flex-1 flex items-center justify-between gap-1`}>
       <span className="flex items-center gap-1.5 min-w-0">
         <span className="truncate">{item.title}</span>
         {item.beta && (
