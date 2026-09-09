@@ -4,6 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { parseMoneyBR } from "@/lib/money";
 import { podeGravarLinha } from "@/lib/linhaTemporal";
+import {
+  chaveDeRequerido, nomesDaLista, listaDosNomes, nomesDasChaves, mesmasChaves, fonteDoRequerido,
+} from "@/lib/requeridos";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
 import { valorPrevistoDoProcesso, ganhoDoProcesso } from "@/lib/baixaTracker";
 import { PinButton } from "@/components/PinButton";
@@ -46,6 +49,11 @@ interface ProcessoForm {
   numero_processo: string;
   cliente_id: string;
   materia: string;
+  /* Chaves de `requeridos_catalogo`. Array porque litisconsórcio existe: quatro
+     processos da carteira têm dois réus de verdade (Estado + DETRAN, IMMU + a
+     locadora, Instituto Pro-Saúde + CENUSA, Banco Master + Avancard). */
+  requeridos: string[];
+  requerido_origem: string | null;
   data_ultimo_andamento: string;
   prazo_processual: string;
   fase_processual: string;
@@ -64,6 +72,8 @@ const EMPTY: ProcessoForm = {
   numero_processo: "",
   cliente_id: "",
   materia: "",
+  requeridos: [],
+  requerido_origem: null,
   data_ultimo_andamento: "",
   prazo_processual: "",
   fase_processual: "",
@@ -190,6 +200,16 @@ export default function ProcessoDetail() {
   const [form, setForm] = useState<ProcessoForm>(EMPTY);
   const [saved, setSaved] = useState<ProcessoForm>(EMPTY);
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
+  /* O catálogo de réus, chave → nome de tela. Vem inteiro numa consulta: são
+     ~80 linhas, e a alternativa (buscar o nome de cada chave quando precisar)
+     seria uma ida ao banco pra traduzir duas palavras. */
+  const [reusCatalogo, setReusCatalogo] = useState<Record<string, string>>({});
+  /* O texto do campo enquanto se edita. Separado de `form.requeridos` porque
+     ali moram CHAVES, e quem digita digita NOME — converter a cada tecla e
+     reconverter para mostrar faria "Banco  Bradesco " virar outra coisa
+     debaixo do cursor. */
+  const [reusTexto, setReusTexto] = useState("");
+  const reusNomes = nomesDaLista(reusTexto);
   const [clientePopoverOpen, setClientePopoverOpen] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -218,6 +238,13 @@ export default function ProcessoDetail() {
     if (data) setClientes(data);
   }, []);
 
+  const loadReus = useCallback(async () => {
+    const { data } = await (supabase.from("requeridos_catalogo" as never) as never as {
+      select: (c: string) => Promise<{ data: { chave: string; nome: string }[] | null }>;
+    }).select("chave, nome");
+    if (data) setReusCatalogo(Object.fromEntries(data.map((r) => [r.chave, r.nome])));
+  }, []);
+
   const loadProcesso = useCallback(async () => {
     if (isNew || !id) return;
     const { data } = await supabase.from("processos").select("*").eq("id", id).single();
@@ -227,6 +254,9 @@ export default function ProcessoDetail() {
         numero_processo: data.numero_processo ?? "",
         cliente_id: data.cliente_id,
         materia: data.materia ?? "",
+        requeridos: Array.isArray((data as { requeridos?: string[] }).requeridos)
+          ? ((data as { requeridos?: string[] }).requeridos as string[]) : [],
+        requerido_origem: (data as { requerido_origem?: string | null }).requerido_origem ?? null,
         data_ultimo_andamento: data.data_ultimo_andamento ?? "",
         prazo_processual: data.prazo_processual ?? "",
         fase_processual: data.fase_processual ?? "",
@@ -324,8 +354,18 @@ export default function ProcessoDetail() {
   useEffect(() => {
     document.title = isNew ? "Novo Processo · AW ECO ME" : "Processo · AW ECO ME";
     loadClientes();
+    loadReus();
     loadProcesso();
-  }, [loadClientes, loadProcesso, isNew]);
+  }, [loadClientes, loadReus, loadProcesso, isNew]);
+
+  /* O CAMPO SÓ SE REESCREVE FORA DA EDIÇÃO. O catálogo costuma chegar depois do
+     processo, e sem este efeito o campo ficaria mostrando `BANCO_BRADESCO` até
+     alguém recarregar. Com `editing` na guarda, ele nunca reescreve por cima de
+     quem está digitando — que seria o defeito oposto e pior. */
+  useEffect(() => {
+    if (editing) return;
+    setReusTexto(listaDosNomes(nomesDasChaves(form.requeridos, reusCatalogo)));
+  }, [form.requeridos, reusCatalogo, editing]);
 
   // Persiste a linha temporal no banco sempre que as etapas mudam (tarefa nova,
   // pendência, avanço, status). Debounce curto; ignora se nada mudou vs o salvo.
@@ -357,10 +397,33 @@ export default function ProcessoDetail() {
     if (!form.numero_processo.trim()) { toast.error("Número do processo é obrigatório"); return; }
     if (!form.cliente_id) { toast.error("Cliente é obrigatório"); return; }
     setSaving(true);
+
+    /* RÉU NOVO ENTRA NO CATÁLOGO ANTES DE ENTRAR NO PROCESSO. Sem isto, a
+       chave gravada no processo não teria linha correspondente e a ficha
+       mostraria `BANCO_XPTO` em vez de "Banco XPTO" — o uuid-na-tela de novo,
+       com outro nome. */
+    const reusMudaram = !mesmasChaves(form.requeridos, saved?.requeridos);
+    if (reusMudaram && form.requeridos.length > 0) {
+      const novas = form.requeridos.filter((c) => !reusCatalogo[c]);
+      if (novas.length > 0) {
+        const linhas = novas.map((c) => ({ chave: c, nome: reusNomes.find((n) => chaveDeRequerido(n) === c) ?? c }));
+        await (supabase.from("requeridos_catalogo" as never) as never as {
+          upsert: (v: unknown, o: unknown) => Promise<unknown>;
+        }).upsert(linhas, { onConflict: "chave" });
+        setReusCatalogo((a) => ({ ...a, ...Object.fromEntries(linhas.map((l) => [l.chave, l.nome])) }));
+      }
+    }
+
     const payload = {
       numero_processo: form.numero_processo.trim(),
       cliente_id: form.cliente_id,
       materia: form.materia.trim() || null,
+      requeridos: form.requeridos.length > 0 ? form.requeridos : null,
+      /* A ORIGEM SÓ VIRA "manual" QUANDO A LISTA REALMENTE MUDOU. Gravar
+         "manual" em todo salvamento apagaria a procedência de 406 processos
+         conferidos no tribunal — e com ela a possibilidade de reprocessar só o
+         que veio de palpite. */
+      ...(reusMudaram ? { requerido_origem: form.requeridos.length > 0 ? "manual" : null } : {}),
       data_ultimo_andamento: form.data_ultimo_andamento || null,
       prazo_processual: form.prazo_processual || null,
       fase_processual: form.fase_processual.trim() || null,
@@ -373,13 +436,21 @@ export default function ProcessoDetail() {
       parceiro: form.parceiro.trim() || null,
     };
 
+    /* O CAST EXISTE POR CAUSA DO `types.ts` DESATUALIZADO, não por causa do
+       payload. O arquivo gerado não conhece `requeridos` nem
+       `requerido_origem` — nem `linha_temporal` e `fixado_geral`, que já eram
+       castadas aqui pelo mesmo motivo. Regenerar o types.ts resolve os quatro
+       de uma vez e é dívida antiga; até lá, o cast fica LOCAL ao insert/update,
+       para o resto do arquivo continuar tipado de verdade. */
+    const gravavel = payload as never;
+
     let error: unknown;
     if (isNew) {
-      const res = await supabase.from("processos").insert(payload).select("id").single();
+      const res = await supabase.from("processos").insert(gravavel).select("id").single();
       error = res.error;
       if (!error && res.data) { setSaving(false); toast.success("Processo criado"); navigate(`/processos/${res.data.id}`); return; }
     } else {
-      const res = await supabase.from("processos").update(payload).eq("id", id!);
+      const res = await supabase.from("processos").update(gravavel).eq("id", id!);
       error = res.error;
     }
     setSaving(false);
@@ -522,6 +593,40 @@ export default function ProcessoDetail() {
               <Package className="h-4 w-4 text-primary/70 shrink-0" />
               <span className="font-medium">{form.materia || "Matéria não informada"}</span>
             </div>
+
+            {/* ── CONTRA QUEM É ESTA AÇÃO ──
+                Vem logo depois da matéria porque as duas juntas são a frase que
+                identifica o processo: "cesta de tarifas contra o Bradesco". Até
+                aqui a ficha dizia só a primeira metade, e a segunda morava num
+                campo do CLIENTE — que erra por construção quando o cliente tem
+                mais de um processo (a ALBANIZA tem sete, contra cinco réus
+                diferentes, e o campo guardava um).
+
+                O ícone é o do banco, e não a balança: 283 dos 428 são contra o
+                Bradesco, e a balança já é o processo inteiro. */}
+            <div className="flex items-start gap-2 text-[15px] min-w-0">
+              <Landmark className="h-4 w-4 text-primary/70 shrink-0 mt-[3px]" />
+              <div className="min-w-0">
+                {form.requeridos.length > 0 ? (
+                  <span className="font-medium break-words">
+                    {nomesDasChaves(form.requeridos, reusCatalogo).join("  ·  ")}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Requerido não informado</span>
+                )}
+                {/* A PROCEDÊNCIA APARECE SÓ QUANDO NÃO FOI O TRIBUNAL.
+                    Escrever "conferido no tribunal" em 406 fichas seria ruído
+                    constante; o que precisa de atenção é o herdado do contrato,
+                    que ninguém conferiu — e é justamente esse que a tela cala
+                    se a regra for mostrar tudo ou nada. */}
+                {form.requerido_origem && form.requerido_origem !== "djen" && (
+                  <span className="block text-[11px] text-muted-foreground/70 leading-snug">
+                    {fonteDoRequerido(form.requerido_origem)}
+                  </span>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center gap-2 text-[15px]">
               <MapPin className="h-4 w-4 text-primary/70 shrink-0" />
               <span className="font-medium">{localizacao || "Vara e comarca não informadas"}</span>
@@ -777,6 +882,27 @@ export default function ProcessoDetail() {
               <Field label="Matéria">
                 <Input value={form.materia} onChange={(e) => setForm({ ...form, materia: e.target.value })} placeholder="RCC, CESTA, RMC..." />
               </Field>
+              {/* O campo aceita nome, e não chave: quem preenche escreve "Banco
+                  Bradesco". A lista de sugestões é o catálogo inteiro, então
+                  digitar "brad" já oferece as duas Bradesco — que são PJs
+                  diferentes e não podem ser escolhidas no chute. */}
+              <Field label="Requerido">
+                <Input
+                  value={reusTexto}
+                  list="requeridos-conhecidos"
+                  onChange={(e) => {
+                    setReusTexto(e.target.value);
+                    setForm({ ...form, requeridos: nomesDaLista(e.target.value).map(chaveDeRequerido) });
+                  }}
+                  placeholder="Banco Bradesco — dois réus, separados por vírgula"
+                />
+                <datalist id="requeridos-conhecidos">
+                  {Object.values(reusCatalogo).sort().map((n) => <option key={n} value={n} />)}
+                </datalist>
+                {form.requerido_origem && (
+                  <p className="mt-1 text-[11px] text-muted-foreground/70">{fonteDoRequerido(form.requerido_origem)}</p>
+                )}
+              </Field>
               <Field label="Fase Processual">
                 <Input value={form.fase_processual} onChange={(e) => setForm({ ...form, fase_processual: e.target.value })} placeholder="AG. SENTENÇA, ARQUIVADO..." />
               </Field>
@@ -820,6 +946,11 @@ export default function ProcessoDetail() {
               <Row label="Nº do Processo"><span className="font-mono">{form.numero_processo || "não informado"}</span></Row>
               <Row label="Cliente">{clienteSelecionado?.nome || "não informado"}</Row>
               <Row label="Matéria">{form.materia || "não informado"}</Row>
+              <Row label="Requerido">
+                {form.requeridos.length > 0
+                  ? nomesDasChaves(form.requeridos, reusCatalogo).join(" · ")
+                  : "não informado"}
+              </Row>
               <Row label="Fase Processual">{form.fase_processual || "não informado"}</Row>
               <Row label="Último Andamento">{fmtData(form.data_ultimo_andamento)}</Row>
               <Row label="Prazo Processual">{form.prazo_processual ? fmtData(form.prazo_processual) : "não informado"}</Row>
