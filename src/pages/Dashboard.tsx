@@ -5,12 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DonutChart } from "@/components/DonutChart";
 import {
   Briefcase, Users, DollarSign, TrendingUp,
-  PlayCircle, PauseCircle, AlertCircle,
-  CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks, Gavel,
-  Zap, Eye, Flame, Send,
+  AlertCircle, CalendarClock, MapPin, Scale, Handshake, ClipboardList, ListChecks, Gavel,
+  Zap, Eye, Trophy, PauseCircle, Info,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
+} from "recharts";
 import { hojeISO as diaDeHoje } from "@/lib/hoje";
+import {
+  resumo as resumirDesfechos, porMateria, porRequerido, porMes,
+  type LinhaDesfecho, type FaixaDesfecho, type MesDesfecho,
+} from "@/lib/procedencia";
 
 const fmtBRLfull = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -131,18 +137,190 @@ function urgencia(prazo: string) {
   return { dias, label: `em ${dias}d`, cls: "text-muted-foreground", chip: "bg-muted/30 text-muted-foreground ring-border" };
 }
 
+/* ══════════════════════════════ PROCEDÊNCIA ══════════════════════════════
+ *
+ * A pergunta que esta seção responde é "quanto a gente ganha", e ela não tinha
+ * resposta no sistema: `sentencas` só registra vitória. O denominador vem de
+ * `vw_desfecho_processo`, que lê a última decisão publicada no DJEN.
+ *
+ * AS CORES SÃO DE ESTADO, NÃO DE SÉRIE. Ganhou, ganhou em parte, perdeu: isso é
+ * bom / atenção / ruim, e a paleta é a de status, não a de categorias. Os tons
+ * 600 foram validados nos dois temas (faixa de luminosidade e contraste passam;
+ * a separação para daltonismo fica em 7.9, na faixa que exige codificação
+ * secundária). Por isso toda barra tem rótulo direto, legenda e 2px de fundo
+ * entre os segmentos: a cor nunca é o único canal.
+ */
+const COR = {
+  procedente: "#059669",   // emerald-600
+  parcial: "#d97706",      // amber-600
+  improcedente: "#e11d48", // rose-600
+} as const;
+
+const NOME_DESFECHO = {
+  procedente: "Procedente",
+  parcial: "Parcialmente procedente",
+  improcedente: "Improcedente",
+} as const;
+
+function Legenda({ itens }: { itens: Array<keyof typeof COR> }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      {itens.map((k) => (
+        <span key={k} className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-[2px]" style={{ background: COR[k] }} />
+          {NOME_DESFECHO[k]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* Cartão de número. `tom` colore só o VALOR, e só quando o número tem lado
+   (verde para ganho, vermelho para perda). Rótulo e legenda ficam em texto
+   normal: texto não veste cor de dado. */
+function Tile({ rotulo, valor, sub, tom, icone: Icone }: {
+  rotulo: string; valor: string; sub?: string; tom?: string;
+  icone?: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <SpotlightCard sutil>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">{rotulo}</p>
+          <p className={`text-3xl font-normal font-display mt-1 leading-none ${tom ?? ""}`}>{valor}</p>
+          {sub && <p className="text-[11px] text-muted-foreground/80 mt-1.5 leading-snug">{sub}</p>}
+        </div>
+        {Icone && <Icone className="h-6 w-6 text-primary/50 shrink-0 mt-0.5" />}
+      </div>
+    </SpotlightCard>
+  );
+}
+
+/* UMA BARRA POR LINHA, comprimento = quantos foram decididos, composição = como
+   foi. Os dois canais juntos são o que um advogado quer ver: uma matéria com
+   100% e três processos não é a mesma coisa que uma com 24% e vinte e um.
+   A barra de 100% de largura só de composição esconderia isso. */
+function BarraDesfecho({ f, pico }: { f: FaixaDesfecho; pico: number }) {
+  const largura = pico > 0 ? (f.decididos / pico) * 100 : 0;
+  const seg = (n: number, cor: string, nome: string, ultimo: boolean) =>
+    n > 0 ? (
+      <div
+        key={nome}
+        title={`${nome}: ${n}`}
+        className={`h-[18px] ${ultimo ? "rounded-r-[4px]" : ""}`}
+        style={{ flex: `${n} 0 0`, background: cor, minWidth: 3 }}
+      />
+    ) : null;
+  const ordem: Array<[number, string, string]> = [
+    [f.procedentes, COR.procedente, NOME_DESFECHO.procedente],
+    [f.parciais, COR.parcial, NOME_DESFECHO.parcial],
+    [f.improcedentes, COR.improcedente, NOME_DESFECHO.improcedente],
+  ];
+  /* Só o último segmento visível recebe a ponta arredondada: o dado termina
+     ali. Procurar de trás pra frente é o jeito de achar sem depender do valor. */
+  let ultimoIdx = -1;
+  for (let i = ordem.length - 1; i >= 0; i--) { if (ordem[i][0] > 0) { ultimoIdx = i; break; } }
+  return (
+    <div className="group relative flex items-center gap-3 py-1 rounded-md px-1 hover:bg-white/[0.03]">
+      <span className="w-40 sm:w-52 shrink-0 text-[12.5px] truncate" title={f.nome}>{f.nome}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex gap-[2px]" style={{ width: `${largura}%`, minWidth: 6 }}>
+          {ordem.map((o, i) => seg(o[0], o[1], o[2], i === ultimoIdx))}
+        </div>
+      </div>
+      <span className={`w-11 text-right text-[13px] tabular-nums ${
+        f.taxa == null ? "text-muted-foreground" : f.taxa >= 50 ? "text-emerald-400" : "text-rose-400"}`}>
+        {f.taxa == null ? "sem dado" : `${f.taxa}%`}
+      </span>
+      <span className="w-10 text-right text-[11px] text-muted-foreground tabular-nums">{f.decididos}</span>
+
+      {/* A leitura completa no hover, sem depender de acertar um segmento de
+          3px. Os mesmos números estão na tabela logo abaixo, então o tooltip
+          acrescenta conforto e não é a única porta. */}
+      <div className="pointer-events-none absolute left-40 sm:left-52 -top-1 -translate-y-full z-10 hidden group-hover:block
+                      rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] shadow-lg whitespace-nowrap">
+        <div className="font-medium text-foreground mb-1">{f.nome}</div>
+        {ordem.map(([n, cor, nome]) => (
+          <div key={nome} className="flex items-center gap-2 text-muted-foreground">
+            <span className="h-[2px] w-3" style={{ background: cor }} />
+            <span className="tabular-nums text-foreground">{n}</span> {nome.toLowerCase()}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TabelaDesfecho({ linhas, rotulo }: { linhas: FaixaDesfecho[]; rotulo: string }) {
+  return (
+    <details className="mt-3 group/tab">
+      <summary className="cursor-pointer text-[11px] text-primary hover:underline select-none">
+        Ver como tabela
+      </summary>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="text-left text-muted-foreground border-b border-border/50">
+              <th className="py-1.5 pr-3 font-normal">{rotulo}</th>
+              <th className="py-1.5 px-2 font-normal text-right">Proced.</th>
+              <th className="py-1.5 px-2 font-normal text-right">Parcial</th>
+              <th className="py-1.5 px-2 font-normal text-right">Improc.</th>
+              <th className="py-1.5 px-2 font-normal text-right">Decididos</th>
+              <th className="py-1.5 pl-2 font-normal text-right">Taxa</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((f) => (
+              <tr key={f.nome} className="border-b border-border/30">
+                <td className="py-1.5 pr-3 truncate max-w-[16rem]" title={f.nome}>{f.nome}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{f.procedentes}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{f.parciais}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{f.improcedentes}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{f.decididos}</td>
+                <td className="py-1.5 pl-2 text-right tabular-nums">{f.taxa == null ? "sem dado" : `${f.taxa}%`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+function TooltipMes({ active, payload }: { active?: boolean; payload?: Array<{ payload: MesDesfecho }> }) {
+  if (!active || !payload?.length) return null;
+  const m = payload[0].payload;
+  return (
+    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] shadow-lg">
+      <div className="font-medium text-foreground mb-1">{m.rotulo}</div>
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="h-[2px] w-3" style={{ background: COR.procedente }} />
+        <span className="tabular-nums text-foreground">{m.ganhos}</span> ganhos
+      </div>
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <span className="h-[2px] w-3" style={{ background: COR.improcedente }} />
+        <span className="tabular-nums text-foreground">{m.perdidos}</span> perdidos
+      </div>
+      <div className="mt-1 text-muted-foreground">
+        taxa <span className="tabular-nums text-foreground">{m.taxa == null ? "sem dado" : `${m.taxa}%`}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   useEffect(() => { document.title = "Dashboard · AW ECO ME"; }, []);
   const navigate = useNavigate();
   const [processos, setProcessos] = useState<Processo[]>([]);
   const [totalClientes, setTotalClientes] = useState(0);
   const [tarefas, setTarefas] = useState<TarefaRow[]>([]);
-  const [esteira, setEsteira] = useState({ prontas: 0, emProducao: 0 });
+  const [desfechos, setDesfechos] = useState<LinhaDesfecho[]>([]);
+  const [nomesReus, setNomesReus] = useState<Record<string, string>>({});
   const [janela, setJanela] = useState<"vencidas" | "7" | "30">("vencidas");
 
   useEffect(() => {
     (async () => {
-      const [{ data: procs }, { count: cliCount }, { data: tks }, { data: dem }] =
+      const [{ data: procs }, { count: cliCount }, { data: tks }, { data: desf }, { data: reus }] =
         await Promise.all([
           supabase
             .from("processos")
@@ -156,19 +334,17 @@ export default function Dashboard() {
             .is("desfecho", null)
             .not("prazo", "is", null)
             .order("prazo", { ascending: true }),
-          supabase.from("demandas" as never).select("etapa").eq("status", "pendente"),
+          supabase
+            .from("vw_desfecho_processo" as never)
+            .select("materia, requeridos, fase_processual, desfecho, dt_desfecho, executado, valor_sentenca, no_tracker"),
+          supabase.from("requeridos_catalogo" as never).select("chave, nome"),
         ]);
       if (procs) setProcessos(procs as unknown as Processo[]);
       setTotalClientes(cliCount ?? 0);
       if (tks) setTarefas(tks as unknown as TarefaRow[]);
-      if (dem) {
-        const rows = dem as unknown as Array<{ etapa: string }>;
-        setEsteira({
-          prontas: rows.filter((d) => d.etapa === "pronta_para_protocolo").length,
-          emProducao: rows.filter((d) =>
-            ["analise_vinculada", "fluxo_artesanal", "confeccao_peca", "pendencia_documental"].includes(d.etapa),
-          ).length,
-        });
+      if (desf) setDesfechos(desf as unknown as LinhaDesfecho[]);
+      if (reus) {
+        setNomesReus(Object.fromEntries((reus as unknown as { chave: string; nome: string }[]).map((r) => [r.chave, r.nome])));
       }
     })();
   }, []);
@@ -218,6 +394,15 @@ export default function Dashboard() {
     };
   }, [processos]);
 
+  const proc = useMemo(() => resumirDesfechos(desfechos), [desfechos]);
+  const procMateria = useMemo(() => porMateria(desfechos, 3), [desfechos]);
+  const procRequerido = useMemo(() => porRequerido(desfechos, nomesReus, 8), [desfechos, nomesReus]);
+  const procMes = useMemo(() => porMes(desfechos), [desfechos]);
+  const picoMateria = procMateria[0]?.decididos ?? 1;
+  const suspensosJuros = useMemo(
+    () => desfechos.filter((d) => d.desfecho === "em_andamento" && d.fase_processual === "SUSPENSO" && d.materia === "JUROS E ENCARGOS INDEVIDOS").length,
+    [desfechos]);
+
   const distFase = useMemo(() => countBy(processos, (p) => p.fase_processual), [processos]);
   const distMateria = useMemo(() => countBy(processos, (p) => p.materia), [processos]);
   const distComarca = useMemo(() => countBy(processos, (p) => p.comarca_uf), [processos]);
@@ -242,7 +427,7 @@ export default function Dashboard() {
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Valor Ajuizado</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Soma das causas em andamento — exclui processos arquivados
+              Soma das causas em andamento, sem os processos arquivados
             </p>
             <Money
               value={stats.valorAjuizado}
@@ -332,36 +517,172 @@ export default function Dashboard() {
         </SpotlightCard>
       </div>
 
-      {/* O que exige alguém hoje */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <SpotlightCard
-          onClick={() => { setJanela("vencidas"); document.getElementById("prazos")?.scrollIntoView({ behavior: "smooth" }); }}
-          className={`cursor-pointer ${tarefasStats.vencidas.length ? "ring-1 ring-rose-500/30" : ""}`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Prazos vencidos</p>
-              <p className={`text-2xl font-normal font-display mt-1 ${tarefasStats.vencidas.length ? "text-rose-400" : ""}`}>
-                {tarefasStats.vencidas.length}
-              </p>
-            </div>
-            <Flame className={`h-7 w-7 ${tarefasStats.vencidas.length ? "text-rose-400/70" : "text-primary/60"}`} />
+      {/* ═════════════════════════ PROCEDÊNCIA ═════════════════════════ */}
+      <section className="space-y-4" aria-labelledby="procedencia">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h3 id="procedencia" className="font-display text-xl font-medium tracking-tight flex items-center gap-2">
+              <Scale className="h-5 w-5 text-primary" /> Procedência
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Lida da última decisão publicada no DJEN para cada processo
+            </p>
           </div>
-        </SpotlightCard>
+          <Legenda itens={["procedente", "parcial", "improcedente"]} />
+        </div>
 
-        <SpotlightCard onClick={() => navigate("/esteira")} className="cursor-pointer">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Prontas pra protocolar</p>
-              <p className="text-2xl font-normal font-display mt-1">{esteira.prontas}</p>
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                + {esteira.emProducao} em produção
+        {/* A linha de números. Cada um tem o seu lado: ganho verde, perda
+            vermelha, o resto sem cor porque não é nem um nem outro. */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          <Tile rotulo="Decididos no mérito" valor={String(proc.decididos)}
+                sub={`de ${proc.total} processos`} icone={Gavel} />
+          <Tile rotulo="Procedência" valor={proc.taxa == null ? "sem dado" : `${proc.taxa}%`}
+                sub={`${proc.ganhos} ganhos em ${proc.decididos} decididos`}
+                tom={proc.taxa == null ? undefined : proc.taxa >= 50 ? "text-emerald-400" : "text-rose-400"} />
+          <Tile rotulo="Ganhos" valor={String(proc.ganhos)}
+                sub={`${proc.procedentes} totais · ${proc.parciais} parciais`} tom="text-emerald-400" icone={Trophy} />
+          <Tile rotulo="Perdidos" valor={String(proc.improcedentes)}
+                sub="improcedentes" tom="text-rose-400" />
+          <Tile rotulo="Fora da taxa" valor={String(proc.acordos + proc.semMerito + proc.pagosSemSentenca)}
+                sub={`${proc.acordos} acordos · ${proc.semMerito} sem mérito · ${proc.pagosSemSentenca} pagos sem sentença`} />
+          <Tile rotulo="Suspensos" valor={String(proc.suspensos)}
+                sub={suspensosJuros > 0 ? `${suspensosJuros} de juros e encargos aguardam o IRDR` : "aguardando decisão do juízo"}
+                icone={PauseCircle} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+          {/* Por matéria: o gráfico principal da seção. */}
+          <Card className="lg:col-span-3">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-primary" /> Por matéria
+                <span className="ml-auto text-xs font-normal text-muted-foreground">
+                  comprimento = decididos · cor = desfecho
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {procMateria.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Nenhuma decisão de mérito encontrada.</p>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 px-1 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    <span className="w-40 sm:w-52 shrink-0">matéria</span>
+                    <span className="flex-1" />
+                    <span className="w-11 text-right">taxa</span>
+                    <span className="w-10 text-right">n</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {procMateria.map((f) => <BarraDesfecho key={f.nome} f={f} pico={picoMateria} />)}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/70 mt-3">
+                    Matérias com menos de 3 decisões somam em OUTRAS: uma taxa feita de um processo é 0% ou 100%, e nenhum dos dois informa.
+                  </p>
+                  <TabelaDesfecho linhas={procMateria} rotulo="Matéria" />
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Por requerido: mais de sete classes, então é tabela. */}
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Handshake className="h-4 w-4 text-primary" /> Por requerido
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {procRequerido.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Sem decisões.</p>
+              ) : (
+                <table className="w-full text-[12.5px]">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b border-border/50 text-[11px] uppercase tracking-wider">
+                      <th className="py-1.5 pr-2 font-normal">Requerido</th>
+                      <th className="py-1.5 px-1 font-normal text-right">Ganhos</th>
+                      <th className="py-1.5 px-1 font-normal text-right">Perdas</th>
+                      <th className="py-1.5 pl-1 font-normal text-right">Taxa</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {procRequerido.map((f) => (
+                      <tr key={f.nome} className="border-b border-border/30">
+                        <td className="py-2 pr-2 truncate max-w-[12rem]" title={f.nome}>{f.nome}</td>
+                        <td className="py-2 px-1 text-right tabular-nums">{f.procedentes + f.parciais}</td>
+                        <td className="py-2 px-1 text-right tabular-nums">{f.improcedentes}</td>
+                        <td className={`py-2 pl-1 text-right tabular-nums ${
+                          f.taxa == null ? "text-muted-foreground" : f.taxa >= 50 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {f.taxa == null ? "sem dado" : `${f.taxa}%`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="text-[11px] text-muted-foreground/70 mt-3">
+                Litisconsórcio conta o processo em cada réu.
               </p>
-            </div>
-            <Send className="h-7 w-7 text-primary/60" />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Mês a mês. Colunas empilhadas de quantidade e a taxa como rótulo em
+            cima: dois números, um eixo. */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-primary" /> Decisões por mês
+              <span className="ml-auto"><Legenda itens={["procedente", "improcedente"]} /></span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {procMes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Sem decisões datadas.</p>
+            ) : (
+              <div className="h-[230px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={procMes} margin={{ top: 22, right: 8, left: -14, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.5} />
+                    <XAxis dataKey="rotulo" tickLine={false} axisLine={false}
+                           tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={36}
+                           tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip content={<TooltipMes />} cursor={{ fill: "hsl(var(--muted) / 0.25)" }} />
+                    <Bar dataKey="ganhos" name="ganhos" stackId="d" fill={COR.procedente} barSize={18}
+                         stroke="hsl(var(--card))" strokeWidth={2} isAnimationActive={false} />
+                    <Bar dataKey="perdidos" name="perdidos" stackId="d" fill={COR.improcedente} barSize={18}
+                         radius={[4, 4, 0, 0]} stroke="hsl(var(--card))" strokeWidth={2} isAnimationActive={false}>
+                      <LabelList dataKey="taxa" position="top" offset={6}
+                                 formatter={(v: number | null) => (v == null ? "" : `${v}%`)}
+                                 style={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground/70 mt-2">
+              O rótulo em cima de cada mês é a taxa daquele mês. Só meses com decisão de mérito aparecem.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Como o número é feito. Sem isto, a taxa vira um número que ninguém
+            sabe defender numa reunião. */}
+        <div className="flex gap-3 rounded-lg border border-border/60 bg-card/50 px-4 py-3 text-[12px] text-muted-foreground leading-relaxed">
+          <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary/70" />
+          <div>
+            <span className="text-foreground/90">Como a taxa é calculada.</span> O desfecho de cada processo é
+            a última decisão publicada no DJEN. Ganho é procedente ou parcialmente procedente; perdido é
+            improcedente. Acordos, extinções sem mérito e pagamentos sem sentença ficam fora do cálculo.
+            {proc.executados > 0 && <> {proc.executados} vitórias já foram extintas por pagamento.</>}
+            {proc.valorGanho > 0 && <> Valor sentenciado registrado: {fmtBRLfull(proc.valorGanho)}.</>}
+            {proc.ganhosForaDoTracker > 0 && (
+              <> O DJEN encontra <span className="text-foreground/90">{proc.ganhosForaDoTracker}</span> vitórias
+              que ainda não estão no Tracker.</>
+            )}
           </div>
-        </SpotlightCard>
-      </div>
+        </div>
+      </section>
 
       {/* Distribuições principais */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -499,7 +820,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Central de prazos — a lista some quando não há nada, e abre nos
+      {/* Central de prazos. A lista some quando não há nada, e abre nos
           vencidos, que é o que ninguém pode deixar passar. */}
       <Card id="prazos" className={tarefasStats.vencidas.length ? "border-rose-500/25" : undefined}>
         <CardHeader>
@@ -558,7 +879,7 @@ export default function Dashboard() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{t.titulo}</p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {t.cliente_nome ?? "—"} · <span className="font-mono">{t.numero_processo}</span>
+                        {t.cliente_nome ?? "sem cliente"} · <span className="font-mono">{t.numero_processo}</span>
                       </p>
                       {t.conteudo && (
                         <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{t.conteudo}</p>
