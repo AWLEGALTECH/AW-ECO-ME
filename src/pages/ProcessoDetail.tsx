@@ -129,6 +129,11 @@ const CAPAS = {
   cartaoProtegido: { src: "/processo-capas/seguro-cartao-protegido.jpg", nome: "Seguro Cartão Protegido" },
   dividaAtraso: { src: "/processo-capas/divida-atraso.jpg", nome: "Dívida em Atraso" },
   contaFraude: { src: "/processo-capas/conta-fraude.jpg", nome: "Conta Aberta por Fraude" },
+  /* O Mix tem capa própria no Writer, e ela estava faltando aqui: eu tinha
+     concluído que não existia olhando só a pasta, sem olhar a fonte. As capas
+     moram em base64 dentro de `writer-app/src/products.js`, e esta saiu de lá.
+     Conferido: as doze batem byte a byte com as do Writer. */
+  mix: { src: "/processo-capas/mix-bradesco.jpg", nome: "Mix Bradesco" },
 } as const;
 
 // Remove acentos, sobe pra maiúsculo e colapsa espaços — deixa a matéria pronta
@@ -169,6 +174,7 @@ const CAPA_DO_PRODUTO: Record<string, { src: string; nome: string }> = {
   "SEGURO CARTAO PROTEGIDO": CAPAS.cartaoProtegido,
   "DIVIDA EM ATRASO": CAPAS.dividaAtraso,
   "CONTA ABERTA POR FRAUDE": CAPAS.contaFraude,
+  "MIX BRADESCO": CAPAS.mix,
 };
 
 function capaParaMateria(materia?: string | null): { src: string; nome: string } | undefined {
