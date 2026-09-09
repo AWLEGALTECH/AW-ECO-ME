@@ -26,6 +26,27 @@ export function chaveDeRequerido(nome: string): string {
 }
 
 /**
+ * O nome como ele se escreve: SEMPRE MAIÚSCULO.
+ *
+ * A ficha põe matéria e requerido um embaixo do outro, e a matéria vem da
+ * planilha em caixa alta. Com o réu em caixa mista logo abaixo — "ALIMENTO
+ * CONTAMINADO" sobre "Nestle Brasil Ltda" — as duas linhas parecem vir de
+ * sistemas diferentes.
+ *
+ * A caixa mista não era escolha nossa: é o DJEN, que escreve "BANCO BRADESCO"
+ * numa publicação e "Nestle Brasil Ltda" na outra. Herdar a inconsistência da
+ * fonte é herdar o problema.
+ *
+ * OS ACENTOS FICAM: PREVIDÊNCIA, LOCAÇÃO, ÂMBAR. Tirar acento seria outra
+ * decisão, e uma que empobrece o nome próprio de uma empresa. O banco tem a
+ * mesma regra num CHECK, então isto aqui é conveniência da tela — não é o que
+ * segura a regra de pé.
+ */
+export function nomeDeRequerido(nome: string): string {
+  return (nome ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
  * A lista digitada vira nomes.
  *
  * Separa por vírgula, e NÃO por ponto-e-vírgula nem por "e": razão social tem
@@ -37,7 +58,7 @@ export function chaveDeRequerido(nome: string): string {
 export function nomesDaLista(texto: string): string[] {
   return (texto ?? "")
     .split(",")
-    .map((n) => n.trim().replace(/\s+/g, " "))
+    .map(nomeDeRequerido)
     .filter((n) => n.length > 1);
 }
 

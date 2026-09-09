@@ -1,7 +1,28 @@
 import { test, expect } from "bun:test";
 import {
-  chaveDeRequerido, nomesDaLista, listaDosNomes, nomesDasChaves, mesmasChaves, fonteDoRequerido,
+  chaveDeRequerido, nomeDeRequerido, nomesDaLista, listaDosNomes, nomesDasChaves,
+  mesmasChaves, fonteDoRequerido,
 } from "./requeridos";
+
+/* O nome do réu fica embaixo da matéria na ficha, e a matéria vem da planilha
+   em caixa alta. "Nestle Brasil Ltda" embaixo de "ALIMENTO CONTAMINADO" faz as
+   duas linhas parecerem de sistemas diferentes. O banco tem a mesma regra num
+   CHECK — este teste guarda o lado da tela. */
+test("o nome do requerido é sempre maiúsculo", () => {
+  expect(nomeDeRequerido("Nestle Brasil Ltda")).toBe("NESTLE BRASIL LTDA");
+  expect(nomeDeRequerido("  banco   bradesco  ")).toBe("BANCO BRADESCO");
+  expect(nomeDeRequerido("PicPay")).toBe("PICPAY");
+});
+
+/* Acento fica: é nome próprio de empresa, e tirar seria outra decisão. */
+test("maiúsculo preserva acento", () => {
+  expect(nomeDeRequerido("Bradesco Vida e Previdência")).toBe("BRADESCO VIDA E PREVIDÊNCIA");
+  expect(nomeDeRequerido("Amazonas Energia (Âmbar)")).toBe("AMAZONAS ENERGIA (ÂMBAR)");
+});
+
+test("a lista digitada já sai maiúscula", () => {
+  expect(nomesDaLista("Nestle Brasil, banco bmg")).toEqual(["NESTLE BRASIL", "BANCO BMG"]);
+});
 
 /* A CHAVE PRECISA BATER COM A DO BANCO, senão o mesmo réu entra no catálogo
    duas vezes — uma pela tela e uma pelo gatilho da publicação. Os casos aqui
@@ -31,8 +52,8 @@ test("Bradesco e Bradesco Vida não colidem", () => {
 });
 
 test("a lista digitada separa por vírgula e limpa espaço", () => {
-  expect(nomesDaLista("Banco Bradesco, Banco BMG")).toEqual(["Banco Bradesco", "Banco BMG"]);
-  expect(nomesDaLista("  Estado do Amazonas ,, DETRAN/AM ")).toEqual(["Estado do Amazonas", "DETRAN/AM"]);
+  expect(nomesDaLista("Banco Bradesco, Banco BMG")).toEqual(["BANCO BRADESCO", "BANCO BMG"]);
+  expect(nomesDaLista("  Estado do Amazonas ,, DETRAN/AM ")).toEqual(["ESTADO DO AMAZONAS", "DETRAN/AM"]);
   expect(nomesDaLista("")).toEqual([]);
 });
 
@@ -45,7 +66,7 @@ test("razão social com vírgula parte em pedaços — comportamento conhecido",
 });
 
 test("ida e volta entre lista e nomes", () => {
-  const nomes = ["Banco Bradesco", "Banco BMG"];
+  const nomes = ["BANCO BRADESCO", "BANCO BMG"];
   expect(nomesDaLista(listaDosNomes(nomes))).toEqual(nomes);
 });
 
