@@ -1,10 +1,30 @@
+/* MENU LATERAL.
+ *
+ * A lista de módulos é a mesma para todo mundo; a ORDEM é de cada um. O botão
+ * "Reorganizar" no fim da lista abre o modo de arrastar, e a ordem escolhida
+ * vai para a conta (preferencias_usuario), não para o navegador. Módulo que a
+ * pessoa ganhar depois entra no lugar padrão dele; módulo que perder some sem
+ * bagunçar o resto (ordenarPorPreferencia).
+ *
+ * O item ativo é um único indicador que desliza entre os itens (layoutId),
+ * translúcido na cor do tema, como a barra do dashboard. O ícone responde ao
+ * mouse com um leve crescimento; nada pisca, nada gira.
+ */
+import { useEffect, useState } from "react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { motion, Reorder, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { appConfig } from "@/config/app-config";
 import { useTheme } from "@/hooks/useTheme";
-import { LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper, Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone, Wallet, MessagesSquare } from "lucide-react";
+import { usePreferencias } from "@/hooks/usePreferencias";
+import { ordenarPorPreferencia } from "@/lib/preferencias";
+import {
+  LayoutDashboard, Users, Briefcase, Zap, PenSquare, FileSignature, ScanSearch, Workflow, UserCog, Activity, Newspaper,
+  Trophy, Eye, ListTodo, Ticket, BarChart3, FileSpreadsheet, KanbanSquare, Megaphone, Wallet, MessagesSquare,
+  ArrowUpDown, GripVertical, Check, RotateCcw, type LucideIcon,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { ModuleKey } from "@/lib/modules";
 import {
@@ -20,7 +40,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-interface NavItem { title: string; url: string; icon: any; badgeKey?: string; module?: ModuleKey; beta?: boolean; alwaysVisible?: boolean }
+interface NavItem { title: string; url: string; icon: LucideIcon; badgeKey?: string; module?: ModuleKey; beta?: boolean; alwaysVisible?: boolean }
 
 const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
@@ -43,28 +63,73 @@ const navItems: NavItem[] = [
   { title: "Marketing",     url: "/marketing",     icon: Megaphone,       module: "marketing",    beta: true },
 ];
 
+const adminItems: NavItem[] = [
+  { title: "Usuários", url: "/admin/usuarios", icon: UserCog },
+  { title: "Logs",     url: "/admin/logs",     icon: Activity },
+];
+
+// Mobile: itens maiores (alvo de toque), voltando ao compacto no desktop (md+).
+// O menu vira Sheet abaixo de 768px, exatamente o breakpoint do `md`.
+const ITEM = "relative group/item rounded-xl mx-1 h-11 gap-3 [&>svg]:size-5 md:h-8 md:gap-2 md:[&>svg]:size-4 transition-colors duration-200";
+const ROTULO = "text-[15px] md:text-sm";
+
+/** Ícone que responde ao mouse: cresce um pouco e sobe um fio. */
+function Icone({ icon: I, ativo }: { icon: LucideIcon; ativo: boolean }) {
+  return (
+    <I className={`relative shrink-0 transition-transform duration-200 ease-out group-hover/item:scale-110 group-hover/item:-translate-y-px
+                   ${ativo ? "text-primary" : ""}`} />
+  );
+}
+
+/** O indicador do item ativo: um só, desliza entre os itens. */
+function Indicador() {
+  return (
+    <motion.span
+      layoutId="menu-ativo"
+      className="absolute inset-0 rounded-xl bg-primary/[0.10] ring-1 ring-primary/20"
+      transition={{ type: "spring", stiffness: 480, damping: 38 }}
+    />
+  );
+}
+
+function Badge({ n, tom = "primario" }: { n: number | undefined; tom?: "primario" | "ambar" }) {
+  if (!n) return null;
+  return (
+    <span className={`ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full text-[10px] font-medium
+                      ${tom === "ambar" ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground"}`}>
+      {n}
+    </span>
+  );
+}
+
 export function AppSidebar() {
   const { state } = useSidebar();
   const { palette } = useTheme();
   const { modules, isAdmin } = useAuth();
+  const { ordemMenu, setOrdemMenu } = usePreferencias();
   const isSei = palette === "sei";
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
 
-  const visibleItems = navItems.filter(it => it.alwaysVisible || isAdmin || (it.module && modules.includes(it.module)));
+  const visiveis = navItems.filter(it => it.alwaysVisible || isAdmin || (it.module && modules.includes(it.module)));
+  const itens = ordenarPorPreferencia(visiveis, ordemMenu, (it) => it.url);
 
-  // Mobile: itens da "barra de sessões" maiores (alvo de toque, ícone e texto),
-  // resetando pro compacto no desktop (md+). O menu vira Sheet abaixo de 768px,
-  // exatamente o breakpoint do `md`, então os resets casam com a troca de layout.
-  const itemMobile = "h-11 gap-3 [&>svg]:size-5 md:h-8 md:gap-2 md:[&>svg]:size-4";
-  const labelMobile = "text-[15px] md:text-sm";
+  // Modo de reorganizar: a lista vira um rascunho arrastável; "Concluir" grava.
+  const [reordenando, setReordenando] = useState(false);
+  const [rascunho, setRascunho] = useState<NavItem[]>([]);
+  useEffect(() => { if (collapsed) setReordenando(false); }, [collapsed]);
+  const abrirReordenacao = () => { setRascunho(itens); setReordenando(true); };
+  const concluir = () => { setOrdemMenu(rascunho.map((it) => it.url)); setReordenando(false); };
+  const restaurarPadrao = () => { setOrdemMenu(null); setReordenando(false); };
 
-  // Pra "AW ECO ME" no SEI, destaca a ultima palavra em verde (#91bb24)
+  const ativo = (url: string) => location.pathname === url || location.pathname.startsWith(url + "/");
+
+  // Pra marca no SEI, destaca a ultima palavra em verde (#91bb24)
   // espelhando o "!" verde-lima do logo "sei!".
-  const nomePartes = appConfig.name.trim().split(/\s+/);
-  const nomeBase = nomePartes.slice(0, -1).join(" ");
-  const nomeUltima = nomePartes[nomePartes.length - 1] || "";
+  const marcaPartes = appConfig.marca.trim().split(/\s+/);
+  const marcaBase = marcaPartes.slice(0, -1).join(" ");
+  const marcaUltima = marcaPartes[marcaPartes.length - 1] || "";
 
   // Badge: contagem de pre-clientes aguardando assinatura (atualiza a cada 30s)
   const { data: pendentesCount } = useQuery({
@@ -95,13 +160,13 @@ export function AppSidebar() {
         supabase.from("clientes").select("id" as any, { count: "exact", head: false })
           .eq("precisa_analise_extratos" as any, true)
           .is("arquivado_em" as any, null),
-        // Qualquer demanda downstream nao-cancelada — exclui tagged que ja
+        // Qualquer demanda downstream nao-cancelada: exclui tagged que ja
         // iniciou pipeline (inclui vinculada, artesanal, pronta, pendencia)
         // pra cliente nao contar 2x quando peca avancou.
         supabase.from("demandas" as any).select("cliente_id", { count: "exact", head: false })
           .in("etapa", ["analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", "pendencia_documental"])
           .neq("status", "cancelada"),
-        // So vinculadas pendentes — contam pra coluna 2 da esteira
+        // So vinculadas pendentes, que contam pra coluna 2 da esteira
         supabase.from("demandas" as any).select("cliente_id", { count: "exact", head: false })
           .eq("etapa", "analise_vinculada").eq("status", "pendente"),
         supabase.from("demandas" as any).select("*", { count: "exact", head: true })
@@ -137,6 +202,45 @@ export function AppSidebar() {
     refetchInterval: 60_000,
   });
 
+  const badgeDe = (item: NavItem) => {
+    if (item.badgeKey === "pendentes") return <Badge n={pendentesCount} />;
+    if (item.badgeKey === "esteira") return <Badge n={esteiraCount} />;
+    if (item.badgeKey === "publicacoes") return <Badge n={publicacoesCount} tom="ambar" />;
+    return null;
+  };
+
+  const conteudoDoItem = (item: NavItem) => (
+    <span className={`${ROTULO} relative flex-1 flex items-center justify-between gap-1 transition-transform duration-200 group-hover/item:translate-x-0.5`}>
+      <span className="flex items-center gap-1.5 min-w-0">
+        <span className="truncate">{item.title}</span>
+        {item.beta && (
+          <span className="shrink-0 text-[8px] uppercase font-semibold tracking-wide leading-none px-1 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
+            beta
+          </span>
+        )}
+      </span>
+      {badgeDe(item)}
+    </span>
+  );
+
+  const itemDeMenu = (item: NavItem) => {
+    const eAtivo = ativo(item.url);
+    return (
+      <SidebarMenuItem key={item.url}>
+        <SidebarMenuButton
+          asChild
+          tooltip={item.title}
+          className={`${ITEM} ${eAtivo ? "text-primary hover:bg-transparent" : "text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"}`}
+        >
+          <NavLink to={item.url} end className="" activeClassName="">
+            {eAtivo && <Indicador />}
+            <Icone icon={item.icon} ativo={eAtivo} />
+            {!collapsed && conteudoDoItem(item)}
+          </NavLink>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-none bg-transparent h-full">
@@ -150,73 +254,67 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="flex flex-col justify-center text-left">
             <span className="sei-brand-title font-medium text-base md:text-sm tracking-tight text-sidebar-foreground leading-none">
-              {isSei && nomeBase ? (
-                <>{nomeBase} <span className="sei-brand-accent">{nomeUltima}</span></>
-              ) : appConfig.name}
+              {isSei && marcaBase ? (
+                <>{marcaBase} <span className="sei-brand-accent">{marcaUltima}</span></>
+              ) : appConfig.marca}
             </span>
           </div>
         )}
       </button>
 
       <SidebarContent className="py-1 overflow-y-auto scrollbar-thin">
-        <SidebarGroup>
-          {!collapsed && (
-            <SidebarGroupLabel className="text-[11px] md:text-[9px] uppercase tracking-[0.18em] font-medium text-muted-foreground px-3 pt-3 pb-1 flex items-center gap-1.5">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary opacity-80" />
-              AW System
-            </SidebarGroupLabel>
-          )}
+        <SidebarGroup className="pt-3">
           <SidebarGroupContent>
-            <SidebarMenu>
-              {visibleItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url + "/");
-                return (
-                  <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton
-                      asChild
-                      tooltip={item.title}
-                      className={
-                        (isActive
-                          ? "bg-primary/15 text-primary rounded-xl mx-1"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
-                        + " " + itemMobile
-                      }
+            <AnimatePresence mode="wait" initial={false}>
+              {reordenando ? (
+                <motion.div key="reordenando" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                  <p className="px-3 pb-2 text-[11px] leading-snug text-muted-foreground">
+                    Arraste os itens para a ordem que preferir. Fica salvo na sua conta.
+                  </p>
+                  <Reorder.Group as="div" axis="y" values={rascunho} onReorder={setRascunho} className="flex flex-col gap-0.5">
+                    {rascunho.map((item) => (
+                      <Reorder.Item
+                        as="div"
+                        key={item.url}
+                        value={item}
+                        whileDrag={{ scale: 1.02, boxShadow: "0 8px 24px -8px hsl(var(--primary) / 0.35)" }}
+                        className={`${ITEM} flex items-center px-2 select-none cursor-grab active:cursor-grabbing bg-sidebar-accent/40 ring-1 ring-sidebar-border/60`}
+                      >
+                        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+                        <item.icon className="h-4 w-4 shrink-0 text-sidebar-foreground/80" />
+                        <span className={`${ROTULO} truncate text-sidebar-foreground`}>{item.title}</span>
+                      </Reorder.Item>
+                    ))}
+                  </Reorder.Group>
+                  <div className="flex items-center gap-1 px-2 pt-2">
+                    <button onClick={concluir}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium bg-primary/[0.12] text-primary ring-1 ring-primary/20 hover:bg-primary/[0.18] transition-colors">
+                      <Check className="h-3.5 w-3.5" /> Concluir
+                    </button>
+                    <button onClick={restaurarPadrao} title="Voltar à ordem padrão do sistema"
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/70 transition-colors">
+                      <RotateCcw className="h-3.5 w-3.5" /> Padrão
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div key="menu" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                  <SidebarMenu>
+                    {itens.map(itemDeMenu)}
+                  </SidebarMenu>
+                  {!collapsed && (
+                    <button
+                      onClick={abrirReordenacao}
+                      className="group/reorg mt-1.5 mx-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-sidebar-accent/60 transition-colors"
+                      title="Arraste os módulos para a ordem que preferir"
                     >
-                      <NavLink to={item.url} end className="" activeClassName="">
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        {!collapsed && (
-                          <span className={`${labelMobile} flex-1 flex items-center justify-between gap-1`}>
-                            <span className="flex items-center gap-1.5 min-w-0">
-                              <span className="truncate">{item.title}</span>
-                              {item.beta && (
-                                <span className="shrink-0 text-[8px] uppercase font-semibold tracking-wide leading-none px-1 py-0.5 rounded bg-amber-400/15 text-amber-400 border border-amber-400/30">
-                                  beta
-                                </span>
-                              )}
-                            </span>
-                            {item.badgeKey === "pendentes" && (pendentesCount ?? 0) > 0 && (
-                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
-                                {pendentesCount}
-                              </span>
-                            )}
-                            {item.badgeKey === "esteira" && (esteiraCount ?? 0) > 0 && (
-                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
-                                {esteiraCount}
-                              </span>
-                            )}
-                            {item.badgeKey === "publicacoes" && (publicacoesCount ?? 0) > 0 && (
-                              <span className="ml-2 h-5 min-w-[20px] px-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium">
-                                {publicacoesCount}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+                      <ArrowUpDown className="h-3 w-3 transition-transform duration-200 group-hover/reorg:-translate-y-px" />
+                      Reorganizar
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </SidebarGroupContent>
         </SidebarGroup>
 
@@ -230,40 +328,7 @@ export function AppSidebar() {
             )}
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip="Usuários"
-                    className={
-                      (location.pathname.startsWith("/admin/usuarios")
-                        ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
-                      + " " + itemMobile
-                    }
-                  >
-                    <NavLink to="/admin/usuarios" end className="" activeClassName="">
-                      <UserCog className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className={labelMobile}>Usuários</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip="Logs"
-                    className={
-                      (location.pathname.startsWith("/admin/logs")
-                        ? "bg-primary/15 text-primary rounded-xl mx-1"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-xl mx-1 transition-colors")
-                      + " " + itemMobile
-                    }
-                  >
-                    <NavLink to="/admin/logs" end className="" activeClassName="">
-                      <Activity className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className={labelMobile}>Logs</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {adminItems.map(itemDeMenu)}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

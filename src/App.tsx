@@ -8,6 +8,7 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
+import { PreferenciasProvider } from "@/hooks/usePreferencias";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import Index from "./pages/Index";
@@ -79,6 +80,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <AuthProvider>
+        <PreferenciasProvider>
         <ThemeProvider>
           <BrowserRouter>
             <Routes>
@@ -165,6 +167,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </ThemeProvider>
+        </PreferenciasProvider>
       </AuthProvider>
     </TooltipProvider>
   </PersistQueryClientProvider>
