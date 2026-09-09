@@ -707,7 +707,10 @@ export default function ProcessoDetail() {
                   <ul className="mt-1.5 space-y-1">
                     {rubricasDaFicha.map((r) => (
                       <li key={r} className="flex items-start gap-2 text-[12.5px] text-muted-foreground leading-snug">
-                        <span aria-hidden className="mt-[8px] h-px w-2.5 shrink-0 bg-muted-foreground/40" />
+                        {/* Ponto, e não traço: o traço é o símbolo que não se
+                            usa aqui, e como marcador de lista ele ainda por
+                            cima se confunde com hífen de palavra composta. */}
+                        <span aria-hidden className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
                         <span className="min-w-0 break-words">{r}</span>
                       </li>
                     ))}
