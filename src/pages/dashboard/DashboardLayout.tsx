@@ -43,12 +43,13 @@ export default function DashboardLayout() {
 
   return (
     <div className="relative">
-      {/* Fundo: uma malha de pontos na cor do tema que se apaga para baixo, e
-          um brilho no canto. É o que dá a sensação de instrumento, sem
-          disputar com os números. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-6 h-[440px] -z-10 overflow-hidden">
-        <div className="absolute inset-0 [background-image:radial-gradient(hsl(var(--primary)/0.16)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:radial-gradient(ellipse_at_top,black_20%,transparent_75%)]" />
-        <div className="absolute -top-40 right-[-6rem] h-96 w-96 rounded-full bg-primary/[0.12] blur-3xl" />
+      {/* Fundo: um brilho na cor do tema no canto de cima. A caixa dele vai até
+          a borda da área de conteúdo (anula o padding do main: px-3/py-3 e
+          sm:px-6/py-6), senão o corte do overflow aparece como uma linha reta
+          no meio da luz. O brilho fica inteiro dentro da caixa; o que o
+          desfoque espalha além disso morre na borda da tela, onde não se vê. */}
+      <div aria-hidden className="pointer-events-none absolute -inset-x-3 sm:-inset-x-6 -top-3 sm:-top-6 h-[440px] -z-10 overflow-hidden">
+        <div className="absolute -top-24 right-0 h-96 w-[28rem] rounded-full bg-primary/[0.12] blur-3xl" />
       </div>
 
       <header className="space-y-5 mb-8">
