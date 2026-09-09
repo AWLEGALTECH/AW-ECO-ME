@@ -314,6 +314,30 @@ function CampoInline({ valor, placeholder, onSalvar, sugestoes, listaId, transfo
   );
 }
 
+/* Data editável no lugar. Campo de data nativo, e não o calendário em balão:
+   data retroativa se DIGITA (08/08/2026), em vez de voltar mês a mês. */
+function DataInline({ valor, onSalvar }: { valor: string; onSalvar: (v: string) => void }) {
+  const [editando, setEditando] = useState(false);
+  if (!editando) {
+    return (
+      <button onClick={() => setEditando(true)} className="mt-1.5 block text-left text-sm font-semibold tabular-nums hover:text-primary transition-colors">
+        {valor ? fmtData(valor) : <span className="font-normal text-muted-foreground">definir</span>}
+      </button>
+    );
+  }
+  return (
+    <Input
+      type="date"
+      autoFocus
+      defaultValue={valor}
+      onChange={(e) => { if (e.target.value) onSalvar(e.target.value); }}
+      onBlur={() => setEditando(false)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditando(false); }}
+      className="mt-1.5 h-8 text-sm w-auto"
+    />
+  );
+}
+
 export default function ProcessoDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -368,6 +392,9 @@ export default function ProcessoDetail() {
   /* Status de acórdão pedido sem câmara ou turma gravada: fica aqui esperando
      a pessoa dizer qual é. Só depois o status entra. */
   const [pedidoOrgao, setPedidoOrgao] = useState<string | null>(null);
+  /* A mesma janela, aberta pelo "Editar" do card: sem status pendente, e sem
+     obrigar o órgão. */
+  const [sgEditando, setSgEditando] = useState(false);
   const [sgDraft, setSgDraft] = useState({ orgao: "", data: "", relator: "" });
   /* O que o DJEN diz sobre o segundo grau deste processo (órgão e primeira
      publicação que o cita). Sugestão para um clique, nunca preenchimento
@@ -725,16 +752,27 @@ export default function ProcessoDetail() {
     return true;
   };
   const setStatusProc = (v: string) => { if (interceptarStatus(v)) return; aplicarStatus(v); };
+  const abrirEdicaoSg = () => {
+    setSgDraft({
+      orgao: form.segundo_grau_orgao || sugestaoDjen?.orgao || "",
+      data: form.segundo_grau_data_subida || sugestaoDjen?.data || "",
+      relator: form.segundo_grau_relator,
+    });
+    setSgEditando(true);
+  };
+  const fecharSg = () => { setPedidoOrgao(null); setSgEditando(false); };
   const confirmarOrgao = async () => {
     const orgao = normalizarOrgao(sgDraft.orgao);
-    if (!orgao) return;
+    // Com status de acórdão esperando, o órgão é obrigatório. Na edição
+    // livre, pode salvar só a data ou só o relator.
+    if (pedidoOrgao && !orgao) return;
     await patchProcesso({
       segundo_grau_orgao: orgao,
       segundo_grau_data_subida: sgDraft.data,
       segundo_grau_relator: sgDraft.relator.trim(),
     });
     if (pedidoOrgao) aplicarStatus(pedidoOrgao);
-    setPedidoOrgao(null);
+    fecharSg();
   };
   const usarSugestaoDjen = () => {
     if (!sugestaoDjen) return;
@@ -993,6 +1031,101 @@ export default function ProcessoDetail() {
       </SpotlightCard>
       </motion.div>
 
+      {/* ── Segundo grau: quando subiu, em qual câmara ou turma está e quem relata.
+          Aparece quando o status é de segundo grau ou quando já há algo gravado;
+          um processo em contestação não tem o que mostrar aqui. Fica ANTES da
+          situação atual de propósito: quem bate o olho na ficha já vê que este
+          processo subiu. ── */}
+      <AnimatePresence initial={false}>
+        {mostrarSegundoGrau && (
+          <motion.div key="segundo-grau" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                    <Gavel className="h-3.5 w-3.5 text-primary" />
+                    Segundo grau
+                  </CardTitle>
+                  {/* Os três campos de uma vez, numa janela: é o caminho para
+                      preencher retroativo sem clicar caixa por caixa. */}
+                  <Button variant="ghost" size="sm" onClick={abrirEdicaoSg} className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
+                    <Pencil className="h-3 w-3" /> Editar
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* 1. Quando subiu */}
+                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <ArrowUpFromLine className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Subiu em</span>
+                    </div>
+                    <DataInline
+                      valor={form.segundo_grau_data_subida}
+                      onSalvar={(v) => patchProcesso({ segundo_grau_data_subida: v })}
+                    />
+                    {diasSg !== null && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {diasSg === 0 ? "subiu hoje" : diasSg === 1 ? "há 1 dia no segundo grau" : `há ${diasSg} dias no segundo grau`}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 2. Câmara ou turma (obrigatório para acórdão) */}
+                  <div className={cn("rounded-xl border bg-white/[0.02] p-3.5",
+                    exigeOrgaoJulgador(statusProcValue) && !form.segundo_grau_orgao ? "border-amber-400/40" : "border-border/50")}>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Câmara ou turma</span>
+                    </div>
+                    <CampoInline
+                      valor={form.segundo_grau_orgao}
+                      placeholder="definir"
+                      listaId="orgaos-segundo-grau"
+                      sugestoes={ORGAOS_SUGERIDOS}
+                      transformar={normalizarOrgao}
+                      onSalvar={(v) => patchProcesso({ segundo_grau_orgao: v })}
+                    />
+                    {!form.segundo_grau_orgao && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">obrigatório para entrar em acórdão</p>
+                    )}
+                  </div>
+
+                  {/* 3. Relator */}
+                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <UserRound className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Relator</span>
+                    </div>
+                    <CampoInline
+                      valor={form.segundo_grau_relator}
+                      placeholder="definir"
+                      onSalvar={(v) => patchProcesso({ segundo_grau_relator: v })}
+                    />
+                  </div>
+                </div>
+
+                {sugestaoUtil && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.05] px-3.5 py-2.5 text-[12.5px]">
+                    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-foreground/85">
+                      O DJEN cita a <span className="font-semibold">{sugestaoDjen!.orgao}</span>
+                      {sugestaoDjen!.data ? <> desde {fmtData(sugestaoDjen!.data)}</> : null}.
+                    </span>
+                    <button onClick={usarSugestaoDjen}
+                            className="ml-auto rounded-lg px-2.5 py-1 text-[12px] font-medium bg-primary/[0.12] text-primary ring-1 ring-primary/20 hover:bg-primary/[0.18] transition-colors">
+                      Usar
+                    </button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Situação atual — infos prioritárias (1 e 2 editáveis) + ícones das tarefas ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.08 }}>
       <Card>
@@ -1089,115 +1222,22 @@ export default function ProcessoDetail() {
       </Card>
       </motion.div>
 
-      {/* ── Segundo grau: quando subiu, em qual câmara ou turma está e quem relata.
-          Aparece quando o status é de segundo grau ou quando já há algo gravado;
-          um processo em contestação não tem o que mostrar aqui. ── */}
-      <AnimatePresence initial={false}>
-        {mostrarSegundoGrau && (
-          <motion.div key="segundo-grau" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-                      transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                  <Gavel className="h-3.5 w-3.5 text-primary" />
-                  Segundo grau
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* 1. Quando subiu */}
-                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <ArrowUpFromLine className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-[10px] uppercase tracking-wider">Subiu em</span>
-                    </div>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="mt-1.5 text-sm font-semibold tabular-nums text-left hover:text-primary transition-colors">
-                          {form.segundo_grau_data_subida ? fmtData(form.segundo_grau_data_subida) : <span className="font-normal text-muted-foreground">definir</span>}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          locale={ptBR}
-                          selected={ymdToDate(form.segundo_grau_data_subida)}
-                          onSelect={(d) => patchProcesso({ segundo_grau_data_subida: d ? dateToYmd(d) : "" })}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    {diasSg !== null && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {diasSg === 0 ? "subiu hoje" : diasSg === 1 ? "há 1 dia no segundo grau" : `há ${diasSg} dias no segundo grau`}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 2. Câmara ou turma (obrigatório para acórdão) */}
-                  <div className={cn("rounded-xl border bg-white/[0.02] p-3.5",
-                    exigeOrgaoJulgador(statusProcValue) && !form.segundo_grau_orgao ? "border-amber-400/40" : "border-border/50")}>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-[10px] uppercase tracking-wider">Câmara ou turma</span>
-                    </div>
-                    <CampoInline
-                      valor={form.segundo_grau_orgao}
-                      placeholder="definir"
-                      listaId="orgaos-segundo-grau"
-                      sugestoes={ORGAOS_SUGERIDOS}
-                      transformar={normalizarOrgao}
-                      onSalvar={(v) => patchProcesso({ segundo_grau_orgao: v })}
-                    />
-                    {!form.segundo_grau_orgao && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">obrigatório para entrar em acórdão</p>
-                    )}
-                  </div>
-
-                  {/* 3. Relator */}
-                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <UserRound className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-[10px] uppercase tracking-wider">Relator</span>
-                    </div>
-                    <CampoInline
-                      valor={form.segundo_grau_relator}
-                      placeholder="definir"
-                      onSalvar={(v) => patchProcesso({ segundo_grau_relator: v })}
-                    />
-                  </div>
-                </div>
-
-                {sugestaoUtil && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.05] px-3.5 py-2.5 text-[12.5px]">
-                    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="text-foreground/85">
-                      O DJEN cita a <span className="font-semibold">{sugestaoDjen!.orgao}</span>
-                      {sugestaoDjen!.data ? <> desde {fmtData(sugestaoDjen!.data)}</> : null}.
-                    </span>
-                    <button onClick={usarSugestaoDjen}
-                            className="ml-auto rounded-lg px-2.5 py-1 text-[12px] font-medium bg-primary/[0.12] text-primary ring-1 ring-primary/20 hover:bg-primary/[0.18] transition-colors">
-                      Usar
-                    </button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Câmara ou turma antes do acórdão: o status pedido espera aqui. */}
-      <Dialog open={!!pedidoOrgao} onOpenChange={(o) => { if (!o) setPedidoOrgao(null); }}>
+      <Dialog open={!!pedidoOrgao || sgEditando} onOpenChange={(o) => { if (!o) fecharSg(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /> Em qual câmara ou turma está o processo?</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-primary" />
+              {pedidoOrgao ? "Em qual câmara ou turma está o processo?" : "Segundo grau"}
+            </DialogTitle>
             <DialogDescription>
-              Para marcar <span className="font-medium text-foreground">{pedidoOrgao}</span> é preciso dizer qual órgão vai julgar. Fica salvo na ficha.
+              {pedidoOrgao
+                ? <>Para marcar <span className="font-medium text-foreground">{pedidoOrgao}</span> é preciso dizer qual órgão vai julgar. Fica salvo na ficha.</>
+                : "Quando subiu, em qual câmara ou turma está e quem relata. Pode ser retroativo."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <Field label="Câmara ou turma *">
+            <Field label={pedidoOrgao ? "Câmara ou turma *" : "Câmara ou turma"}>
               <Input
                 autoFocus
                 value={sgDraft.orgao}
@@ -1224,9 +1264,9 @@ export default function ProcessoDetail() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setPedidoOrgao(null)}>Cancelar</Button>
-            <Button onClick={() => void confirmarOrgao()} disabled={!sgDraft.orgao.trim()} className="gap-2">
-              <Check className="h-4 w-4" /> Salvar e avançar
+            <Button variant="ghost" onClick={fecharSg}>Cancelar</Button>
+            <Button onClick={() => void confirmarOrgao()} disabled={!!pedidoOrgao && !sgDraft.orgao.trim()} className="gap-2">
+              <Check className="h-4 w-4" /> {pedidoOrgao ? "Salvar e avançar" : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>
