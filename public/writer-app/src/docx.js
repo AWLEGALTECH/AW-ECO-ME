@@ -831,19 +831,28 @@ function revisarECorrigirPeca(xml) {
   }
 
   // === FASE 2: detecta o ind:right majoritário entre parágrafos do BODY ===
+  //
+  // "Não ter margem" também concorre. Sem isso, um template sem ind:right (o de
+  // DÍVIDA EM ATRASO é assim, igual à peça original) recebia os DOIS parágrafos
+  // do quadro socioeconômico, que nascem com -430, e esses dois viravam o
+  // "majoritário" por serem o único valor presente: a peça inteira saía com o
+  // texto invadindo a margem direita. A maioria de verdade decide, e quando a
+  // maioria não tem margem, é o parágrafo injetado que perde a dele.
+  const SEM_MARGEM = 'sem';
   const counts = {};
   const pReDetect = /<w:p\b[\s\S]*?<\/w:p>/g;
   let pmd;
   while ((pmd = pReDetect.exec(xml))) {
     if (dentroDeTabela(pmd.index)) continue;
     const im = pmd[0].match(/<w:ind[^/]*w:right="(-?[0-9]+)"/);
-    if (im) counts[im[1]] = (counts[im[1]] || 0) + 1;
+    const chave = im ? im[1] : SEM_MARGEM;
+    counts[chave] = (counts[chave] || 0) + 1;
   }
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const indDominante = sorted.length ? sorted[0][0] : null;
 
   // === FASE 3: força todos parágrafos de body a usar o ind dominante ===
-  if (indDominante !== null) {
+  if (indDominante !== null && Object.keys(counts).length > 1) {
     let totalCorrigidos = 0;
     let novaXml = '';
     let cursor = 0;
@@ -856,7 +865,14 @@ function revisarECorrigirPeca(xml) {
       let para = pmf[0];
       if (!dentroDeTabela(inicio)) {
         const indMatch = para.match(/<w:ind\b[^/]*w:right="(-?[0-9]+)"[^/]*\/>/);
-        if (indMatch) {
+        if (indDominante === SEM_MARGEM) {
+          // A maioria não tem margem direita: quem tem, perde só o w:right.
+          if (indMatch) {
+            const semRight = indMatch[0].replace(/\s*w:right="(-?[0-9]+)"/, '');
+            para = para.replace(indMatch[0], /<w:ind\s*\/>/.test(semRight) ? '' : semRight);
+            totalCorrigidos++;
+          }
+        } else if (indMatch) {
           // Tem ind:right — substitui se diferente
           if (indMatch[1] !== indDominante) {
             const novoInd = indMatch[0].replace(/w:right="(-?[0-9]+)"/, 'w:right="' + indDominante + '"');
@@ -880,7 +896,9 @@ function revisarECorrigirPeca(xml) {
     }
     novaXml += xml.slice(cursor);
     if (totalCorrigidos > 0) {
-      fixes.push('uniformizou margem direita em ' + totalCorrigidos + ' parágrafo(s) de body (ind:right=' + indDominante + ')');
+      fixes.push(indDominante === SEM_MARGEM
+        ? 'removeu margem direita de ' + totalCorrigidos + ' parágrafo(s) injetado(s) (o template não usa ind:right)'
+        : 'uniformizou margem direita em ' + totalCorrigidos + ' parágrafo(s) de body (ind:right=' + indDominante + ')');
     }
     xml = novaXml;
   }
@@ -1328,7 +1346,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
   if (!Array.isArray(linhasClassificadas) || linhasClassificadas.length === 0) {
     // Tabela pulada ou ausente — parágrafo de aviso no lugar
     return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>` +
-      `<w:r><w:rPr><w:i/><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr>` +
+      `<w:r><w:rPr><w:i/><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr>` +
       `<w:t>Tabela de descontos a ser anexada posteriormente.</w:t></w:r></w:p>`;
   }
 
@@ -1336,8 +1354,12 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
   // Valor BUMPADO de 1700→2200 pra caber "R$ 9.999.999,99" sem cortar.
   // Antes a coluna era estreita demais e o Google Docs cortava o último
   // dígito (ex: "R$ 200,00" virava "R$ 200,0"). 200 dxa de cell margin
-  // (top/bot/left/right=100 cada) + texto Arial 10pt: 2200 dxa = ~3.9cm,
+  // (top/bot/left/right=100 cada) + texto 10pt: 2200 dxa = ~3.9cm,
   // confortável pra qualquer valor monetário usual.
+  //
+  // A fonte da tabela é a da peça (Cambria, 10pt), como nas petições originais
+  // que serviram de modelo. Era Arial, e uma tabela Arial no meio de um texto
+  // Cambria é exatamente o "fontes diferentes uma da outra" que o advogado vê.
   const colWidths = [1500, 2400, 2700, 2200];
   const totalWidth = colWidths.reduce((a, b) => a + b, 0);
 
@@ -1361,7 +1383,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
           </w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="center"/><w:spacing w:before="60" w:after="60"/></w:pPr>
-            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(txt)}</w:t></w:r>
+            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(txt)}</w:t></w:r>
           </w:p>
         </w:tc>`).join('') + `</w:tr>`;
     } else if (l.tipo === 'subtitulo') {
@@ -1376,7 +1398,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
           </w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="center"/><w:spacing w:before="60" w:after="60"/></w:pPr>
-            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(l.texto)}</w:t></w:r>
+            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(l.texto)}</w:t></w:r>
           </w:p>
         </w:tc>
       </w:tr>`;
@@ -1397,7 +1419,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
           </w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="${c.align}"/><w:spacing w:before="40" w:after="40"/></w:pPr>
-            <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${escXml(c.texto)}</w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${escXml(c.texto)}</w:t></w:r>
           </w:p>
         </w:tc>`).join('') + `</w:tr>`;
     } else if (l.tipo === 'valor_total' || l.tipo === 'valor_dobro') {
@@ -1414,7 +1436,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
           </w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="left"/><w:spacing w:before="40" w:after="40"/></w:pPr>
-            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(label)}</w:t></w:r>
+            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(label)}</w:t></w:r>
           </w:p>
         </w:tc>
         <w:tc>
@@ -1426,7 +1448,7 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
           </w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="right"/><w:spacing w:before="40" w:after="40"/></w:pPr>
-            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(valorFmt)}</w:t></w:r>
+            <w:r><w:rPr><w:b/><w:rFonts w:ascii="Cambria" w:cs="Cambria" w:eastAsia="Cambria" w:hAnsi="Cambria"/><w:sz w:val="20"/></w:rPr><w:t>${escXml(valorFmt)}</w:t></w:r>
           </w:p>
         </w:tc>
       </w:tr>`;
@@ -1450,6 +1472,51 @@ function montarTabelaXmlDescontos(linhasClassificadas) {
   </w:tbl>`;
 
   return tabela;
+}
+
+/* =========================================================================
+   FONTE PADRÃO: o styles.xml precisa dizer qual é.
+
+   Metade dos trechos de um template não carrega fonte nem tamanho no próprio
+   run (é assim que o Google Docs exporta texto "sem formatação"): esses
+   trechos herdam do rPrDefault do styles.xml. Quando o rPrDefault não define
+   fonte, o Word cai no padrão dele (Times New Roman 10) e a peça sai com
+   metade dos parágrafos numa fonte e metade em outra. Foi o caso do template
+   de DÍVIDA EM ATRASO: todos os outros traziam Cambria 12 no rPrDefault; ele
+   trazia só o idioma.
+
+   Aqui a garantia é feita na geração, para qualquer template: se o rPrDefault
+   não tem fonte ou tamanho, entra a fonte e o tamanho que o document.xml mais
+   usa nos runs explícitos (Cambria 12 em todas as petições da prateleira).
+   ========================================================================= */
+function garantirFontePadrao(stylesXml, documentXml) {
+  if (typeof stylesXml !== 'string' || !stylesXml) return stylesXml;
+  const rprDefault = stylesXml.match(/<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>/);
+  const temFonte = !!(rprDefault && /<w:rFonts\b/.test(rprDefault[1]));
+  const temTamanho = !!(rprDefault && /<w:sz\b/.test(rprDefault[1]));
+  if (temFonte && temTamanho) return stylesXml;
+
+  const modal = (re, padrao) => {
+    const contagem = {};
+    let m;
+    while ((m = re.exec(documentXml || ''))) contagem[m[1]] = (contagem[m[1]] || 0) + 1;
+    const top = Object.entries(contagem).sort((a, b) => b[1] - a[1])[0];
+    return top ? top[0] : padrao;
+  };
+  const fonte = modal(/<w:rFonts\b[^>]*w:ascii="([^"]+)"/g, 'Cambria');
+  const tamanho = modal(/<w:sz w:val="(\d+)"/g, '24');
+
+  const novos =
+    (temFonte ? '' : `<w:rFonts w:ascii="${fonte}" w:cs="${fonte}" w:eastAsia="${fonte}" w:hAnsi="${fonte}"/>`) +
+    (temTamanho ? '' : `<w:sz w:val="${tamanho}"/><w:szCs w:val="${tamanho}"/>`);
+
+  if (rprDefault) {
+    return stylesXml.replace(rprDefault[0], rprDefault[0].replace(/<w:rPr>/, '<w:rPr>' + novos));
+  }
+  if (/<w:docDefaults>/.test(stylesXml)) {
+    return stylesXml.replace(/<w:docDefaults>/, `<w:docDefaults><w:rPrDefault><w:rPr>${novos}</w:rPr></w:rPrDefault>`);
+  }
+  return stylesXml.replace(/(<w:styles\b[^>]*>)/, `$1<w:docDefaults><w:rPrDefault><w:rPr>${novos}</w:rPr></w:rPrDefault></w:docDefaults>`);
 }
 
 /**
@@ -1681,6 +1748,21 @@ async function montarDocxNoNavegador() {
     const xmlAntesRR = zipFinal.file('word/document.xml').asText();
     const xmlDepoisRR = aplicarReuniaoRubricas(xmlAntesRR);
     if (xmlDepoisRR !== xmlAntesRR) zipFinal.file('word/document.xml', xmlDepoisRR);
+  }
+
+  // 9a-4. FONTE PADRÃO: se o styles.xml do template não define fonte e
+  // tamanho no rPrDefault, os runs sem formatação própria (metade da peça)
+  // sairiam em Times New Roman 10. Entra a fonte que o documento mais usa.
+  {
+    const stylesArq = zipFinal.file('word/styles.xml');
+    if (stylesArq) {
+      const stylesAntes = stylesArq.asText();
+      const stylesDepois = garantirFontePadrao(stylesAntes, zipFinal.file('word/document.xml').asText());
+      if (stylesDepois !== stylesAntes) {
+        zipFinal.file('word/styles.xml', stylesDepois);
+        console.log('[fonte] rPrDefault do styles.xml não definia fonte/tamanho; completado com a fonte dominante da peça.');
+      }
+    }
   }
 
   // 9b. SANITIZAÇÃO DE TWIPS FRACIONÁRIOS — Word recusa o arquivo se algum

@@ -69,7 +69,7 @@ export default function DashboardLayout() {
 
         {/* A barra. O indicador é um só elemento que desliza entre as abas
             (layoutId), e não um fundo que acende em cada uma. */}
-        <nav aria-label="Painéis" className="inline-flex max-w-full overflow-x-auto scrollbar-thin rounded-2xl border border-border/70 bg-card/70 backdrop-blur p-1.5 gap-1">
+        <nav aria-label="Painéis" className="inline-flex max-w-full overflow-x-auto scrollbar-thin rounded-2xl border border-border/50 bg-card/40 backdrop-blur p-1.5 gap-1">
           {visiveis.map((a) => {
             const Icone = a.icone;
             const eAtiva = a.to === ativa.to;
@@ -81,14 +81,17 @@ export default function DashboardLayout() {
                 className={`relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm whitespace-nowrap transition-colors
                             ${eAtiva ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
+                {/* Discreto de propósito: um fundo leve e uma borda fina, sem
+                    brilho. A barra é para trocar de painel, não para chamar
+                    atenção. */}
                 {eAtiva && (
                   <motion.span
                     layoutId="aba-ativa"
-                    className="absolute inset-0 rounded-xl bg-primary/[0.14] ring-1 ring-primary/30 shadow-[0_0_24px_-6px_hsl(var(--primary)/0.6)]"
+                    className="absolute inset-0 rounded-xl bg-primary/[0.07] ring-1 ring-primary/15"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
-                <Icone className={`relative h-4 w-4 ${eAtiva ? "text-primary" : ""}`} />
+                <Icone className={`relative h-4 w-4 ${eAtiva ? "text-primary/80" : ""}`} />
                 <span className="relative">{a.rotulo}</span>
               </NavLink>
             );
