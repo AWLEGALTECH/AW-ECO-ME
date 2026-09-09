@@ -75,6 +75,11 @@ interface ProcessoForm {
      locadora, Instituto Pro-Saúde + CENUSA, Banco Master + Avancard). */
   requeridos: string[];
   requerido_origem: string | null;
+  /* Chaves de `materias_catalogo`. A matéria virou o nome do PRODUTO do Writer
+     ("Débitos Automáticos"), e as rubricas são o que aquele produto está
+     cobrando neste processo. Antes as duas coisas estavam espremidas na mesma
+     string, separadas por barra, em 137 grafias diferentes. */
+  materia_rubricas: string[];
   data_ultimo_andamento: string;
   prazo_processual: string;
   fase_processual: string;
@@ -95,6 +100,7 @@ const EMPTY: ProcessoForm = {
   materia: "",
   requeridos: [],
   requerido_origem: null,
+  materia_rubricas: [],
   data_ultimo_andamento: "",
   prazo_processual: "",
   fase_processual: "",
@@ -139,9 +145,37 @@ const normMateria = (m?: string | null) =>
 // Retorna a capa do produto Bradesco correspondente à matéria — ou undefined
 // quando não há produto seguro pra associar (aí o processo fica sem capa).
 // Ordem das regras importa: da mais específica pra mais genérica.
+/* O NOME DO PRODUTO ACHA A CAPA DIRETO, e isso vem antes de tudo.
+ *
+ * Desde a padronização, a matéria dos processos do Bradesco É o nome do produto
+ * ("Débitos Automáticos", "Tarifas Bancárias"). A escada de palavras-chave
+ * abaixo foi escrita para o texto ANTIGO, cheio de barra e de erro de digitação,
+ * e ela não reconhece os nomes novos: "DEBITOS AUTOMATICOS" não contém "BX ANT"
+ * nem "PARC CRED", e "TARIFAS BANCARIAS" não contém "SAQUE TERMINAL". Sem este
+ * mapa, 103 processos (74 de Débitos + 29 de Tarifas) perderiam a capa no dia
+ * em que o nome ficou certo.
+ *
+ * A escada continua viva porque os processos que NÃO são do Bradesco seguem com
+ * o texto livre, e é ela que ainda os cobre. */
+const CAPA_DO_PRODUTO: Record<string, { src: string; nome: string }> = {
+  "DEBITOS AUTOMATICOS": CAPAS.debitos,
+  "TARIFAS BANCARIAS": CAPAS.tarifas,
+  "JUROS E ENCARGOS INDEVIDOS": CAPAS.juros,
+  "SEGURO PRESTAMISTA": CAPAS.prestamista,
+  "VIDA E PREVIDENCIA": CAPAS.vidaPrev,
+  "TITULO DE CAPITALIZACAO": CAPAS.capitalizacao,
+  "CESTA DE SERVICOS": CAPAS.cesta,
+  "ANUIDADE CARTAO": CAPAS.anuidade,
+  "SEGURO CARTAO PROTEGIDO": CAPAS.cartaoProtegido,
+  "DIVIDA EM ATRASO": CAPAS.dividaAtraso,
+  "CONTA ABERTA POR FRAUDE": CAPAS.contaFraude,
+};
+
 function capaParaMateria(materia?: string | null): { src: string; nome: string } | undefined {
   const t = normMateria(materia);
   if (!t) return undefined;
+  const doProduto = CAPA_DO_PRODUTO[t];
+  if (doProduto) return doProduto;
   const has = (...ks: string[]) => ks.some((k) => t.includes(k));
 
   // Conta aberta por fraude: a matéria não é uma rubrica de extrato, é o tipo
@@ -225,6 +259,8 @@ export default function ProcessoDetail() {
      ~80 linhas, e a alternativa (buscar o nome de cada chave quando precisar)
      seria uma ida ao banco pra traduzir duas palavras. */
   const [reusCatalogo, setReusCatalogo] = useState<Record<string, string>>({});
+  /* Chave de rubrica -> rótulo de tela. Mesmo desenho do catálogo de réus. */
+  const [materiasCatalogo, setMateriasCatalogo] = useState<Record<string, string>>({});
   /* O texto do campo enquanto se edita. Separado de `form.requeridos` porque
      ali moram CHAVES, e quem digita digita NOME — converter a cada tecla e
      reconverter para mostrar faria "Banco  Bradesco " virar outra coisa
@@ -232,6 +268,13 @@ export default function ProcessoDetail() {
   const [reusTexto, setReusTexto] = useState("");
   const reusNomes = nomesDaLista(reusTexto);
   const [avisoOrigem, setAvisoOrigem] = useState(false);
+
+  /* As rubricas que valem a pena mostrar embaixo do nome da matéria.
+     Fora as que repetem o próprio nome: processo de rubrica única sem produto
+     no Writer se chama pelo rótulo dela, e a linha embaixo seria eco. */
+  const rubricasDaFicha = form.materia_rubricas
+    .map((c) => materiasCatalogo[c] ?? c)
+    .filter((r) => r.trim().toLowerCase() !== form.materia.trim().toLowerCase());
   const [clientePopoverOpen, setClientePopoverOpen] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -260,6 +303,13 @@ export default function ProcessoDetail() {
     if (data) setClientes(data);
   }, []);
 
+  const loadMaterias = useCallback(async () => {
+    const { data } = await (supabase.from("materias_catalogo" as never) as never as {
+      select: (c: string) => Promise<{ data: { chave: string; rotulo: string }[] | null }>;
+    }).select("chave, rotulo");
+    if (data) setMateriasCatalogo(Object.fromEntries(data.map((m) => [m.chave, m.rotulo])));
+  }, []);
+
   const loadReus = useCallback(async () => {
     const { data } = await (supabase.from("requeridos_catalogo" as never) as never as {
       select: (c: string) => Promise<{ data: { chave: string; nome: string }[] | null }>;
@@ -279,6 +329,8 @@ export default function ProcessoDetail() {
         requeridos: Array.isArray((data as { requeridos?: string[] }).requeridos)
           ? ((data as { requeridos?: string[] }).requeridos as string[]) : [],
         requerido_origem: (data as { requerido_origem?: string | null }).requerido_origem ?? null,
+        materia_rubricas: Array.isArray((data as { materia_rubricas?: string[] }).materia_rubricas)
+          ? ((data as { materia_rubricas?: string[] }).materia_rubricas as string[]) : [],
         data_ultimo_andamento: data.data_ultimo_andamento ?? "",
         prazo_processual: data.prazo_processual ?? "",
         fase_processual: data.fase_processual ?? "",
@@ -377,8 +429,9 @@ export default function ProcessoDetail() {
     document.title = isNew ? "Novo Processo · AW ECO ME" : "Processo · AW ECO ME";
     loadClientes();
     loadReus();
+    loadMaterias();
     loadProcesso();
-  }, [loadClientes, loadReus, loadProcesso, isNew]);
+  }, [loadClientes, loadReus, loadMaterias, loadProcesso, isNew]);
 
   /* O CAMPO SÓ SE REESCREVE FORA DA EDIÇÃO. O catálogo costuma chegar depois do
      processo, e sem este efeito o campo ficaria mostrando `BANCO_BRADESCO` até
@@ -629,9 +682,32 @@ export default function ProcessoDetail() {
 
           {/* Matéria, Vara e Cliente — mesma importância */}
           <div className="mt-5 space-y-2.5">
-            <div className="flex items-center gap-2 text-[15px]">
-              <Package className="h-4 w-4 text-primary/70 shrink-0" />
-              <span className="font-medium">{form.materia || "Matéria não informada"}</span>
+            {/* ── A MATÉRIA, E O QUE ELA ESTÁ COBRANDO ──
+                O nome é o do PRODUTO do Writer ("Débitos Automáticos"), e as
+                rubricas vêm em linhas embaixo. Antes as duas coisas viviam
+                espremidas na mesma string, separadas por barra: `BX ANT
+                FINAN/PARC CRED/GASTOS CARTÃO`, `GASTOS CARTÃO/PARC CRED/ BX ANT
+                FINAN` e `PARCELA /GASTOS CARTÃO/BX ANT FINAN` eram o MESMO
+                processo com três nomes, e nenhum agrupamento funcionava.
+
+                A rubrica só aparece quando diz algo além do nome. Nos processos
+                de rubrica única sem produto no Writer o nome JÁ é o rótulo dela,
+                e repetir viraria eco. */}
+            <div className="flex items-start gap-2 text-[15px] min-w-0">
+              <Package className="h-4 w-4 text-primary/70 shrink-0 mt-[3px]" />
+              <div className="min-w-0">
+                <span className="block font-medium">{form.materia || "Matéria não informada"}</span>
+                {rubricasDaFicha.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {rubricasDaFicha.map((r) => (
+                      <li key={r} className="flex items-start gap-2 text-[12.5px] text-muted-foreground leading-snug">
+                        <span aria-hidden className="mt-[8px] h-px w-2.5 shrink-0 bg-muted-foreground/40" />
+                        <span className="min-w-0 break-words">{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
 
             {/* ── CONTRA QUEM É ESTA AÇÃO ──
@@ -1021,6 +1097,9 @@ export default function ProcessoDetail() {
               <Row label="Nº do Processo"><span className="font-mono">{form.numero_processo || "não informado"}</span></Row>
               <Row label="Cliente">{clienteSelecionado?.nome || "não informado"}</Row>
               <Row label="Matéria">{form.materia || "não informado"}</Row>
+              {rubricasDaFicha.length > 0 && (
+                <Row label="Rubricas">{rubricasDaFicha.join(" · ")}</Row>
+              )}
               <Row label="Requerido">
                 {form.requeridos.length > 0
                   ? nomesDasChaves(form.requeridos, reusCatalogo).join(" · ")
