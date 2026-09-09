@@ -486,6 +486,7 @@ export function ProcessoTimeline({
   badge,
   onRegistrarSentenca,
   onPedirBaixa,
+  antesDeStatus,
 }: {
   etapas: Etapa[];
   setEtapas: Dispatch<SetStateAction<Etapa[]>>;
@@ -496,6 +497,10 @@ export function ProcessoTimeline({
      timeline não grava sozinha — avisa quem a montou, que abre a confirmação e
      só então a baixa acontece, tudo numa transação. */
   onPedirBaixa?: (via: ViaBaixa) => void;
+  /* Quem monta a timeline pode segurar uma troca de status para perguntar algo
+     antes (acórdão sem câmara ou turma gravada, por exemplo). Devolve true
+     quando segurou: aí a troca não acontece aqui, e volta por quem perguntou. */
+  antesDeStatus?: (v: string) => boolean;
 }) {
   // Contador de tarefas do processo. Precisa começar depois da última que já
   // existe: começando sempre em 1, reabrir um processo e criar uma tarefa
@@ -651,6 +656,7 @@ export function ProcessoTimeline({
     // processo marcado como pago e nenhum dinheiro no Wallet.
     const via = viaDeBaixa(v);
     if (via && onPedirBaixa) { onPedirBaixa(via); return; }
+    if (antesDeStatus && antesDeStatus(v)) return;
     setEtapas((prev) => prev.map((e) => (e.id === id ? { ...e, statusProcessual: v } : e)));
   };
 
@@ -1184,7 +1190,7 @@ export function ProcessoTimeline({
                         )}
                       >
                         <span className="text-muted-foreground text-xs">
-                          {ehStatusDeBaixa(e.statusProcessual) ? "Recebido —" : "Aguardando"}
+                          {ehStatusDeBaixa(e.statusProcessual) ? "Recebido:" : "Aguardando"}
                         </span>
                         <SelectValue placeholder="definir status" />
                       </SelectTrigger>

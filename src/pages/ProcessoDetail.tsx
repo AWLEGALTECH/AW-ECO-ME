@@ -39,8 +39,12 @@ import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
   FileText, MapPin, User, SquareArrowOutUpRight, Package, X,
   Handshake, Activity, ListTodo, Paperclip, Landmark, Trophy, Scale,
+  Building2, ArrowUpFromLine, UserRound, Gavel, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  ehSegundoGrau, exigeOrgaoJulgador, normalizarOrgao, diasNoSegundoGrau, ORGAOS_SUGERIDOS,
+} from "@/lib/segundoGrau";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -90,6 +94,12 @@ interface ProcessoForm {
   valor_causa: string;
   comarca_uf: string;
   parceiro: string;
+  /* Segundo grau (chamado "Criar campo na ficha do processo"): quando subiu,
+     em qual câmara ou turma está e quem relata. O órgão é obrigatório para
+     entrar num status de acórdão. */
+  segundo_grau_data_subida: string;
+  segundo_grau_orgao: string;
+  segundo_grau_relator: string;
 }
 
 interface ClienteOption { id: string; nome: string }
@@ -111,6 +121,9 @@ const EMPTY: ProcessoForm = {
   valor_causa: "",
   comarca_uf: "",
   parceiro: "",
+  segundo_grau_data_subida: "",
+  segundo_grau_orgao: "",
+  segundo_grau_relator: "",
 };
 
 // Capas dos produtos do Writer (Bradesco). Cada processo herda a capa do
@@ -252,6 +265,55 @@ function Field({ label, children, full }: { label: string; children: React.React
   );
 }
 
+/* Texto editável no lugar, como a data e o status do card de situação: mostra o
+   valor, vira campo ao clicar, grava no Enter ou ao sair, descarta no Esc. */
+function CampoInline({ valor, placeholder, onSalvar, sugestoes, listaId, transformar }: {
+  valor: string;
+  placeholder: string;
+  onSalvar: (v: string) => void;
+  sugestoes?: readonly string[];
+  listaId?: string;
+  transformar?: (v: string) => string;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(valor);
+  const descartar = useRef(false);
+  useEffect(() => { if (!editando) setTexto(valor); }, [valor, editando]);
+  const salvar = () => {
+    setEditando(false);
+    if (descartar.current) { descartar.current = false; return; }
+    const v = transformar ? transformar(texto) : texto.trim();
+    if (v !== valor) onSalvar(v);
+  };
+  if (!editando) {
+    return (
+      <button onClick={() => setEditando(true)} className="mt-1.5 block max-w-full truncate text-left text-sm font-semibold hover:text-primary transition-colors">
+        {valor || <span className="font-normal text-muted-foreground">{placeholder}</span>}
+      </button>
+    );
+  }
+  return (
+    <>
+      <Input
+        autoFocus
+        value={texto}
+        list={listaId}
+        onChange={(e) => setTexto(e.target.value)}
+        onBlur={salvar}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") salvar();
+          if (e.key === "Escape") { descartar.current = true; setEditando(false); }
+        }}
+        className="mt-1.5 h-8 text-sm"
+        placeholder={placeholder}
+      />
+      {sugestoes && listaId && (
+        <datalist id={listaId}>{sugestoes.map((s) => <option key={s} value={s} />)}</datalist>
+      )}
+    </>
+  );
+}
+
 export default function ProcessoDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -303,6 +365,15 @@ export default function ProcessoDetail() {
   // A baixa não é gravada pela timeline: ela abre esta confirmação e o banco
   // faz status e lançamento numa transação só.
   const [baixa, setBaixa] = useState<AlvoBaixa | null>(null);
+  /* Status de acórdão pedido sem câmara ou turma gravada: fica aqui esperando
+     a pessoa dizer qual é. Só depois o status entra. */
+  const [pedidoOrgao, setPedidoOrgao] = useState<string | null>(null);
+  const [sgDraft, setSgDraft] = useState({ orgao: "", data: "", relator: "" });
+  /* O que o DJEN diz sobre o segundo grau deste processo (órgão e primeira
+     publicação que o cita). Sugestão para um clique, nunca preenchimento
+     automático: "TURMA RECURSAL" sem número aparece em despacho de primeiro
+     grau e não diz qual turma. */
+  const [sugestaoDjen, setSugestaoDjen] = useState<{ orgao: string; data: string | null } | null>(null);
 
   const loadClientes = useCallback(async () => {
     const { data } = await supabase.from("clientes").select("id, nome").order("nome");
@@ -347,6 +418,9 @@ export default function ProcessoDetail() {
         valor_causa: data.valor_causa != null ? String(data.valor_causa) : "",
         comarca_uf: data.comarca_uf ?? "",
         parceiro: data.parceiro ?? "",
+        segundo_grau_data_subida: (data as { segundo_grau_data_subida?: string | null }).segundo_grau_data_subida ?? "",
+        segundo_grau_orgao: (data as { segundo_grau_orgao?: string | null }).segundo_grau_orgao ?? "",
+        segundo_grau_relator: (data as { segundo_grau_relator?: string | null }).segundo_grau_relator ?? "",
       };
       setForm(f);
       setSaved(f);
@@ -457,6 +531,22 @@ export default function ProcessoDetail() {
     setAvisoOrigem(vale && !avisosLidos().includes(id!));
   }, [id, form.requerido_origem]);
 
+  /* Lê no DJEN o que ele diz do segundo grau. Uma ida ao banco por processo
+     aberto, sobre umas quatro publicações; barato. */
+  useEffect(() => {
+    const numero = form.numero_processo.trim();
+    if (isNew || !numero) { setSugestaoDjen(null); return; }
+    let vivo = true;
+    (async () => {
+      const { data } = await (supabase.rpc as unknown as (fn: string, args: Record<string, string>) =>
+        Promise<{ data: { orgao: string | null; data: string | null }[] | null }>)("fn_segundo_grau_do_djen", { p_numero: numero });
+      if (!vivo) return;
+      const linha = Array.isArray(data) ? data[0] : null;
+      setSugestaoDjen(linha?.orgao ? { orgao: linha.orgao, data: linha.data ?? null } : null);
+    })();
+    return () => { vivo = false; };
+  }, [form.numero_processo, isNew]);
+
   const fecharAvisoOrigem = () => {
     setAvisoOrigem(false);
     if (!id) return;
@@ -533,6 +623,9 @@ export default function ProcessoDetail() {
       valor_causa: form.valor_causa ? parseMoneyBR(form.valor_causa) : null,
       comarca_uf: form.comarca_uf.trim() || null,
       parceiro: form.parceiro.trim() || null,
+      segundo_grau_data_subida: form.segundo_grau_data_subida || null,
+      segundo_grau_orgao: form.segundo_grau_orgao.trim() ? normalizarOrgao(form.segundo_grau_orgao) : null,
+      segundo_grau_relator: form.segundo_grau_relator.trim() || null,
     };
 
     /* O CAST EXISTE POR CAUSA DO `types.ts` DESATUALIZADO, não por causa do
@@ -572,7 +665,8 @@ export default function ProcessoDetail() {
 
   // Edição rápida (inline) de um campo direto no card de situação, persistindo
   // só aquele campo. String vazia vira null no banco.
-  const patchProcesso = async (patch: Partial<Pick<ProcessoForm, "data_ultimo_andamento" | "fase_processual">>) => {
+  const patchProcesso = async (patch: Partial<Pick<ProcessoForm,
+    "data_ultimo_andamento" | "fase_processual" | "segundo_grau_data_subida" | "segundo_grau_orgao" | "segundo_grau_relator">>) => {
     setForm((f) => ({ ...f, ...patch }));
     if (isNew || !id) return;
     const dbPatch: Record<string, string | null> = {};
@@ -608,13 +702,52 @@ export default function ProcessoDetail() {
   // ── Card de situação — dados derivados da timeline (estado elevado) ──
   const etapaAtual = etapas.find((e) => e.status === "atual");
   const statusProcValue = etapaAtual?.statusProcessual ?? form.fase_processual ?? "";
-  const setStatusProc = (v: string) => {
+  const aplicarStatus = (v: string) => {
     // mantém timeline e ficha em sincronia: atualiza a etapa atual e o campo.
     if (etapaAtual) {
       setEtapas((prev) => prev.map((e) => (e.id === etapaAtual.id ? { ...e, statusProcessual: v } : e)));
     }
     patchProcesso({ fase_processual: v });
   };
+  /* ACÓRDÃO NÃO ENTRA SEM CÂMARA OU TURMA. É o pedido do chamado: quando o
+     processo avança para um status de acórdão, é obrigatório dizer em qual
+     órgão ele está. Vale para os dois lugares que trocam status (o card de
+     situação e a timeline): a troca fica pendente até a pessoa responder, e
+     cancelar deixa o status como estava. Devolve true quando interceptou. */
+  const interceptarStatus = (v: string): boolean => {
+    if (!exigeOrgaoJulgador(v) || form.segundo_grau_orgao.trim()) return false;
+    setSgDraft({
+      orgao: sugestaoDjen?.orgao ?? "",
+      data: form.segundo_grau_data_subida || sugestaoDjen?.data || "",
+      relator: form.segundo_grau_relator,
+    });
+    setPedidoOrgao(v);
+    return true;
+  };
+  const setStatusProc = (v: string) => { if (interceptarStatus(v)) return; aplicarStatus(v); };
+  const confirmarOrgao = async () => {
+    const orgao = normalizarOrgao(sgDraft.orgao);
+    if (!orgao) return;
+    await patchProcesso({
+      segundo_grau_orgao: orgao,
+      segundo_grau_data_subida: sgDraft.data,
+      segundo_grau_relator: sgDraft.relator.trim(),
+    });
+    if (pedidoOrgao) aplicarStatus(pedidoOrgao);
+    setPedidoOrgao(null);
+  };
+  const usarSugestaoDjen = () => {
+    if (!sugestaoDjen) return;
+    patchProcesso({
+      ...(form.segundo_grau_orgao.trim() ? {} : { segundo_grau_orgao: sugestaoDjen.orgao }),
+      ...(form.segundo_grau_data_subida || !sugestaoDjen.data ? {} : { segundo_grau_data_subida: sugestaoDjen.data }),
+    });
+  };
+  const mostrarSegundoGrau = ehSegundoGrau(statusProcValue) || !!form.segundo_grau_orgao || !!form.segundo_grau_data_subida;
+  const diasSg = diasNoSegundoGrau(form.segundo_grau_data_subida);
+  const sugestaoUtil = sugestaoDjen && (
+    (!form.segundo_grau_orgao.trim() && sugestaoDjen.orgao) ||
+    (!form.segundo_grau_data_subida && sugestaoDjen.data));
   // Dias no status atual — contados da última movimentação (não guardamos a data
   // exata em que o processo entrou no status).
   const diasNoStatus = (() => {
@@ -956,13 +1089,157 @@ export default function ProcessoDetail() {
       </Card>
       </motion.div>
 
-      {/* Movimentações & demandas — timeline (simulada neste processo) */}
+      {/* ── Segundo grau: quando subiu, em qual câmara ou turma está e quem relata.
+          Aparece quando o status é de segundo grau ou quando já há algo gravado;
+          um processo em contestação não tem o que mostrar aqui. ── */}
+      <AnimatePresence initial={false}>
+        {mostrarSegundoGrau && (
+          <motion.div key="segundo-grau" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <Gavel className="h-3.5 w-3.5 text-primary" />
+                  Segundo grau
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* 1. Quando subiu */}
+                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <ArrowUpFromLine className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Subiu em</span>
+                    </div>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="mt-1.5 text-sm font-semibold tabular-nums text-left hover:text-primary transition-colors">
+                          {form.segundo_grau_data_subida ? fmtData(form.segundo_grau_data_subida) : <span className="font-normal text-muted-foreground">definir</span>}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          locale={ptBR}
+                          selected={ymdToDate(form.segundo_grau_data_subida)}
+                          onSelect={(d) => patchProcesso({ segundo_grau_data_subida: d ? dateToYmd(d) : "" })}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {diasSg !== null && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {diasSg === 0 ? "subiu hoje" : diasSg === 1 ? "há 1 dia no segundo grau" : `há ${diasSg} dias no segundo grau`}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 2. Câmara ou turma (obrigatório para acórdão) */}
+                  <div className={cn("rounded-xl border bg-white/[0.02] p-3.5",
+                    exigeOrgaoJulgador(statusProcValue) && !form.segundo_grau_orgao ? "border-amber-400/40" : "border-border/50")}>
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Câmara ou turma</span>
+                    </div>
+                    <CampoInline
+                      valor={form.segundo_grau_orgao}
+                      placeholder="definir"
+                      listaId="orgaos-segundo-grau"
+                      sugestoes={ORGAOS_SUGERIDOS}
+                      transformar={normalizarOrgao}
+                      onSalvar={(v) => patchProcesso({ segundo_grau_orgao: v })}
+                    />
+                    {!form.segundo_grau_orgao && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">obrigatório para entrar em acórdão</p>
+                    )}
+                  </div>
+
+                  {/* 3. Relator */}
+                  <div className="rounded-xl border border-border/50 bg-white/[0.02] p-3.5">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <UserRound className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-[10px] uppercase tracking-wider">Relator</span>
+                    </div>
+                    <CampoInline
+                      valor={form.segundo_grau_relator}
+                      placeholder="definir"
+                      onSalvar={(v) => patchProcesso({ segundo_grau_relator: v })}
+                    />
+                  </div>
+                </div>
+
+                {sugestaoUtil && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/[0.05] px-3.5 py-2.5 text-[12.5px]">
+                    <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-foreground/85">
+                      O DJEN cita a <span className="font-semibold">{sugestaoDjen!.orgao}</span>
+                      {sugestaoDjen!.data ? <> desde {fmtData(sugestaoDjen!.data)}</> : null}.
+                    </span>
+                    <button onClick={usarSugestaoDjen}
+                            className="ml-auto rounded-lg px-2.5 py-1 text-[12px] font-medium bg-primary/[0.12] text-primary ring-1 ring-primary/20 hover:bg-primary/[0.18] transition-colors">
+                      Usar
+                    </button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Câmara ou turma antes do acórdão: o status pedido espera aqui. */}
+      <Dialog open={!!pedidoOrgao} onOpenChange={(o) => { if (!o) setPedidoOrgao(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /> Em qual câmara ou turma está o processo?</DialogTitle>
+            <DialogDescription>
+              Para marcar <span className="font-medium text-foreground">{pedidoOrgao}</span> é preciso dizer qual órgão vai julgar. Fica salvo na ficha.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field label="Câmara ou turma *">
+              <Input
+                autoFocus
+                value={sgDraft.orgao}
+                list="orgaos-segundo-grau-dialogo"
+                onChange={(e) => setSgDraft({ ...sgDraft, orgao: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") void confirmarOrgao(); }}
+                placeholder="2ª TURMA RECURSAL, PRIMEIRA CÂMARA CÍVEL..."
+              />
+              <datalist id="orgaos-segundo-grau-dialogo">{ORGAOS_SUGERIDOS.map((s) => <option key={s} value={s} />)}</datalist>
+              {sugestaoDjen && sugestaoDjen.orgao !== normalizarOrgao(sgDraft.orgao) && (
+                <button onClick={() => setSgDraft({ ...sgDraft, orgao: sugestaoDjen.orgao, data: sgDraft.data || sugestaoDjen.data || "" })}
+                        className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-primary hover:underline">
+                  <Sparkles className="h-3 w-3" /> O DJEN cita a {sugestaoDjen.orgao}. Usar
+                </button>
+              )}
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Subiu em">
+                <Input type="date" value={sgDraft.data} onChange={(e) => setSgDraft({ ...sgDraft, data: e.target.value })} />
+              </Field>
+              <Field label="Relator">
+                <Input value={sgDraft.relator} onChange={(e) => setSgDraft({ ...sgDraft, relator: e.target.value })} placeholder="opcional" />
+              </Field>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPedidoOrgao(null)}>Cancelar</Button>
+            <Button onClick={() => void confirmarOrgao()} disabled={!sgDraft.orgao.trim()} className="gap-2">
+              <Check className="h-4 w-4" /> Salvar e avançar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Movimentações & demandas: a timeline */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.16 }}>
         {etapas.length > 0 ? (
           <Card>
             <CardContent className="pt-6">
               <ProcessoTimeline
                 etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca}
+                antesDeStatus={interceptarStatus}
                 onPedirBaixa={(via) => setBaixa({
                   processoId: id!,
                   clienteId: form.cliente_id || null,
@@ -1097,6 +1374,16 @@ export default function ProcessoDetail() {
               <Field label="Parceiro">
                 <Input value={form.parceiro} onChange={(e) => setForm({ ...form, parceiro: e.target.value })} placeholder="Nome do parceiro" />
               </Field>
+              <Field label="Subiu ao 2º grau em">
+                <Input type="date" value={form.segundo_grau_data_subida} onChange={(e) => setForm({ ...form, segundo_grau_data_subida: e.target.value })} />
+              </Field>
+              <Field label="Câmara ou turma (2º grau)">
+                <Input value={form.segundo_grau_orgao} list="orgaos-segundo-grau-ficha" onChange={(e) => setForm({ ...form, segundo_grau_orgao: e.target.value })} placeholder="2ª TURMA RECURSAL" />
+                <datalist id="orgaos-segundo-grau-ficha">{ORGAOS_SUGERIDOS.map((s) => <option key={s} value={s} />)}</datalist>
+              </Field>
+              <Field label="Relator (2º grau)">
+                <Input value={form.segundo_grau_relator} onChange={(e) => setForm({ ...form, segundo_grau_relator: e.target.value })} placeholder="opcional" />
+              </Field>
               <Field label="Observações" full>
                 <Textarea rows={4} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} placeholder="Anotações internas sobre o processo…" />
               </Field>
@@ -1123,6 +1410,9 @@ export default function ProcessoDetail() {
               <Row label="Comarca/UF">{form.comarca_uf || "não informado"}</Row>
               <Row label="Valor da Causa">{valorNum ? brl(valorNum) : "não informado"}</Row>
               <Row label="Parceiro">{form.parceiro || "não informado"}</Row>
+              <Row label="Subiu ao 2º grau em">{form.segundo_grau_data_subida ? fmtData(form.segundo_grau_data_subida) : "não informado"}</Row>
+              <Row label="Câmara ou turma">{form.segundo_grau_orgao || "não informado"}</Row>
+              <Row label="Relator">{form.segundo_grau_relator || "não informado"}</Row>
               <Row label="Observações" full>
                 <span className="whitespace-pre-wrap font-normal">{form.observacoes || "não informado"}</span>
               </Row>
