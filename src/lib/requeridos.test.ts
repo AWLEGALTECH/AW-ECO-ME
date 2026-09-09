@@ -88,6 +88,6 @@ test("mesmasChaves ignora a ordem", () => {
 
 test("a fonte vira frase, e o herdado avisa que não foi conferido", () => {
   expect(fonteDoRequerido("djen")).toContain("tribunal");
-  expect(fonteDoRequerido("contrato")).toContain("não conferido");
+  expect(fonteDoRequerido("contrato")).toContain("Ninguém conferiu");
   expect(fonteDoRequerido(null)).toBeNull();
 });

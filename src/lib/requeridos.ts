@@ -85,10 +85,10 @@ export function mesmasChaves(a: string[] | null | undefined, b: string[] | null 
 /** De onde veio a resposta, em uma frase que se entende sem saber o esquema. */
 export function fonteDoRequerido(origem: string | null | undefined): string | null {
   switch (origem) {
-    case "djen":      return "conferido na distribuição do tribunal";
-    case "intimacao": return "lido de uma intimação do processo";
-    case "contrato":  return "herdado do contrato do cliente — não conferido no tribunal";
-    case "manual":    return "preenchido à mão";
+    case "djen":      return "Conferido na distribuição do tribunal.";
+    case "intimacao": return "Lido de uma intimação do processo.";
+    case "contrato":  return "Herdado do contrato do cliente. Ninguém conferiu no tribunal.";
+    case "manual":    return "Preenchido à mão.";
     default:          return null;
   }
 }

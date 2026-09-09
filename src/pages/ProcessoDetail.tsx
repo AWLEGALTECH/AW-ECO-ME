@@ -34,15 +34,36 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ptBR } from "date-fns/locale";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
-  FileText, MapPin, User, SquareArrowOutUpRight, Package,
+  FileText, MapPin, User, SquareArrowOutUpRight, Package, X,
   Handshake, Activity, ListTodo, Paperclip, Landmark, Trophy, Scale,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
+
+/* QUAIS AVISOS DE PROCEDÊNCIA JÁ FORAM LIDOS.
+ *
+ * O aviso ("herdado do contrato, ninguém conferiu") é útil na primeira vez que
+ * se abre o processo e vira ruído da segunda em diante. Como linha fixa embaixo
+ * do réu, ele ocupava espaço permanente pra dizer uma coisa que só precisava
+ * ser dita uma vez.
+ *
+ * Guardado POR PROCESSO, e não como um "não mostrar mais" global: cada processo
+ * tem a sua procedência, e fechar o aviso de um não diz nada sobre os outros
+ * onze que também vieram de contrato.
+ *
+ * NO NAVEGADOR, e não na conta: é preferência de leitura de quem está sentado
+ * ali, igual às seções retráteis da ficha do atendimento.
+ */
+const AVISOS_LIDOS = "aw:processo:origem-do-requerido:lidos";
+
+function avisosLidos(): string[] {
+  try { return JSON.parse(localStorage.getItem(AVISOS_LIDOS) || "[]") as string[]; }
+  catch { return []; }
+}
 
 interface ProcessoForm {
   id?: string;
@@ -210,6 +231,7 @@ export default function ProcessoDetail() {
      debaixo do cursor. */
   const [reusTexto, setReusTexto] = useState("");
   const reusNomes = nomesDaLista(reusTexto);
+  const [avisoOrigem, setAvisoOrigem] = useState(false);
   const [clientePopoverOpen, setClientePopoverOpen] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -366,6 +388,24 @@ export default function ProcessoDetail() {
     if (editing) return;
     setReusTexto(listaDosNomes(nomesDasChaves(form.requeridos, reusCatalogo)));
   }, [form.requeridos, reusCatalogo, editing]);
+
+  /* O balão sai ao abrir o processo, e só quando NÃO foi o tribunal que
+     respondeu: dizer "conferido no tribunal" em 406 fichas seria avisar sobre o
+     caso normal. O que merece um aviso é o herdado de contrato, que ninguém
+     conferiu, e o preenchido à mão. */
+  useEffect(() => {
+    const vale = !!id && !!form.requerido_origem && form.requerido_origem !== "djen";
+    setAvisoOrigem(vale && !avisosLidos().includes(id!));
+  }, [id, form.requerido_origem]);
+
+  const fecharAvisoOrigem = () => {
+    setAvisoOrigem(false);
+    if (!id) return;
+    try {
+      const lidos = avisosLidos();
+      if (!lidos.includes(id)) localStorage.setItem(AVISOS_LIDOS, JSON.stringify([...lidos, id]));
+    } catch { /* sem storage, o aviso volta na próxima abertura e tudo bem */ }
+  };
 
   // Persiste a linha temporal no banco sempre que as etapas mudam (tarefa nova,
   // pendência, avanço, status). Debounce curto; ignora se nada mudou vs o salvo.
@@ -614,16 +654,48 @@ export default function ProcessoDetail() {
                 ) : (
                   <span className="text-muted-foreground">Requerido não informado</span>
                 )}
-                {/* A PROCEDÊNCIA APARECE SÓ QUANDO NÃO FOI O TRIBUNAL.
-                    Escrever "conferido no tribunal" em 406 fichas seria ruído
-                    constante; o que precisa de atenção é o herdado do contrato,
-                    que ninguém conferiu — e é justamente esse que a tela cala
-                    se a regra for mostrar tudo ou nada. */}
-                {form.requerido_origem && form.requerido_origem !== "djen" && (
-                  <span className="block text-[11px] text-muted-foreground/70 leading-snug">
-                    {fonteDoRequerido(form.requerido_origem)}
-                  </span>
-                )}
+                {/* A PROCEDÊNCIA É UM BALÃO QUE SE FECHA, NÃO UMA LINHA FIXA.
+                    Ela é útil na primeira vez que se abre o processo e vira
+                    ruído da segunda em diante: como linha permanente embaixo do
+                    réu, ocupava espaço para sempre dizendo algo que só precisa
+                    ser dito uma vez. Fechado, fica lido para aquele processo.
+
+                    Só aparece quando NÃO foi o tribunal que respondeu. Avisar
+                    "conferido no tribunal" em 406 fichas seria alarmar sobre o
+                    caso normal; quem precisa de atenção é o herdado de contrato,
+                    que ninguém conferiu. */}
+                <AnimatePresence>
+                  {avisoOrigem && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                      transition={{ duration: 0.24, ease: EASE, delay: 0.15 }}
+                      className="relative mt-2 inline-block max-w-[22rem] rounded-lg border border-amber-400/25
+                                 bg-amber-400/[0.08] py-1.5 pl-2.5 pr-7 text-[11px] leading-snug text-amber-200/90"
+                    >
+                      {/* O bico aponta pro nome do réu, pra ficar claro de onde
+                          o aviso está saindo. Mesma cor do balão: alfa igual
+                          sobre o mesmo fundo dá a mesma cor composta, então ele
+                          não vira um quadradinho de outro tom. */}
+                      <span
+                        aria-hidden
+                        className="absolute -top-[5px] left-4 h-2 w-2 rotate-45 border-l border-t
+                                   border-amber-400/25 bg-amber-400/[0.08]"
+                      />
+                      {fonteDoRequerido(form.requerido_origem)}
+                      <button
+                        onClick={fecharAvisoOrigem}
+                        title="Ok, entendi"
+                        aria-label="Fechar aviso"
+                        className="absolute right-1 top-1 rounded p-0.5 text-amber-200/60
+                                   hover:bg-amber-400/15 hover:text-amber-100 transition-colors"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -894,7 +966,7 @@ export default function ProcessoDetail() {
                     setReusTexto(e.target.value);
                     setForm({ ...form, requeridos: nomesDaLista(e.target.value).map(chaveDeRequerido) });
                   }}
-                  placeholder="Banco Bradesco — dois réus, separados por vírgula"
+                  placeholder="Banco Bradesco (dois réus? separe por vírgula)"
                 />
                 <datalist id="requeridos-conhecidos">
                   {Object.values(reusCatalogo).sort().map((n) => <option key={n} value={n} />)}

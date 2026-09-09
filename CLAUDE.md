@@ -49,6 +49,10 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
    Enquanto esse passivo existir ele não pode entrar no build — mas **rode-o
    antes de entregar** e não deixe erro NOVO no arquivo que você mexeu
 3. **Commits:** português, prefixo convencional (feat, fix, refactor, etc.)
+3.1. **NUNCA use travessão (—) em texto que o usuário lê.** Não em string de
+   tela, não em placeholder, não em toast, não em resposta de chat. Use ponto,
+   vírgula, dois-pontos ou parênteses. Isto já foi pedido várias vezes; se você
+   está prestes a escrever "algo — outra coisa", reescreva a frase.
 4. **Push:** nunca fazer push sem pedir permissão
 5. **Edge Functions chamadas de fora** (`wa-webhook`, `zapsign-webhook`,
    `landing-socioeconomico`, `send-push`) exigem `verify_jwt = false`. Deploy
