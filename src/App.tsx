@@ -12,7 +12,11 @@ import { SidebarLayout } from "@/components/SidebarLayout";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
+import DashboardLayout from "./pages/dashboard/DashboardLayout";
+import PainelValores from "./pages/dashboard/PainelValores";
+import PainelProcedencia from "./pages/dashboard/PainelProcedencia";
+import PainelMaterias from "./pages/dashboard/PainelMaterias";
+import PainelComercial from "./pages/dashboard/PainelComercial";
 import Clientes from "./pages/Clientes";
 import ClienteDetail from "./pages/ClienteDetail";
 import ClientesArquivados from "./pages/ClientesArquivados";
@@ -82,7 +86,14 @@ const App = () => (
               <Route path="/auth" element={<Auth />} />
               <Route element={<SidebarLayout />}>
                 <Route element={<RequireModule module="dashboard" />}>
-                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/dashboard" element={<DashboardLayout />}>
+                    <Route index element={<PainelValores />} />
+                    <Route path="procedencia" element={<PainelProcedencia />} />
+                    <Route path="materias" element={<PainelMaterias />} />
+                    <Route element={<RequireModule module="fechamentos" />}>
+                      <Route path="comercial" element={<PainelComercial />} />
+                    </Route>
+                  </Route>
                 </Route>
                 <Route element={<RequireModule module="clientes" />}>
                   <Route path="/clientes" element={<Clientes />} />
