@@ -73,14 +73,26 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
 
   /* Entrega a bola para a tela de pré-clientes, que é onde o cadastro de fato
      acontece. Duplicar aquele fluxo aqui seria manter duas rotinas de criar
-     cliente, e uma delas ficaria para trás na primeira mudança. */
-  const seguirParaAprovacao = () => navigate(`/pre-clientes?pre=${pre.id}`);
+     cliente, e uma delas ficaria para trás na primeira mudança.
+
+     EM OUTRA ABA, como o Writer. A conversa não pode fechar: quem aprova
+     continua atendendo, e o cliente do outro lado não espera o cadastro
+     terminar para receber resposta.
+
+     `docs` diz quantos anexos acabaram de subir. É o que faz a tela de lá
+     parar de perguntar "já subiu os documentos no Drive?" quando a resposta
+     acabou de ser dada aqui. */
+  const seguirParaAprovacao = (docsSubidos = 0) => {
+    const qs = docsSubidos > 0 ? `?pre=${pre.id}&docs=${docsSubidos}` : `?pre=${pre.id}`;
+    window.open(`/pre-clientes${qs}`, "_blank", "noopener");
+  };
 
   const subirEseguir = async () => {
     const escolhidos = arquivos.filter((a) => marcados.includes(a.id));
-    if (escolhidos.length === 0) { seguirParaAprovacao(); return; }
+    if (escolhidos.length === 0) { setAberto(false); seguirParaAprovacao(); return; }
     if (!pre.drive_folder_url) {
       toast.error("Esta ficha ainda não tem pasta no Drive. Dá pra criar na tela de pré-clientes.");
+      setAberto(false);
       seguirParaAprovacao();
       return;
     }
@@ -99,9 +111,18 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
       toast.error("Não consegui subir: " + error.message);
       return;
     }
-    const r = (data ?? {}) as { subidos?: unknown[]; falhas?: { nome: string }[] };
+    const r = (data ?? {}) as {
+      subidos?: unknown[]; falhas?: { nome: string }[]; recado?: string;
+    };
     const n = r.subidos?.length ?? 0;
     const falhas = r.falhas ?? [];
+
+    if (r.recado) {
+      /* Falhou tudo pelo mesmo motivo: é configuração do Drive, não arquivo.
+         Repetir a lista de nomes aqui não ajudaria ninguém a resolver. */
+      toast.error(r.recado, { duration: 12000 });
+      return;
+    }
     if (falhas.length > 0) {
       // O lote não é desfeito: o que subiu subiu, e refazer os cinco por causa
       // de um seria pior que dizer qual foi.
@@ -112,7 +133,7 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
       toast.success(`${n} ${n === 1 ? "arquivo foi" : "arquivos foram"} para a pasta de ${pre.nome}.`);
     }
     setAberto(false);
-    seguirParaAprovacao();
+    seguirParaAprovacao(n);
   };
 
   return (
@@ -239,7 +260,7 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
           )}
 
           <DialogFooter className="shrink-0 gap-2 pt-2">
-            <Button variant="ghost" onClick={seguirParaAprovacao} disabled={subindo}>
+            <Button variant="ghost" onClick={() => { setAberto(false); seguirParaAprovacao(); }} disabled={subindo}>
               Aprovar sem subir nada
             </Button>
             <Button onClick={subirEseguir} disabled={subindo}>

@@ -120,17 +120,22 @@ function rangeDoPeriodo(key: PeriodoKey, ini?: string, fim?: string): [Date | nu
   }
 }
 
-function ConfirmarDialog({ pre, onConfirmed, abrirAgora = false }: {
+function ConfirmarDialog({ pre, onConfirmed, abrirAgora = false, docsJaSubiram = 0 }: {
   pre: PreCliente;
   onConfirmed: (driveUrl: string, observacoes: string) => void;
   /** veio de uma conversa com `?pre=`: já abre, que é o que a pessoa pediu */
   abrirAgora?: boolean;
+  /** quantos anexos a conversa acabou de mandar para a pasta */
+  docsJaSubiram?: number;
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { if (abrirAgora) setOpen(true); }, [abrirAgora]);
   const [drive, setDrive] = useState(pre.drive_folder_url ?? "");
   const [observacoes, setObservacoes] = useState("");
-  const [docsConfirmados, setDocsConfirmados] = useState(false);
+  /* NÃO SE PERGUNTA O QUE ACABOU DE SER FEITO. Vindo da conversa com os anexos
+     já enviados, a caixinha "já subi os documentos" viraria uma pergunta cuja
+     resposta a própria tela deu trinta segundos atrás. */
+  const [docsConfirmados, setDocsConfirmados] = useState(docsJaSubiram > 0);
   const autoCreated = !!pre.drive_folder_url;
 
   const driveValido = /^https?:\/\/(drive|docs)\.google\.com\//i.test(drive.trim());
@@ -143,12 +148,12 @@ function ConfirmarDialog({ pre, onConfirmed, abrirAgora = false }: {
       return;
     }
     setOpen(false);
-    setDocsConfirmados(false);
+    setDocsConfirmados(docsJaSubiram > 0);
     onConfirmed(drive.trim(), observacoes.trim());
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setDrive(pre.drive_folder_url ?? ""); setObservacoes(""); setDocsConfirmados(false); } }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setDrive(pre.drive_folder_url ?? ""); setObservacoes(""); setDocsConfirmados(docsJaSubiram > 0); } }}>
       <DialogTrigger asChild>
         <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500">
           <CheckCircle2 className="h-4 w-4 mr-1.5" />
@@ -202,26 +207,43 @@ function ConfirmarDialog({ pre, onConfirmed, abrirAgora = false }: {
             )}
           </div>
 
-          {/* Confirmação dos documentos — linha clicável */}
-          <label
-            className={`flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer select-none transition-colors ${
-              docsConfirmados
-                ? "border-emerald-500/30 bg-emerald-500/5"
-                : "border-amber-400/30 bg-amber-400/5"
-            }`}
-          >
-            <Checkbox
-              checked={docsConfirmados}
-              onCheckedChange={(v) => setDocsConfirmados(!!v)}
-              className="mt-0.5"
-            />
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium leading-tight">Já subi todos os documentos na pasta</p>
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                Após confirmar, a IA detecta e renomeia os arquivos (RG, contrato, comprovante, extrato…).
-              </p>
+          {/* Confirmação dos documentos. Vindo da conversa, deixa de ser
+              pergunta e vira recibo: os anexos foram por lá, e quem já
+              respondeu não responde de novo. */}
+          {docsJaSubiram > 0 ? (
+            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium leading-tight">
+                  {docsJaSubiram} {docsJaSubiram === 1 ? "documento subiu" : "documentos subiram"} pela conversa
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Estão em "Documentos do cliente", dentro da pasta. Ao confirmar, a IA detecta e renomeia
+                  os arquivos (RG, contrato, comprovante, extrato).
+                </p>
+              </div>
             </div>
-          </label>
+          ) : (
+            <label
+              className={`flex items-start gap-2.5 rounded-lg border p-3 cursor-pointer select-none transition-colors ${
+                docsConfirmados
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : "border-amber-400/30 bg-amber-400/5"
+              }`}
+            >
+              <Checkbox
+                checked={docsConfirmados}
+                onCheckedChange={(v) => setDocsConfirmados(!!v)}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium leading-tight">Já subi todos os documentos na pasta</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Após confirmar, a IA detecta e renomeia os arquivos (RG, contrato, comprovante, extrato…).
+                </p>
+              </div>
+            </label>
+          )}
 
           {/* Observações do aprovador */}
           <div className="space-y-1.5">
@@ -492,14 +514,18 @@ export default function PreClientes() {
   const [searchParams, setSearchParams] = useSearchParams();
   const preAlvo = searchParams.get("pre");
   const [destaque, setDestaque] = useState<string | null>(null);
+  /* Quantos anexos a conversa acabou de mandar para a pasta. Vem na URL porque
+     a aprovação abre em OUTRA ABA, e aba nova não herda estado nenhum. */
+  const [docsSubidos, setDocsSubidos] = useState(0);
   useEffect(() => {
     if (!preAlvo) return;
+    setDocsSubidos(Math.max(0, Number(searchParams.get("docs")) || 0));
     setFiltroStatus("todos");
     setPeriodo("tudo");
     setDestaque(preAlvo);
     // O parâmetro sai da barra depois de usado: recarregar a página não deve
     // reabrir um diálogo de confirmação que já foi respondido.
-    setSearchParams((p) => { const n = new URLSearchParams(p); n.delete("pre"); return n; }, { replace: true });
+    setSearchParams((p) => { const n = new URLSearchParams(p); n.delete("pre"); n.delete("docs"); return n; }, { replace: true });
   }, [preAlvo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Rola até a ficha assim que ela existir na tela.
@@ -1096,7 +1122,7 @@ export default function PreClientes() {
 
         {podeAgir && (
           <div className="mt-4 flex items-center gap-2 border-t border-border pt-3" onClick={(e) => e.stopPropagation()}>
-            <ConfirmarDialog pre={pre} abrirAgora={alvo}
+            <ConfirmarDialog pre={pre} abrirAgora={alvo} docsJaSubiram={alvo ? docsSubidos : 0}
               onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
 
             <AlertDialog>

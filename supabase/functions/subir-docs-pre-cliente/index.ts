@@ -16,6 +16,22 @@
 // dentro. Refazer os cinco por causa de um seria pior.
 //
 // Secrets: GOOGLE_SA_JSON (a mesma conta de serviço das outras funções do Drive)
+//          GOOGLE_IMPERSONATE (opcional, e leia o parágrafo abaixo)
+//
+// ⚠️ CONTA DE SERVIÇO NÃO TEM COTA DE ARMAZENAMENTO. Ela cria PASTA numa My
+// Drive (pasta tem zero byte), mas ao subir um ARQUIVO o Google responde 403
+// `storageQuotaExceeded`: alguém precisa ser o DONO dos bytes, e uma conta de
+// serviço não pode ser. Duas saídas, as duas fora do código:
+//
+//   1. pôr a pasta num DRIVE COMPARTILHADO, onde o dono dos arquivos é o
+//      drive e não a conta; ou
+//   2. DELEGAÇÃO: no admin do Workspace, autorizar a conta de serviço a agir
+//      em nome de uma pessoa, e pôr o e-mail dela em GOOGLE_IMPERSONATE. Aí o
+//      arquivo nasce dela, na cota dela, e tudo o mais continua igual.
+//
+// Com o segredo posto, esta função passa a impersonar sozinha. Sem ele, ela
+// continua tentando direto e devolve o motivo com todas as letras em vez de uma
+// lista de nomes que falharam.
 
 import { create, getNumericDate, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -43,8 +59,11 @@ async function getToken(): Promise<string> {
   const key = await crypto.subtle.importKey(
     "pkcs8", der.buffer, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
   const header: Header = { alg: "RS256", typ: "JWT" };
+  // `sub` liga a delegação: o token passa a valer como se fosse desta pessoa.
+  const quem = (Deno.env.get("GOOGLE_IMPERSONATE") || "").trim();
   const payload: Payload = {
     iss: sa.client_email,
+    ...(quem ? { sub: quem } : {}),
     scope: "https://www.googleapis.com/auth/drive",
     aud: sa.token_uri ?? "https://oauth2.googleapis.com/token",
     iat: getNumericDate(0),
@@ -95,7 +114,15 @@ async function subir(token: string, nome: string, mime: string, bytes: Uint8Arra
   const r = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink",
     { method: "POST", headers: { "Content-Type": `multipart/related; boundary=${boundary}`, Authorization: `Bearer ${token}` }, body });
-  if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    const corpo = await r.text();
+    /* O 403 de cota é o único erro previsível aqui, e a mensagem crua do Google
+       fala de "storage quota" para quem só quis anexar um RG. */
+    if (/storageQuotaExceeded|do not have storage quota/i.test(corpo)) {
+      throw new Error("PASTA_SEM_DONO");
+    }
+    throw new Error(`upload ${r.status}: ${corpo}`);
+  }
   return await r.json();
 }
 
@@ -144,7 +171,19 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return j({ ok: falhas.length === 0, folder_url: sub.url, subidos, falhas });
+    /* Todas as falhas pelo mesmo motivo é configuração, não arquivo: a tela
+       precisa dizer O QUE fazer, e não repetir os nomes que não subiram. */
+    const todasPorCota = falhas.length > 0 && falhas.every((f) => f.erro === "PASTA_SEM_DONO");
+    return j({
+      ok: falhas.length === 0,
+      folder_url: sub.url,
+      subidos,
+      falhas,
+      motivo: todasPorCota ? "pasta_sem_dono" : undefined,
+      recado: todasPorCota
+        ? "A pasta do Drive não aceita arquivos da conta de serviço: falta ela ser um drive compartilhado, ou falta configurar a delegação (GOOGLE_IMPERSONATE)."
+        : undefined,
+    });
   } catch (e) {
     console.error("[subir-docs-pre-cliente]", e);
     return j({ error: String((e as Error)?.message || e) }, 500);
