@@ -96,6 +96,15 @@ import {
   resumoDoAtalho, type Atalho,
 } from "@/lib/atalhos";
 import { useAtalhos, useInvalidarAtalhos, salvarAtalho, removerAtalho } from "@/hooks/useAtalhos";
+import {
+  DIAS, DIAS_CURTOS, PASSO, CELULAS, ROTULO_FAIXA, VARIAVEIS,
+  faixaEm, pintar, copiarDia, proximaAbertura, resumoDoDia, horaDe, momentoEm, comVariaveis,
+  type Faixa, type Horario,
+} from "@/lib/horarioAtendimento";
+import {
+  useAtendimentoConfig, useHorarios, useMsgsDoAtendimento, useInvalidarAtendimento,
+  salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
+} from "@/hooks/usePrimeiroAtendimento";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -2731,6 +2740,9 @@ export default function AtendimentoPage() {
         <CentralProgramadas
           agendadas={agendadas}
           leads={leadsBase}
+          instancia={instancia.nome}
+          aoVivo={aoVivo}
+          userId={user?.id ?? null}
           onCancelar={cancelarProgramada}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
         />
@@ -8661,12 +8673,427 @@ function ModelosDaRegua({ modelos, regua, onEditar, onAlternar, onMudarDia }: {
  * resto — porque cancelar algo de daqui a uma hora é urgente e cancelar algo da
  * semana que vem pode esperar o café.
  */
-function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa }: {
+/* ═══════════════════ PRIMEIRO ATENDIMENTO ═══════════════════
+ *
+ * O que o lead ouve quando escreve pela primeira vez, conforme a hora do dia.
+ * Três estados: fora do horário, direcionamento (já abrimos, o responsável
+ * começa às tantas) e atendimento (tem gente aqui).
+ *
+ * A GRADE SE PINTA. Digitar catorze horários por dia da semana é o tipo de
+ * formulário que ninguém preenche duas vezes; arrastar na barra do dia é o
+ * gesto que a pessoa já faz mentalmente ao pensar "de nove às seis".
+ *
+ * FECHADO NÃO É UMA COR QUE SE PINTA POR CIMA, é a ausência das outras duas.
+ * O pincel de fechado apaga, e é por isso que ele existe: sem ele não haveria
+ * como tirar uma faixa desenhada por engano sem apagar o dia inteiro.
+ */
+const COR_DA_FAIXA: Record<Faixa, string> = {
+  fechado: "bg-white/[0.05]",
+  direcionamento: "bg-amber-400/35",
+  atendimento: "bg-primary/45",
+};
+const COR_DO_PINCEL: Record<Faixa, string> = {
+  fechado: "bg-white/[0.08] text-muted-foreground ring-white/15",
+  direcionamento: "bg-amber-400/20 text-amber-200 ring-amber-400/35",
+  atendimento: "bg-primary/20 text-primary ring-primary/35",
+};
+
+function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
+  instancia: string;
+  aoVivo: boolean;
+  userId?: string | null;
+}) {
+  const { data: config } = useAtendimentoConfig(instancia);
+  const { data: horarios } = useHorarios(instancia);
+  const { data: msgs } = useMsgsDoAtendimento(instancia);
+  const invalidar = useInvalidarAtendimento();
+
+  const fuso = config?.fuso ?? "America/Manaus";
+  const [grade, setGrade] = useState<Horario[]>([]);
+  const [gradeSalva, setGradeSalva] = useState<string>("[]");
+  const [pincel, setPincel] = useState<Faixa>("atendimento");
+  const [arrasto, setArrasto] = useState<{ dia: number; de: number; ate: number } | null>(null);
+  const [salvandoGrade, setSalvandoGrade] = useState(false);
+
+  /* A grade vinda do banco vira rascunho local. Pintar mexe no rascunho e o
+     botão de salvar aparece: um arrasto que grava sozinho a cada célula seria
+     dezenas de escritas e nenhum jeito de desistir no meio. */
+  useEffect(() => {
+    if (!horarios) return;
+    const vindo = JSON.stringify(horarios);
+    setGradeSalva(vindo);
+    setGrade(horarios);
+  }, [horarios]);
+  const gradeMudou = JSON.stringify(grade) !== gradeSalva;
+
+  // Soltar o botão fora da barra também termina o traço; sem isto o pincel
+  // ficaria "grudado" e a próxima passada do mouse pintaria sem clique.
+  useEffect(() => {
+    if (!arrasto) return;
+    const soltar = () => {
+      setGrade((g) => pintar(g, arrasto.dia,
+        Math.min(arrasto.de, arrasto.ate) * PASSO,
+        (Math.max(arrasto.de, arrasto.ate) + 1) * PASSO, pincel));
+      setArrasto(null);
+    };
+    window.addEventListener("mouseup", soltar);
+    return () => window.removeEventListener("mouseup", soltar);
+  }, [arrasto, pincel]);
+
+  const agora = momentoEm(fuso);
+  const hojeFechado = !!config?.fechado_em && config.fechado_em === new Date().toLocaleDateString("en-CA", { timeZone: fuso });
+  const faixaAgora: Faixa = hojeFechado ? "fechado" : (() => {
+    const f = faixaEm(grade, agora.dia, agora.minuto);
+    return config?.fora_agora && f === "atendimento" ? "direcionamento" : f;
+  })();
+  const proxima = proximaAbertura(grade, agora.dia, agora.minuto);
+
+  const mexer = async (patch: Parameters<typeof salvarConfigAtendimento>[1], aviso: string) => {
+    try {
+      await salvarConfigAtendimento(instancia, patch, userId);
+      invalidar();
+      toast.success(aviso);
+    } catch (e) {
+      toast.error("Não consegui salvar: " + (e as Error).message);
+    }
+  };
+
+  const salvarGrade = async () => {
+    setSalvandoGrade(true);
+    try {
+      await salvarHorarios(instancia, grade);
+      invalidar();
+      toast.success("Grade de horários salva.");
+    } catch (e) {
+      toast.error("Não consegui salvar a grade: " + (e as Error).message);
+    } finally {
+      setSalvandoGrade(false);
+    }
+  };
+
+  const hojeISO = new Date().toLocaleDateString("en-CA", { timeZone: fuso });
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* ── O ESTADO DE AGORA, ANTES DE QUALQUER AJUSTE ──
+          Quem abre esta tela quer saber o que está saindo neste minuto. A grade
+          inteira não responde isso de relance; esta linha responde. */}
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              Primeiro atendimento
+            </h2>
+            <p className="text-[11.5px] text-muted-foreground mt-0.5 max-w-xl leading-snug">
+              A resposta automática que o lead recebe quando escreve pela primeira vez. Vale só para quem
+              nunca falou conosco: cliente antigo que manda mensagem de madrugada não recebe robô.
+            </p>
+          </div>
+          <button
+            onClick={() => aoVivo && mexer({ ativo: !config?.ativo },
+              config?.ativo ? "Primeiro atendimento desligado." : "Primeiro atendimento ligado.")}
+            disabled={!aoVivo}
+            className={cn("shrink-0 flex items-center gap-2 rounded-lg px-3 py-2 ring-1 transition-colors disabled:opacity-50",
+              config?.ativo ? "bg-primary/15 text-primary ring-primary/30" : "bg-white/[0.04] text-muted-foreground ring-white/10")}>
+            {config?.ativo ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+            <span className="text-[12px] font-medium">{config?.ativo ? "Ligado" : "Desligado"}</span>
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+          <span className={cn("rounded-lg px-2.5 py-1 ring-1 font-medium", COR_DO_PINCEL[faixaAgora])}>
+            agora: {ROTULO_FAIXA[faixaAgora]}
+          </span>
+          <span className="text-muted-foreground">
+            {DIAS[agora.dia].toLowerCase()}, {horaDe(agora.minuto)} em Manaus
+          </span>
+          {proxima && (
+            <span className="text-muted-foreground/70">
+              · {ROTULO_FAIXA[proxima.faixa].toLowerCase()} {proxima.emDias === 0 ? "hoje" : proxima.emDias === 1 ? "amanhã" : DIAS[proxima.dia].toLowerCase()} às {horaDe(proxima.minuto)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {/* Feriado é uma DATA e não um sim/não: assim ele se apaga sozinho
+              amanhã, em vez de ficar ligado até alguém lembrar. */}
+          <button
+            onClick={() => aoVivo && mexer({ fechado_em: hojeFechado ? null : hojeISO },
+              hojeFechado ? "Hoje voltou a valer a grade." : "Hoje está marcado como fechado.")}
+            disabled={!aoVivo}
+            className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px] ring-1 transition-colors disabled:opacity-50",
+              hojeFechado ? "bg-amber-400/15 text-amber-200 ring-amber-400/30" : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:bg-white/[0.06]")}>
+            <CalendarDays className="h-3.5 w-3.5" />
+            {hojeFechado ? "Hoje está fechado" : "Fechar só hoje"}
+          </button>
+
+          {/* Horário fixo e reunião fora do escritório não se combinam. */}
+          <button
+            onClick={() => aoVivo && mexer(
+              { fora_agora: !config?.fora_agora, fora_desde: config?.fora_agora ? null : new Date().toISOString() },
+              config?.fora_agora ? "De volta ao atendimento." : "Marcado como fora. O lead recebe o direcionamento.")}
+            disabled={!aoVivo}
+            className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px] ring-1 transition-colors disabled:opacity-50",
+              config?.fora_agora ? "bg-amber-400/15 text-amber-200 ring-amber-400/30" : "bg-white/[0.03] text-muted-foreground ring-white/10 hover:bg-white/[0.06]")}>
+            <ArrowUpRight className="h-3.5 w-3.5" />
+            {config?.fora_agora ? "Estou fora agora" : "Marcar que saí"}
+          </button>
+        </div>
+
+        {config?.fora_agora && (
+          <p className="text-[11px] text-amber-200/80 leading-snug">
+            Enquanto isto estiver ligado, quem escrever no horário de atendimento recebe a mensagem de
+            direcionamento. Lembre de desligar ao voltar.
+          </p>
+        )}
+      </SpotlightCard>
+
+      {/* ── A GRADE ── */}
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-[12.5px] font-medium">Grade da semana</h3>
+            <p className="text-[11px] text-muted-foreground/80 leading-snug">
+              Escolha o pincel e arraste na barra do dia. O que ficar sem cor é fora do horário.
+            </p>
+          </div>
+          {gradeMudou && (
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                onClick={() => setGrade(JSON.parse(gradeSalva))} disabled={salvandoGrade}>
+                Desfazer
+              </Button>
+              <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvarGrade} disabled={salvandoGrade || !aoVivo}>
+                {salvandoGrade ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                Salvar grade
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {(["atendimento", "direcionamento", "fechado"] as Faixa[]).map((f) => (
+            <button key={f} onClick={() => setPincel(f)}
+              className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] ring-1 transition-colors",
+                pincel === f ? COR_DO_PINCEL[f] : "bg-white/[0.02] text-muted-foreground ring-white/[0.07] hover:bg-white/[0.05]")}>
+              <span className={cn("h-2.5 w-2.5 rounded-sm", COR_DA_FAIXA[f])} />
+              {ROTULO_FAIXA[f]}
+              {f === "fechado" && <span className="text-[9.5px] opacity-60">apaga</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* A régua de horas em cima das barras: sem ela, a barra é uma faixa
+            colorida sem escala e ninguém sabe onde ficam as nove da manhã. */}
+        <div className="flex items-center gap-2 pl-9">
+          <div className="flex-1 flex text-[9px] text-muted-foreground/50 tabular-nums select-none">
+            {[0, 3, 6, 9, 12, 15, 18, 21].map((hh) => (
+              <span key={hh} className="flex-1">{String(hh).padStart(2, "0")}h</span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1 select-none">
+          {DIAS_CURTOS.map((rotulo, dia) => (
+            <div key={dia} className="flex items-center gap-2">
+              <span className="w-7 shrink-0 text-[10px] text-muted-foreground/70 uppercase">{rotulo}</span>
+              <div className="flex-1 flex h-6 rounded-md overflow-hidden ring-1 ring-white/[0.07]">
+                {Array.from({ length: CELULAS }, (_, i) => {
+                  const noArrasto = arrasto?.dia === dia
+                    && i >= Math.min(arrasto.de, arrasto.ate) && i <= Math.max(arrasto.de, arrasto.ate);
+                  const f: Faixa = noArrasto ? pincel : faixaEm(grade, dia, i * PASSO);
+                  const agoraAqui = dia === agora.dia && agora.minuto >= i * PASSO && agora.minuto < (i + 1) * PASSO;
+                  return (
+                    <button
+                      key={i}
+                      title={`${DIAS[dia]}, ${horaDe(i * PASSO)}`}
+                      onMouseDown={() => aoVivo && setArrasto({ dia, de: i, ate: i })}
+                      onMouseEnter={() => arrasto?.dia === dia && setArrasto((a) => a && { ...a, ate: i })}
+                      className={cn("flex-1 transition-colors", COR_DA_FAIXA[f],
+                        noArrasto && "ring-1 ring-inset ring-white/25",
+                        // a marca de "agora", para achar o minuto atual no meio da semana
+                        agoraAqui && "ring-1 ring-inset ring-white/60",
+                        // um risco a cada hora cheia, para a barra ter escala
+                        i % 2 === 0 && "border-l border-white/[0.06]")}
+                    />
+                  );
+                })}
+              </div>
+              <span className="w-24 shrink-0 text-[9.5px] text-muted-foreground/50 truncate" title={resumoDoDia(grade, dia)}>
+                {resumoDoDia(grade, dia)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Copiar um dia para os outros é o que transforma "desenhar a semana"
+            em dois gestos. Sem isto, a segunda-feira boa seria repetida à mão
+            quatro vezes, com uma delas saindo diferente. */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[10.5px] text-muted-foreground/70">Copiar segunda para:</span>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-[10.5px]"
+            onClick={() => setGrade((g) => copiarDia(g, 1, [2, 3, 4, 5]))}>
+            terça a sexta
+          </Button>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-[10.5px]"
+            onClick={() => setGrade((g) => copiarDia(g, 1, [0, 2, 3, 4, 5, 6]))}>
+            a semana toda
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10.5px] text-muted-foreground ml-auto"
+            onClick={() => setGrade([])}>
+            Limpar tudo
+          </Button>
+        </div>
+      </SpotlightCard>
+
+      {/* ── AS TRÊS MENSAGENS ── */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        <EditorDaFaixa
+          faixa="fechado" instancia={instancia} aoVivo={aoVivo} userId={userId}
+          titulo="Fora do horário"
+          descricao="Sai na hora, para quem escreve com o escritório fechado."
+          guardada={msgs?.fechado} onSalvo={invalidar} />
+        <EditorDaFaixa
+          faixa="direcionamento" instancia={instancia} aoVivo={aoVivo} userId={userId}
+          titulo="Direcionamento"
+          descricao="Já abrimos, o responsável começa mais tarde. É também a que a fila manda de manhã para quem escreveu de madrugada."
+          guardada={msgs?.direcionamento} onSalvo={invalidar} />
+        <EditorDaFaixa
+          faixa="atendimento" instancia={instancia} aoVivo={aoVivo} userId={userId}
+          titulo="Saudação do atendimento"
+          descricao="Opcional. Vazia, ninguém recebe nada no horário em que tem gente aqui."
+          guardada={msgs?.atendimento} onSalvo={invalidar} />
+      </div>
+    </div>
+  );
+}
+
+/* Uma das três mensagens. Cada uma se salva sozinha: são textos que se ajustam
+   em momentos diferentes, e um botão único obrigaria a reler as outras duas
+   para mexer numa. */
+function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, guardada, onSalvo }: {
+  faixa: Faixa;
+  instancia: string;
+  aoVivo: boolean;
+  userId?: string | null;
+  titulo: string;
+  descricao: string;
+  guardada?: MsgDaFaixa;
+  onSalvo: () => void;
+}) {
+  const [texto, setTexto] = useState("");
+  const [mantidos, setMantidos] = useState<Midia[]>([]);
+  const [novos, setNovos] = useState<AnexoLocal[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [base, setBase] = useState("");
+
+  useEffect(() => {
+    const t = guardada?.texto ?? "";
+    const m = guardada?.midias ?? [];
+    setTexto(t);
+    setMantidos(m);
+    setNovos([]);
+    setBase(JSON.stringify({ t, m }));
+  }, [guardada]);
+
+  const mudou = JSON.stringify({ t: texto, m: mantidos }) !== base || novos.length > 0;
+
+  const salvar = async () => {
+    setSalvando(true);
+    try {
+      await salvarMsgDaFaixa({ instancia, faixa, texto, anexosMantidos: mantidos, anexosNovos: novos, userId });
+      onSalvo();
+      toast.success(`Mensagem de ${titulo.toLowerCase()} salva.`);
+    } catch (e) {
+      toast.error("Não consegui salvar: " + (e as Error).message);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <SpotlightCard sutil className="rounded-xl p-3.5 flex flex-col gap-2.5">
+      <div>
+        <h3 className="text-[12.5px] font-medium flex items-center gap-1.5">
+          <span className={cn("h-2.5 w-2.5 rounded-sm", COR_DA_FAIXA[faixa])} />
+          {titulo}
+        </h3>
+        <p className="text-[10.5px] text-muted-foreground/80 leading-snug mt-0.5">{descricao}</p>
+      </div>
+
+      <BarraDeMensagem
+        texto={texto}
+        onTexto={setTexto}
+        mantidos={mantidos}
+        onRemoverMantido={(i) => setMantidos((p) => p.filter((_, j) => j !== i))}
+        anexos={novos}
+        onAnexos={(mudar) => setNovos((p) => mudar(p))}
+        placeholder="A mensagem desta faixa…"
+      />
+
+      <PaletaDeVariaveis onEscolher={(marca) => setTexto((t) => (t ? `${t} ${marca}` : marca))} />
+
+      {texto.includes("{") && (
+        <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+          Vai chegar assim: <span className="text-foreground/80">{comVariaveis(texto, { nome: "Joana Ribeiro", horario: "09:00" })}</span>
+        </p>
+      )}
+
+      {mudou && (
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvar} disabled={salvando || !aoVivo}>
+            {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            Salvar
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={salvando}
+            onClick={() => { const b = JSON.parse(base); setTexto(b.t); setMantidos(b.m); setNovos([]); }}>
+            Desfazer
+          </Button>
+        </div>
+      )}
+    </SpotlightCard>
+  );
+}
+
+/* ── A PALETA DE VARIÁVEIS ──
+   Arrastar para dentro do texto, e não decorar chave. O navegador já sabe
+   soltar texto dentro de um campo, no ponto exato onde o cursor caiu: basta
+   dizer o que está sendo arrastado. Clicar também serve, para quem está no
+   celular ou não quer arrastar. */
+function PaletaDeVariaveis({ onEscolher }: { onEscolher: (marca: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">Arraste para o texto</span>
+      {VARIAVEIS.map((v) => (
+        <button
+          key={v.marca}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData("text/plain", v.marca); e.dataTransfer.effectAllowed = "copy"; }}
+          onClick={() => onEscolher(v.marca)}
+          title={`Vira "${v.exemplo}" na mensagem`}
+          className="cursor-grab active:cursor-grabbing rounded-md bg-primary/[0.10] text-primary ring-1 ring-primary/25
+                     px-2 py-1 text-[10.5px] font-medium hover:bg-primary/[0.18] transition-colors">
+          {v.rotulo}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa, instancia, aoVivo, userId }: {
   agendadas: AgendadaRow[];
   leads: Lead[];
   onCancelar: (id: string) => void;
   onAbrirConversa: (leadId: string) => void;
+  instancia: string;
+  aoVivo: boolean;
+  userId?: string | null;
 }) {
+  /* Duas coisas moram aqui e são vizinhas de propósito: a FILA é o que já está
+     marcado para sair, e o PRIMEIRO ATENDIMENTO é a regra que enche essa fila
+     sozinha. Quem desconfia de uma mensagem que saiu procura nos dois lugares. */
+  const [subAba, setSubAba] = useState<"fila" | "primeiro">("fila");
   const porLead = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
   const nomeDe = (id: string) => porLead.get(id)?.nome ?? "conversa arquivada";
 
@@ -8701,20 +9128,39 @@ function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa }: {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
-        {agendadas.length === 0 ? (
-          <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
-            Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
-          </p>
-        ) : (
-          <>
-            <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
-            <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
-            <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
-          </>
-        )}
-      </SpotlightCard>
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-3">
+      <div className="flex items-center gap-1 shrink-0">
+        {([["fila", "Fila"], ["primeiro", "Primeiro atendimento"]] as const).map(([chave, rotulo]) => (
+          <button key={chave} onClick={() => setSubAba(chave)}
+            className={cn("rounded-lg px-3 py-1.5 text-[12px] ring-1 transition-colors",
+              subAba === chave
+                ? "bg-primary/12 text-foreground ring-primary/25"
+                : "bg-white/[0.02] text-muted-foreground ring-white/[0.07] hover:bg-white/[0.05]")}>
+            {rotulo}
+            {chave === "fila" && agendadas.length > 0 && (
+              <span className="ml-1.5 text-[10px] tabular-nums opacity-60">{agendadas.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {subAba === "primeiro" ? (
+        <PrimeiroAtendimento instancia={instancia} aoVivo={aoVivo} userId={userId} />
+      ) : (
+        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
+          {agendadas.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
+              Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
+            </p>
+          ) : (
+            <>
+              <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
+              <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
+              <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
+            </>
+          )}
+        </SpotlightCard>
+      )}
     </div>
   );
 }
