@@ -44,7 +44,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, GitBranch, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch,
+  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -59,6 +59,7 @@ import {
   useConversas, useMensagens, useCustodia, useInstancias, conversaParaLead, instanciaParaCard,
   type PassagemDeCustodia,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, informarBaseWa, marcarPerdidoWa,
+  analiseComercialDaConversa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   moverConversaDeInstancia,
@@ -88,6 +89,7 @@ import {
 } from "@/lib/jornada";
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
 import { documentosDaConversa, selecaoInicial, linkDoFinder } from "@/lib/finderDaConversa";
+import { linkDoWriter } from "@/lib/writerDaConversa";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -1122,6 +1124,31 @@ export default function AtendimentoPage() {
     if (docsEscolhidos.length === 0) return;
     setFinderAberto(false);
     window.open(linkDoFinder({ conversaId: lead.id, nome: lead.nome, docs: docsEscolhidos }), "_blank");
+  };
+
+  /* ── E DAQUI PARA O WRITER ──
+     Nesta etapa o que falta produzir é o kit (contrato e procuração), e o
+     Writer monta isso a partir da análise comercial. A busca acontece ANTES de
+     abrir a guia porque o que ela responde muda o que vai na URL: com análise,
+     o Writer abre já com o cliente preenchido; sem, abriria numa lista de
+     todas as análises, que é o trabalho que este botão existe para evitar.
+     A guia é aberta de qualquer jeito: negar o Writer porque a análise sumiu
+     seria pior que abri-lo vazio. */
+  const [abrindoWriter, setAbrindoWriter] = useState(false);
+  const levarAoWriter = async () => {
+    if (!aoVivo || abrindoWriter) return;
+    setAbrindoWriter(true);
+    let analiseId: string | null = null;
+    try {
+      const a = await analiseComercialDaConversa(lead.id);
+      analiseId = a?.id ?? null;
+      if (!a) toast.info("Não achei a análise comercial desta conversa. O Writer abre, mas você escolhe a análise lá.");
+    } catch (e) {
+      toast.error("Não consegui buscar a análise: " + (e as Error).message);
+    } finally {
+      setAbrindoWriter(false);
+    }
+    window.open(linkDoWriter({ conversaId: lead.id, nome: lead.nome, analiseId }), "_blank");
   };
   /* A regra do número DA CONVERSA, pra ficha poder explicar o que "segue o
      número" quer dizer nesta conversa específica — que é a única forma de o
@@ -4123,6 +4150,8 @@ export default function AtendimentoPage() {
                     programadas={agendadasDaAberta}
                     onEscolherEtapa={() => setEtapaAberta(true)}
                     onLevarAoFinder={aoVivo ? abrirEscolhaDoFinder : undefined}
+                    onLevarAoWriter={aoVivo ? levarAoWriter : undefined}
+                    abrindoWriter={abrindoWriter}
                     docsNaConversa={docsDaConversa.length}
                     onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
@@ -6430,7 +6459,7 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, docsNaConversa = 0 }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0 }: {
   /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
   etapas: readonly EtapaDef[];
   perdidoMotivo?: string | null;
@@ -6445,6 +6474,9 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   onNovaTask: () => void;
   /** abre a escolha dos anexos que vão para o Finder (etapa de análise) */
   onLevarAoFinder?: () => void;
+  /** abre o Writer com a análise deste contato (etapa de documentação) */
+  onLevarAoWriter?: () => void;
+  abrindoWriter?: boolean;
   /** quantos PDFs a conversa tem, pra o botão dizer o tamanho da fila */
   docsNaConversa?: number;
   onConcluirTask: (id: string) => void;
@@ -6485,6 +6517,27 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
           </span>
           <Button variant="outline" size="sm" className="h-6 px-2 text-[10.5px] shrink-0" onClick={onEscolherEtapa}>
             Reabrir
+          </Button>
+        </div>
+      )}
+
+      {/* ── ETAPA QUE ESTA TELA NÃO CONHECE ──
+          Acontece na janela entre o banco mudar e o navegador receber a versão
+          nova (uma etapa renomeada, por exemplo). Sem este aviso, a jornada
+          aparecia ZERADA: nenhuma etapa marcada como atual, nenhum botão, e
+          nada explicando por quê. Dizer o nome cru e deixar o "alterar etapa"
+          à mão é pior que a etapa certa e muito melhor que uma tela vazia. */}
+      {!perdido && iAtual === -1 && atual && (
+        <div className="mb-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-300/80" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12px] font-medium">Etapa: {atual}</span>
+            <span className="block text-[10.5px] text-muted-foreground">
+              Esta versão da tela não conhece esta etapa. Recarregue a página; se continuar, é a régua que mudou.
+            </span>
+          </span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-[10.5px] shrink-0" onClick={onEscolherEtapa}>
+            Alterar
           </Button>
         </div>
       )}
@@ -6601,6 +6654,20 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                       {docsNaConversa > 0 && (
                         <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{docsNaConversa}</span>
                       )}
+                    </button>
+                  )}
+
+                  {/* ── E A PONTE COM O WRITER ──
+                      Aqui o que falta produzir é o kit que vai para a
+                      assinatura. O Writer abre em outra guia, já com a análise
+                      comercial deste contato: o nome que o extrato revelou, o
+                      CPF e o réu entram sozinhos. */}
+                  {e.chave === "aguardando_documentos" && onLevarAoWriter && (
+                    <button onClick={onLevarAoWriter} disabled={abrindoWriter}
+                      className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] py-1.5 text-[11px] font-medium text-primary hover:bg-primary/[0.13] transition-colors disabled:opacity-60">
+                      {abrindoWriter
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Abrindo o Writer…</>
+                        : <><PenSquare className="h-3.5 w-3.5" /> Levar ao Writer</>}
                     </button>
                   )}
 

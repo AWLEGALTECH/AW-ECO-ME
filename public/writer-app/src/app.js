@@ -195,4 +195,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.warn('AW Writer: config nao carregou do Supabase. ' +
                  'Admin pode configurar via botao de engrenagem.');
   }
+
+  // Veio da jornada do Atendimento (?analise_comercial=): carrega a análise
+  // daquele contato e deixa pendente. O lobby avisa que ela está na mão, e ela
+  // entra no formulário assim que o kit e a modalidade forem escolhidos.
+  try {
+    const idAnalise = new URLSearchParams(window.location.search).get('analise_comercial');
+    if (idAnalise && typeof carregarAnaliseComercialPendente === 'function') {
+      await carregarAnaliseComercialPendente(idAnalise);
+    }
+  } catch (e) { console.warn('[writer] análise comercial da URL:', e); }
 });

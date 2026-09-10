@@ -108,6 +108,18 @@ function renderLobby(view) {
 
   view.innerHTML = `
     <div class="lobby">
+      ${state.analiseComercialPendente ? `
+        <!-- Veio do Atendimento: a análise já está na mão, falta escolher o kit. -->
+        <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid rgba(139,92,246,.35); border-radius:12px; background:rgba(139,92,246,.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:240px;">
+            <div style="font-weight:700; color:#a78bfa; font-size:10.5px; letter-spacing:2px; text-transform:uppercase;">Veio do Atendimento</div>
+            <div style="margin-top:5px; font-size:13.5px; line-height:1.5;">
+              Análise comercial de <strong>${escapeHtml(state.analiseComercialPendenteNome || 'cliente sem nome')}</strong> carregada.
+              Escolha o kit e a modalidade: o formulário abre preenchido.
+            </div>
+          </div>
+        </div>
+      ` : ''}
       ${state.modoMesmoCliente ? `
         <!-- [TEMP-MESMO-CLIENTE] BEGIN — banner do modo "mesmo cliente". Pra remover: apagar este bloco. -->
         <div style="margin:16px 0 24px; padding:14px 18px; border:1px solid rgba(120,180,255,.35); border-radius:10px; background:rgba(120,180,255,.08); display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:14px; line-height:1.45; animation:fadeSlide 0.4s ease both;">
@@ -567,6 +579,14 @@ function selecionarModalidade(id) {
   state.dadosKit = inicializarDadosKit();
   state.arquivoKitContrato = null;
   state.arquivoKitProcuracao = null;
+  // Veio da jornada do Atendimento com a análise daquele contato: a origem do
+  // cliente já está respondida, então o formulário abre preenchido em vez de
+  // perguntar de novo de onde ele vem.
+  if (state.analiseComercialPendente && typeof aplicarAnaliseComercialPendente === 'function'
+      && aplicarAnaliseComercialPendente()) {
+    navegarPara('pacoteKit');
+    return;
+  }
   // Antes do formulário, o usuário escolhe DE ONDE vem o cliente.
   navegarPara('origemCliente');
 }
@@ -658,6 +678,10 @@ function selecionarOrigemCliente(tipo) {
   if (tipo !== 'analise') {
     state.dadosKit._analise_comercial = null;
     state.dadosKit.analise_comercial_id = '';
+    // Dizer "este cliente vem de outro lugar" também desfaz a análise que veio
+    // do Atendimento: senão ela voltaria sozinha na próxima modalidade.
+    state.analiseComercialPendente = null;
+    state.analiseComercialPendenteNome = '';
   }
   // 'zero' vai direto pro formulário; base/análise passam pela lista de seleção.
   if (tipo === 'zero') { navegarPara('pacoteKit'); return; }

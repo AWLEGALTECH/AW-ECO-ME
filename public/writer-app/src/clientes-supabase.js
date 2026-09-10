@@ -87,6 +87,27 @@ async function fetchAnalisesComerciaisAW() {
   }
 }
 
+// UMA análise comercial pelo id. Existe porque o Atendimento manda o writer
+// abrir apontando pra uma análise específica (?analise_comercial=), e a LISTA
+// chega em segundo plano: esperar por ela pra descobrir o nome do cliente
+// deixaria a tela em branco justamente no caso que veio pronto.
+async function fetchAnaliseComercialAW(id) {
+  if (!id) return null;
+  try {
+    const resp = await fetch(
+      `${AW_SB_URL}/rest/v1/analises_comerciais?id=eq.${encodeURIComponent(id)}` +
+      `&select=id,nome,cpf_cnpj,rubricas,created_at&limit=1`,
+      { headers: _awHeaders() }
+    );
+    if (!resp.ok) { console.warn('[analises-com] fetch id', resp.status); return null; }
+    const rows = await resp.json();
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch (e) {
+    console.warn('[analises-com] erro id', e);
+    return null;
+  }
+}
+
 // Puxa banco/agencia/conta de uma demanda analise_vinculada — usado pra
 // pre-preencher pacote 3 do writer quando vem de "Confeccionar peça".
 async function fetchAnaliseVinculadaMeta(demandaId) {

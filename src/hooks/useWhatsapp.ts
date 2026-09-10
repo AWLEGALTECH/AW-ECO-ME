@@ -354,6 +354,27 @@ export async function informarBaseWa(conversaId: string, base: string) {
   if (error) throw error;
 }
 
+/**
+ * A análise comercial que saiu DESTA conversa, a mais recente.
+ *
+ * O vínculo existe desde que a análise passou a nascer com `conversa_id` (é o
+ * que move o lead para "Aguardando documentação"). Sem ele, achar a análise de
+ * um lead seria procurar pelo nome numa lista de todas, e o nome do lead no
+ * WhatsApp quase nunca é o nome que o extrato revelou.
+ */
+export async function analiseComercialDaConversa(
+  conversaId: string,
+): Promise<{ id: string; nome: string } | null> {
+  const { data, error } = await tabela("analises_comerciais")
+    .select("id, nome")
+    .eq("conversa_id", conversaId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const linha = Array.isArray(data) ? data[0] : null;
+  return linha ? { id: String(linha.id), nome: String(linha.nome ?? "") } : null;
+}
+
 /* Saiu do funil, e o motivo vai junto: sem ele, "perdido" é só uma palavra. */
 export async function marcarPerdidoWa(conversaId: string, motivo: string) {
   const { error } = await tabela("wa_conversas")

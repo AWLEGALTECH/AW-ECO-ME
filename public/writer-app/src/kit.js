@@ -161,6 +161,46 @@ function onKitSelectAnaliseComercial(id) {
   if (typeof render === 'function') render();
 }
 
+/* ── VINDO DA JORNADA DO ATENDIMENTO ─────────────────────────────────────────
+   O lead chegou na etapa "Aguardando documentação" e alguém clicou em "Levar
+   ao Writer". A análise comercial daquele contato vem na URL, e o que falta
+   produzir aqui é o kit: contrato e procuração, que é o que vai à assinatura.
+
+   O PRODUTO CONTINUA SENDO ESCOLHA DE GENTE. Os dois kits são o mesmo
+   documento com advogados diferentes assinando (Matheus ou Diego), e adivinhar
+   isso seria mandar o cliente assinar procuração para quem não vai atuar. Por
+   isso a análise fica PENDENTE: espera a escolha do kit e da modalidade, e só
+   então preenche o formulário e pula a pergunta de "de onde vem o cliente",
+   que já foi respondida lá atrás. */
+async function carregarAnaliseComercialPendente(id) {
+  if (!id) return null;
+  try {
+    let a = (state.analisesComerciais || []).find(x => String(x.id) === String(id));
+    if (!a && typeof fetchAnaliseComercialAW === 'function') {
+      a = await fetchAnaliseComercialAW(id);
+      // Entra na lista pra onKitSelectAnaliseComercial achá-la depois.
+      if (a) state.analisesComerciais = [a, ...(state.analisesComerciais || [])];
+    }
+    if (!a) { console.warn('[writer] análise comercial não encontrada:', id); return null; }
+    state.analiseComercialPendente = String(a.id);
+    state.analiseComercialPendenteNome = a.nome || '';
+    if (typeof render === 'function') render();
+    return a;
+  } catch (e) {
+    console.warn('[writer] carregarAnaliseComercialPendente', e);
+    return null;
+  }
+}
+
+/** Aplica a análise que veio do Atendimento no kit recém-iniciado. */
+function aplicarAnaliseComercialPendente() {
+  const id = state.analiseComercialPendente;
+  if (!id || !state.dadosKit) return false;
+  state.dadosKit.origem_cliente = 'analise';
+  if (typeof onKitSelectAnaliseComercial === 'function') onKitSelectAnaliseComercial(id);
+  return true;
+}
+
 /* ── Endereço estruturado + autopreenchimento por CEP ─────────────────────────
    Campos: CEP · Logradouro · Número · Complemento · Bairro · Município · UF.
    Ao completar o CEP, busca no ViaCEP (fallback BrasilAPI) e preenche logradouro,
