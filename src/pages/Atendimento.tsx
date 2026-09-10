@@ -4824,8 +4824,8 @@ export default function AtendimentoPage() {
                 })}
               </div>
               <p className="text-[11px] text-muted-foreground/80 leading-snug">
-                Ao salvar a análise comercial lá, ela nasce ligada a esta conversa: o lead avança para Proposta e o nome
-                lido no extrato entra no sistema.
+                Ao salvar a análise comercial lá, ela nasce ligada a esta conversa: o lead avança para Aguardando
+                documentação e o nome lido no extrato entra no sistema.
               </p>
             </>
           )}

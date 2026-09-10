@@ -13,7 +13,7 @@ test("a base decide a jornada", () => {
 test("a jornada Bradesco tem sete etapas no trilho e perdido fora dele", () => {
   expect(ETAPAS_BRADESCO).toHaveLength(8);
   expect(trilhoDaJornada("bradesco").map((e) => e.chave)).toEqual([
-    "na_base", "triagem", "aguardando_extrato", "aguardando_analise", "proposta", "aguardando_assinatura", "assinado",
+    "na_base", "triagem", "aguardando_extrato", "aguardando_analise", "aguardando_documentos", "aguardando_assinatura", "assinado",
   ]);
   expect(ehEtapaTerminal("bradesco", "perdido")).toBe(true);
   expect(ehEtapaTerminal("bradesco", "assinado")).toBe(false);
@@ -40,9 +40,17 @@ test("PDF vindo dele leva a aguardando análise; imagem e PDF nosso não", () =>
 test("o automático só anda para a frente e não ressuscita perdido", () => {
   expect(avancaBradesco("na_base", "triagem")).toBe(true);
   expect(avancaBradesco("aguardando_analise", "triagem")).toBe(false);
-  expect(avancaBradesco("proposta", "proposta")).toBe(false);
+  expect(avancaBradesco("aguardando_documentos", "aguardando_documentos")).toBe(false);
   expect(avancaBradesco("perdido", "assinado")).toBe(false);
   expect(avancaBradesco(null, "aguardando_analise")).toBe(true);
+});
+
+test("as duas réguas têm etapas de nome parecido e chave diferente", () => {
+  // 'proposta' na padrão é "sabe o que pedir, falta fechar"; na Bradesco o
+  // mesmo momento se chama 'aguardando_documentos' e espera outra coisa.
+  expect(rotuloDaEtapa("bradesco", "aguardando_documentos")).toBe("Aguardando documentação");
+  expect(rotuloDaEtapa("padrao", "proposta")).toBe("Proposta");
+  expect(ETAPAS_BRADESCO.some((e) => e.chave === "proposta")).toBe(false);
 });
 
 test("rótulos são achados na jornada certa, ou em qualquer uma quando o log mistura", () => {

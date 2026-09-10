@@ -128,7 +128,11 @@ export const ETAPAS_BRADESCO: readonly EtapaDef[] = [
   { chave: "triagem",               rotulo: "Triagem",               descricao: "já falamos com ele; descobrindo se há caso" },
   { chave: "aguardando_extrato",    rotulo: "Aguardando extrato",    descricao: "pedimos o extrato; é aqui que a cadência cobra" },
   { chave: "aguardando_analise",    rotulo: "Aguardando análise",    descricao: "extrato recebido; falta rodar o Finder" },
-  { chave: "proposta",              rotulo: "Proposta",              descricao: "análise pronta; falta ele decidir e mandar os documentos" },
+  /* A etapa se chama pelo que ESPERA, como as vizinhas. Nesse ponto a análise
+     já saiu e o que trava o caso é o documento que ainda não chegou. A chave é
+     diferente da 'proposta' da régua padrão de propósito: são momentos
+     diferentes e convivem no mesmo log de passagens. */
+  { chave: "aguardando_documentos",  rotulo: "Aguardando documentação", descricao: "análise pronta; falta ele mandar os documentos" },
   { chave: "aguardando_assinatura", rotulo: "Aguardando assinatura", descricao: "kit e procuração enviados pelo Writer" },
   { chave: "assinado",              rotulo: "Assinado",              descricao: "assinou; daqui em diante é registro" },
   { chave: "perdido",               rotulo: "Perdido",               descricao: "saiu do funil", terminal: true },

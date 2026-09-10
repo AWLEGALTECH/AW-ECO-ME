@@ -205,7 +205,7 @@ export function FinderAnaliseComercial({
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
     toast.success(conversaId
-      ? "Análise comercial gerada. O lead avançou para Proposta."
+      ? "Análise comercial gerada. O lead avançou para Aguardando documentação."
       : "Análise comercial gerada. Disponível no Writer.");
   };
 
