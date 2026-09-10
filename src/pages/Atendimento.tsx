@@ -106,6 +106,7 @@ import {
   useAtendimentoConfig, useHorarios, useMsgsDoAtendimento, useInvalidarAtendimento,
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
+import { PopDeAvanco } from "@/components/PopDeAvanco";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -3800,6 +3801,11 @@ export default function AtendimentoPage() {
                 </FaixaQueRola>
               )}
 
+              {/* A moldura existe só para o selo de avanço ter onde se pendurar.
+                  Ele flutua SOBRE as bolhas, e não dentro da rolagem: dentro,
+                  ele subiria junto com o histórico e sumiria da vista. */}
+              <div className="relative flex-1 min-h-0 flex flex-col">
+              <PopDeAvanco conversaId={lead.id} jornada={lead.jornada} etapa={estagioDe(lead)} />
               {/* A CHAVE É A CONVERSA, e isso não é detalhe: ela faz a coluna
                   inteira remontar ao trocar de lead, o que zera o conjunto de
                   bolhas "já vistas". Sem isso, abrir uma conversa faria as
@@ -3997,6 +4003,7 @@ export default function AtendimentoPage() {
                     )}
                   </div>
                 ))}
+              </div>
               </div>
 
               <div className="border-t border-white/[0.06] shrink-0">
