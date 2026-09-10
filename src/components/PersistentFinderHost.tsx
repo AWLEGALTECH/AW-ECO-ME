@@ -18,7 +18,11 @@ export function PersistentFinderHost() {
   const { active, encerrar, marcarConcluido } = useFinderSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const visivel = location.pathname.startsWith("/finder");
+  /* O Finder aberto A PARTIR DE UMA CONVERSA traz os próprios arquivos e roda
+     no iframe local da página. Se este host se sobrepusesse ali, a pessoa veria
+     a análise de outro cliente por cima da que acabou de pedir. */
+  const daConversa = new URLSearchParams(location.search).has("conversa");
+  const visivel = location.pathname.startsWith("/finder") && !daConversa;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Fallback resiliente: se a sessão veio sem driveUrl (corrida ao iniciar),

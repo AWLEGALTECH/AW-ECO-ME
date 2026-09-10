@@ -44,7 +44,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, GitBranch, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList,
+  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -87,6 +87,7 @@ import {
   type PassagemNaTela, type PassagemDeEtapa, type EtapaDef,
 } from "@/lib/jornada";
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
+import { documentosDaConversa, selecaoInicial, linkDoFinder } from "@/lib/finderDaConversa";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -445,6 +446,9 @@ export default function AtendimentoPage() {
   /* Dentro do "Mover etapa": a pessoa escolheu "Perdido" e agora escolhe o
      motivo. Só nessa etapa se pergunta o motivo. */
   const [perdendo, setPerdendo] = useState(false);
+  /* A escolha dos anexos que vão para o Finder. */
+  const [finderAberto, setFinderAberto] = useState(false);
+  const [docsEscolhidos, setDocsEscolhidos] = useState<string[]>([]);
   const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
   /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
      de uma base já ocupa a altura inteira — duas abertas juntas viram rolagem
@@ -1103,6 +1107,22 @@ export default function AtendimentoPage() {
      inteira cai com "Cannot access before initialization". Já aconteceu quatro
      vezes neste arquivo. */
   const reguaDaConversa = reguaDoNumero(cadencias, lead.instancia ?? instancia.nome);
+
+  /* ── OS PDFs DESTA CONVERSA, E A IDA AO FINDER ──
+     Declarados aqui, depois de `lead`, pelo mesmo motivo da régua acima.
+     O Finder abre em OUTRA ABA: a análise leva minutos (parser, e OCR quando o
+     extrato é foto de foto), e quem atende não pode ficar preso nela. A conversa
+     continua nesta aba, do jeito que estava. */
+  const docsDaConversa = useMemo(() => documentosDaConversa(lead.conversa), [lead.conversa]);
+  const abrirEscolhaDoFinder = () => {
+    setDocsEscolhidos(selecaoInicial(docsDaConversa));
+    setFinderAberto(true);
+  };
+  const levarAoFinder = () => {
+    if (docsEscolhidos.length === 0) return;
+    setFinderAberto(false);
+    window.open(linkDoFinder({ conversaId: lead.id, nome: lead.nome, docs: docsEscolhidos }), "_blank");
+  };
   /* A regra do número DA CONVERSA, pra ficha poder explicar o que "segue o
      número" quer dizer nesta conversa específica — que é a única forma de o
      estado do meio não ser um enigma. */
@@ -4102,6 +4122,8 @@ export default function AtendimentoPage() {
                     log={etapaLog}
                     programadas={agendadasDaAberta}
                     onEscolherEtapa={() => setEtapaAberta(true)}
+                    onLevarAoFinder={aoVivo ? abrirEscolhaDoFinder : undefined}
+                    docsNaConversa={docsDaConversa.length}
                     onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
@@ -4753,6 +4775,68 @@ export default function AtendimentoPage() {
             })}
           </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── QUAIS DOCUMENTOS VÃO PRO FINDER ──
+          A conversa costuma ter mais de um PDF, e nem todo PDF é extrato: o
+          contrato que a gente mandou, o boleto que ele mandou por engano. Quem
+          escolhe é quem leu a conversa. Os recebidos já vêm marcados porque é
+          quase sempre isso que se quer analisar. */}
+      <Dialog open={finderAberto} onOpenChange={setFinderAberto}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <ScanSearch className="h-4 w-4" /> Levar ao Finder
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {docsDaConversa.length === 0
+                ? <>Nenhum PDF nesta conversa. O Finder lê extrato em PDF; foto de extrato não serve.</>
+                : <>Escolha o que vai para a fila do Finder. Ele abre em outra aba, com a conversa intacta aqui.</>}
+            </DialogDescription>
+          </DialogHeader>
+
+          {docsDaConversa.length > 0 && (
+            <>
+              <div className="flex flex-col gap-1.5 max-h-[45vh] overflow-y-auto scrollbar-thin">
+                {docsDaConversa.map((d) => {
+                  const marcado = docsEscolhidos.includes(d.id);
+                  return (
+                    <button key={d.id}
+                      onClick={() => setDocsEscolhidos((p) => marcado ? p.filter((x) => x !== d.id) : [...p, d.id])}
+                      className={cn("flex items-center gap-2.5 text-left rounded-lg px-3 py-2 ring-1 transition-colors",
+                        marcado ? "bg-primary/[0.09] ring-primary/25" : "bg-white/[0.03] ring-white/[0.07] hover:bg-white/[0.06]")}>
+                      <span className={cn("h-4 w-4 rounded shrink-0 grid place-items-center ring-1 transition-colors",
+                        marcado ? "bg-primary ring-primary" : "ring-white/20")}>
+                        {marcado && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
+                      </span>
+                      <FileText className={cn("h-3.5 w-3.5 shrink-0", marcado ? "text-primary" : "text-muted-foreground")} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12px] font-medium truncate">{d.nome}</span>
+                        <span className="block text-[10px] text-muted-foreground">
+                          {d.de === "lead" ? "recebido" : "enviado por nós"}{d.hora ? ` às ${d.hora}` : ""}
+                          {d.nomeOriginal && d.nomeOriginal.replace(/\.pdf$/i, "") !== d.nome.replace(/\.pdf$/i, "")
+                            ? " · renomeado pra ficar legível na fila" : ""}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground/80 leading-snug">
+                Ao salvar a análise comercial lá, ela nasce ligada a esta conversa: o lead avança para Proposta e o nome
+                lido no extrato entra no sistema.
+              </p>
+            </>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFinderAberto(false)}>Cancelar</Button>
+            <Button onClick={levarAoFinder} disabled={docsEscolhidos.length === 0} className="gap-2">
+              <ScanSearch className="h-4 w-4" />
+              Abrir o Finder{docsEscolhidos.length > 0 ? ` (${docsEscolhidos.length})` : ""}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -6346,7 +6430,7 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, docsNaConversa = 0 }: {
   /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
   etapas: readonly EtapaDef[];
   perdidoMotivo?: string | null;
@@ -6359,6 +6443,10 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   programadas: AgendadaRow[];
   onEscolherEtapa: () => void;
   onNovaTask: () => void;
+  /** abre a escolha dos anexos que vão para o Finder (etapa de análise) */
+  onLevarAoFinder?: () => void;
+  /** quantos PDFs a conversa tem, pra o botão dizer o tamanho da fila */
+  docsNaConversa?: number;
   onConcluirTask: (id: string) => void;
   onAbrirTask: (t: Task) => void;
 }) {
@@ -6499,6 +6587,22 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                       </div>
                     );
                   })}
+
+                  {/* ── A PONTE COM O FINDER ──
+                      Nesta etapa o extrato já está na conversa: é isso que
+                      trouxe o lead até aqui. O caminho antigo era baixar o PDF,
+                      achar na pasta de downloads, abrir o Finder e arrastar.
+                      Aqui é escolher quais anexos vão e clicar. */}
+                  {e.chave === "aguardando_analise" && onLevarAoFinder && (
+                    <button onClick={onLevarAoFinder}
+                      className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] py-1.5 text-[11px] font-medium text-primary hover:bg-primary/[0.13] transition-colors">
+                      <ScanSearch className="h-3.5 w-3.5" />
+                      Levar ao Finder
+                      {docsNaConversa > 0 && (
+                        <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{docsNaConversa}</span>
+                      )}
+                    </button>
+                  )}
 
                   <button onClick={onNovaTask}
                     className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">

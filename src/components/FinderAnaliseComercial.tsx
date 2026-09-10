@@ -94,12 +94,16 @@ export function FinderAnaliseComercial({
   iframeRef,
   refazerClienteId = null,
   refazerNome = null,
+  conversaId = null,
 }: {
   iframeRef: RefObject<HTMLIFrameElement>;
   // Quando setado, o salvar NÃO cria no catálogo — refaz a análise comercial
   // deste cliente (recalcula o fechamento) e volta pro perfil dele.
   refazerClienteId?: string | null;
   refazerNome?: string | null;
+  /* De qual conversa do Atendimento vieram os extratos. A análise salva guarda
+     esse vínculo, e um gatilho no banco move o lead para "Proposta". */
+  conversaId?: string | null;
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -194,12 +198,15 @@ export function FinderAnaliseComercial({
       created_by: user?.id || null,
       created_by_email: user?.email || null,
       rubricas,
+      ...(conversaId ? { conversa_id: conversaId } : {}),
     };
     const { data, error } = await supabase.from("analises_comerciais" as any).insert(payload as any).select("id").single();
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
-    toast.success("Análise comercial gerada. Disponível no Writer.");
+    toast.success(conversaId
+      ? "Análise comercial gerada. O lead avançou para Proposta."
+      : "Análise comercial gerada. Disponível no Writer.");
   };
 
   if (!analise) return null;
