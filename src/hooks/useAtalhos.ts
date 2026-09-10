@@ -7,6 +7,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Atalho } from "@/lib/atalhos";
+import { midiasDaLinha, resumoDasMidias, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { subirAnexos } from "@/lib/anexosBucket";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
 
@@ -18,10 +20,17 @@ export function useAtalhos() {
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<Atalho[]> => {
       const { data, error } = await tabela("wa_atalhos")
-        .select("id, comando, conteudo")
+        .select("id, comando, conteudo, tipo, midia_path, midia_mime, midia_nome, duracao, midias")
         .order("comando");
       if (error) throw error;
-      return (data || []) as Atalho[];
+      // `midiasDaLinha` aceita as duas formas: a lista nova e a coluna solta
+      // das linhas antigas. Quem desenha a tela não precisa saber a época.
+      return (data || []).map((l: Record<string, unknown>) => ({
+        id: String(l.id),
+        comando: String(l.comando),
+        conteudo: String(l.conteudo ?? ""),
+        midias: midiasDaLinha(l as never),
+      })) as Atalho[];
     },
   });
 }
@@ -32,8 +41,21 @@ export async function salvarAtalho(args: {
   comando: string;
   conteudo: string;
   criadoPor?: string | null;
+  /** os anexos que já estavam no atalho e ficam */
+  anexosMantidos?: Midia[];
+  /** os arquivos novos, ainda no computador */
+  anexosNovos?: AnexoLocal[];
 }): Promise<void> {
-  const campos = { comando: args.comando, conteudo: args.conteudo };
+  /* Sobe ANTES de gravar: um caminho na linha que não existe no balde é pior
+     que não gravar nada, porque só aparece na hora de usar o atalho, na frente
+     do cliente. */
+  const subidos = await subirAnexos(args.anexosNovos ?? [], `atalhos/${args.comando}`);
+  const midias = [...(args.anexosMantidos ?? []), ...subidos];
+  const campos = {
+    comando: args.comando,
+    conteudo: args.conteudo,
+    ...resumoDasMidias(midias),
+  };
   const { error } = args.id
     ? await tabela("wa_atalhos").update(campos).eq("id", args.id)
     : await tabela("wa_atalhos").insert({ ...campos, criado_por: args.criadoPor ?? null });

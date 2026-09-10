@@ -9,12 +9,16 @@
  * comando válido. A tela e o banco ficam de fora, que é o que permite testar a
  * regra sem abrir o navegador.
  */
+import type { Midia } from "@/lib/anexos";
 
 export interface Atalho {
   id: string;
   /** o que se digita depois da barra, sem a barra */
   comando: string;
+  /** o texto. Vazio quando o atalho é só o anexo (um áudio, um modelo em PDF) */
   conteudo: string;
+  /** os anexos, na ordem em que vão. Ausente nas linhas antigas, que eram só texto */
+  midias?: Midia[];
 }
 
 /** Comando cru do que a pessoa digitou: minúsculo, sem acento, sem espaço. */
@@ -64,12 +68,38 @@ export function filtrarAtalhos(atalhos: Atalho[], termo: string): Atalho[] {
   const porComando = (a: Atalho, b: Atalho) => a.comando.localeCompare(b.comando, "pt-BR");
   if (!t) return [...atalhos].sort(porComando);
 
+  // O nome do arquivo conta na busca: um atalho que é só a declaração de
+  // residência não tem texto nenhum, e "residencia" é como se procura por ele.
+  const casa = (a: Atalho) =>
+    a.comando.includes(t) ||
+    a.conteudo.toLowerCase().includes(t) ||
+    (a.midias ?? []).some((m) => (m.nome || "").toLowerCase().includes(t));
+
   const comeca = atalhos.filter((a) => a.comando.startsWith(t)).sort(porComando);
-  const dentro = atalhos
-    .filter((a) => !a.comando.startsWith(t) &&
-      (a.comando.includes(t) || a.conteudo.toLowerCase().includes(t)))
-    .sort(porComando);
+  const dentro = atalhos.filter((a) => !a.comando.startsWith(t) && casa(a)).sort(porComando);
   return [...comeca, ...dentro];
+}
+
+/**
+ * A linha que a lista mostra ao lado do comando.
+ *
+ * Com texto, o texto. Sem texto, o que vai ser mandado: o nome do arquivo, ou
+ * quantos são. Um atalho que só tem áudio apareceria como linha vazia, e uma
+ * linha vazia na lista não se distingue de um atalho quebrado.
+ */
+export function resumoDoAtalho(a: Atalho): string {
+  const texto = (a.conteudo || "").trim();
+  if (texto) return texto;
+  const midias = a.midias ?? [];
+  if (midias.length === 0) return "";
+  if (midias.length === 1) {
+    const m = midias[0];
+    const etiqueta = m.tipo === "audio" ? "🎵 Áudio"
+      : m.tipo === "imagem" ? "📷 Imagem"
+        : m.tipo === "video" ? "🎬 Vídeo" : "📄";
+    return m.tipo === "documento" ? `${etiqueta} ${m.nome}` : etiqueta;
+  }
+  return `📎 ${midias.length} anexos`;
 }
 
 /** Já existe atalho com este comando? Ignora a própria linha, ao editar. */

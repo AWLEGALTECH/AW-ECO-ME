@@ -19,6 +19,30 @@ import { nomeSeguro, type AnexoLocal, type Midia } from "@/lib/anexos";
  * Se um falha, a função inteira falha: subir três de quatro e agendar assim
  * mandaria uma mensagem incompleta na madrugada, e ninguém saberia qual faltou.
  */
+/**
+ * O caminho do bucket de volta como arquivo, para a barra de envio.
+ *
+ * É o que faz um anexo guardado (o modelo, o atalho) entrar na conversa pela
+ * MESMA porta de um arquivo escolhido no computador: a partir daqui não há
+ * diferença entre os dois, e o envio, a pré-visualização e o "remover" não
+ * precisam saber de onde ele veio.
+ *
+ * O que não baixar é pulado, e não derruba o resto: um anexo apagado do bucket
+ * não pode impedir os outros três de irem.
+ */
+export async function baixarMidias(midias: Midia[]): Promise<AnexoLocal[]> {
+  const prontos: AnexoLocal[] = [];
+  for (const m of midias) {
+    const { data, error } = await supabase.storage.from("wa-midia").download(m.path);
+    if (error || !data) { console.warn("[anexos] não baixou:", m.path, error?.message); continue; }
+    prontos.push({
+      arquivo: new File([data], m.nome || "arquivo", { type: m.mime || data.type }),
+      duracao: m.duracao ?? null,
+    });
+  }
+  return prontos;
+}
+
 export async function subirAnexos(
   anexos: AnexoLocal[], pasta: string,
 ): Promise<Midia[]> {

@@ -44,7 +44,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, GitBranch, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap,
+  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -58,7 +58,7 @@ import {
 import {
   useConversas, useMensagens, useCustodia, useInstancias, conversaParaLead, instanciaParaCard,
   type PassagemDeCustodia,
-  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, informarBaseWa, marcarPerdidoWa,
+  marcarLida, marcarNaoLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, informarBaseWa, marcarPerdidoWa,
   analiseComercialDaConversa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia, useFotosAssinadas, puxarFotosDePerfil,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
@@ -76,6 +76,7 @@ import {
   type ReguasPorNumero,
 } from "@/hooks/useCadenciaFollowUp";
 import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { baixarMidias } from "@/lib/anexosBucket";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
   listaDeInstancias, apelidosDeInstancias, apelidoDeInstancia, corDaInstancia, rotuloDaSelecao,
@@ -92,7 +93,7 @@ import { documentosDaConversa, selecaoInicial, linkDoFinder } from "@/lib/finder
 import { linkDoWriter } from "@/lib/writerDaConversa";
 import {
   termoDoRascunho, filtrarAtalhos, normalizarComando, comandoValido, comandoDuplicado, indiceNaLista,
-  type Atalho,
+  resumoDoAtalho, type Atalho,
 } from "@/lib/atalhos";
 import { useAtalhos, useInvalidarAtalhos, salvarAtalho, removerAtalho } from "@/hooks/useAtalhos";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
@@ -290,7 +291,14 @@ export default function AtendimentoPage() {
      falso na primeira tecla, porque quem digita de novo quer a lista de novo. */
   const [atalhoIdx, setAtalhoIdx] = useState(0);
   const [atalhosOcultos, setAtalhosOcultos] = useState(false);
-  const [atalhoEdicao, setAtalhoEdicao] = useState<{ id: string | null; comando: string; conteudo: string } | null>(null);
+  const [atalhoEdicao, setAtalhoEdicao] = useState<{
+    id: string | null; comando: string; conteudo: string;
+    /** os anexos que já estavam guardados e ficam */
+    midias: Midia[];
+    /** os arquivos escolhidos agora, ainda no computador */
+    novos: AnexoLocal[];
+  } | null>(null);
+  const seletorAnexoAtalho = useRef<HTMLInputElement>(null);
   const [salvandoAtalho, setSalvandoAtalho] = useState(false);
   /* OS ANEXOS DA BARRA DO CHAT — no plural. Era um só, e escolher o segundo
      trocava o primeiro sem avisar: nada dizia nada, o nome no campo apenas
@@ -1164,6 +1172,19 @@ export default function AtendimentoPage() {
     window.open(linkDoWriter({ conversaId: lead.id, nome: lead.nome, analiseId }), "_blank");
   };
 
+  /* Sai da conversa e volta pra fila pedindo atenção. Fecha o painel da
+     conversa no celular pelo mesmo motivo: continuar dentro dela depois de
+     dizer "não li isto" é desfazer o que se acabou de fazer. */
+  const deixarNaoLida = () => {
+    marcarNaoLida(lead.id)
+      .then(() => {
+        invalidarWa();
+        if (ehMobile) setTelaMobile("caixa");
+        toast.success("Conversa marcada como não lida.");
+      })
+      .catch((e) => toast.error("Não consegui marcar: " + (e as Error).message));
+  };
+
   /* ── AS FOTOS DE PERFIL ──
      Uma assinatura para todas as fotos da caixa, e não uma por avatar. Quem
      não tem foto (ou escondeu) não entra na conta e fica nas iniciais. */
@@ -1211,7 +1232,7 @@ export default function AtendimentoPage() {
      cursor vai para o fim porque quase sempre ainda falta completar a frase
      ("..., dona Maria") antes de mandar. */
   const usarAtalho = (a: Atalho) => {
-    setRascunho(a.conteudo);
+    setRascunho(a.conteudo ?? "");
     setAtalhosOcultos(true);
     requestAnimationFrame(() => {
       const el = campoResposta.current;
@@ -1219,12 +1240,27 @@ export default function AtendimentoPage() {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     });
+
+    /* O ANEXO ENTRA PELA MESMA PORTA DE UM ARQUIVO DO COMPUTADOR. Daqui pra
+       frente ele é um anexo como qualquer outro: aparece na tira, dá pra tirar
+       um, somar outro, e o envio é o mesmo. Um caminho de atalho que fosse
+       direto pro envio seria uma segunda forma de mandar arquivo, com os seus
+       próprios defeitos. */
+    const midias = a.midias ?? [];
+    if (midias.length === 0) return;
+    baixarMidias(midias)
+      .then((locais) => {
+        if (locais.length === 0) { toast.error("Não consegui trazer o anexo do atalho."); return; }
+        setAnexos((p) => [...p, ...locais]);
+        if (locais.length < midias.length) toast.warning("Um dos anexos do atalho não veio.");
+      })
+      .catch((e) => toast.error("Não consegui trazer o anexo: " + (e as Error).message));
   };
 
   const abrirNovoAtalho = () => {
     // O que já foi digitado depois da barra vira a sugestão de comando: quem
     // digitou "/extrato" e não achou nada quer criar exatamente esse.
-    setAtalhoEdicao({ id: null, comando: termoAtalho ?? "", conteudo: "" });
+    setAtalhoEdicao({ id: null, comando: termoAtalho ?? "", conteudo: "", midias: [], novos: [] });
   };
 
   const gravarAtalho = async () => {
@@ -1239,10 +1275,18 @@ export default function AtendimentoPage() {
       toast.error(`Já existe um atalho /${comando}.`);
       return;
     }
-    if (!conteudo) { toast.error("Escreva a mensagem do atalho."); return; }
+    // Sem texto E sem anexo não é atalho nenhum: seria uma barra que não faz
+    // nada. Com anexo, o texto é opcional (vira a legenda dele, como no envio).
+    if (!conteudo && atalhoEdicao.midias.length === 0 && atalhoEdicao.novos.length === 0) {
+      toast.error("Escreva a mensagem ou anexe um arquivo.");
+      return;
+    }
     setSalvandoAtalho(true);
     try {
-      await salvarAtalho({ id: atalhoEdicao.id, comando, conteudo, criadoPor: user?.id ?? null });
+      await salvarAtalho({
+        id: atalhoEdicao.id, comando, conteudo, criadoPor: user?.id ?? null,
+        anexosMantidos: atalhoEdicao.midias, anexosNovos: atalhoEdicao.novos,
+      });
       invalidarAtalhos();
       setAtalhoEdicao(null);
       toast.success(`Atalho /${comando} salvo para todo mundo.`);
@@ -3308,7 +3352,7 @@ export default function AtendimentoPage() {
                           longe da foto. */}
                       <span className="relative shrink-0 self-start block h-7 w-7">
                         <AvatarDoLead
-                          nome={l.nome} foto={fotoDe(l)}
+                          foto={fotoDe(l)}
                           tamanho="h-7 w-7 text-[10px]"
                           classe={semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
                                               : "bg-white/[0.05] text-muted-foreground ring-white/10"} />
@@ -3505,7 +3549,7 @@ export default function AtendimentoPage() {
                 {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
                 <span className="relative shrink-0 self-start block h-8 w-8">
                   <AvatarDoLead
-                    nome={lead.nome} foto={fotoDe(lead)}
+                    foto={fotoDe(lead)}
                     tamanho="h-8 w-8 text-[11px]"
                     classe="bg-white/[0.05] ring-white/10" />
                   {estaOnline(presencaViva?.presenca ?? lead.presenca,
@@ -3577,6 +3621,21 @@ export default function AtendimentoPage() {
                   <Info className={cn("h-4 w-4 ml-3 shrink-0 transition-colors",
                     detalheAberto ? "text-foreground/70" : "text-muted-foreground/40")} />
                 </button>
+
+                {/* ── DEIXAR COMO NÃO LIDA ──
+                    Ao lado do "i" porque é ali que fica o que se faz COM a
+                    conversa. Ler não é resolver: abre-se para ver do que se
+                    trata, descobre-se que vai dar trabalho, e ela precisa
+                    continuar pedindo atenção na fila. */}
+                {aoVivo && (
+                  <button
+                    onClick={deixarNaoLida}
+                    title="Deixar como não lida"
+                    className="ml-2 shrink-0 h-7 w-7 grid place-items-center rounded-lg text-muted-foreground/50
+                               hover:text-foreground hover:bg-white/[0.05] transition-colors">
+                    <MailOpen className="h-3.5 w-3.5" />
+                  </button>
+                )}
 
                 {/* O MUDO FICA À MÃO, e isso não é capricho. Quem atende de
                     fone e quem atende numa sala com cliente na frente querem
@@ -4008,12 +4067,21 @@ export default function AtendimentoPage() {
                                 /{a.comando}
                               </span>
                               <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground/80">
-                                {a.conteudo}
+                                {resumoDoAtalho(a)}
                               </span>
+                              {(a.midias?.length ?? 0) > 0 && (a.conteudo || "").trim() && (
+                                <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                              )}
                               {aoVivo && (
                                 <button
                                   title="Editar ou apagar"
-                                  onClick={(ev) => { ev.stopPropagation(); setAtalhoEdicao({ id: a.id, comando: a.comando, conteudo: a.conteudo }); }}
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setAtalhoEdicao({
+                                      id: a.id, comando: a.comando, conteudo: a.conteudo,
+                                      midias: a.midias ?? [], novos: [],
+                                    });
+                                  }}
                                   className="shrink-0 opacity-0 group-hover/atalho:opacity-100 text-muted-foreground/60
                                              hover:text-foreground transition-opacity">
                                   <Pencil className="h-3 w-3" />
@@ -5129,6 +5197,45 @@ export default function AtendimentoPage() {
                 className="text-[12.5px] resize-none scrollbar-thin"
               />
             </div>
+
+            {/* ── O ANEXO DO ATALHO ──
+                Metade do que se repete no dia não é texto: é o áudio que explica
+                o prazo, o modelo de declaração, o print do passo a passo. Com
+                anexo, o texto vira legenda dele e pode ficar vazio. */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Anexos</span>
+              <input
+                ref={seletorAnexoAtalho} type="file" className="hidden" multiple
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                onChange={(e) => {
+                  const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
+                  setAtalhoEdicao((a) => a && { ...a, novos: [...a.novos, ...novos] });
+                  e.target.value = "";
+                }}
+              />
+              <TiraDeAnexos
+                itens={[
+                  ...(atalhoEdicao?.midias ?? []).map((m, i) => ({
+                    chave: `guardado-${m.path}`,
+                    nome: m.nome,
+                    mime: m.mime,
+                    onRemover: () => setAtalhoEdicao((a) => a && { ...a, midias: a.midias.filter((_, j) => j !== i) }),
+                  })),
+                  ...(atalhoEdicao?.novos ?? []).map((n, i) => ({
+                    chave: `novo-${i}-${n.arquivo.name}-${n.arquivo.size}`,
+                    nome: n.arquivo.name,
+                    mime: n.arquivo.type,
+                    arquivo: n.arquivo,
+                    onRemover: () => setAtalhoEdicao((a) => a && { ...a, novos: a.novos.filter((_, j) => j !== i) }),
+                  })),
+                ]} />
+              <button onClick={() => seletorAnexoAtalho.current?.click()}
+                className="self-start inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border
+                           px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-primary hover:border-primary/50
+                           hover:bg-primary/[0.04] transition-colors">
+                <Paperclip className="h-3.5 w-3.5" /> Anexar arquivo
+              </button>
+            </div>
           </div>
 
           <DialogFooter>
@@ -5743,7 +5850,7 @@ export default function AtendimentoPage() {
                         cara da pessoa estar na frente de quem escreve. */}
                     <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5">
                       <AvatarDoLead
-                        nome={lead.nome} foto={fotoDe(lead)}
+                        foto={fotoDe(lead)}
                         tamanho="h-8 w-8 shrink-0 text-[11px]"
                         classe="bg-white/[0.05] ring-white/10" />
                       <span className="min-w-0 flex-1">
@@ -7317,16 +7424,18 @@ function BaseDoDossie({ baseChave, baseOrigem, baseNome, jornada, onInformar }: 
 }
 
 /* ── A CARA DA PESSOA ──
-   A foto quando ela existe; as iniciais quando não. As iniciais não são um
-   placeholder provisório: muita gente esconde a foto no WhatsApp, e essa parte
-   da fila vai continuar assim para sempre. Por isso as duas formas têm o mesmo
-   tamanho e o mesmo anel, e trocar uma pela outra não mexe no layout. */
-function AvatarDoLead({ nome, foto, tamanho, classe }: {
-  nome: string;
+   A foto quando ela existe; o desenho de uma pessoa quando não.
+
+   AS INICIAIS SAÍRAM. Elas repetiam o nome que já está escrito ao lado, em
+   letra menor e sem acrescentar nada, e num nome que é emoji ou "😎" viravam
+   rabisco. O ícone diz a única coisa que falta ali: é gente, e não sabemos a
+   cara. As duas formas têm o mesmo tamanho e o mesmo anel, então trocar uma
+   pela outra não mexe no layout. */
+function AvatarDoLead({ foto, tamanho, classe }: {
   foto?: string | null;
-  /** as classes de tamanho e de fonte, iguais nas duas formas */
+  /** as classes de tamanho, iguais nas duas formas */
   tamanho: string;
-  /** cor de fundo e anel das iniciais, que muda conforme o estado da conversa */
+  /** cor de fundo e anel da reserva, que muda conforme o estado da conversa */
   classe: string;
 }) {
   if (foto) {
@@ -7336,8 +7445,8 @@ function AvatarDoLead({ nome, foto, tamanho, classe }: {
     );
   }
   return (
-    <span className={cn(tamanho, "rounded-full grid place-items-center font-semibold ring-1", classe)}>
-      {iniciais(nome)}
+    <span className={cn(tamanho, "rounded-full grid place-items-center ring-1", classe)}>
+      <User className="h-1/2 w-1/2" strokeWidth={1.8} />
     </span>
   );
 }

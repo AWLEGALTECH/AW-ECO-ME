@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   normalizarComando, comandoValido, termoDoRascunho, filtrarAtalhos,
-  comandoDuplicado, indiceNaLista, type Atalho,
+  comandoDuplicado, indiceNaLista, resumoDoAtalho, type Atalho,
 } from "./atalhos";
 
 const a = (comando: string, conteudo = "texto"): Atalho => ({ id: comando, comando, conteudo });
@@ -76,4 +76,33 @@ test("a escolha do teclado não escapa da lista quando ela encolhe", () => {
   expect(indiceNaLista(-1, 3)).toBe(0);
   expect(indiceNaLista(1, 3)).toBe(1);
   expect(indiceNaLista(2, 0)).toBe(0);
+});
+
+// ── atalho com anexo ────────────────────────────────────────────────────────
+
+const comAnexo = (comando: string, conteudo: string, midias: Atalho["midias"]): Atalho =>
+  ({ id: comando, comando, conteudo, midias });
+
+test("o nome do arquivo também acha o atalho", () => {
+  const lista: Atalho[] = [
+    ...LISTA,
+    comAnexo("residencia", "", [{ path: "p", mime: "application/pdf", nome: "DECLARACAO-DE-RESIDENCIA.pdf", tipo: "documento" }]),
+  ];
+  expect(filtrarAtalhos(lista, "declaracao").map((x) => x.comando)).toEqual(["residencia"]);
+  expect(filtrarAtalhos(lista, "residencia").map((x) => x.comando)).toEqual(["residencia"]);
+});
+
+test("o resumo mostra o texto; sem texto, mostra o que vai ser mandado", () => {
+  expect(resumoDoAtalho(a("oi", "Bom dia!"))).toBe("Bom dia!");
+  expect(resumoDoAtalho(comAnexo("audio", "", [{ path: "p", mime: "audio/ogg", nome: "a.ogg", tipo: "audio" }]))).toBe("🎵 Áudio");
+  expect(resumoDoAtalho(comAnexo("foto", "", [{ path: "p", mime: "image/jpeg", nome: "a.jpg", tipo: "imagem" }]))).toBe("📷 Imagem");
+  expect(resumoDoAtalho(comAnexo("doc", "", [{ path: "p", mime: "application/pdf", nome: "modelo.pdf", tipo: "documento" }]))).toBe("📄 modelo.pdf");
+  expect(resumoDoAtalho(comAnexo("varios", "", [
+    { path: "a", mime: "image/jpeg", nome: "a.jpg", tipo: "imagem" },
+    { path: "b", mime: "image/jpeg", nome: "b.jpg", tipo: "imagem" },
+  ]))).toBe("📎 2 anexos");
+  // com texto E anexo, o texto manda: é ele que a pessoa lê pra reconhecer
+  expect(resumoDoAtalho(comAnexo("misto", "Segue o modelo", [{ path: "p", mime: "application/pdf", nome: "m.pdf", tipo: "documento" }])))
+    .toBe("Segue o modelo");
+  expect(resumoDoAtalho(a("vazio", ""))).toBe("");
 });

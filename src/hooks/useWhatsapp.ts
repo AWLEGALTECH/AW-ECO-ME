@@ -338,6 +338,23 @@ export async function marcarLida(conversaId: string) {
 }
 
 /**
+ * Deixar como se não tivesse lido.
+ *
+ * O contrário do gesto acima, e ele existe porque ler não é o mesmo que
+ * resolver: abre-se a conversa para ver do que se trata, descobre-se que vai
+ * dar trabalho, e ela precisa continuar pedindo atenção na fila. Sem isto, a
+ * única forma de não esquecer era deixar a aba aberta.
+ *
+ * Um, e não o número que havia: quantas mensagens não lidas existiam antes de
+ * alguém abrir é informação que já se perdeu, e inventar cinco seria mentir. O
+ * que o um diz é "isto aqui ainda está em aberto", que é o que se quis dizer.
+ */
+export async function marcarNaoLida(conversaId: string) {
+  const { error } = await tabela("wa_conversas").update({ nao_lidas: 1 }).eq("id", conversaId);
+  if (error) throw error;
+}
+
+/**
  * Envia pelo WhatsApp.
  *
  * Quem fala com a Evolution e quem grava a linha é a `wa-enviar` — daqui só sai
