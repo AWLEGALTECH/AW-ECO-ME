@@ -60,7 +60,7 @@ import {
   type PassagemDeCustodia,
   marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, informarBaseWa, marcarPerdidoWa,
   analiseComercialDaConversa,
-  usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
+  usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia, useFotosAssinadas, puxarFotosDePerfil,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   moverConversaDeInstancia,
   diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
@@ -1162,6 +1162,37 @@ export default function AtendimentoPage() {
       setAbrindoWriter(false);
     }
     window.open(linkDoWriter({ conversaId: lead.id, nome: lead.nome, analiseId }), "_blank");
+  };
+
+  /* ── AS FOTOS DE PERFIL ──
+     Uma assinatura para todas as fotos da caixa, e não uma por avatar. Quem
+     não tem foto (ou escondeu) não entra na conta e fica nas iniciais. */
+  const { data: fotos = {} } = useFotosAssinadas(leadsBase.map((l) => l.fotoPath));
+  const fotoDe = (l: Lead): string | null => (l.fotoPath ? fotos[l.fotoPath] ?? null : null);
+
+  /* De hoje em diante a foto entra sozinha, na primeira mensagem que a conversa
+     trocar. Este botão é para o que já estava aqui antes disso, e vai de dez em
+     dez de propósito: cada busca faz a Evolution conversar com o WhatsApp, e
+     cento e vinte de uma vez é o tipo de rajada que já derrubou este número. */
+  const [puxandoFotos, setPuxandoFotos] = useState(false);
+  const puxarFotosQueFaltam = async () => {
+    if (puxandoFotos) return;
+    setPuxandoFotos(true);
+    try {
+      const r = await puxarFotosDePerfil({ limite: 10 });
+      invalidarWa();
+      if (!r.tentadas) { toast.info("Nenhuma conversa esperando foto."); return; }
+      const partes = [
+        r.guardada > 0 ? `${r.guardada} ${r.guardada === 1 ? "foto" : "fotos"}` : null,
+        r.sem_foto > 0 ? `${r.sem_foto} sem foto ou escondida` : null,
+        r.erro > 0 ? `${r.erro} com erro` : null,
+      ].filter(Boolean);
+      toast.success(`Perguntamos ${r.tentadas}: ${partes.join(", ")}.`);
+    } catch (e) {
+      toast.error("Não consegui puxar as fotos: " + (e as Error).message);
+    } finally {
+      setPuxandoFotos(false);
+    }
   };
 
   /* ── AS MENSAGENS RÁPIDAS DESTA CONVERSA ──
@@ -2675,6 +2706,8 @@ export default function AtendimentoPage() {
           onAbrirProgramadas={() => setAba("programadas")}
           onReaplicarEventos={reconfigurarEventos}
           onDiagnosticar={rodarDiagnostico}
+          onPuxarFotos={puxarFotosQueFaltam}
+          puxandoFotos={puxandoFotos}
         />
       ) : (
         <>
@@ -3274,11 +3307,11 @@ export default function AtendimentoPage() {
                           se ancora na borda dele, ia parar lá embaixo, solto,
                           longe da foto. */}
                       <span className="relative shrink-0 self-start block h-7 w-7">
-                        <span className={cn("h-7 w-7 rounded-full grid place-items-center text-[10px] font-semibold ring-1",
-                          semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
-                                      : "bg-white/[0.05] text-muted-foreground ring-white/10")}>
-                          {iniciais(l.nome)}
-                        </span>
+                        <AvatarDoLead
+                          nome={l.nome} foto={fotoDe(l)}
+                          tamanho="h-7 w-7 text-[10px]"
+                          classe={semResposta ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
+                                              : "bg-white/[0.05] text-muted-foreground ring-white/10"} />
                         {estaOnline(l.presenca, l.presencaEm) && (
                           <span title="online agora"
                             className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#0e1013]" />
@@ -3471,9 +3504,10 @@ export default function AtendimentoPage() {
                   className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg text-left hover:bg-white/[0.04] transition-colors">
                 {/* Mesmo lugar do pingo da lista: sobre a foto, no canto. */}
                 <span className="relative shrink-0 self-start block h-8 w-8">
-                  <span className="h-8 w-8 rounded-full grid place-items-center text-[11px] font-semibold bg-white/[0.05] ring-1 ring-white/10">
-                    {iniciais(lead.nome)}
-                  </span>
+                  <AvatarDoLead
+                    nome={lead.nome} foto={fotoDe(lead)}
+                    tamanho="h-8 w-8 text-[11px]"
+                    classe="bg-white/[0.05] ring-white/10" />
                   {estaOnline(presencaViva?.presenca ?? lead.presenca,
                               presencaViva?.presenca_em ?? lead.presencaEm) && (
                     <span title="online agora"
@@ -5708,10 +5742,10 @@ export default function AtendimentoPage() {
                         módulo pode cometer — e o mais fácil de evitar: basta a
                         cara da pessoa estar na frente de quem escreve. */}
                     <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center gap-2.5">
-                      <span className="h-8 w-8 shrink-0 rounded-full grid place-items-center text-[11px] font-semibold
-                                       bg-white/[0.05] ring-1 ring-white/10">
-                        {iniciais(lead.nome)}
-                      </span>
+                      <AvatarDoLead
+                        nome={lead.nome} foto={fotoDe(lead)}
+                        tamanho="h-8 w-8 shrink-0 text-[11px]"
+                        classe="bg-white/[0.05] ring-white/10" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-[12.5px] font-medium truncate">{lead.nome}</span>
                         <span className="block text-[10.5px] text-muted-foreground tabular-nums truncate">
@@ -6965,6 +6999,7 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
 function PainelAjustes({
   instancias, instanciaId, nomeDe, onEscolherInstancia, mudo, onAlternarMudo, regua,
   agendadas, aoVivo, onAbrirRegua, onAbrirProgramadas, onReaplicarEventos, onDiagnosticar,
+  onPuxarFotos, puxandoFotos,
 }: {
   instancias: Instancia[];
   instanciaId: string;
@@ -6979,6 +7014,8 @@ function PainelAjustes({
   onAbrirProgramadas: () => void;
   onReaplicarEventos: () => void;
   onDiagnosticar: () => void;
+  onPuxarFotos: () => void;
+  puxandoFotos: boolean;
 }) {
   const pendentes = agendadas.filter((a) => a.status === "pendente").length;
   const falhas = agendadas.filter((a) => a.status === "falhou").length;
@@ -7050,6 +7087,25 @@ function PainelAjustes({
                 <span className="block text-[11.5px]">{mudo ? "Desligado" : "Ligado"}</span>
                 <span className="block text-[10px] text-muted-foreground/70">
                   {mudo ? "nada toca quando chega mensagem" : "um bipe curto por mensagem que chega"}
+                </span>
+              </span>
+            </button>
+          </Bloco>
+
+          {/* ── AS FOTOS DE PERFIL ── */}
+          <Bloco
+            titulo="Fotos de perfil dos contatos"
+            descricao="De agora em diante a foto entra sozinha na primeira mensagem que a conversa trocar. Este botão é para as conversas que já existiam.">
+            <button onClick={onPuxarFotos} disabled={!aoVivo || puxandoFotos}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors
+                         bg-white/[0.04] hover:bg-white/[0.07] disabled:opacity-50 disabled:hover:bg-white/[0.04]">
+              {puxandoFotos
+                ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                : <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11.5px]">{puxandoFotos ? "Perguntando ao WhatsApp…" : "Puxar as 10 mais recentes"}</span>
+                <span className="block text-[10px] text-muted-foreground/70">
+                  dez por vez, com respiro entre uma e outra. Quem esconde a foto continua nas iniciais
                 </span>
               </span>
             </button>
@@ -7257,6 +7313,32 @@ function BaseDoDossie({ baseChave, baseOrigem, baseNome, jornada, onInformar }: 
       </span>
       {alterando && opcoes}
     </div>
+  );
+}
+
+/* ── A CARA DA PESSOA ──
+   A foto quando ela existe; as iniciais quando não. As iniciais não são um
+   placeholder provisório: muita gente esconde a foto no WhatsApp, e essa parte
+   da fila vai continuar assim para sempre. Por isso as duas formas têm o mesmo
+   tamanho e o mesmo anel, e trocar uma pela outra não mexe no layout. */
+function AvatarDoLead({ nome, foto, tamanho, classe }: {
+  nome: string;
+  foto?: string | null;
+  /** as classes de tamanho e de fonte, iguais nas duas formas */
+  tamanho: string;
+  /** cor de fundo e anel das iniciais, que muda conforme o estado da conversa */
+  classe: string;
+}) {
+  if (foto) {
+    return (
+      <img src={foto} alt="" loading="lazy"
+        className={cn(tamanho, "rounded-full object-cover ring-1 ring-white/10 bg-white/[0.04]")} />
+    );
+  }
+  return (
+    <span className={cn(tamanho, "rounded-full grid place-items-center font-semibold ring-1", classe)}>
+      {iniciais(nome)}
+    </span>
   );
 }
 

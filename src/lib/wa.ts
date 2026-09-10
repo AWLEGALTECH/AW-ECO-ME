@@ -64,6 +64,9 @@ export interface ConversaRow {
   created_at: string;
   /* O dossiê: de qual base a pessoa veio (detectada pelo telefone na planilha
      ou informada pelo atendente) e a jornada que isso define. */
+  /* A foto de perfil do contato, no balde da mídia. Caminho e não URL: a URL
+     que o WhatsApp devolve expira em dias. */
+  foto_path: string | null;
   base: string | null;
   base_origem: string | null;
   jornada: "padrao" | "bradesco";

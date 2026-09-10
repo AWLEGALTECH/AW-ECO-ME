@@ -108,7 +108,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
+  "id, instancia, telefone, jid, nome_wa, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -296,6 +296,40 @@ export function useMidiaUrl(path: string | null) {
       return data?.signedUrl ?? null;
     },
   });
+}
+
+/**
+ * As fotos de perfil, assinadas de uma vez só.
+ *
+ * O balde é privado, então cada foto precisa de uma URL assinada. Uma chamada
+ * por avatar seriam cinquenta idas ao servidor para desenhar uma lista;
+ * `createSignedUrls` assina todas juntas, e a hora de validade cobre a sessão.
+ *
+ * A chave da consulta é o conjunto de caminhos: quando uma foto nova entra, o
+ * bloco inteiro é reassinado, que é mais simples do que remendar o mapa e
+ * custa uma chamada.
+ */
+export function useFotosAssinadas(caminhos: (string | null | undefined)[]) {
+  const chaves = [...new Set(caminhos.filter(Boolean) as string[])].sort();
+  return useQuery({
+    queryKey: ["wa", "fotos", chaves.join("|")],
+    enabled: chaves.length > 0,
+    staleTime: 50 * 60_000,
+    queryFn: async (): Promise<Record<string, string>> => {
+      const { data, error } = await supabase.storage.from("wa-midia").createSignedUrls(chaves, 3600);
+      if (error) return {};
+      const mapa: Record<string, string> = {};
+      for (const d of data ?? []) if (d.path && d.signedUrl) mapa[d.path] = d.signedUrl;
+      return mapa;
+    },
+  });
+}
+
+/** Puxa as fotos que faltam. Sem lista, pega as `limite` conversas mais recentes sem foto. */
+export async function puxarFotosDePerfil(args: { limite?: number; conversas?: string[] } = {}) {
+  const { data, error } = await supabase.functions.invoke("wa-foto", { body: args });
+  if (error) throw error;
+  return data as { ok: boolean; tentadas: number; guardada: number; sem_foto: number; erro: number };
 }
 
 /** Abrir a conversa zera o não-lidas — é o gesto que diz "eu vi". */
@@ -602,6 +636,7 @@ export function conversaParaLead(
     baseChave: c.base ?? null,
     baseOrigem: (c.base_origem as "detectada" | "informada" | null) ?? null,
     perdidoMotivo: c.perdido_motivo ?? null,
+    fotoPath: c.foto_path ?? null,
     ultimaFoi: ultima?.direcao === "entrada" ? "lead" : "nos",
     horasSemResposta: horasSemResposta(msgs, agora),
     ultimaHora: horaDaLista(c.ultima_em, agora),
