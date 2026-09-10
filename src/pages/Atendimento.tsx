@@ -298,7 +298,6 @@ export default function AtendimentoPage() {
     /** os arquivos escolhidos agora, ainda no computador */
     novos: AnexoLocal[];
   } | null>(null);
-  const seletorAnexoAtalho = useRef<HTMLInputElement>(null);
   const [salvandoAtalho, setSalvandoAtalho] = useState(false);
   /* OS ANEXOS DA BARRA DO CHAT — no plural. Era um só, e escolher o segundo
      trocava o primeiro sem avisar: nada dizia nada, o nome no campo apenas
@@ -5154,7 +5153,7 @@ export default function AtendimentoPage() {
           comando errado ou com a frase que a gente melhorou depois, e sem
           conserto a lista vira um monte de barra morta que ninguém usa. */}
       <Dialog open={!!atalhoEdicao} onOpenChange={(o) => { if (!o) setAtalhoEdicao(null); }}>
-        <DialogContent className="max-w-md [&>*]:min-w-0">
+        <DialogContent className="max-w-lg [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
               <Zap className="h-4 w-4" /> {atalhoEdicao?.id ? "Editar mensagem rápida" : "Nova mensagem rápida"}
@@ -5187,54 +5186,27 @@ export default function AtendimentoPage() {
               )}
             </div>
 
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-muted-foreground">Mensagem</span>
-              <Textarea
-                rows={4}
-                value={atalhoEdicao?.conteudo ?? ""}
-                onChange={(e) => setAtalhoEdicao((a) => a && { ...a, conteudo: e.target.value })}
-                placeholder="Me manda o extrato dos últimos cinco anos, por favor."
-                className="text-[12.5px] resize-none scrollbar-thin"
-              />
-            </div>
-
-            {/* ── O ANEXO DO ATALHO ──
-                Metade do que se repete no dia não é texto: é o áudio que explica
-                o prazo, o modelo de declaração, o print do passo a passo. Com
-                anexo, o texto vira legenda dele e pode ficar vazio. */}
+            {/* ── A MENSAGEM, NA BARRA DE VERDADE ──
+                A mesma do rodapé da conversa: clipe, emoji e o botão de gravar.
+                Metade do que se repete no dia não é texto (o áudio que explica o
+                prazo, o modelo de declaração, o print do passo a passo), e uma
+                caixa de texto pelada obrigaria a lembrar que ali não dá pra
+                gravar nem anexar, quando dá. */}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] text-muted-foreground">Anexos</span>
-              <input
-                ref={seletorAnexoAtalho} type="file" className="hidden" multiple
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                onChange={(e) => {
-                  const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
-                  setAtalhoEdicao((a) => a && { ...a, novos: [...a.novos, ...novos] });
-                  e.target.value = "";
-                }}
+              <span className="text-[11px] text-muted-foreground">Mensagem</span>
+              <BarraDeMensagem
+                texto={atalhoEdicao?.conteudo ?? ""}
+                onTexto={(t) => setAtalhoEdicao((a) => a && { ...a, conteudo: t })}
+                mantidos={atalhoEdicao?.midias ?? []}
+                onRemoverMantido={(i) => setAtalhoEdicao((a) => a && { ...a, midias: a.midias.filter((_, j) => j !== i) })}
+                anexos={atalhoEdicao?.novos ?? []}
+                onAnexos={(mudar) => setAtalhoEdicao((a) => a && { ...a, novos: mudar(a.novos) })}
+                placeholder="Me manda o extrato dos últimos cinco anos, por favor."
               />
-              <TiraDeAnexos
-                itens={[
-                  ...(atalhoEdicao?.midias ?? []).map((m, i) => ({
-                    chave: `guardado-${m.path}`,
-                    nome: m.nome,
-                    mime: m.mime,
-                    onRemover: () => setAtalhoEdicao((a) => a && { ...a, midias: a.midias.filter((_, j) => j !== i) }),
-                  })),
-                  ...(atalhoEdicao?.novos ?? []).map((n, i) => ({
-                    chave: `novo-${i}-${n.arquivo.name}-${n.arquivo.size}`,
-                    nome: n.arquivo.name,
-                    mime: n.arquivo.type,
-                    arquivo: n.arquivo,
-                    onRemover: () => setAtalhoEdicao((a) => a && { ...a, novos: a.novos.filter((_, j) => j !== i) }),
-                  })),
-                ]} />
-              <button onClick={() => seletorAnexoAtalho.current?.click()}
-                className="self-start inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border
-                           px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-primary hover:border-primary/50
-                           hover:bg-primary/[0.04] transition-colors">
-                <Paperclip className="h-3.5 w-3.5" /> Anexar arquivo
-              </button>
+              <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+                Texto, áudio, imagem ou documento. Ao usar o atalho, tudo isto cai na barra da conversa
+                para você conferir antes de mandar.
+              </p>
             </div>
           </div>
 
@@ -7881,6 +7853,119 @@ function TiraDeAnexos({ itens }: {
       {itens.map((it) => (
         <ChipDeAnexo key={it.chave} nome={it.nome} arquivo={it.arquivo} onRemover={it.onRemover} />
       ))}
+    </div>
+  );
+}
+
+/* ── A BARRA DE ESCREVER, FORA DA CONVERSA ──
+ *
+ * A mesma barra do rodapé da conversa: clipe, emoji, o campo que cresce e o
+ * botão de gravar. Ela aparece sempre que se escreve uma mensagem que vai ser
+ * usada depois (a rodada da régua, a mensagem retida, o atalho de barra), e a
+ * razão de ser a MESMA é simples: quem escreve ali está escrevendo uma mensagem
+ * de WhatsApp, e uma caixa de texto pelada obriga a lembrar que ali não dá pra
+ * gravar áudio nem pôr emoji, quando dá.
+ *
+ * O TEXTO VIRA LEGENDA quando há anexo, como no envio de verdade: é o que o
+ * placeholder diz, e é o que acontece do outro lado.
+ *
+ * As duas outras telas que já fazem isto (modelo de follow-up e mensagem
+ * retida) continuam com a cópia delas por enquanto; elas são idênticas a esta e
+ * podem passar a usá-la quando alguém for mexer nelas.
+ */
+function BarraDeMensagem({
+  texto, onTexto, mantidos = [], onRemoverMantido, anexos, onAnexos, placeholder, placeholderComAnexo,
+}: {
+  texto: string;
+  onTexto: (t: string) => void;
+  /** anexos que já estão guardados no bucket e ficam */
+  mantidos?: Midia[];
+  onRemoverMantido?: (i: number) => void;
+  /** arquivos escolhidos agora, ainda no computador */
+  anexos: AnexoLocal[];
+  onAnexos: (mudar: (p: AnexoLocal[]) => AnexoLocal[]) => void;
+  placeholder?: string;
+  placeholderComAnexo?: string;
+}) {
+  const [gravando, setGravando] = useState(false);
+  const seletor = useRef<HTMLInputElement>(null);
+  const temAnexo = mantidos.length + anexos.length > 0;
+
+  /* Print colado é anexo. O navegador entrega todo print como "image.png": um
+     nome com a hora é o que evita três anexos indistinguíveis na mesma fila. */
+  const colar = (e: React.ClipboardEvent) => {
+    const arquivos = Array.from(e.clipboardData?.items ?? [])
+      .filter((i) => i.kind === "file")
+      .map((i) => i.getAsFile())
+      .filter((f): f is File => !!f);
+    if (arquivos.length === 0) return;
+    e.preventDefault();
+    onAnexos((p) => [...p, ...arquivos.map((bruto) => ({
+      arquivo: bruto.name && bruto.name !== "image.png"
+        ? bruto
+        : new File([bruto], `print-${new Date().toLocaleTimeString("pt-BR").replace(/\D/g, "")}.png`,
+            { type: bruto.type || "image/png" }),
+    }))]);
+  };
+
+  return (
+    <div className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] overflow-hidden">
+      <div className="p-2.5 flex flex-col gap-2">
+        {/* OS ANEXOS EM TIRA, na ordem em que vão sair. Os guardados e os que
+            acabaram de ser escolhidos aparecem juntos, porque para quem lê são
+            a mesma coisa: a mensagem que vai. */}
+        <TiraDeAnexos
+          itens={[
+            ...mantidos.map((m, i) => ({
+              chave: `g${i}-${m.path}`, nome: m.nome, mime: m.mime,
+              onRemover: () => onRemoverMantido?.(i),
+            })),
+            ...anexos.map((a, i) => ({
+              chave: `n${i}-${a.arquivo.name}-${a.arquivo.size}`, nome: a.arquivo.name,
+              mime: a.arquivo.type, arquivo: a.arquivo,
+              onRemover: () => onAnexos((p) => p.filter((_, j) => j !== i)),
+            })),
+          ]} />
+
+        <div className="flex items-center gap-1.5">
+          {!gravando && (
+            <>
+              <input ref={seletor} type="file" className="hidden" multiple
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                onChange={(e) => {
+                  const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
+                  onAnexos((p) => [...p, ...novos]);
+                  e.target.value = "";
+                }} />
+              <Button size="sm" variant="ghost" title="Anexar arquivos"
+                className="h-9 w-9 p-0 shrink-0" onClick={() => seletor.current?.click()}>
+                <Paperclip className="h-4 w-4" />
+              </Button>
+              <SeletorDeEmoji onEscolher={(x) => onTexto(texto + x)} />
+            </>
+          )}
+
+          {!gravando && (
+            <Textarea
+              value={texto}
+              rows={1}
+              onChange={(e) => onTexto(e.target.value)}
+              onPaste={colar}
+              placeholder={temAnexo ? (placeholderComAnexo ?? "Legenda (opcional)…") : placeholder}
+              className="min-h-9 max-h-[9rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin" />
+          )}
+
+          <GravadorDeAudio
+            onEnviar={async (audio, segundos) => {
+              const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+              onAnexos((p) => [...p, {
+                arquivo: new File([audio], `audio-${Date.now()}.${ext}`, { type: audio.type }),
+                duracao: segundos,
+              }]);
+            }}
+            onGravandoChange={setGravando} />
+        </div>
+      </div>
     </div>
   );
 }
