@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { extrairTextoPdf } from "@/lib/pdfText";
 import { parseContracheque, parseSemad, type Contracheque } from "@/lib/parseContracheque";
+import {
+  chaveDaRubrica, montarCatalogo, montarTabela, totaisDeColuna, codigosRepartidos,
+  type ItemCatalogo,
+} from "@/lib/sheetsTabela";
 import { extrairItensPdf } from "@/lib/pdfText";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import {
@@ -130,41 +134,27 @@ function Sessao({ tipo, onBack }: { tipo: TipoDoc; onBack: () => void }) {
     setDocs(out);
     // Pré-seleciona TODOS os descontos (o objetivo da ferramenta).
     const pre = new Set<string>();
-    for (const d of out) for (const r of d.rubricas) if (r.tipo === "desconto") pre.add(r.codigo);
+    for (const d of out) for (const r of d.rubricas) if (r.tipo === "desconto") pre.add(chaveDaRubrica(r));
     setSel(pre);
     setFase("rubricas");
   };
 
-  // União de rubricas em todos os docs (código → meta).
-  const catalogo = useMemo(() => {
-    const m = new Map<string, { codigo: string; descricao: string; tipo: "receita" | "desconto"; meses: number; total: number }>();
-    for (const d of docs) {
-      const vistos = new Set<string>();
-      for (const r of d.rubricas) {
-        const e = m.get(r.codigo) || { codigo: r.codigo, descricao: r.descricao, tipo: r.tipo, meses: 0, total: 0 };
-        e.total += r.valor;
-        if (!vistos.has(r.codigo)) { e.meses++; vistos.add(r.codigo); }
-        m.set(r.codigo, e);
-      }
-    }
-    return [...m.values()].sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [docs]);
+  /* A UNIÃO DAS RUBRICAS, identificadas por CÓDIGO E DESCRIÇÃO.
+     Só pelo código, dois consignatários no mesmo ND viravam uma linha só na
+     lista e uma célula só na tabela, e o dinheiro de um deles sumia. */
+  const catalogo = useMemo(() => montarCatalogo(docs), [docs]);
+  const repartidos = useMemo(() => codigosRepartidos(catalogo), [catalogo]);
   const descontos = catalogo.filter((c) => c.tipo === "desconto");
   const receitas = catalogo.filter((c) => c.tipo === "receita");
   const okDocs = docs.filter((d) => d.ok);
   const falhas = docs.filter((d) => !d.ok);
 
-  const alternar = (cod: string) => setSel((s) => { const n = new Set(s); n.has(cod) ? n.delete(cod) : n.add(cod); return n; });
+  const alternar = (chave: string) => setSel((s) => { const n = new Set(s); n.has(chave) ? n.delete(chave) : n.add(chave); return n; });
 
   // Tabela: meses nas linhas × rubricas selecionadas nas colunas.
-  const colunas = useMemo(() => catalogo.filter((c) => sel.has(c.codigo)), [catalogo, sel]);
-  const tabela = useMemo(() => okDocs.map((d) => {
-    const porCod = new Map(d.rubricas.map((r) => [r.codigo, r.valor]));
-    const celulas = colunas.map((c) => porCod.get(c.codigo) ?? null);
-    const totalLinha = celulas.reduce((s: number, v) => s + (v || 0), 0);
-    return { doc: d, celulas, totalLinha };
-  }), [okDocs, colunas]);
-  const totaisColuna = useMemo(() => colunas.map((_, i) => tabela.reduce((s, l) => s + (l.celulas[i] || 0), 0)), [colunas, tabela]);
+  const colunas = useMemo(() => catalogo.filter((c) => sel.has(c.chave)), [catalogo, sel]);
+  const tabela = useMemo(() => montarTabela(okDocs, colunas), [okDocs, colunas]);
+  const totaisColuna = useMemo(() => totaisDeColuna(tabela, colunas.length), [colunas.length, tabela]);
   const totalGeral = totaisColuna.reduce((s, v) => s + v, 0);
   const titular = okDocs.find((d) => d.nome)?.nome || null;
   const cpfTitular = okDocs.find((d) => d.cpf)?.cpf || null;
@@ -268,20 +258,30 @@ function Sessao({ tipo, onBack }: { tipo: TipoDoc; onBack: () => void }) {
 
   // ── FASE: rubricas ──
   if (fase === "rubricas") {
-    const Grupo = ({ titulo, itens }: { titulo: string; itens: typeof catalogo }) => (
+    const Grupo = ({ titulo, itens }: { titulo: string; itens: ItemCatalogo[] }) => (
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.015] overflow-hidden">
         <p className="px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{titulo} ({itens.length})</p>
         <div className="p-3 space-y-1">
           {itens.map((c) => {
-            const on = sel.has(c.codigo);
+            const on = sel.has(c.chave);
             return (
-              <button key={c.codigo} onClick={() => alternar(c.codigo)}
+              <button key={c.chave} onClick={() => alternar(c.chave)}
                 className={`w-full text-left flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${on ? "bg-primary/[0.08] ring-1 ring-primary/25" : "hover:bg-white/[0.03]"}`}>
                 <span className={`h-[18px] w-[18px] rounded-[5px] flex items-center justify-center shrink-0 transition-colors ${on ? "bg-primary text-primary-foreground" : "ring-1 ring-white/20"}`}>
                   {on && <Check className="h-3 w-3" />}
                 </span>
                 <span className="font-mono text-[10.5px] text-muted-foreground shrink-0">{c.codigo}</span>
-                <span className="text-[13px] text-foreground/90 truncate flex-1">{c.descricao}</span>
+                <span className="text-[13px] text-foreground/90 truncate flex-1">
+                  {c.descricao}
+                  {/* O MESMO CÓDIGO EM DUAS LINHAS não é engano da tela: são
+                      dois consignatários no mesmo ND, e é por isso que a
+                      descrição, e não o código, é quem separa. */}
+                  {repartidos.has(c.codigo) && (
+                    <span className="ml-1.5 align-middle text-[9px] uppercase tracking-wide text-amber-300/90 bg-amber-400/10 ring-1 ring-amber-400/25 rounded px-1 py-0.5">
+                      mesmo código
+                    </span>
+                  )}
+                </span>
                 <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{c.meses} mês(es) · {fmtBRL(c.total)}</span>
               </button>
             );
@@ -347,8 +347,11 @@ function Sessao({ tipo, onBack }: { tipo: TipoDoc; onBack: () => void }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.05]">
-            {tabela.map((l) => (
-              <tr key={l.doc.name} className="hover:bg-white/[0.02]">
+            {/* A CHAVE É O ÍNDICE, e não o nome do arquivo: dois PDFs com o
+                mesmo nome (baixados duas vezes da mesma origem) faziam o React
+                colapsar duas linhas em uma. */}
+            {tabela.map((l, iLinha) => (
+              <tr key={`${l.doc.name}-${iLinha}`} className="hover:bg-white/[0.02]">
                 <td className="px-3 py-1.5 sticky left-0 bg-[#101014] text-foreground/90 whitespace-nowrap">{l.doc.competenciaLabel}</td>
                 {l.celulas.map((v, i) => (
                   <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${v === null ? "text-muted-foreground/40" : "text-foreground/85"}`}>{v === null ? "—" : numBR(v)}</td>
