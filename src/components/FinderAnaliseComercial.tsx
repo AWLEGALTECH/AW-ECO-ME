@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,7 +8,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Lock, Unlock, Save, ClipboardList, Loader2, Check } from "lucide-react";
+import { Lock, Unlock, Save, ClipboardList, Loader2, Check, Link2, Search, X, MessageSquare } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ordenarCandidatos, filtrarCandidatos, esperaAnalise, nomeParecido, telefoneNaTela,
+  type LeadCandidato,
+} from "@/lib/leadDaAnalise";
+import { rotuloDaEtapa } from "@/lib/jornada";
+
+const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 
 // Ponte comercial DO LADO DO ECO sobre o Finder (iframe same-origin):
 // escuta o evento `aw-finder:analysis-ready` que o Finder já dispara, captura
@@ -115,6 +123,54 @@ export function FinderAnaliseComercial({
   const [salvouId, setSalvouId] = useState<string | null>(null);
   const attachedWin = useRef<Window | null>(null);
 
+  /* ── DE QUEM É ESTA ANÁLISE, quando ela não veio de uma conversa ──────────
+     Vindo pelo botão "Levar ao Finder", o vínculo chega na URL e não há o que
+     perguntar. Aberto pelo menu, ele fica nulo, e é aí que a análise fica
+     pronta com o lead parado em "Aguardando análise" para sempre, sem erro
+     nenhum aparecer. A pergunta é opcional de propósito: nem toda análise é de
+     um lead do atendimento. */
+  const [leads, setLeads] = useState<LeadCandidato[]>([]);
+  const [carregandoLeads, setCarregandoLeads] = useState(false);
+  const [leadEscolhido, setLeadEscolhido] = useState<LeadCandidato | null>(null);
+  const [buscaLead, setBuscaLead] = useState("");
+  const [listaAberta, setListaAberta] = useState(false);
+
+  useEffect(() => {
+    // Só faz sentido quando não veio de uma conversa e não é refazer de cliente.
+    if (!open || conversaId || refazendo) return;
+    let cancel = false;
+    setCarregandoLeads(true);
+    (async () => {
+      const { data } = await (supabase.from("wa_conversas" as any) as any)
+        .select("id, nome_wa, telefone, instancia, etapa, jornada, ultima_em")
+        .eq("arquivada", false)
+        .order("ultima_em", { ascending: false, nullsFirst: false })
+        .limit(300);
+      if (cancel) return;
+      setLeads(((data || []) as any[]).map((c) => ({
+        id: String(c.id), nome: c.nome_wa ?? null, telefone: String(c.telefone ?? ""),
+        instancia: String(c.instancia ?? ""), etapa: c.etapa ?? null,
+        jornada: c.jornada ?? null, ultimaEm: c.ultima_em ?? null,
+      })));
+      setCarregandoLeads(false);
+    })();
+    return () => { cancel = true; };
+  }, [open, conversaId, refazendo]);
+
+  const candidatos = useMemo(
+    () => filtrarCandidatos(ordenarCandidatos(leads, analise?.nome ?? ""), buscaLead).slice(0, 40),
+    [leads, analise?.nome, buscaLead],
+  );
+  /* Quantos leads o nome desta análise lembra. Não seleciona nenhum: o nome do
+     extrato é o de cartório e o do WhatsApp é apelido, e escolher por
+     semelhança moveria o funil de outra pessoa. */
+  const parecidos = useMemo(
+    () => (analise?.nome
+      ? leads.filter((l) => l.nome && nomeParecido(l.nome, analise.nome) && esperaAnalise(l)).length
+      : 0),
+    [leads, analise?.nome],
+  );
+
   useEffect(() => {
     const onReady = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
@@ -192,20 +248,22 @@ export function FinderAnaliseComercial({
       return;
     }
 
+    // O vínculo da URL manda; sem ele, vale o lead que a pessoa escolheu aqui.
+    const vinculo = conversaId || leadEscolhido?.id || null;
     const payload = {
       nome: analise.nome.trim(),
       origem: "finder",
       created_by: user?.id || null,
       created_by_email: user?.email || null,
       rubricas,
-      ...(conversaId ? { conversa_id: conversaId } : {}),
+      ...(vinculo ? { conversa_id: vinculo } : {}),
     };
     const { data, error } = await supabase.from("analises_comerciais" as any).insert(payload as any).select("id").single();
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
     setSalvouId((data as any)?.id || "ok");
-    toast.success(conversaId
-      ? "Análise comercial gerada. O lead avançou para Aguardando documentação."
+    toast.success(vinculo
+      ? "Análise comercial gerada. O lead avançou na jornada."
       : "Análise comercial gerada. Disponível no Writer.");
   };
 
@@ -255,6 +313,124 @@ export function FinderAnaliseComercial({
                 {analise.rubricas.length} rubrica(s) · {nBloq} marcada(s) como não ajuizável(is)
               </div>
             </div>
+
+            {/* ── DE QUEM É ESTA ANÁLISE ──
+                Só quando ela não veio de uma conversa. Vindo pelo botão do
+                atendimento o vínculo já está feito e perguntar seria ruído.
+                Aqui é o contrário: sem a pergunta, a análise fica pronta e o
+                lead fica parado em "Aguardando análise" sem ninguém saber. */}
+            {!conversaId && !refazendo && (
+              <div className="rounded-lg border border-border bg-card/40 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-[11.5px] text-muted-foreground flex-1 min-w-[180px]">
+                    Esta análise é de algum lead do atendimento?
+                    <span className="text-muted-foreground/70"> Ligando, a jornada dele anda sozinha.</span>
+                  </span>
+                  {!listaAberta && !leadEscolhido && (
+                    <button
+                      onClick={() => setListaAberta(true)}
+                      className="shrink-0 flex items-center gap-1.5 rounded-lg bg-primary/15 px-2.5 py-1.5 text-[11.5px]
+                                 font-medium text-primary ring-1 ring-primary/30 hover:bg-primary/25 transition-colors">
+                      <Search className="h-3.5 w-3.5" />
+                      Escolher lead
+                      {parecidos > 0 && (
+                        <span className="rounded-full bg-primary/25 px-1.5 text-[10px] tabular-nums">
+                          {parecidos} parecido{parecidos === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <AnimatePresence initial={false} mode="popLayout">
+                  {leadEscolhido && (
+                    <motion.div
+                      key="escolhido" layout
+                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                      transition={MOLA}
+                      className="mt-2 flex items-center gap-2 rounded-lg bg-primary/10 ring-1 ring-primary/30 px-2.5 py-2">
+                      <MessageSquare className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12px] font-medium truncate">
+                          {leadEscolhido.nome || telefoneNaTela(leadEscolhido.telefone)}
+                        </span>
+                        <span className="block text-[10.5px] text-muted-foreground truncate">
+                          {telefoneNaTela(leadEscolhido.telefone)} · {rotuloDaEtapa(
+                            leadEscolhido.jornada === "bradesco" ? "bradesco" : "padrao", leadEscolhido.etapa)}
+                        </span>
+                      </span>
+                      <button onClick={() => { setLeadEscolhido(null); setListaAberta(false); }}
+                        aria-label="desfazer escolha"
+                        className="shrink-0 text-muted-foreground hover:text-rose-400 transition-colors">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {listaAberta && !leadEscolhido && (
+                    <motion.div
+                      key="lista" layout
+                      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }} transition={MOLA}
+                      className="overflow-hidden">
+                      <Input
+                        value={buscaLead}
+                        onChange={(e) => setBuscaLead(e.target.value)}
+                        placeholder="Procurar por nome ou telefone"
+                        autoFocus
+                        className="mt-2 h-8 text-[12.5px]"
+                      />
+                      <div className="mt-1.5 max-h-44 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+                        {carregandoLeads ? (
+                          <p className="text-center text-[11.5px] text-muted-foreground py-5 flex items-center justify-center gap-2">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Procurando as conversas…
+                          </p>
+                        ) : candidatos.length === 0 ? (
+                          <p className="text-center text-[11.5px] text-muted-foreground py-5">
+                            {leads.length === 0
+                              ? "Nenhuma conversa à vista. Talvez você não tenha o módulo de atendimento."
+                              : "Nada com esse nome ou número."}
+                          </p>
+                        ) : candidatos.map((l) => {
+                          const provavel = !!l.nome && nomeParecido(l.nome, analise.nome) && esperaAnalise(l);
+                          return (
+                            <button
+                              key={l.id}
+                              onClick={() => { setLeadEscolhido(l); setListaAberta(false); setBuscaLead(""); }}
+                              className={`w-full text-left px-2.5 py-2 flex items-center gap-2 transition-colors ${
+                                provavel ? "bg-primary/[0.07] hover:bg-primary/[0.14]" : "hover:bg-white/[0.04]"
+                              }`}>
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-[12px] truncate">
+                                  {l.nome || telefoneNaTela(l.telefone)}
+                                  {provavel && (
+                                    <span className="ml-1.5 rounded px-1.5 py-[1px] text-[9px] font-semibold uppercase
+                                                     tracking-wide bg-primary/20 text-primary align-[1px]">
+                                      provável
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="block text-[10.5px] text-muted-foreground truncate">
+                                  {telefoneNaTela(l.telefone)} · {rotuloDaEtapa(
+                                    l.jornada === "bradesco" ? "bradesco" : "padrao", l.etapa)}
+                                  {" · "}{l.instancia}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <button
+                        onClick={() => { setListaAberta(false); setBuscaLead(""); }}
+                        className="mt-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                        Não é de nenhum lead
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
 
             <div className="max-h-[45vh] overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
               {analise.rubricas.length === 0 ? (
