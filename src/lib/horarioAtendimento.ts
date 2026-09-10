@@ -230,3 +230,41 @@ export function comVariaveis(texto: string, dados: { nome?: string | null; horar
   t = primeiro ? t.replace(/\{nome\}/g, primeiro) : t.replace(/[,\s]*\{nome\}/g, "");
   return t.replace(/[ \t]{2,}/g, " ").trim();
 }
+
+/* ── QUANDO A RÉGUA ESTÁ CONFIGURADA E MESMO ASSIM NÃO SAI NADA ─────────────
+ *
+ * Uma lead escreveu 11:52, dentro do direcionamento, e não recebeu nada. A
+ * grade estava pintada, as três mensagens escritas, e o interruptor desligado:
+ * ele nasce assim de propósito, para a grade ser escrita antes de a primeira
+ * mensagem sair. O único sinal disso na tela era a palavrinha "Desligado" num
+ * canto, do lado de um cartão que parecia inteiro e pronto.
+ *
+ * Há três formas de a régua não fazer nada sem dar erro nenhum. Esta função é
+ * o nome de cada uma, para a tela poder dizer em voz alta em vez de deixar
+ * quem configurou descobrir por um lead que não respondeu.
+ */
+export type AvisoDaRegua =
+  /** tem grade ou mensagem escrita, mas o interruptor está desligado */
+  | "desligada"
+  /** ligada e sem nenhuma faixa pintada: o dia inteiro conta como fechado */
+  | "sem_grade"
+  /** ligada e sem nenhuma mensagem escrita: não há o que mandar */
+  | "sem_mensagens"
+  | null;
+
+export function avisoDaRegua(estado: {
+  ativo: boolean;
+  grade: Horario[];
+  /** as faixas que têm mensagem de verdade (texto ou anexo), só os nomes */
+  comMensagem: Faixa[];
+}): AvisoDaRegua {
+  const temGrade = normalizar(estado.grade).length > 0;
+  const temMsg = estado.comMensagem.length > 0;
+
+  // Nada começado ainda não é aviso: é uma tela em branco, e quem abriu sabe.
+  if (!estado.ativo) return temGrade || temMsg ? "desligada" : null;
+
+  if (!temMsg) return "sem_mensagens";
+  if (!temGrade) return "sem_grade";
+  return null;
+}

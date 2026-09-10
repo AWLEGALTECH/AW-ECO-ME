@@ -99,6 +99,7 @@ import { useAtalhos, useInvalidarAtalhos, salvarAtalho, removerAtalho } from "@/
 import {
   DIAS, DIAS_CURTOS, PASSO, CELULAS, ROTULO_FAIXA, VARIAVEIS,
   faixaEm, pintar, copiarDia, proximaAbertura, resumoDoDia, horaDe, momentoEm, comVariaveis,
+  avisoDaRegua,
   type Faixa, type Horario,
 } from "@/lib/horarioAtendimento";
 import {
@@ -8761,6 +8762,17 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
   })();
   const proxima = proximaAbertura(grade, agora.dia, agora.minuto);
 
+  /* O QUE ESTÁ IMPEDINDO A RÉGUA DE FUNCIONAR, se é que algo está.
+     Uma lead escreveu às 11:52, dentro do direcionamento, e não recebeu nada:
+     a grade estava pintada, as três mensagens escritas, e o interruptor
+     desligado. O único sinal disso era a palavra "Desligado" num canto. */
+  const faixasComMensagem = (["fechado", "direcionamento", "atendimento"] as Faixa[])
+    .filter((f) => {
+      const m = msgs?.[f];
+      return !!m && (!!m.texto.trim() || m.midias.length > 0);
+    });
+  const aviso = avisoDaRegua({ ativo: !!config?.ativo, grade, comMensagem: faixasComMensagem });
+
   const mexer = async (patch: Parameters<typeof salvarConfigAtendimento>[1], aviso: string) => {
     try {
       await salvarConfigAtendimento(instancia, patch, userId);
@@ -8815,6 +8827,49 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
             <span className="text-[12px] font-medium">{config?.ativo ? "Ligado" : "Desligado"}</span>
           </button>
         </div>
+
+        {/* ── O AVISO DE QUE NADA ESTÁ SAINDO ──
+            Fica acima do resto porque é a única informação do cartão que muda o
+            que fazer agora. "agora: direcionamento" logo abaixo é verdade sobre
+            a GRADE, não sobre o que o lead recebe, e foi exatamente essa
+            confusão que fez uma lead escrever no horário certo e não receber. */}
+        <AnimatePresence initial={false}>
+          {aviso && (
+            <motion.div
+              key={aviso}
+              layout
+              initial={{ opacity: 0, y: -6, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: -6, height: 0 }}
+              transition={TRANSICAO_CARTAO}
+              className="overflow-hidden">
+              <div className="rounded-lg bg-amber-400/[0.08] ring-1 ring-amber-400/30 px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <AlertTriangle className="h-4 w-4 text-amber-300 shrink-0" />
+                <p className="text-[11.5px] text-amber-100/90 leading-snug flex-1 min-w-[220px]">
+                  {aviso === "desligada" ? (
+                    <>Nada disto está saindo. A grade e as mensagens estão salvas, mas o primeiro
+                      atendimento está <strong>desligado</strong>: quem escrever agora não recebe nada.</>
+                  ) : aviso === "sem_grade" ? (
+                    <>Está ligado, mas <strong>nenhuma faixa foi pintada</strong>. Sem grade, toda hora
+                      conta como fechada e todo mundo recebe a mensagem de fora de horário.</>
+                  ) : (
+                    <>Está ligado, mas <strong>nenhuma das três mensagens foi escrita</strong>. Não há o
+                      que mandar, então nada é enviado.</>
+                  )}
+                </p>
+                {aviso === "desligada" && (
+                  <button
+                    onClick={() => aoVivo && mexer({ ativo: true }, "Primeiro atendimento ligado.")}
+                    disabled={!aoVivo}
+                    className="shrink-0 flex items-center gap-1.5 rounded-lg bg-amber-400/20 px-2.5 py-1.5 text-[11.5px] font-medium text-amber-100 ring-1 ring-amber-400/40 hover:bg-amber-400/30 transition-colors disabled:opacity-50">
+                    <Power className="h-3.5 w-3.5" />
+                    Ligar agora
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
           <span className={cn("rounded-lg px-2.5 py-1 ring-1 font-medium", COR_DO_PINCEL[faixaAgora])}>

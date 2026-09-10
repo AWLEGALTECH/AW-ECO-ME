@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   minutosDe, horaDe, faixaEm, normalizar, pintar, copiarDia, blocosDoDia,
   proximaAbertura, resumoDoDia, horasPorFaixa, comVariaveis, doDia, momentoEm,
+  avisoDaRegua,
   type Horario,
 } from "./horarioAtendimento";
 
@@ -150,4 +151,32 @@ test("o agora é o do escritório, não o de quem abriu a tela", () => {
   const virada = new Date("2026-09-22T03:00:00Z");
   expect(momentoEm("America/Sao_Paulo", virada)).toEqual({ dia: 2, minuto: 0 });
   expect(momentoEm("America/Manaus", virada)).toEqual({ dia: 1, minuto: 23 * 60 });
+});
+
+test("régua configurada e desligada é aviso, tela em branco não é", () => {
+  // foi o caso real: grade pintada, três mensagens escritas, interruptor off
+  expect(avisoDaRegua({ ativo: false, grade: SEGUNDA, comMensagem: ["fechado", "direcionamento"] }))
+    .toBe("desligada");
+  // só a mensagem escrita, sem grade ainda: continua sendo aviso
+  expect(avisoDaRegua({ ativo: false, grade: [], comMensagem: ["fechado"] })).toBe("desligada");
+  // nada começado: quem abriu a tela sabe que ela está vazia
+  expect(avisoDaRegua({ ativo: false, grade: [], comMensagem: [] })).toBeNull();
+});
+
+test("ligada sem grade manda o fechado o dia inteiro, e isso se avisa", () => {
+  expect(avisoDaRegua({ ativo: true, grade: [], comMensagem: ["fechado"] })).toBe("sem_grade");
+  // faixa de duração zero não é grade
+  expect(avisoDaRegua({
+    ativo: true,
+    grade: [{ dia: 1, inicio: "09:00", fim: "09:00", faixa: "atendimento" }],
+    comMensagem: ["fechado"],
+  })).toBe("sem_grade");
+});
+
+test("ligada sem mensagem nenhuma não tem o que mandar", () => {
+  expect(avisoDaRegua({ ativo: true, grade: SEGUNDA, comMensagem: [] })).toBe("sem_mensagens");
+});
+
+test("ligada, com grade e com mensagem, não avisa nada", () => {
+  expect(avisoDaRegua({ ativo: true, grade: SEGUNDA, comMensagem: ["direcionamento"] })).toBeNull();
 });
