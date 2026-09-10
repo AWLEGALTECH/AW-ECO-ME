@@ -62,6 +62,13 @@ export interface ConversaRow {
      este número ficou só com a leitura. */
   pode_escrever: boolean;
   created_at: string;
+  /* O dossiê: de qual base a pessoa veio (detectada pelo telefone na planilha
+     ou informada pelo atendente) e a jornada que isso define. */
+  base: string | null;
+  base_origem: string | null;
+  jornada: "padrao" | "bradesco";
+  perdido_motivo: string | null;
+  pre_cliente_id: string | null;
 }
 
 export interface MensagemRow {

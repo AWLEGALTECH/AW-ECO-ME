@@ -15,7 +15,10 @@
 
 import type { Task } from "./tasksAtendimento";
 
-export type Estagio = "chegou" | "triagem" | "extrato" | "proposta" | "fechado";
+/* A chave de uma etapa. Era a união das cinco da jornada padrão; virou texto
+   porque a jornada agora depende da base do lead (ver lib/jornada.ts), e cada
+   jornada tem as suas chaves. */
+export type Estagio = string;
 export type Origem = "pda" | "escritorio" | "planilha" | "indicacao";
 
 export const ESTAGIOS: { chave: Estagio; rotulo: string; descricao: string }[] = [
@@ -130,8 +133,17 @@ export interface Lead {
   /* Conversa que veio da lista do aparelho, não de uma mensagem: ninguém sabe
      quem falou primeiro, e a etiqueta some até chegar a primeira mensagem. */
   importada?: boolean;
-  /** de qual base de leads essa pessoa veio, quando veio de alguma */
+  /** de qual base de leads essa pessoa veio, quando veio de alguma (nome para a tela) */
   base?: string | null;
+  /* O DOSSIÊ DECIDE A JORNADA. `baseChave` é a chave gravada (bradesco,
+     indicacao, outra); `baseOrigem` diz se o sistema achou o telefone na
+     planilha ou se alguém informou; `jornada` é o conjunto de etapas em uso.
+     Sem base, a jornada é a padrão e a ficha avisa que o dossiê está incompleto. */
+  baseChave?: string | null;
+  baseOrigem?: "detectada" | "informada" | null;
+  jornada?: "padrao" | "bradesco";
+  /** por que saiu do funil, quando a etapa é "perdido" */
+  perdidoMotivo?: string | null;
   /* POR QUAL NÚMERO essa conversa acontece. Passou a importar quando a caixa
      virou cruzada: numa lista com dois números misturados, a linha sem dono é
      pior que inútil — responder pelo número errado é um erro que o cliente vê e

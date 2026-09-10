@@ -91,3 +91,114 @@ export function tempoNaEtapa(desdeISO: string, agora = new Date()): string {
   if (dias === 1) return "há 1 dia";
   return `há ${dias} dias`;
 }
+
+/* ═══════════════════════ AS JORNADAS ═══════════════════════
+ *
+ * O dossiê define a jornada. Lead da base Bradesco anda por etapas que o
+ * sistema detecta sozinho (mensagem nossa, pedido de extrato, PDF recebido,
+ * análise do Finder, pré-cliente do Writer, assinatura); quem não está em base
+ * nenhuma fica na jornada padrão, que é a original do Atendimento, até alguém
+ * dizer de onde veio.
+ *
+ * A regra de detecção mora no banco (migração jornada_bradesco); o espelho
+ * abaixo (`alvoDaMensagem`) existe para a tela explicar e para o teste fixar
+ * a regra em prosa. Se os dois divergirem, o do banco é o que vale.
+ */
+
+export type Jornada = "padrao" | "bradesco";
+
+export interface EtapaDef {
+  chave: string;
+  rotulo: string;
+  descricao: string;
+  /** saída do funil: não fica no trilho, aparece como estado */
+  terminal?: boolean;
+}
+
+export const ETAPAS_PADRAO: readonly EtapaDef[] = [
+  { chave: "chegou",   rotulo: "Chegou",    descricao: "mandou mensagem, ainda não foi triado" },
+  { chave: "triagem",  rotulo: "Triagem",   descricao: "descobrindo se há caso" },
+  { chave: "extrato",  rotulo: "Extrato",   descricao: "esperando o documento, que é o gargalo" },
+  { chave: "proposta", rotulo: "Proposta",  descricao: "sabe o que dá pra pedir, falta fechar" },
+  { chave: "fechado",  rotulo: "Fechado",   descricao: "virou cliente" },
+];
+
+export const ETAPAS_BRADESCO: readonly EtapaDef[] = [
+  { chave: "na_base",               rotulo: "Na base",               descricao: "está na base de leads; ninguém daqui respondeu ainda" },
+  { chave: "triagem",               rotulo: "Triagem",               descricao: "já falamos com ele; descobrindo se há caso" },
+  { chave: "aguardando_extrato",    rotulo: "Aguardando extrato",    descricao: "pedimos o extrato; é aqui que a cadência cobra" },
+  { chave: "aguardando_analise",    rotulo: "Aguardando análise",    descricao: "extrato recebido; falta rodar o Finder" },
+  { chave: "proposta",              rotulo: "Proposta",              descricao: "análise pronta; falta ele decidir e mandar os documentos" },
+  { chave: "aguardando_assinatura", rotulo: "Aguardando assinatura", descricao: "kit e procuração enviados pelo Writer" },
+  { chave: "assinado",              rotulo: "Assinado",              descricao: "assinou; daqui em diante é registro" },
+  { chave: "perdido",               rotulo: "Perdido",               descricao: "saiu do funil", terminal: true },
+];
+
+export function etapasDaJornada(j: Jornada | null | undefined): readonly EtapaDef[] {
+  return j === "bradesco" ? ETAPAS_BRADESCO : ETAPAS_PADRAO;
+}
+
+/** As etapas do trilho: as terminais ficam de fora e viram um aviso. */
+export function trilhoDaJornada(j: Jornada | null | undefined): readonly EtapaDef[] {
+  return etapasDaJornada(j).filter((e) => !e.terminal);
+}
+
+/** Rótulo de uma chave. Sem jornada, procura nas duas: o log guarda chaves de ambas. */
+export function rotuloDaEtapa(j: Jornada | null | undefined, chave: string | null | undefined): string {
+  if (!chave) return "";
+  const lista = j ? etapasDaJornada(j) : [...ETAPAS_BRADESCO, ...ETAPAS_PADRAO];
+  return lista.find((e) => e.chave === chave)?.rotulo
+    ?? [...ETAPAS_BRADESCO, ...ETAPAS_PADRAO].find((e) => e.chave === chave)?.rotulo
+    ?? chave;
+}
+
+export function ehEtapaTerminal(j: Jornada | null | undefined, chave: string): boolean {
+  return !!etapasDaJornada(j).find((e) => e.chave === chave)?.terminal;
+}
+
+export const BASES: readonly { chave: string; rotulo: string; curto: string }[] = [
+  { chave: "bradesco",  rotulo: "Base Bradesco",  curto: "Bradesco" },
+  { chave: "indicacao", rotulo: "Indicação",       curto: "Indicação" },
+  { chave: "outra",     rotulo: "Outra origem",    curto: "Outra" },
+];
+
+export function rotuloDaBase(chave: string | null | undefined): string | null {
+  if (!chave) return null;
+  return BASES.find((b) => b.chave === chave)?.rotulo ?? chave;
+}
+
+export function jornadaDaBase(base: string | null | undefined): Jornada {
+  return base === "bradesco" ? "bradesco" : "padrao";
+}
+
+export const MOTIVOS_PERDIDO: readonly string[] = [
+  "Sem desconto indevido",
+  "Não respondeu",
+  "Desistiu",
+  "Já tem advogado",
+  "Fora do perfil",
+];
+
+/**
+ * Para onde uma mensagem leva o lead na jornada Bradesco. Espelho da regra do
+ * banco. `null` quando a mensagem não move nada.
+ */
+export function alvoDaMensagem(m: {
+  direcao: "entrada" | "saida";
+  tipo: string;
+  texto?: string | null;
+  midiaMime?: string | null;
+}): string | null {
+  if (m.direcao === "saida") {
+    return m.tipo === "texto" && /extrato/i.test(m.texto ?? "") ? "aguardando_extrato" : "triagem";
+  }
+  if (m.tipo === "documento" && /pdf/i.test(m.midiaMime ?? "")) return "aguardando_analise";
+  return null;
+}
+
+/** O automático só anda para a frente; voltar é decisão de gente. */
+export function avancaBradesco(atual: string | null | undefined, alvo: string): boolean {
+  const ordem = (k: string | null | undefined) => ETAPAS_BRADESCO.findIndex((e) => e.chave === (k ?? "na_base"));
+  if (atual === "perdido") return false;
+  return ordem(alvo) > ordem(atual);
+}

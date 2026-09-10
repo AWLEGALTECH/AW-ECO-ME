@@ -104,7 +104,18 @@ Deno.serve(async (req: Request) => {
     });
     if (error) return j({ error: error.message }, 500);
 
-    return j({ ok: true, signer: nome, doc: doc || null, matched: !!clienteId });
+    // 5. a jornada do lead no Atendimento: quem estava "aguardando assinatura"
+    //    com este nome passa a "assinado". Falha aqui não derruba a notificação.
+    let jornadas = 0;
+    try {
+      const { data: n, error: eJ } = await sb.rpc("fn_wa_assinatura_zapsign", { p_nome: signer });
+      if (eJ) console.error("[zapsign-webhook] jornada:", eJ.message);
+      else jornadas = Number(n) || 0;
+    } catch (e) {
+      console.error("[zapsign-webhook] jornada:", (e as Error).message);
+    }
+
+    return j({ ok: true, signer: nome, doc: doc || null, matched: !!clienteId, jornadas });
   } catch (e) {
     console.error("[zapsign-webhook]", e);
     return j({ error: String((e as Error)?.message || e) }, 500);

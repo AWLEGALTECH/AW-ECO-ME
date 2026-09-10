@@ -20,6 +20,7 @@ import {
   type ConversaRow, type MensagemRow,
 } from "@/lib/wa";
 import type { Estagio, Instancia, Lead, Mensagem, Origem } from "@/lib/atendimentoMock";
+import { rotuloDaBase } from "@/lib/jornada";
 
 export interface InstanciaRow {
   nome: string;
@@ -107,7 +108,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, pode_escrever, created_at";
+  "id, instancia, telefone, jid, nome_wa, foto_url, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -345,6 +346,21 @@ export async function fixarConversaWa(conversaId: string, fixar: boolean) {
   if (error) throw new Error(error.message);
 }
 
+/* O atendente disse de onde o lead veio. O gatilho no banco deriva a jornada e,
+   entrando na Bradesco, lê a etapa dos fatos da conversa. */
+export async function informarBaseWa(conversaId: string, base: string) {
+  const { error } = await tabela("wa_conversas")
+    .update({ base, base_origem: "informada" }).eq("id", conversaId);
+  if (error) throw error;
+}
+
+/* Saiu do funil, e o motivo vai junto: sem ele, "perdido" é só uma palavra. */
+export async function marcarPerdidoWa(conversaId: string, motivo: string) {
+  const { error } = await tabela("wa_conversas")
+    .update({ etapa: "perdido", perdido_motivo: motivo }).eq("id", conversaId);
+  if (error) throw error;
+}
+
 export async function moverEtapaWa(conversaId: string, etapa: string, puladas: string[]) {
   const { error } = await tabela("wa_conversas")
     .update({ etapa, etapas_puladas: puladas }).eq("id", conversaId);
@@ -558,7 +574,13 @@ export function conversaParaLead(
     nome: c.nome_wa?.trim() || telefoneBonito(c.telefone),
     telefone: c.telefone,
     origem,
-    estagio: (c.etapa || "chegou") as Estagio,
+    // Sem etapa gravada, a primeira da jornada: "na base" para quem veio da
+    // base Bradesco, "chegou" para o resto.
+    estagio: (c.etapa || (c.jornada === "bradesco" ? "na_base" : "chegou")) as Estagio,
+    jornada: c.jornada === "bradesco" ? "bradesco" : "padrao",
+    baseChave: c.base ?? null,
+    baseOrigem: (c.base_origem as "detectada" | "informada" | null) ?? null,
+    perdidoMotivo: c.perdido_motivo ?? null,
     ultimaFoi: ultima?.direcao === "entrada" ? "lead" : "nos",
     horasSemResposta: horasSemResposta(msgs, agora),
     ultimaHora: horaDaLista(c.ultima_em, agora),
@@ -572,7 +594,8 @@ export function conversaParaLead(
     origemContato: c.origem === "outbound" ? "outbound" : "inbound",
     importada: !!c.importada,
     etapasPuladas: (c.etapas_puladas ?? []) as Estagio[],
-    base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? null) : null,
+    // O nome da planilha quando veio de uma; senão, o rótulo da base informada.
+    base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? rotuloDaBase(c.base)) : rotuloDaBase(c.base),
     instancia: c.instancia,
     movidaDe: c.movida_de ?? null,
     movidaEm: c.movida_em ?? null,

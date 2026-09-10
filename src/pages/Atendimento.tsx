@@ -58,7 +58,7 @@ import {
 import {
   useConversas, useMensagens, useCustodia, useInstancias, conversaParaLead, instanciaParaCard,
   type PassagemDeCustodia,
-  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa,
+  marcarLida, enviarTexto, enviarArquivo, criarConversa, moverEtapaWa, informarBaseWa, marcarPerdidoWa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   moverConversaDeInstancia,
@@ -83,7 +83,8 @@ import {
 } from "@/lib/instancias";
 import {
   passagensPorEtapa, quandoDaPassagem, tempoNaEtapa,
-  type PassagemNaTela, type PassagemDeEtapa,
+  etapasDaJornada, rotuloDaEtapa, BASES, MOTIVOS_PERDIDO, ETAPAS_BRADESCO, ETAPAS_PADRAO,
+  type PassagemNaTela, type PassagemDeEtapa, type EtapaDef,
 } from "@/lib/jornada";
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
@@ -187,15 +188,32 @@ const iniciais = (nome: string) =>
    nome) e quase não muda o dia de ninguém — praticamente tudo entra pelo mesmo
    número. Etapa muda: "quem está esperando extrato" é uma pergunta que se faz
    várias vezes por dia, e era a única que a caixa não sabia responder. */
-const CHIPS_ETAPA: { chave: "todos" | Estagio; rotulo: string }[] = [
-  { chave: "todos", rotulo: "Todos" },
-  ...ESTAGIOS.map((e) => ({ chave: e.chave, rotulo: e.rotulo })),
-];
+/* OS CHIPS DEPENDEM DE QUEM ESTÁ NA CAIXA. Com duas jornadas convivendo (a
+   Bradesco, detectada pela base, e a padrão), a fileira mostra as etapas das
+   jornadas que têm gente; "Triagem" e "Proposta" existem nas duas e viram um
+   chip só, porque a pergunta "quem está em triagem" não depende da jornada. */
+function chipsDeEtapa(leads: Lead[], estagioDe: (l: Lead) => string): { chave: "todos" | Estagio; rotulo: string }[] {
+  const temBradesco = leads.some((l) => l.jornada === "bradesco");
+  const temPadrao = leads.some((l) => l.jornada !== "bradesco");
+  const fonte: EtapaDef[] = [
+    ...(temBradesco ? ETAPAS_BRADESCO : []),
+    ...(temPadrao || !temBradesco ? ETAPAS_PADRAO : []),
+  ];
+  const vistos = new Set<string>();
+  const chips: { chave: "todos" | Estagio; rotulo: string }[] = [{ chave: "todos", rotulo: "Todos" }];
+  for (const e of fonte) {
+    if (vistos.has(e.chave)) continue;
+    vistos.add(e.chave);
+    chips.push({ chave: e.chave, rotulo: e.rotulo });
+  }
+  void estagioDe;
+  return chips;
+}
 
 /* Espaço-reservado pra quando não há conversa nenhuma. Não aparece na tela:
    existe pra `lead` nunca ser undefined enquanto a caixa está vazia. */
 const LEAD_VAZIO: Lead = {
-  id: "", nome: "", telefone: "", origem: "pda", estagio: "chegou",
+  id: "", nome: "", telefone: "", origem: "pda", estagio: "chegou", jornada: "padrao",
   ultimaFoi: "nos", horasSemResposta: 0, ultimaHora: "", naoLidas: 0,
   temProximaAcao: false, diasParado: 0, followUpsFeitos: 0, chegouEm: HOJE,
   dossie: { banco: null, descontos: [], inss: null, consignado: null, obs: null },
@@ -424,6 +442,9 @@ export default function AtendimentoPage() {
   const [moverPara, setMoverPara] = useState<string | null>(null);
   const [movendo, setMovendo] = useState(false);
   const [etapaAberta, setEtapaAberta] = useState(false);
+  /* Dentro do "Mover etapa": a pessoa escolheu "Perdido" e agora escolhe o
+     motivo. Só nessa etapa se pergunta o motivo. */
+  const [perdendo, setPerdendo] = useState(false);
   const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
   /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
      de uma base já ocupa a altura inteira — duas abertas juntas viram rolagem
@@ -789,17 +810,20 @@ export default function AtendimentoPage() {
   /* Alterar etapa, com a mesma regra da linha do tempo do processo: o que fica
      entre a atual e o destino vira PULADA — não some, e não vira concluída. */
   const avancarEtapa = (l: Lead, alvo: Estagio) => {
-    const i = ESTAGIOS.findIndex((e) => e.chave === estagioDe(l));
-    const j = ESTAGIOS.findIndex((e) => e.chave === alvo);
-    if (j === i) return;
+    // As etapas são as da jornada DESTE lead: a Bradesco e a padrão não têm a
+    // mesma régua, e "o que fica no meio" depende da régua.
+    const ETS = etapasDaJornada(l.jornada).filter((e) => !e.terminal);
+    const i = ETS.findIndex((e) => e.chave === estagioDe(l));
+    const j = ETS.findIndex((e) => e.chave === alvo);
+    if (j === i || j < 0) return;
 
     const antes = puladasDe(l);
     // Indo pra frente, o que fica no meio vira pulada. VOLTANDO, some a marca
     // de pulada de tudo que voltou a estar à frente: uma etapa que o lead ainda
     // vai atravessar não pode continuar carimbada como "pulei essa".
     const puladasNovas = j > i
-      ? [...new Set([...antes, ...ESTAGIOS.slice(i + 1, j).map((e) => e.chave)])]
-      : antes.filter((c) => ESTAGIOS.findIndex((e) => e.chave === c) < j);
+      ? [...new Set([...antes, ...ETS.slice(Math.max(i, -1) + 1, j).map((e) => e.chave)])]
+      : antes.filter((c) => ETS.findIndex((e) => e.chave === c) < j);
 
     setEstagios((p) => ({ ...p, [l.id]: alvo }));
     setPuladas((p) => ({ ...p, [l.id]: puladasNovas }));
@@ -809,6 +833,32 @@ export default function AtendimentoPage() {
         .then(() => { invalidarWa(); invalidarEtapaLog(); })
         .catch((e) => toast.error("Não consegui mover a etapa: " + (e as Error).message));
     }
+  };
+
+  /* Saiu do funil. É a única etapa que pergunta o motivo, e o motivo é o que
+     depois diz onde o funil vaza. */
+  const perderLead = (l: Lead, motivo: string) => {
+    setEstagios((p) => ({ ...p, [l.id]: "perdido" }));
+    setPerdendo(false);
+    setEtapaAberta(false);
+    if (aoVivo) {
+      marcarPerdidoWa(l.id, motivo)
+        .then(() => { invalidarWa(); invalidarEtapaLog(); toast.success("Lead marcado como perdido."); })
+        .catch((e) => toast.error("Não consegui marcar como perdido: " + (e as Error).message));
+    }
+  };
+
+  /* O atendente disse de onde o lead veio. A jornada troca no banco (gatilho),
+     e a etapa é relida dos fatos da conversa; a tela só recarrega. */
+  const informarBase = (l: Lead, base: string) => {
+    if (!aoVivo) return;
+    informarBaseWa(l.id, base)
+      .then(() => {
+        setEstagios((p) => { const n = { ...p }; delete n[l.id]; return n; });
+        invalidarWa(); invalidarEtapaLog();
+        toast.success("Base registrada no dossiê.");
+      })
+      .catch((e) => toast.error("Não consegui registrar a base: " + (e as Error).message));
   };
 
   /* ESTE BLOCO MORA AQUI, ANTES DA LISTA, e não é arrumação: `lista` filtra
@@ -2604,7 +2654,7 @@ export default function AtendimentoPage() {
                             Por etapa
                           </p>
                           <div className="flex flex-wrap gap-1">
-                            {CHIPS_ETAPA.map((c) => {
+                            {chipsDeEtapa(leadsBase, estagioDe).map((c) => {
                               const n = c.chave === "todos"
                                 ? leadsBase.length
                                 : leadsBase.filter((l) => estagioDe(l) === c.chave).length;
@@ -2723,7 +2773,7 @@ export default function AtendimentoPage() {
                       <button onClick={() => setFiltroEtapa("todos")}
                         className="h-7 shrink-0 flex items-center gap-1 rounded-md px-2 text-[10.5px]
                                    bg-white/[0.06] text-foreground ring-1 ring-white/[0.10] hover:bg-white/[0.10] transition-colors">
-                        {CHIPS_ETAPA.find((c) => c.chave === filtroEtapa)?.rotulo}
+                        {chipsDeEtapa(leadsBase, estagioDe).find((c) => c.chave === filtroEtapa)?.rotulo}
                         <X className="h-3 w-3 opacity-60" />
                       </button>
                     )}
@@ -3194,7 +3244,7 @@ export default function AtendimentoPage() {
                         <span className="flex items-end gap-1 mt-1">
                           <span className="flex flex-col items-start gap-1 min-w-0">
                             <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
-                              {ESTAGIOS.find((e) => e.chave === estagioDe(l))?.rotulo}
+                              {rotuloDaEtapa(l.jornada, estagioDe(l))}
                             </span>
                             <SeloContato origem={l.importada ? undefined : l.origemContato} base={l.base}
                               followUp={followUpPorLead.get(l.id)?.rodada ?? null} />
@@ -3345,7 +3395,7 @@ export default function AtendimentoPage() {
                       serem lidas como a mesma coisa vista de dois lugares. */}
                   <span className="hidden sm:flex items-center gap-3 shrink-0 ml-auto pl-4">
                     <span className="rounded px-1.5 py-[2px] text-[9.5px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
-                      {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                      {rotuloDaEtapa(lead.jornada, estagioDe(lead))}
                     </span>
                     <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
                       followUp={followUpPorLead.get(lead.id)?.rodada ?? null} />
@@ -3375,6 +3425,27 @@ export default function AtendimentoPage() {
                   {mudo ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
                 </button>
               </div>
+
+              {/* DOSSIÊ INCOMPLETO, ANTES DE QUALQUER MENSAGEM. O telefone não
+                  está em nenhuma base, então a jornada não sabe qual régua usar.
+                  A pergunta fica no caminho do olho, com as respostas a um
+                  clique; some assim que alguém responde. */}
+              {!lead.baseChave && aoVivo && (
+                <div className="px-3 py-1.5 border-b border-white/[0.08] bg-white/[0.03] flex flex-wrap items-center gap-2 shrink-0 text-[11px]">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300/80" />
+                  <span className="text-foreground/85">
+                    Dossiê incompleto: este número não está em nenhuma base. De onde ele veio?
+                  </span>
+                  <span className="flex items-center gap-1 ml-auto">
+                    {BASES.map((b) => (
+                      <button key={b.chave} onClick={() => informarBase(lead, b.chave)}
+                        className="rounded-md px-2 py-[3px] text-[10.5px] font-medium ring-1 ring-white/[0.12] bg-white/[0.05] hover:bg-white/[0.10] transition-colors">
+                        {b.curto}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              )}
 
               {/* AS TASKS DO LEAD, ANTES DAS MENSAGENS.
                   Elas já existem na coluna da direita e dentro da etapa, mas
@@ -3906,6 +3977,16 @@ export default function AtendimentoPage() {
                         tamanho="grande" />
                     </span>
                   </div>
+
+                  {/* A BASE DECIDE A JORNADA. Detectada pelo telefone na planilha
+                      quando dá; quando não dá, o dossiê está incompleto e é o
+                      atendente que diz de onde a pessoa veio. Sem isso, a
+                      jornada não sabe qual régua usar. */}
+                  <BaseDoDossie
+                    baseChave={lead.baseChave} baseOrigem={lead.baseOrigem} baseNome={lead.base}
+                    jornada={lead.jornada}
+                    onInformar={(b) => informarBase(lead, b)} />
+
                   {/* O RESUMO DO FOLLOW-UP SAIU DAQUI e foi pra seção de
                       follow-up, que é onde ele se explica. Aqui ele era um
                       bloco de três linhas no meio da origem e da data de
@@ -4013,6 +4094,8 @@ export default function AtendimentoPage() {
                 <SecaoFicha id="jornada" titulo="Jornada" aberta={secaoAberta("jornada")} onAlternar={alternarSecao}
                   icone={<GitBranch className="h-3 w-3 shrink-0" />}>
                   <JornadaLead
+                    etapas={etapasDaJornada(lead.jornada)}
+                    perdidoMotivo={lead.perdidoMotivo}
                     atual={estagioDe(lead)}
                     puladas={puladasDe(lead)}
                     tasksDoLead={tasksDoLead}
@@ -4604,30 +4687,51 @@ export default function AtendimentoPage() {
           tamanho do certo, e ninguém via o estrago antes de fazer. Aqui a
           escolha é uma lista, e o que vai virar PULADA aparece escrito antes
           de virar. */}
-      <Dialog open={etapaAberta} onOpenChange={setEtapaAberta}>
+      <Dialog open={etapaAberta} onOpenChange={(o) => { setEtapaAberta(o); if (!o) setPerdendo(false); }}>
         <DialogContent className="max-w-sm [&>*]:min-w-0">
           <DialogHeader>
             <DialogTitle className="text-[15px] flex items-center gap-2">
-              <GitBranch className="h-4 w-4" /> Mover etapa
+              <GitBranch className="h-4 w-4" /> {perdendo ? "Por que saiu do funil?" : "Mover etapa"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
               <span className="text-foreground/80">{lead.nome}</span> está em{" "}
               <span className="text-foreground/80">
-                {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                {rotuloDaEtapa(lead.jornada, estagioDe(lead))}
               </span>.
             </DialogDescription>
           </DialogHeader>
 
+          {/* PERDIDO PERGUNTA O MOTIVO, e só ele. É a informação que, somada,
+              diz onde o funil vaza: "não respondeu" e "sem desconto" pedem
+              remédios diferentes, e sem o motivo os dois viram o mesmo número. */}
+          {perdendo ? (
+            <div className="flex flex-col gap-1.5">
+              {MOTIVOS_PERDIDO.map((m) => (
+                <button key={m} onClick={() => perderLead(lead, m)}
+                  className="text-left rounded-lg px-3 py-2 ring-1 transition-colors bg-white/[0.03] ring-white/[0.07] hover:bg-white/[0.07] hover:ring-white/[0.14]">
+                  <span className="text-[12.5px] font-medium">{m}</span>
+                </button>
+              ))}
+              <button onClick={() => setPerdendo(false)}
+                className="mt-1 self-start text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+                Voltar às etapas
+              </button>
+            </div>
+          ) : (
           <div className="flex flex-col gap-1.5">
-            {ESTAGIOS.map((e, i) => {
-              const iAtual = ESTAGIOS.findIndex((x) => x.chave === estagioDe(lead));
+            {etapasDaJornada(lead.jornada).map((e, i) => {
+              const ETS = etapasDaJornada(lead.jornada);
+              const iAtual = ETS.findIndex((x) => x.chave === estagioDe(lead));
               const eAtual = e.chave === estagioDe(lead);
-              const puladas = i > iAtual + 1 ? i - iAtual - 1 : 0;
+              const puladas = e.terminal ? 0 : (i > iAtual + 1 ? i - iAtual - 1 : 0);
               return (
                 <button
                   key={e.chave}
                   disabled={eAtual}
-                  onClick={() => { avancarEtapa(lead, e.chave); setEtapaAberta(false); }}
+                  onClick={() => {
+                    if (e.terminal) { setPerdendo(true); return; }
+                    avancarEtapa(lead, e.chave); setEtapaAberta(false);
+                  }}
                   className={cn(
                     "text-left rounded-lg px-3 py-2 ring-1 transition-colors",
                     eAtual
@@ -4648,6 +4752,7 @@ export default function AtendimentoPage() {
               );
             })}
           </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -5258,7 +5363,7 @@ export default function AtendimentoPage() {
                       </span>
                       <span className="flex items-center gap-1 shrink-0">
                         <span className="rounded px-1.5 py-[2px] text-[9.5px] bg-white/[0.05] text-muted-foreground ring-1 ring-white/[0.07]">
-                          {ESTAGIOS.find((e) => e.chave === estagioDe(lead))?.rotulo}
+                          {rotuloDaEtapa(lead.jornada, estagioDe(lead))}
                         </span>
                         <SeloContato origem={lead.importada ? undefined : lead.origemContato} base={lead.base}
                           followUp={followUpPorLead.get(lead.id)?.rodada ?? null} />
@@ -6241,7 +6346,10 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask }: {
+  /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
+  etapas: readonly EtapaDef[];
+  perdidoMotivo?: string | null;
   atual: Estagio;
   puladas: Estagio[];
   tasksDoLead: Task[];
@@ -6254,13 +6362,17 @@ function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolher
   onConcluirTask: (id: string) => void;
   onAbrirTask: (t: Task) => void;
 }) {
-  const iAtual = ESTAGIOS.findIndex((e) => e.chave === atual);
+  /* O trilho são as etapas contínuas. "Perdido" é saída, não degrau: aparece
+     como um aviso em cima do trilho, com o motivo, e o trilho fica apagado. */
+  const trilho = etapas.filter((e) => !e.terminal);
+  const perdido = !!etapas.find((e) => e.chave === atual)?.terminal;
+  const iAtual = perdido ? -1 : trilho.findIndex((e) => e.chave === atual);
 
   /* O LOG VIRADO POR ETAPA. Ele chega em ordem de tempo, que é como a coisa
      aconteceu; a tela precisa por etapa, que é onde a informação vai morar. */
   const passagens = useMemo(
-    () => passagensPorEtapa(log, ESTAGIOS.map((e) => e.chave)),
-    [log]);
+    () => passagensPorEtapa(log, trilho.map((e) => e.chave)),
+    [log, trilho]);
 
   /* As programadas de cada etapa. Uma mensagem marcada quando o lead estava em
      Extrato foi escrita pensando em Extrato -- dali a três dias ele já mudou de
@@ -6276,8 +6388,20 @@ function JornadaLead({ atual, puladas, tasksDoLead, log, programadas, onEscolher
 
   return (
     <div>
-      {ESTAGIOS.map((e, i) => {
-        const last = i === ESTAGIOS.length - 1;
+      {perdido && (
+        <div className="mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 flex items-start gap-2">
+          <X className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12px] font-medium">Perdido</span>
+            <span className="block text-[10.5px] text-muted-foreground">{perdidoMotivo || "sem motivo registrado"}</span>
+          </span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-[10.5px] shrink-0" onClick={onEscolherEtapa}>
+            Reabrir
+          </Button>
+        </div>
+      )}
+      {trilho.map((e, i) => {
+        const last = i === trilho.length - 1;
         const pulada = puladas.includes(e.chave);
         const concluida = i < iAtual && !pulada;
         const eAtual = i === iAtual;
@@ -6631,7 +6755,7 @@ function PassagensDaEtapa({ passagens, agendadas, eAtual }: {
               <span className="tabular-nums">{quandoDaPassagem(p.entrouEm)}</span>
               {p.voltou && (
                 <span className="text-amber-300/70">
-                  voltou{p.de ? ` de ${ESTAGIOS.find((e) => e.chave === p.de)?.rotulo ?? p.de}` : ""}
+                  voltou{p.de ? ` de ${rotuloDaEtapa(undefined, p.de)}` : ""}
                 </span>
               )}
               {/* A CONTAGEM SÓ APARECE QUANDO PASSA DE UMA. "1ª vez" em toda
@@ -6666,6 +6790,61 @@ function PassagensDaEtapa({ passagens, agendadas, eAtual }: {
    "não perguntado" é informação; espaço em branco é só espaço em branco, e a
    atendente não consegue distinguir o que ninguém perguntou do que a pessoa
    não soube responder. */
+/* ── a base, no dossiê ──
+   Com base: qual é, como se soube (planilha ou atendente) e qual jornada isso
+   liga, com um "alterar" discreto para o caso de a detecção ter errado. Sem
+   base: a pergunta e as opções, porque enquanto ela não for respondida o lead
+   anda pela régua padrão e não pela dele. */
+function BaseDoDossie({ baseChave, baseOrigem, baseNome, jornada, onInformar }: {
+  baseChave?: string | null;
+  baseOrigem?: "detectada" | "informada" | null;
+  baseNome?: string | null;
+  jornada?: "padrao" | "bradesco";
+  onInformar: (base: string) => void;
+}) {
+  const [alterando, setAlterando] = useState(false);
+  const opcoes = (
+    <span className="flex flex-wrap items-center gap-1 mt-0.5">
+      {BASES.map((b) => (
+        <button key={b.chave} onClick={() => { onInformar(b.chave); setAlterando(false); }}
+          className={cn("rounded-md px-2 py-[3px] text-[10.5px] font-medium ring-1 transition-colors",
+            b.chave === baseChave
+              ? "bg-primary/10 text-primary ring-primary/25"
+              : "bg-white/[0.04] ring-white/[0.10] hover:bg-white/[0.09]")}>
+          {b.curto}
+        </button>
+      ))}
+    </span>
+  );
+  if (!baseChave) {
+    return (
+      <div className="flex flex-col gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
+        <span className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 text-amber-300/80" /> Base
+        </span>
+        <span className="text-[11px] text-foreground/85">Dossiê incompleto. Este número não está em nenhuma base. De onde ele veio?</span>
+        {opcoes}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[9.5px] text-muted-foreground/70 flex items-center gap-1"><Database className="h-3 w-3" /> Base</span>
+      <span className="text-[11.5px] break-words flex items-center gap-2">
+        <span>{baseNome ?? baseChave}</span>
+        <button onClick={() => setAlterando((v) => !v)} className="text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors">
+          {alterando ? "fechar" : "alterar"}
+        </button>
+      </span>
+      <span className="text-[10px] text-muted-foreground/60">
+        {baseOrigem === "informada" ? "informada pelo atendente" : "detectada pelo telefone na planilha"}
+        {" · jornada "}{jornada === "bradesco" ? "Bradesco" : "padrão"}
+      </span>
+      {alterando && opcoes}
+    </div>
+  );
+}
+
 function Campo({ rotulo, valor, icone }: { rotulo: string; valor: string | null; icone?: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
