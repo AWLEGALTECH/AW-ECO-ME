@@ -5,12 +5,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy, Minus } from "lucide-react";
+import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy, Minus, FileSearch, Link2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { decidirReinicio } from "@/lib/analiseLevas";
 import { hojeISO } from "@/lib/hoje";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  acoesDaAnalise, ordenarAnalises, filtrarAnalises, resumoDaAnalise,
+  type AnaliseSalva,
+} from "@/lib/analiseParaAcoes";
+
+// A casa anima com mola: o que tem peso desacelera em vez de parar seco.
+const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
+const CURVA = [0.22, 1, 0.36, 1] as const;
 
 const mesCorrente = () =>
   new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -31,7 +40,18 @@ interface Sel {
   id: string | null;
   grupo_id: string | null;
   rubrica: string; detalhe: string; requerido: string; bloqueada: boolean; motivo: Motivo; contrato_id: string | null;
+  /**
+   * Chave só da tela, para a lista animar direito. O índice não serve: quando
+   * se tira a terceira de cinco linhas, todas as de baixo mudam de índice e a
+   * animação de saída acontece na linha errada. Rubrica nova ainda não tem id
+   * do banco, então a identidade tem que nascer aqui. Não vai ao banco: o
+   * salvar monta o objeto campo a campo.
+   */
+  _k: string;
 }
+
+let seqChave = 0;
+const novaChave = () => `sel${++seqChave}`;
 
 // Um GRUPO é o lote de ações percebido numa data. A análise comercial de um
 // cliente não é um bolo só: é o conjunto das análises feitas ao longo do
@@ -44,6 +64,8 @@ interface Grupo {
   creditada_a: string | null;
   contrato_id: string | null;
   fechamento_id: string | null;
+  /** De qual análise comercial do Finder esta leva foi puxada, quando foi. */
+  analise_id: string | null;
   /** Leva reconstruída pelo backfill: é a que nasceu junto com o contrato. */
   inicial: boolean;
   qtd: number;
@@ -59,6 +81,7 @@ function gruposDaAnalise(ac: any): Grupo[] {
       creditada_a: g?.creditada_a ? String(g.creditada_a) : null,
       contrato_id: g?.contrato_id ? String(g.contrato_id) : null,
       fechamento_id: g?.fechamento_id ? String(g.fechamento_id) : null,
+      analise_id: g?.analise_id ? String(g.analise_id) : null,
       inicial: g?.origem === "backfill_leva_inicial",
       qtd: rubs.filter((r: any) => String(r?.grupo_id ?? "") === String(g?.id ?? "")).length,
     }))
@@ -105,6 +128,7 @@ function rubricasDaAnalise(ac: any): Sel[] {
       bloqueada: !!r?.bloqueada,
       motivo: (r?.motivo as Motivo) || "rubrica_invalida",
       contrato_id: (r?.contrato_id && String(r.contrato_id)) || null,
+      _k: novaChave(),
     }))
     .filter((r) => r.rubrica);
 }
@@ -131,7 +155,7 @@ interface Props {
 export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId, editorNome }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "grupo" | "contrato" | "sem_contrato" | "manual" | "conferir">("chooser");
+  const [stage, setStage] = useState<"chooser" | "grupo" | "contrato" | "sem_contrato" | "manual" | "analise" | "conferir">("chooser");
   // Por onde a pessoa escolheu montar a lista. A escolha do grupo é a mesma
   // pros dois caminhos — o que muda é só o que vem depois dela.
   const [rota, setRota] = useState<"manual" | "finder">("manual");
@@ -161,6 +185,43 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setCatalogo(((data || []) as any[]).map((r) => String(r.nome)));
   };
   useEffect(() => { if (open) carregarCatalogo(); }, [open]);
+
+  // ── ANÁLISES COMERCIAIS JÁ SALVAS ─────────────────────────────────────────
+  // O Finder lê os extratos e guarda a lista de rubricas em `analises_comerciais`,
+  // com o nome do titular. Quem monta a leva aqui estava redigitando essa mesma
+  // lista — que às vezes foi feita meia hora antes, na conversa do Atendimento.
+  const [analises, setAnalises] = useState<AnaliseSalva[]>([]);
+  const [carregandoAnalises, setCarregandoAnalises] = useState(false);
+  // A análise escolhida para ESTA leva. Vai junto no salvar e é o que responde,
+  // meses depois, de onde a leva saiu.
+  const [analiseSel, setAnaliseSel] = useState<{ id: string; nome: string } | null>(null);
+  const [buscaAnalise, setBuscaAnalise] = useState("");
+  // Um réu só para tudo que a análise trouxer: a leitura é do extrato de UM
+  // banco, então as ações dela vão todas contra o mesmo. Preencher 13 vezes o
+  // mesmo nome é o tipo de trabalho que faz a pessoa desistir da tela.
+  const [requeridoImport, setRequeridoImport] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    let cancel = false;
+    setCarregandoAnalises(true);
+    (async () => {
+      const { data } = await (supabase.from("analises_comerciais" as any) as any)
+        .select("id, nome, cpf_cnpj, rubricas, cliente_id, conversa_id, created_at, created_by_email")
+        .order("created_at", { ascending: false })
+        .limit(400);
+      if (cancel) return;
+      setAnalises(((data || []) as any[]).map((a) => ({
+        ...a,
+        rubricas: Array.isArray(a.rubricas) ? a.rubricas : [],
+      })) as AnaliseSalva[]);
+      setCarregandoAnalises(false);
+    })();
+    return () => { cancel = true; };
+  }, [open]);
+
+  const nomeDaAnalise = (id: string | null) =>
+    (id && analises.find((a) => a.id === id)?.nome) || null;
 
   // ── Responsabilização das ações NOVAS ──────────────────────────────────────
   // Quem digita não é necessariamente quem leva o crédito: às vezes a ação é
@@ -229,6 +290,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setNovaAcao("");
     setCreditarA(null);
     setMotivoRemocao("");
+    setAnaliseSel(null);
+    setBuscaAnalise("");
+    setRequeridoImport("");
     setStage("chooser");
 
     // Voltou do Finder: retoma na leva que já tinha sido escolhida, em vez de
@@ -264,7 +328,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   const contagem = (label: string) => doContrato.filter((s2) => s2.rubrica.toLowerCase() === label.toLowerCase()).length;
   // Sem id: é rubrica nova. O banco carimba o id ao gravar.
   const addAcao = (label: string) =>
-    setSel((old) => [...old, { id: null, grupo_id: grupoSel, rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida", contrato_id: contratoSel }]);
+    setSel((old) => [...old, { id: null, grupo_id: grupoSel, rubrica: label, detalhe: "", requerido: "", bloqueada: false, motivo: "rubrica_invalida", contrato_id: contratoSel, _k: novaChave() }]);
   // `sel` é a lista exibida, então o índice da UI já é o real.
   const idxReal = (i: number) => i;
   const removerSel = (i: number) => { const r = idxReal(i); setSel((old) => old.filter((_, k) => k !== r)); };
@@ -298,6 +362,46 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     () => filtraPorBusca(catalogo, busca, (c) => c),
     [catalogo, busca],
   );
+
+  // ── PUXAR UMA ANÁLISE COMERCIAL PARA DENTRO DA LEVA ───────────────────────
+  const analisesVisiveis = useMemo(
+    () => filtrarAnalises(
+      ordenarAnalises(analises, { id: cliente?.id, nome: cliente?.nome }), buscaAnalise),
+    [analises, cliente?.id, cliente?.nome, buscaAnalise],
+  );
+
+  const abrirEscolhaDeAnalise = () => {
+    setBuscaAnalise("");
+    // O réu desta leva já está no contrato quando há contrato escolhido.
+    // Começar por ele acerta na maioria das vezes, e o campo segue editável.
+    const ct = contratos.find((c) => c.id === contratoSel);
+    setRequeridoImport((ct?.reus || []).filter(Boolean)[0] || "");
+    setStage("analise");
+  };
+
+  const puxarAnalise = (a: AnaliseSalva) => {
+    const { acoes, repetidas } = acoesDaAnalise(a, {
+      catalogo,
+      requerido: requeridoImport,
+      grupoId: grupoSel,
+      contratoId: contratoSel,
+      jaNaLeva: sel.map((s2) => ({ rubrica: s2.rubrica, requerido: s2.requerido })),
+    });
+    setSel((old) => [...old, ...acoes.map((x) => ({ ...x, _k: novaChave() }))]);
+    setAnaliseSel({ id: a.id, nome: a.nome });
+    setStage("manual");
+    if (acoes.length === 0) {
+      toast.info(repetidas > 0
+        ? `Nada novo: ${repetidas === 1 ? "a rubrica dessa análise já está" : `as ${repetidas} rubricas dessa análise já estão`} na leva.`
+        : "Essa análise não tem rubrica nenhuma. Ficou só o vínculo.");
+      return;
+    }
+    toast.success(
+      `${acoes.length} ${acoes.length === 1 ? "ação veio" : "ações vieram"} da análise de ${a.nome}` +
+      (repetidas > 0 ? ` (${repetidas} já estavam na leva)` : "") + ".",
+      { duration: 4000 },
+    );
+  };
 
   // Diff da conferência: o que entra, o que sai e o que fica. A identidade é o
   // ID da rubrica quando ele existe — foi comparar por texto que já fez uma
@@ -398,6 +502,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
       p_creditar_a: creditarA,
       p_contrato_id: contratoSel,
       p_motivo_remocao: motivoRemocao.trim() || null,
+      p_analise_id: analiseSel?.id ?? null,
     } as any);
     setSalvando(false);
     if (error) { toast.error("Erro ao salvar: " + error.message); return; }
@@ -464,6 +569,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     setCreditarA(null);
     setMotivoRemocao("");
     setBusca("");
+    // Leva que já veio de uma análise reabre mostrando qual foi. Leva nova
+    // começa sem vínculo — ele nasce quando alguém puxa uma análise.
+    setAnaliseSel(g?.analise_id ? { id: g.analise_id, nome: nomeDaAnalise(g.analise_id) || "análise" } : null);
+    setRequeridoImport("");
     if (rota === "finder") { irFinder(g?.id ?? null); return; }
     // Leva existente já nasceu presa a um contrato — não se pergunta de novo.
     if (g) { setStage("manual"); return; }
@@ -510,7 +619,7 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             {stage !== "chooser" && (
-              <button onClick={() => setStage(stage === "conferir" ? "manual" : stage === "grupo" ? "chooser" : "grupo")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+              <button onClick={() => setStage(stage === "conferir" || stage === "analise" ? "manual" : stage === "grupo" ? "chooser" : "grupo")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -524,6 +633,8 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
               ? "A análise deste cliente é feita em levas. Escolha a leva que você vai mexer, ou comece uma nova."
               : stage === "sem_contrato"
               ? "Este cliente ainda não tem contrato cadastrado."
+              : stage === "analise"
+              ? "As análises que o Finder já salvou. Escolha a deste cliente e as rubricas dela entram na leva."
               : stage === "conferir"
               ? "Confira o que muda antes de gravar. Isto recalcula o fechamento deste grupo."
               : stage === "contrato"
@@ -621,6 +732,12 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                             ? <>contrato {ct.modalidade ? `de ${ct.modalidade}` : ""} · {rotuloCt(ct)}</>
                             : <span className="text-amber-300/80">sem contrato definido</span>}
                         </span>
+                        {g.analise_id && (
+                          <span className="block text-[10.5px] text-primary/80 truncate mt-0.5">
+                            <Link2 className="h-3 w-3 inline mr-1 align-[-1px]" />
+                            da análise de {nomeDaAnalise(g.analise_id) || "um levantamento do Finder"}
+                          </span>
+                        )}
                       </span>
                       <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
                     </button>
@@ -750,6 +867,81 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+              {/* DE ONDE ESTA LEVA VEIO.
+                  O Finder já leu os extratos e salvou a lista de rubricas. Puxar
+                  de lá evita redigitar treze linhas que o banco já tem — e deixa
+                  registrado, meses depois, qual leitura gerou estas ações.
+                  Numa leva ANTIGA o vínculo aparece mas não se troca: mexer nela
+                  não pode acrescentar ação, então também não pode trocar a
+                  origem do que já contou. */}
+              <AnimatePresence mode="popLayout" initial={false}>
+                {analiseSel ? (
+                  <motion.div
+                    key="vinculo"
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={MOLA}
+                    className="rounded-xl border border-primary/30 bg-primary/[0.06] px-3.5 py-2.5 flex items-center gap-2.5"
+                  >
+                    <Link2 className="h-4 w-4 text-primary shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-medium truncate">
+                        Puxada da análise de {analiseSel.nome}
+                      </span>
+                      <span className="block text-[10.5px] text-muted-foreground">
+                        Fica gravado na leva, e a análise deixa de ficar solta no banco.
+                      </span>
+                    </span>
+                    {!grupoSel && (
+                      <>
+                        <button
+                          onClick={abrirEscolhaDeAnalise}
+                          className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Trocar
+                        </button>
+                        <button
+                          onClick={() => setAnaliseSel(null)}
+                          aria-label="desvincular a análise"
+                          title="Desvincular (as ações já puxadas continuam na leva)"
+                          className="shrink-0 text-muted-foreground hover:text-rose-400 transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                  </motion.div>
+                ) : !grupoSel ? (
+                  <motion.button
+                    key="puxar"
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={MOLA}
+                    onClick={abrirEscolhaDeAnalise}
+                    className="w-full text-left rounded-xl border border-dashed border-primary/35 bg-primary/[0.03] hover:bg-primary/[0.08] hover:border-primary/55 px-3.5 py-2.5 flex items-center gap-2.5 transition-colors"
+                  >
+                    <FileSearch className="h-4 w-4 text-primary shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-medium text-primary">
+                        Puxar de uma análise comercial
+                      </span>
+                      <span className="block text-[10.5px] text-muted-foreground">
+                        As rubricas que o Finder já leu entram aqui de uma vez, com o réu que você disser.
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[10.5px] text-muted-foreground tabular-nums">
+                      {carregandoAnalises
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : `${analises.length} salvas`}
+                    </span>
+                  </motion.button>
+                ) : null}
+              </AnimatePresence>
+
               {/* GRADE DE AÇÕES — mesmo padrão do Writer: clicar atrela (pode
                   repetir). Só aparece em leva NOVA: acrescentar dentro de uma
                   leva antiga contaria a ação no mês daquela leva, e não no mês
@@ -853,8 +1045,17 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                   </p>
                 ) : (
                   <div className="space-y-2">
+                    <AnimatePresence initial={false}>
                     {doContrato.map((it, i) => (
-                      <div key={i} className={`rounded-lg border px-3 py-2.5 space-y-2 ${it.bloqueada ? "border-amber-400/30 bg-amber-400/[0.04]" : "border-border bg-white/[0.02]"}`}>
+                      <motion.div
+                        key={it._k}
+                        layout
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: -12, height: 0, marginBottom: 0 }}
+                        transition={{ ...MOLA, opacity: { duration: 0.18, ease: CURVA } }}
+                        className={`rounded-lg border px-3 py-2.5 space-y-2 overflow-hidden ${it.bloqueada ? "border-amber-400/30 bg-amber-400/[0.04]" : "border-border bg-white/[0.02]"}`}
+                      >
                         <div className="flex items-center gap-2">
                           <span className={`text-[13px] font-medium flex-1 min-w-0 truncate ${it.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>
                             {it.rubrica}
@@ -907,8 +1108,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                             />
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ))}
+                    </AnimatePresence>
                   </div>
                 )}
               </div>
@@ -923,6 +1125,100 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
             </DialogFooter>
           </>
         ) : null}
+
+        {/* ESCOLHER A ANÁLISE COMERCIAL.
+            A do cliente vem primeiro (por vínculo, depois por nome): sem isso a
+            pessoa procuraria o próprio cliente numa lista de todo mundo. */}
+        {stage === "analise" && (
+          <>
+            <div className="shrink-0 space-y-2.5 py-1">
+              <Input
+                value={buscaAnalise}
+                onChange={(e) => setBuscaAnalise(e.target.value)}
+                placeholder="Procurar por nome, CPF ou rubrica"
+                autoFocus
+                className="h-9 text-[13px]"
+              />
+              <div className="rounded-xl border border-border bg-card/40 px-3.5 py-2.5">
+                <label className="text-[10.5px] text-primary/90 font-medium">
+                  Requerido das ações que vierem <span className="text-muted-foreground font-normal">· contra quem</span>
+                </label>
+                <Input
+                  value={requeridoImport}
+                  onChange={(e) => setRequeridoImport(e.target.value)}
+                  placeholder="Ex.: Bradesco"
+                  className="mt-1.5 h-8 text-[12.5px]"
+                />
+                <p className="text-[10.5px] text-muted-foreground/80 mt-1.5 leading-snug">
+                  A análise é a leitura do extrato de um banco só, então todas entram contra o mesmo
+                  réu. Dá pra deixar em branco e preencher linha a linha depois.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 py-1">
+              {carregandoAnalises ? (
+                <p className="text-[12.5px] text-muted-foreground text-center py-8 flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Buscando as análises salvas…
+                </p>
+              ) : analisesVisiveis.length === 0 ? (
+                <p className="text-[12.5px] text-muted-foreground text-center py-8">
+                  {analises.length === 0
+                    ? "Nenhuma análise comercial salva ainda. Elas nascem no Finder, ao ler os extratos."
+                    : `Nenhuma análise com “${buscaAnalise.trim()}”.`}
+                </p>
+              ) : analisesVisiveis.map((a, i) => {
+                const dele = !!cliente?.id && a.cliente_id === cliente.id;
+                return (
+                  <motion.button
+                    key={a.id}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...MOLA, delay: Math.min(i, 8) * 0.04 }}
+                    onClick={() => puxarAnalise(a)}
+                    className={`w-full text-left rounded-xl border p-3.5 flex items-center gap-3 transition-colors ${
+                      dele
+                        ? "border-primary/40 bg-primary/[0.07] hover:border-primary/60"
+                        : "border-white/[0.08] bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <span className={`h-9 w-9 rounded-lg grid place-items-center shrink-0 ${
+                      dele ? "bg-primary/15 ring-1 ring-primary/30 text-primary" : "bg-white/[0.05] ring-1 ring-white/10 text-muted-foreground"
+                    }`}>
+                      <FileSearch className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-medium truncate">
+                        {a.nome || "sem nome"}
+                        {dele && (
+                          <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide bg-primary/15 text-primary align-[1px]">
+                            deste cliente
+                          </span>
+                        )}
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {resumoDaAnalise(a)}
+                        {a.created_at ? ` · ${fmtDia(a.created_at)}` : ""}
+                      </span>
+                      {a.created_by_email && (
+                        <span className="block text-[10.5px] text-muted-foreground/70 truncate mt-0.5">
+                          por {a.created_by_email}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            <DialogFooter className="shrink-0 gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setStage("manual")}>Voltar sem puxar</Button>
+            </DialogFooter>
+          </>
+        )}
+
         {stage === "conferir" && (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 py-1">
@@ -938,6 +1234,12 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                     {cliente?.nome} fica com {ajuizaveis} {ajuizaveis === 1 ? "ação ajuizável" : "ações ajuizáveis"} no total
                   </span>
                 </p>
+                {analiseSel && (
+                  <p className="text-[11.5px] text-primary/85 mt-1.5 flex items-center gap-1.5">
+                    <Link2 className="h-3.5 w-3.5 shrink-0" />
+                    Fica ligada à análise comercial de {analiseSel.nome}.
+                  </p>
+                )}
               </div>
 
               {diff.adicionadas.length === 0 && diff.removidas.length === 0 ? (
