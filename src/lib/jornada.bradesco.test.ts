@@ -62,3 +62,29 @@ test("rótulos são achados na jornada certa, ou em qualquer uma quando o log mi
   expect(rotuloDaBase("bradesco")).toBe("Base Bradesco");
   expect(rotuloDaBase(null)).toBeNull();
 });
+
+/* A RÉGUA PADRÃO TAMBÉM ANDA.
+   Um lead recebeu seis mensagens pedindo o extrato e continuou em "Chegou":
+   a regra só existia na Bradesco, e as 61 conversas da padrão estavam todas
+   na primeira etapa. */
+test("na régua padrão a mensagem move com os nomes dela", () => {
+  expect(alvoDaMensagem({ direcao: "saida", tipo: "texto", texto: "Boa tarde" }, "padrao")).toBe("triagem");
+  expect(alvoDaMensagem({ direcao: "saida", tipo: "texto", texto: "manda o EXTRATO" }, "padrao")).toBe("extrato");
+  expect(alvoDaMensagem({ direcao: "entrada", tipo: "texto", texto: "oi" }, "padrao")).toBeNull();
+});
+
+test("o PDF não move a régua padrão, porque ela não tem etapa pra ele", () => {
+  // na Bradesco existe "Aguardando análise"; na padrão, depois de Extrato vem
+  // Proposta, que quer dizer "já sei o que dá pra pedir"
+  expect(alvoDaMensagem({ direcao: "entrada", tipo: "documento", midiaMime: "application/pdf" }, "padrao")).toBeNull();
+  expect(alvoDaMensagem({ direcao: "entrada", tipo: "documento", midiaMime: "application/pdf" }, "bradesco"))
+    .toBe("aguardando_analise");
+});
+
+test("resposta automática não é atendimento, em nenhuma das duas", () => {
+  const auto = { direcao: "saida" as const, tipo: "texto", texto: "Estamos fora do horário", automatica: true };
+  expect(alvoDaMensagem(auto, "padrao")).toBeNull();
+  expect(alvoDaMensagem(auto, "bradesco")).toBeNull();
+  // a mesma frase escrita por gente conta
+  expect(alvoDaMensagem({ ...auto, automatica: false }, "padrao")).toBe("triagem");
+});

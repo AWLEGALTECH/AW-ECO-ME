@@ -184,19 +184,45 @@ export const MOTIVOS_PERDIDO: readonly string[] = [
 ];
 
 /**
- * Para onde uma mensagem leva o lead na jornada Bradesco. Espelho da regra do
- * banco. `null` quando a mensagem não move nada.
+ * Para onde uma mensagem leva o lead. Espelho da regra do banco
+ * (`fn_wa_alvo_da_mensagem`). `null` quando a mensagem não move nada.
+ *
+ * VALE NAS DUAS RÉGUAS, com os nomes de cada uma. Durante um tempo valeu só na
+ * Bradesco, e a padrão não movia ninguém: as 61 conversas dela ficaram todas em
+ * "Chegou", inclusive gente que já tinha mandado documento. Um funil de cinco
+ * etapas em que ninguém sai da primeira não é um funil.
+ *
+ * O PDF NÃO MOVE NADA NA PADRÃO, e isso é escolha e não esquecimento. Na
+ * Bradesco existe "Aguardando análise", que quer dizer exatamente "chegou o
+ * documento, falta rodar o Finder". Na padrão, depois de "Extrato" vem
+ * "Proposta", que quer dizer "já sei o que dá pra pedir" — e isso não é verdade
+ * no segundo em que o PDF chega.
+ *
+ * A mensagem AUTOMÁTICA não conta: um "estamos fora do horário" que sai sozinho
+ * não é alguém ter olhado o caso, e contar como triagem faria a fila mentir na
+ * etapa que existe justamente para dizer quem ainda não foi atendido.
  */
-export function alvoDaMensagem(m: {
-  direcao: "entrada" | "saida";
-  tipo: string;
-  texto?: string | null;
-  midiaMime?: string | null;
-}): string | null {
+export function alvoDaMensagem(
+  m: {
+    direcao: "entrada" | "saida";
+    tipo: string;
+    texto?: string | null;
+    midiaMime?: string | null;
+    automatica?: boolean | null;
+  },
+  jornada: Jornada = "bradesco",
+): string | null {
+  const bradesco = jornada === "bradesco";
   if (m.direcao === "saida") {
-    return m.tipo === "texto" && /extrato/i.test(m.texto ?? "") ? "aguardando_extrato" : "triagem";
+    if (m.automatica) return null;
+    if (m.tipo === "texto" && /extrato/i.test(m.texto ?? "")) {
+      return bradesco ? "aguardando_extrato" : "extrato";
+    }
+    return "triagem";
   }
-  if (m.tipo === "documento" && /pdf/i.test(m.midiaMime ?? "")) return "aguardando_analise";
+  if (m.tipo === "documento" && /pdf/i.test(m.midiaMime ?? "")) {
+    return bradesco ? "aguardando_analise" : null;
+  }
   return null;
 }
 
