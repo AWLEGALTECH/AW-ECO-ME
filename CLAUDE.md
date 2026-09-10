@@ -72,9 +72,16 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
    Não anime cor de hover com framer (isso é `transition-colors` do Tailwind), e
    respeite `prefers-reduced-motion` no que for contínuo.
 4. **Push:** nunca fazer push sem pedir permissão
-5. **Edge Functions chamadas de fora** (`wa-webhook`, `zapsign-webhook`,
+5. **Edge Functions chamadas de fora** (`wa-webhook`, `smooth-service`,
    `landing-socioeconomico`, `send-push`) exigem `verify_jwt = false`. Deploy
    pela API de gerenciamento **liga isso sozinho** e o portão do Supabase passa
    a responder 401 antes da função rodar — sem log, sem erro visível, só a
    integração parando. Depois de todo deploy dessas, conferir no painel.
+5.1. **O webhook do ZapSign mora no slug `smooth-service`.** É nome automático
+   de julho, e é o endereço que está cadastrado lá no ZapSign. Existe uma
+   segunda cópia publicada, no slug `zapsign-webhook`, com o nome certo e
+   nenhuma invocação: é decoração, e já custou uma correção inteira publicada
+   no lugar errado (o lead do almyr assinou e a jornada não andou). **Antes de
+   mexer em qualquer função, confira no log quem realmente recebe o POST**
+   (`function_edge_logs`), não o nome que o painel mostra.
 5. **Fidelidade à planilha:** nomes de campos espelham a aba ADV da planilha original — não renomear sem combinar

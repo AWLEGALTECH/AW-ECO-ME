@@ -1,8 +1,23 @@
-// zapsign-webhook
+// zapsign-webhook — publicada no slug `smooth-service`.
 //
-// Recebe o webhook do ZapSign quando um documento é assinado e cria a
-// notificação "cliente assinou". Protegido por ?token= (guardado em
-// integracao_secrets). O push sai automático (trigger em notificacoes).
+// ⚠️ O NOME DA PASTA É O SLUG, E O SLUG NÃO PODE MUDAR. A função foi criada em
+// julho com o nome automático que o painel sorteia, e é ESSE endereço que está
+// configurado lá no ZapSign:
+//
+//     .../functions/v1/smooth-service?token=...
+//
+// Havia uma segunda cópia publicada, no slug `zapsign-webhook`, com o nome
+// certo e o código mais novo. Ninguém a chamava: zero invocações no log. Foi
+// nela que o passo da jornada entrou primeiro, e por isso o almyr assinou às
+// 12:12 e o lead ficou parado em "Aguardando assinatura" até alguém confirmar
+// o pré-cliente na mão, nove minutos depois. Publicar aqui é o que faz o
+// código chegar onde o POST chega. Se um dia a cópia órfã for apagada do
+// painel, melhor; enquanto existir, ela é decoração.
+//
+// Recebe o webhook do ZapSign quando um documento é assinado, cria a
+// notificação "cliente assinou" e move a jornada do lead para "Assinado".
+// Protegido por ?token= (guardado em integracao_secrets). O push sai automático
+// (trigger em notificacoes).
 //
 // Também aceita, pra teste, { signer, doc } ou { texto } com a frase
 // "FULANO assinou o documento X".
