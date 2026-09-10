@@ -547,7 +547,7 @@ export default function Tarefas() {
                   const temTasks = tasksAqui.length > 0;
                   const last = i === ETAPAS_ORDEM.length - 1;
                   return (
-                    <div key={etapa} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
+                    <div key={etapa} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3">
                       {/* Rail */}
                       <div className="relative flex justify-center">
                         {!last && <div className={cn("absolute top-5 bottom-0 w-px left-1/2 -translate-x-1/2", temTasks ? "bg-primary/30" : "bg-border")} />}

@@ -627,7 +627,7 @@ export default function ClienteDetail() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-x-6 gap-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3">
                 <div>
                   <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Última tentativa de contato</p>
                   <p className="text-lg font-medium tabular-nums text-foreground mt-0.5">

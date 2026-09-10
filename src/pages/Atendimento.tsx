@@ -3231,7 +3231,7 @@ export default function AtendimentoPage() {
                                           );
                                         }
                                         return (
-                                          <span className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-[1px] mt-1">
+                                          <span className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-[1px] mt-1">
                                             {campos.slice(0, 5).map((c) => (
                                               <span key={c.rotulo} className="contents">
                                                 <span className="text-[9.5px] uppercase tracking-wide text-muted-foreground/55 whitespace-nowrap pt-[1px]">
@@ -6463,7 +6463,7 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
               <p className="text-[11.5px] leading-snug whitespace-pre-wrap break-words">{lead.respostas}</p>
             )}
             {extras.length > 0 && (
-              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
                 {extras.map((c) => (
                   <div key={c.rotulo} className="contents">
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60 whitespace-nowrap pt-[1px]">
@@ -6943,7 +6943,15 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
         const concluida = i < iAtual && !pulada;
         const eAtual = i === iAtual;
         return (
-          <div key={e.chave} className="grid grid-cols-[1.25rem_1fr] gap-x-2.5">
+          /* `minmax(0,1fr)` E NÃO `1fr`. São a mesma coisa até alguém pôr
+             conteúdo largo dentro: `1fr` quer dizer `minmax(auto, 1fr)`, e
+             esse `auto` é o tamanho MÍNIMO DO CONTEÚDO. Um `truncate` tem
+             largura mínima igual ao texto inteiro (ele não quebra linha), então
+             a coluna crescia para caber a frase e empurrava a jornada para fora
+             da ficha: o "Aprovar", o "Programar mensagem" e o "Alterar etapa"
+             ficavam cortados na borda direita. Com `minmax(0,...)` a coluna
+             pode encolher, e aí o truncate finalmente trunca. */
+          <div key={e.chave} className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-2.5">
             {/* trilho */}
             <div className="relative flex justify-center">
               {!last && (

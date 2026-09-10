@@ -957,7 +957,7 @@ export function ProcessoTimeline({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: EASE, delay: Math.min(i, 8) * 0.04 }}
-              className="grid grid-cols-[1.5rem_1fr] gap-x-3"
+              className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3"
             >
               {/* Rail à esquerda */}
               <div className="relative flex justify-center">
