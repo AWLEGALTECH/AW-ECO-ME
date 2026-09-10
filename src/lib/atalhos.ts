@@ -9,7 +9,7 @@
  * comando válido. A tela e o banco ficam de fora, que é o que permite testar a
  * regra sem abrir o navegador.
  */
-import type { Midia } from "@/lib/anexos";
+import { resumoDaMensagem, type Midia } from "@/lib/anexos";
 
 export interface Atalho {
   id: string;
@@ -88,18 +88,7 @@ export function filtrarAtalhos(atalhos: Atalho[], termo: string): Atalho[] {
  * linha vazia na lista não se distingue de um atalho quebrado.
  */
 export function resumoDoAtalho(a: Atalho): string {
-  const texto = (a.conteudo || "").trim();
-  if (texto) return texto;
-  const midias = a.midias ?? [];
-  if (midias.length === 0) return "";
-  if (midias.length === 1) {
-    const m = midias[0];
-    const etiqueta = m.tipo === "audio" ? "🎵 Áudio"
-      : m.tipo === "imagem" ? "📷 Imagem"
-        : m.tipo === "video" ? "🎬 Vídeo" : "📄";
-    return m.tipo === "documento" ? `${etiqueta} ${m.nome}` : etiqueta;
-  }
-  return `📎 ${midias.length} anexos`;
+  return resumoDaMensagem(a.conteudo, a.midias ?? []);
 }
 
 /** Já existe atalho com este comando? Ignora a própria linha, ao editar. */

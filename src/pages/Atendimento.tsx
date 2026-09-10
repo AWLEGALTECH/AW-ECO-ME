@@ -75,7 +75,7 @@ import {
   useCadencias, reguaDoNumero, useInvalidarCadencia, salvarDegrauDaRegua,
   type ReguasPorNumero,
 } from "@/hooks/useCadenciaFollowUp";
-import { midiasDaLinha, type AnexoLocal, type Midia } from "@/lib/anexos";
+import { midiasDaLinha, resumoDaMensagem, type AnexoLocal, type Midia } from "@/lib/anexos";
 import { baixarMidias } from "@/lib/anexosBucket";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
@@ -7887,6 +7887,7 @@ function TiraDeAnexos({ itens }: {
  */
 function BarraDeMensagem({
   texto, onTexto, mantidos = [], onRemoverMantido, anexos, onAnexos, placeholder, placeholderComAnexo,
+  linhas = 1,
 }: {
   texto: string;
   onTexto: (t: string) => void;
@@ -7898,6 +7899,8 @@ function BarraDeMensagem({
   onAnexos: (mudar: (p: AnexoLocal[]) => AnexoLocal[]) => void;
   placeholder?: string;
   placeholderComAnexo?: string;
+  /** altura inicial do campo. Uma linha na conversa; mais, onde se escreve com calma */
+  linhas?: number;
 }) {
   const [gravando, setGravando] = useState(false);
   const seletor = useRef<HTMLInputElement>(null);
@@ -7960,11 +7963,12 @@ function BarraDeMensagem({
           {!gravando && (
             <Textarea
               value={texto}
-              rows={1}
+              rows={linhas}
               onChange={(e) => onTexto(e.target.value)}
               onPaste={colar}
               placeholder={temAnexo ? (placeholderComAnexo ?? "Legenda (opcional)…") : placeholder}
-              className="min-h-9 max-h-[9rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin" />
+              className={cn("py-[0.45rem] text-[12.5px] resize-none scrollbar-thin",
+                linhas > 1 ? "min-h-[6rem] max-h-[18rem]" : "min-h-9 max-h-[9rem]")} />
           )}
 
           <GravadorDeAudio
@@ -8714,6 +8718,8 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
   const [pincel, setPincel] = useState<Faixa>("atendimento");
   const [arrasto, setArrasto] = useState<{ dia: number; de: number; ate: number } | null>(null);
   const [salvandoGrade, setSalvandoGrade] = useState(false);
+  /** qual das três mensagens está aberta para escrita; null = as três fechadas */
+  const [abertaFaixa, setAbertaFaixa] = useState<Faixa | null>(null);
 
   /* A grade vinda do banco vira rascunho local. Pintar mexe no rascunho e o
      botão de salvar aparece: um arrasto que grava sozinho a cada célula seria
@@ -8947,23 +8953,28 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
         </div>
       </SpotlightCard>
 
-      {/* ── AS TRÊS MENSAGENS ── */}
-      <div className="grid gap-3 lg:grid-cols-3">
-        <EditorDaFaixa
-          faixa="fechado" instancia={instancia} aoVivo={aoVivo} userId={userId}
-          titulo="Fora do horário"
-          descricao="Sai na hora, para quem escreve com o escritório fechado."
-          guardada={msgs?.fechado} onSalvo={invalidar} />
-        <EditorDaFaixa
-          faixa="direcionamento" instancia={instancia} aoVivo={aoVivo} userId={userId}
-          titulo="Direcionamento"
-          descricao="Já abrimos, o responsável começa mais tarde. É também a que a fila manda de manhã para quem escreveu de madrugada."
-          guardada={msgs?.direcionamento} onSalvo={invalidar} />
-        <EditorDaFaixa
-          faixa="atendimento" instancia={instancia} aoVivo={aoVivo} userId={userId}
-          titulo="Saudação do atendimento"
-          descricao="Opcional. Vazia, ninguém recebe nada no horário em que tem gente aqui."
-          guardada={msgs?.atendimento} onSalvo={invalidar} />
+      {/* ── AS TRÊS MENSAGENS ──
+          Fechadas, cabem lado a lado e mostram o que está escrito em cada uma.
+          Aberta, a que se está escrevendo ocupa a largura toda: escrever uma
+          mensagem de WhatsApp num campo de três centímetros é o jeito de a
+          pessoa não reler o que escreveu antes de salvar. */}
+      <div className={cn("grid gap-3", abertaFaixa ? "grid-cols-1" : "lg:grid-cols-3")}>
+        {([
+          ["fechado", "Fora do horário",
+            "Sai na hora, para quem escreve com o escritório fechado."],
+          ["direcionamento", "Direcionamento",
+            "Já abrimos, o responsável começa mais tarde. É também a que a fila manda de manhã para quem escreveu de madrugada."],
+          ["atendimento", "Saudação do atendimento",
+            "Opcional. Vazia, ninguém recebe nada no horário em que tem gente aqui."],
+        ] as [Faixa, string, string][]).map(([faixa, titulo, descricao]) => (
+          <EditorDaFaixa
+            key={faixa}
+            faixa={faixa} instancia={instancia} aoVivo={aoVivo} userId={userId}
+            titulo={titulo} descricao={descricao}
+            guardada={msgs?.[faixa]} onSalvo={invalidar}
+            aberta={abertaFaixa === faixa}
+            onAbrir={() => setAbertaFaixa((f) => (f === faixa ? null : faixa))} />
+        ))}
       </div>
     </div>
   );
@@ -8972,7 +8983,7 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
 /* Uma das três mensagens. Cada uma se salva sozinha: são textos que se ajustam
    em momentos diferentes, e um botão único obrigaria a reler as outras duas
    para mexer numa. */
-function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, guardada, onSalvo }: {
+function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, guardada, onSalvo, aberta, onAbrir }: {
   faixa: Faixa;
   instancia: string;
   aoVivo: boolean;
@@ -8981,6 +8992,8 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
   descricao: string;
   guardada?: MsgDaFaixa;
   onSalvo: () => void;
+  aberta: boolean;
+  onAbrir: () => void;
 }) {
   const [texto, setTexto] = useState("");
   const [mantidos, setMantidos] = useState<Midia[]>([]);
@@ -9012,17 +9025,50 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
     }
   };
 
+  /* FECHADA, ela mostra o que está escrito. Um cartão que só diz o nome da
+     faixa obriga a abrir os três para descobrir qual está vazia. */
+  if (!aberta) {
+    const resumo = resumoDaMensagem(texto, mantidos);
+    return (
+      <button onClick={onAbrir}
+        className="text-left rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5 flex flex-col gap-1.5
+                   hover:border-primary/30 hover:bg-white/[0.04] transition-colors">
+        <span className="flex items-center gap-1.5">
+          <span className={cn("h-2.5 w-2.5 rounded-sm shrink-0", COR_DA_FAIXA[faixa])} />
+          <span className="text-[12.5px] font-medium">{titulo}</span>
+          {mudou && <span className="text-[9.5px] text-amber-300/80 ml-auto">não salvo</span>}
+        </span>
+        <span className="text-[10.5px] text-muted-foreground/80 leading-snug">{descricao}</span>
+        <span className={cn("text-[11.5px] leading-snug mt-1 line-clamp-3",
+          resumo ? "text-foreground/85" : "text-muted-foreground/50 italic")}>
+          {resumo || "sem mensagem. Ninguém recebe nada nesta faixa."}
+        </span>
+        <span className="text-[10.5px] text-primary/80 mt-0.5">
+          {resumo ? "Clique para editar" : "Clique para escrever"}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <SpotlightCard sutil className="rounded-xl p-3.5 flex flex-col gap-2.5">
-      <div>
-        <h3 className="text-[12.5px] font-medium flex items-center gap-1.5">
-          <span className={cn("h-2.5 w-2.5 rounded-sm", COR_DA_FAIXA[faixa])} />
-          {titulo}
-        </h3>
-        <p className="text-[10.5px] text-muted-foreground/80 leading-snug mt-0.5">{descricao}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-[12.5px] font-medium flex items-center gap-1.5">
+            <span className={cn("h-2.5 w-2.5 rounded-sm", COR_DA_FAIXA[faixa])} />
+            {titulo}
+          </h3>
+          <p className="text-[10.5px] text-muted-foreground/80 leading-snug mt-0.5 max-w-2xl">{descricao}</p>
+        </div>
+        <button onClick={onAbrir} title="Recolher"
+          className="shrink-0 h-7 w-7 grid place-items-center rounded-lg text-muted-foreground/60
+                     hover:text-foreground hover:bg-white/[0.05] transition-colors">
+          <ChevronDown className="h-4 w-4" />
+        </button>
       </div>
 
       <BarraDeMensagem
+        linhas={5}
         texto={texto}
         onTexto={setTexto}
         mantidos={mantidos}

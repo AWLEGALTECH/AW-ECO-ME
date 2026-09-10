@@ -32,6 +32,28 @@ export interface Midia {
   duracao?: number | null;
 }
 
+/**
+ * A mensagem em uma linha só, para caber numa lista.
+ *
+ * Com texto, o texto. Sem texto, o que vai ser mandado: uma mensagem que só tem
+ * áudio apareceria como linha vazia, e linha vazia não se distingue de coisa
+ * quebrada. Serve para os atalhos de barra e para os cartões do primeiro
+ * atendimento, que fazem a mesma pergunta.
+ */
+export function resumoDaMensagem(texto: string | null | undefined, midias: Midia[] = []): string {
+  const t = (texto || "").trim();
+  if (t) return t;
+  if (midias.length === 0) return "";
+  if (midias.length === 1) {
+    const m = midias[0];
+    const etiqueta = m.tipo === "audio" ? "🎵 Áudio"
+      : m.tipo === "imagem" ? "📷 Imagem"
+        : m.tipo === "video" ? "🎬 Vídeo" : "📄";
+    return m.tipo === "documento" ? `${etiqueta} ${m.nome}` : etiqueta;
+  }
+  return `📎 ${midias.length} anexos`;
+}
+
 /** Nome de arquivo que sobrevive a um caminho de URL. */
 export const nomeSeguro = (n: string) =>
   n.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(-80);
