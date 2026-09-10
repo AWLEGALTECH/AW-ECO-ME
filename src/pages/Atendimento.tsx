@@ -44,7 +44,7 @@ import {
   ArrowLeftRight, ChevronsUpDown, ChevronDown, SlidersHorizontal, Pin, Bot, MessageSquareText, Power, PowerOff, Pencil, Plus, ArrowRight, GitBranch, X, Paperclip, Loader2, FileText,
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
-  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare,
+  RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -90,6 +90,11 @@ import {
 import { useEtapaLog, useInvalidarEtapaLog } from "@/hooks/useEtapaLog";
 import { documentosDaConversa, selecaoInicial, linkDoFinder } from "@/lib/finderDaConversa";
 import { linkDoWriter } from "@/lib/writerDaConversa";
+import {
+  termoDoRascunho, filtrarAtalhos, normalizarComando, comandoValido, comandoDuplicado, indiceNaLista,
+  type Atalho,
+} from "@/lib/atalhos";
+import { useAtalhos, useInvalidarAtalhos, salvarAtalho, removerAtalho } from "@/hooks/useAtalhos";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -279,6 +284,14 @@ export default function AtendimentoPage() {
   const [lembretesMaquete, setLembretesMaquete] = useState<Task[]>(LEMBRETES);
   const [dia, setDia] = useState(HOJE);
   const [rascunho, setRascunho] = useState("");
+  /* ── MENSAGENS RÁPIDAS ──
+     `ocultos` existe por causa do Esc: a lista é derivada do rascunho, e sem
+     um jeito de dizer "fechei" ela reabriria sozinha no mesmo texto. Volta a
+     falso na primeira tecla, porque quem digita de novo quer a lista de novo. */
+  const [atalhoIdx, setAtalhoIdx] = useState(0);
+  const [atalhosOcultos, setAtalhosOcultos] = useState(false);
+  const [atalhoEdicao, setAtalhoEdicao] = useState<{ id: string | null; comando: string; conteudo: string } | null>(null);
+  const [salvandoAtalho, setSalvandoAtalho] = useState(false);
   /* OS ANEXOS DA BARRA DO CHAT — no plural. Era um só, e escolher o segundo
      trocava o primeiro sem avisar: nada dizia nada, o nome no campo apenas
      mudava. Quem estava mandando três documentos de um caso descobria pelo
@@ -1149,6 +1162,79 @@ export default function AtendimentoPage() {
       setAbrindoWriter(false);
     }
     window.open(linkDoWriter({ conversaId: lead.id, nome: lead.nome, analiseId }), "_blank");
+  };
+
+  /* ── AS MENSAGENS RÁPIDAS DESTA CONVERSA ──
+     A lista é a mesma para todo o escritório e não depende de qual conversa
+     está aberta; o que depende da conversa é só o que está no rascunho. */
+  const { data: atalhos = [] } = useAtalhos();
+  const invalidarAtalhos = useInvalidarAtalhos();
+  const termoAtalho = atalhosOcultos ? null : termoDoRascunho(rascunho);
+  const atalhosNaLista = useMemo(
+    () => (termoAtalho === null ? [] : filtrarAtalhos(atalhos, termoAtalho)),
+    [atalhos, termoAtalho]);
+  const painelAtalhos = termoAtalho !== null;
+  const atalhoAtivo = indiceNaLista(atalhoIdx, atalhosNaLista.length);
+
+  /* A frase inteira no lugar do comando: era isso que a barra prometia. O
+     cursor vai para o fim porque quase sempre ainda falta completar a frase
+     ("..., dona Maria") antes de mandar. */
+  const usarAtalho = (a: Atalho) => {
+    setRascunho(a.conteudo);
+    setAtalhosOcultos(true);
+    requestAnimationFrame(() => {
+      const el = campoResposta.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
+
+  const abrirNovoAtalho = () => {
+    // O que já foi digitado depois da barra vira a sugestão de comando: quem
+    // digitou "/extrato" e não achou nada quer criar exatamente esse.
+    setAtalhoEdicao({ id: null, comando: termoAtalho ?? "", conteudo: "" });
+  };
+
+  const gravarAtalho = async () => {
+    if (!atalhoEdicao) return;
+    const comando = normalizarComando(atalhoEdicao.comando);
+    const conteudo = atalhoEdicao.conteudo.trim();
+    if (!comandoValido(comando)) {
+      toast.error("O comando aceita letra, número, hífen e traço baixo, e começa por letra ou número.");
+      return;
+    }
+    if (comandoDuplicado(atalhos, comando, atalhoEdicao.id)) {
+      toast.error(`Já existe um atalho /${comando}.`);
+      return;
+    }
+    if (!conteudo) { toast.error("Escreva a mensagem do atalho."); return; }
+    setSalvandoAtalho(true);
+    try {
+      await salvarAtalho({ id: atalhoEdicao.id, comando, conteudo, criadoPor: user?.id ?? null });
+      invalidarAtalhos();
+      setAtalhoEdicao(null);
+      toast.success(`Atalho /${comando} salvo para todo mundo.`);
+    } catch (e) {
+      toast.error("Não consegui salvar: " + (e as Error).message);
+    } finally {
+      setSalvandoAtalho(false);
+    }
+  };
+
+  const apagarAtalho = async () => {
+    if (!atalhoEdicao?.id) return;
+    setSalvandoAtalho(true);
+    try {
+      await removerAtalho(atalhoEdicao.id);
+      invalidarAtalhos();
+      setAtalhoEdicao(null);
+      toast.success("Atalho apagado.");
+    } catch (e) {
+      toast.error("Não consegui apagar: " + (e as Error).message);
+    } finally {
+      setSalvandoAtalho(false);
+    }
   };
   /* A regra do número DA CONVERSA, pra ficha poder explicar o que "segue o
      número" quer dizer nesta conversa específica — que é a única forma de o
@@ -3855,6 +3941,73 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
+                {/* ── MENSAGENS RÁPIDAS ──
+                    Abre com a barra e fica ACIMA do campo, encostada nele: é
+                    uma continuação do que se está digitando, não uma janela.
+                    A lista é do escritório inteiro, então a frase melhora com o
+                    uso em vez de existir em cinco versões particulares. */}
+                {painelAtalhos && !gravando && (
+                  <div className="px-3 pt-2.5">
+                    <div className="rounded-xl border border-white/[0.08] bg-white/[0.035] overflow-hidden">
+                      <div className="px-3 py-1.5 flex items-center gap-1.5 border-b border-white/[0.06]">
+                        <Zap className="h-3 w-3 shrink-0 text-primary" />
+                        <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
+                          Mensagens rápidas
+                        </span>
+                        {atalhosNaLista.length > 0 && (
+                          <span className="hidden sm:block ml-auto text-[9.5px] text-muted-foreground/50">
+                            ↑↓ escolher · Enter usar · Esc fechar
+                          </span>
+                        )}
+                      </div>
+
+                      {atalhosNaLista.length > 0 ? (
+                        <div className="max-h-[9.5rem] overflow-y-auto scrollbar-thin">
+                          {atalhosNaLista.map((a, i) => (
+                            <div key={a.id}
+                              className={cn("group/atalho flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors",
+                                i === atalhoAtivo ? "bg-primary/[0.10]" : "hover:bg-white/[0.04]")}
+                              onMouseEnter={() => setAtalhoIdx(i)}
+                              onClick={() => usarAtalho(a)}>
+                              <span className={cn("shrink-0 font-mono text-[11px]",
+                                i === atalhoAtivo ? "text-primary" : "text-muted-foreground")}>
+                                /{a.comando}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground/80">
+                                {a.conteudo}
+                              </span>
+                              {aoVivo && (
+                                <button
+                                  title="Editar ou apagar"
+                                  onClick={(ev) => { ev.stopPropagation(); setAtalhoEdicao({ id: a.id, comando: a.comando, conteudo: a.conteudo }); }}
+                                  className="shrink-0 opacity-0 group-hover/atalho:opacity-100 text-muted-foreground/60
+                                             hover:text-foreground transition-opacity">
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="px-3 py-2 text-[11px] text-muted-foreground/70">
+                          {atalhos.length === 0
+                            ? "Nenhuma mensagem rápida ainda. Crie a primeira e ela fica para todo mundo."
+                            : <>Nenhum atalho com <span className="font-mono">/{termoAtalho}</span>.</>}
+                        </p>
+                      )}
+
+                      {aoVivo && (
+                        <button onClick={abrirNovoAtalho}
+                          className="w-full flex items-center gap-1.5 px-3 py-1.5 border-t border-white/[0.06]
+                                     text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/[0.05] transition-colors">
+                          <Plus className="h-3 w-3" />
+                          Adicionar atalho{termoAtalho ? <span className="font-mono text-primary/80">/{normalizarComando(termoAtalho)}</span> : null}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="px-3 py-2.5 flex items-center gap-1.5">
                   {aoVivo && !gravando && (
                     <>
@@ -3909,8 +4062,33 @@ export default function AtendimentoPage() {
                       ref={campoResposta}
                       value={rascunho}
                       rows={1}
-                      onChange={(e) => setRascunho(e.target.value)}
+                      onChange={(e) => { setRascunho(e.target.value); setAtalhosOcultos(false); setAtalhoIdx(0); }}
                       onKeyDown={(e) => {
+                        /* COM A LISTA DE ATALHOS ABERTA, o teclado é dela: as
+                           setas escolhem, o Enter usa (e não manda), o Esc
+                           fecha. Sem isto, Enter mandaria "/ext" pro cliente,
+                           que é o erro que esta lista existe pra evitar. */
+                        if (painelAtalhos) {
+                          if (e.key === "Escape") { e.preventDefault(); setAtalhosOcultos(true); return; }
+                          if (atalhosNaLista.length > 0) {
+                            if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              setAtalhoIdx((i) => (indiceNaLista(i, atalhosNaLista.length) + 1) % atalhosNaLista.length);
+                              return;
+                            }
+                            if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              const n = atalhosNaLista.length;
+                              setAtalhoIdx((i) => (indiceNaLista(i, n) - 1 + n) % n);
+                              return;
+                            }
+                            if ((e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) || e.key === "Tab") {
+                              e.preventDefault();
+                              usarAtalho(atalhosNaLista[atalhoAtivo]);
+                              return;
+                            }
+                          }
+                        }
                         if (e.key !== "Enter") return;
                         if (e.shiftKey || e.ctrlKey || e.metaKey) return;  // deixa quebrar a linha
                         e.preventDefault();
@@ -4864,6 +5042,72 @@ export default function AtendimentoPage() {
             <Button onClick={levarAoFinder} disabled={docsEscolhidos.length === 0} className="gap-2">
               <ScanSearch className="h-4 w-4" />
               Abrir o Finder{docsEscolhidos.length > 0 ? ` (${docsEscolhidos.length})` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CRIAR OU EDITAR UMA MENSAGEM RÁPIDA ──
+          Editar e apagar moram aqui, e não só o criar: um atalho nasce com o
+          comando errado ou com a frase que a gente melhorou depois, e sem
+          conserto a lista vira um monte de barra morta que ninguém usa. */}
+      <Dialog open={!!atalhoEdicao} onOpenChange={(o) => { if (!o) setAtalhoEdicao(null); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Zap className="h-4 w-4" /> {atalhoEdicao?.id ? "Editar mensagem rápida" : "Nova mensagem rápida"}
+            </DialogTitle>
+            <DialogDescription className="text-[12px]">
+              O comando é o que você digita depois da barra; a mensagem é o que entra no campo. Fica para todo o escritório.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">Comando</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[13px] text-primary shrink-0">/</span>
+                <Input
+                  autoFocus
+                  value={atalhoEdicao?.comando ?? ""}
+                  onChange={(e) => setAtalhoEdicao((a) => a && { ...a, comando: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void gravarAtalho(); } }}
+                  placeholder="extrato"
+                  className="h-8 font-mono text-[12.5px]"
+                />
+              </div>
+              {atalhoEdicao?.comando ? (
+                <span className="text-[10.5px] text-muted-foreground/70">
+                  Vai ficar <span className="font-mono text-foreground/80">/{normalizarComando(atalhoEdicao.comando) || "?"}</span>
+                </span>
+              ) : (
+                <span className="text-[10.5px] text-muted-foreground/70">Letra, número, hífen e traço baixo. Sem espaço e sem acento.</span>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">Mensagem</span>
+              <Textarea
+                rows={4}
+                value={atalhoEdicao?.conteudo ?? ""}
+                onChange={(e) => setAtalhoEdicao((a) => a && { ...a, conteudo: e.target.value })}
+                placeholder="Me manda o extrato dos últimos cinco anos, por favor."
+                className="text-[12.5px] resize-none scrollbar-thin"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            {atalhoEdicao?.id && (
+              <Button variant="ghost" onClick={() => void apagarAtalho()} disabled={salvandoAtalho}
+                      className="mr-auto gap-1.5 text-red-300/80 hover:text-red-300">
+                <Trash2 className="h-3.5 w-3.5" /> Apagar
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setAtalhoEdicao(null)} disabled={salvandoAtalho}>Cancelar</Button>
+            <Button onClick={() => void gravarAtalho()} disabled={salvandoAtalho} className="gap-2">
+              {salvandoAtalho ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
