@@ -41,6 +41,8 @@ type Estado = {
   tempo: number;
   /** a duração que o elemento conseguiu ler; null enquanto não sabe */
   duracaoLida: number | null;
+  /** por que o último play não saiu; null quando não houve falha */
+  falha: string | null;
   velocidade: Velocidade;
   tocar: (f: FaixaDeAudio) => void;
   alternar: () => void;
@@ -69,6 +71,21 @@ export function ProvedorDeAudio({ children }: { children: React.ReactNode }) {
   const [tempo, setTempo] = useState(0);
   const [duracaoLida, setDuracaoLida] = useState<number | null>(null);
   const [velocidade, setVelocidade] = useState<Velocidade>(1);
+  /* POR QUE ESTE ÁUDIO NÃO TOCOU.
+     Antes o `catch` engolia tudo: o botão de play piscava, nada acontecia, e
+     não havia nem no console de onde partir. Numa máquina sem o decodificador
+     de Opus isso é o sintoma inteiro, e ele se parece com "o sistema está
+     travado". Agora a falha tem nome e chega a quem clicou. */
+  const [falha, setFalha] = useState<string | null>(null);
+  const avisarFalha = useCallback((motivo?: string | null) => {
+    const a = ref.current;
+    const codigo = a?.error?.code ?? null;
+    setFalha(
+      codigo === 4 ? "Este navegador não sabe abrir o formato deste áudio."
+      : codigo === 3 ? "O arquivo chegou, mas não deu para decodificar."
+      : codigo === 2 ? "A rede cortou no meio do download do áudio."
+      : motivo || "Não consegui tocar este áudio.");
+  }, []);
 
   /* O tempo anda por requestAnimationFrame e não por `timeupdate`: o evento
      nativo dispara a cada ~250ms e a barrinha anda aos trancos. */
@@ -105,17 +122,23 @@ export function ProvedorDeAudio({ children }: { children: React.ReactNode }) {
       setFaixa(f);
       setTempo(0);
       setDuracaoLida(null);
+      setFalha(null);
       a.src = f.url;
       a.load();
     }
+    /* O elemento sobrevive à tela inteira, então qualquer coisa que tenha
+       zerado o volume dele fica zerada para sempre. Reabrir a cada play custa
+       nada e evita um "não sai som" que ninguém consegue explicar. */
+    a.volume = 1;
+    a.muted = false;
     a.playbackRate = velocidade;
-    a.play().catch(() => {});
+    a.play().catch((e: DOMException) => avisarFalha(e?.message));
   }, [faixa?.id, velocidade]);
 
   const alternar = useCallback(() => {
     const a = ref.current;
     if (!a || !faixa) return;
-    if (a.paused) a.play().catch(() => {}); else a.pause();
+    if (a.paused) a.play().catch((e: DOMException) => avisarFalha(e?.message)); else a.pause();
   }, [faixa]);
 
   const parar = useCallback(() => {
@@ -145,9 +168,9 @@ export function ProvedorDeAudio({ children }: { children: React.ReactNode }) {
   }, []);
 
   const valor = useMemo<Estado>(() => ({
-    faixa, tocando, tempo, duracaoLida, velocidade,
+    faixa, tocando, tempo, duracaoLida, velocidade, falha,
     tocar, alternar, parar, procurar, proximaVelocidade,
-  }), [faixa, tocando, tempo, duracaoLida, velocidade,
+  }), [faixa, tocando, tempo, duracaoLida, velocidade, falha,
        tocar, alternar, parar, procurar, proximaVelocidade]);
 
   return (
@@ -157,9 +180,12 @@ export function ProvedorDeAudio({ children }: { children: React.ReactNode }) {
       <audio
         ref={ref}
         preload="metadata"
-        onPlay={() => setTocando(true)}
+        onPlay={() => { setTocando(true); setFalha(null); }}
         onPause={() => setTocando(false)}
         onEnded={() => { setTocando(false); setTempo(0); }}
+        /* O ERRO DO ELEMENTO CHEGA DEPOIS DA PROMESSA do play, e às vezes é o
+           único que aparece: `play()` resolve e o arquivo falha na sequência. */
+        onError={() => { setTocando(false); avisarFalha(); }}
         onLoadedMetadata={(e) => {
           const d = (e.currentTarget as HTMLAudioElement).duration;
           setDuracaoLida(Number.isFinite(d) ? d : null);

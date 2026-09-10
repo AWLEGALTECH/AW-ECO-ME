@@ -84,7 +84,7 @@ function Audio({ url, id, duracao, nossa, conversaId, conversaNome }: {
      ela que está tocando e desenha de acordo — é isso que faz o som continuar
      quando alguém troca de conversa no meio de um áudio longo, que é
      exatamente quando a pessoa troca. */
-  const { faixa, tocando, tempo, duracaoLida, velocidade, tocar, alternar, procurar, proximaVelocidade } =
+  const { faixa, tocando, tempo, duracaoLida, velocidade, falha, tocar, alternar, procurar, proximaVelocidade } =
     useAudioAtendimento();
 
   const minha = faixa?.id === id;
@@ -94,6 +94,22 @@ function Audio({ url, id, duracao, nossa, conversaId, conversaNome }: {
   const pct = progressoDoAudio(posicao, minha ? duracaoLida : null, duracao);
   const total = duracaoExibida(minha ? duracaoLida : null, duracao);
   const barras = barrasDoAudio(id);
+
+  /* CLICAR E NÃO ACONTECER NADA era o comportamento antigo quando o navegador
+     não sabia abrir o formato: o play piscava e o silêncio ficava sem
+     explicação. Numa máquina sem o decodificador de Opus esse é o sintoma
+     inteiro, e ele se parece com "o sistema travou". */
+  if (minha && falha) {
+    return (
+      <div className="min-w-[190px] max-w-[250px] py-1">
+        <p className="text-[11px] text-amber-200/90 leading-snug">{falha}</p>
+        <button type="button" onClick={() => tocar({ id, url, duracao, conversaId: conversaId ?? "", conversaNome: conversaNome ?? "" })}
+          className="mt-1 text-[10.5px] text-primary hover:underline">
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2.5 min-w-[190px] max-w-[250px] py-0.5">

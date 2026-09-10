@@ -107,6 +107,7 @@ import {
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
+import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
 import type { AnexoCandidato } from "@/lib/anexosParaPasta";
@@ -7316,6 +7317,10 @@ function PainelAjustes({
           seja.
         </p>
       </SpotlightCard>
+
+      {/* O TESTE DE SOM MORA AQUI porque o problema é DESTA máquina, e Ajustes
+          já é a aba do que vale para a tela e não para uma conversa. */}
+      <DiagnosticoDeSom />
     </div>
   );
 }
