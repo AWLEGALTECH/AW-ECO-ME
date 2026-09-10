@@ -53,6 +53,24 @@ Cliente: `src/integrations/supabase/client.ts` → `supabase`
    tela, não em placeholder, não em toast, não em resposta de chat. Use ponto,
    vírgula, dois-pontos ou parênteses. Isto já foi pedido várias vezes; se você
    está prestes a escrever "algo — outra coisa", reescreva a frase.
+3.2. **SEMPRE ANIME.** Nada aparece, some, cresce ou troca de lugar num
+   piscar. Isto vale para tudo: cartão que expande, painel que abre, item que
+   entra numa lista, botão que aparece porque agora há o que salvar, aba que
+   troca de conteúdo. O padrão da casa é `framer-motion`, já usado em todas as
+   telas:
+   - **entrada:** `initial={{ opacity: 0, y: 8 }}` → `animate={{ opacity: 1, y: 0 }}`,
+     com `delay` escalonado (0.05s por item) quando são vários
+   - **saída:** `AnimatePresence` com `exit`. Sem ele, o que some não some, some
+     de repente, e o olho perde onde estava
+   - **tamanho:** `layout` (e `layoutId` quando a mesma coisa muda de forma,
+     como um cartão que vira painel). Use MOLA, não duração fixa:
+     `{ type: "spring", stiffness: 380, damping: 34 }`. Com `duration` a coisa
+     chega ao fim e para seco, e o que tem peso desacelera
+   - **curva:** `[0.22, 1, 0.36, 1]` para o resto
+   - **indicador que troca de aba:** um só elemento com `layoutId` deslizando,
+     nunca um fundo que acende e apaga em cada botão
+   Não anime cor de hover com framer (isso é `transition-colors` do Tailwind), e
+   respeite `prefers-reduced-motion` no que for contínuo.
 4. **Push:** nunca fazer push sem pedir permissão
 5. **Edge Functions chamadas de fora** (`wa-webhook`, `zapsign-webhook`,
    `landing-socioeconomico`, `send-push`) exigem `verify_jwt = false`. Deploy

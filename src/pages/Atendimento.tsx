@@ -28,7 +28,7 @@
 // src/lib/tasksAtendimento.ts, testada.
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8691,6 +8691,13 @@ function ModelosDaRegua({ modelos, regua, onEditar, onAlternar, onMudarDia }: {
  * O pincel de fechado apaga, e é por isso que ele existe: sem ele não haveria
  * como tirar uma faixa desenhada por engano sem apagar o dia inteiro.
  */
+/* A CURVA E O TEMPO DAS ANIMAÇÕES DESTA TELA, num lugar só.
+   Mola em vez de duração fixa no que muda de tamanho: um cartão que cresce com
+   `duration` chega ao fim e para seco; com mola ele desacelera, que é como
+   coisa com peso se comporta. */
+const SUAVE = [0.22, 1, 0.36, 1] as const;
+const TRANSICAO_CARTAO = { type: "spring", stiffness: 380, damping: 34 } as const;
+
 const COR_DA_FAIXA: Record<Faixa, string> = {
   fechado: "bg-white/[0.05]",
   direcionamento: "bg-amber-400/35",
@@ -8784,6 +8791,8 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
       {/* ── O ESTADO DE AGORA, ANTES DE QUALQUER AJUSTE ──
           Quem abre esta tela quer saber o que está saindo neste minuto. A grade
           inteira não responde isso de relance; esta linha responde. */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: SUAVE }}>
       <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -8847,15 +8856,23 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
           </button>
         </div>
 
-        {config?.fora_agora && (
-          <p className="text-[11px] text-amber-200/80 leading-snug">
-            Enquanto isto estiver ligado, quem escrever no horário de atendimento recebe a mensagem de
-            direcionamento. Lembre de desligar ao voltar.
-          </p>
-        )}
+        <AnimatePresence>
+          {config?.fora_agora && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: SUAVE }}
+              className="text-[11px] text-amber-200/80 leading-snug overflow-hidden">
+              Enquanto isto estiver ligado, quem escrever no horário de atendimento recebe a mensagem de
+              direcionamento. Lembre de desligar ao voltar.
+            </motion.p>
+          )}
+        </AnimatePresence>
       </SpotlightCard>
+      </motion.div>
 
       {/* ── A GRADE ── */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.06, ease: SUAVE }}>
       <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -8864,18 +8881,23 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
               Escolha o pincel e arraste na barra do dia. O que ficar sem cor é fora do horário.
             </p>
           </div>
-          {gradeMudou && (
-            <div className="flex items-center gap-1.5">
-              <Button size="sm" variant="ghost" className="h-7 text-[11px]"
-                onClick={() => setGrade(JSON.parse(gradeSalva))} disabled={salvandoGrade}>
-                Desfazer
-              </Button>
-              <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvarGrade} disabled={salvandoGrade || !aoVivo}>
-                {salvandoGrade ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                Salvar grade
-              </Button>
-            </div>
-          )}
+          <AnimatePresence>
+            {gradeMudou && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.2, ease: SUAVE }}
+                className="flex items-center gap-1.5">
+                <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                  onClick={() => setGrade(JSON.parse(gradeSalva))} disabled={salvandoGrade}>
+                  Desfazer
+                </Button>
+                <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvarGrade} disabled={salvandoGrade || !aoVivo}>
+                  {salvandoGrade ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  Salvar grade
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="flex flex-wrap gap-1.5">
@@ -8952,30 +8974,36 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
           </Button>
         </div>
       </SpotlightCard>
+      </motion.div>
 
       {/* ── AS TRÊS MENSAGENS ──
           Fechadas, cabem lado a lado e mostram o que está escrito em cada uma.
           Aberta, a que se está escrevendo ocupa a largura toda: escrever uma
           mensagem de WhatsApp num campo de três centímetros é o jeito de a
           pessoa não reler o que escreveu antes de salvar. */}
-      <div className={cn("grid gap-3", abertaFaixa ? "grid-cols-1" : "lg:grid-cols-3")}>
-        {([
-          ["fechado", "Fora do horário",
-            "Sai na hora, para quem escreve com o escritório fechado."],
-          ["direcionamento", "Direcionamento",
-            "Já abrimos, o responsável começa mais tarde. É também a que a fila manda de manhã para quem escreveu de madrugada."],
-          ["atendimento", "Saudação do atendimento",
-            "Opcional. Vazia, ninguém recebe nada no horário em que tem gente aqui."],
-        ] as [Faixa, string, string][]).map(([faixa, titulo, descricao]) => (
-          <EditorDaFaixa
-            key={faixa}
-            faixa={faixa} instancia={instancia} aoVivo={aoVivo} userId={userId}
-            titulo={titulo} descricao={descricao}
-            guardada={msgs?.[faixa]} onSalvo={invalidar}
-            aberta={abertaFaixa === faixa}
-            onAbrir={() => setAbertaFaixa((f) => (f === faixa ? null : faixa))} />
-        ))}
-      </div>
+      {/* O CARTÃO CRESCE, não troca de lugar num piscar. Abrir muda a grade de
+          três colunas para uma, e sem a animação de layout os outros dois
+          saltam para baixo sem que o olho acompanhe qual virou qual. */}
+      <LayoutGroup>
+        <div className={cn("grid gap-3", abertaFaixa ? "grid-cols-1" : "lg:grid-cols-3")}>
+          {([
+            ["fechado", "Fora do horário",
+              "Sai na hora, para quem escreve com o escritório fechado."],
+            ["direcionamento", "Direcionamento",
+              "Já abrimos, o responsável começa mais tarde. É também a que a fila manda de manhã para quem escreveu de madrugada."],
+            ["atendimento", "Saudação do atendimento",
+              "Opcional. Vazia, ninguém recebe nada no horário em que tem gente aqui."],
+          ] as [Faixa, string, string][]).map(([faixa, titulo, descricao], i) => (
+            <EditorDaFaixa
+              key={faixa}
+              faixa={faixa} instancia={instancia} aoVivo={aoVivo} userId={userId}
+              titulo={titulo} descricao={descricao} ordem={i}
+              guardada={msgs?.[faixa]} onSalvo={invalidar}
+              aberta={abertaFaixa === faixa}
+              onAbrir={() => setAbertaFaixa((f) => (f === faixa ? null : faixa))} />
+          ))}
+        </div>
+      </LayoutGroup>
     </div>
   );
 }
@@ -8983,7 +9011,7 @@ function PrimeiroAtendimento({ instancia, aoVivo, userId }: {
 /* Uma das três mensagens. Cada uma se salva sozinha: são textos que se ajustam
    em momentos diferentes, e um botão único obrigaria a reler as outras duas
    para mexer numa. */
-function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, guardada, onSalvo, aberta, onAbrir }: {
+function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, guardada, onSalvo, aberta, onAbrir, ordem = 0 }: {
   faixa: Faixa;
   instancia: string;
   aoVivo: boolean;
@@ -8994,6 +9022,8 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
   onSalvo: () => void;
   aberta: boolean;
   onAbrir: () => void;
+  /** posição na fileira, só para a entrada escalonada */
+  ordem?: number;
 }) {
   const [texto, setTexto] = useState("");
   const [mantidos, setMantidos] = useState<Midia[]>([]);
@@ -9030,29 +9060,50 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
   if (!aberta) {
     const resumo = resumoDaMensagem(texto, mantidos);
     return (
-      <button onClick={onAbrir}
+      <motion.button
+        layout
+        layoutId={`faixa-${faixa}`}
+        onClick={onAbrir}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ layout: TRANSICAO_CARTAO, duration: 0.3, delay: ordem * 0.05, ease: SUAVE }}
+        whileHover={{ y: -2 }}
         className="text-left rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5 flex flex-col gap-1.5
                    hover:border-primary/30 hover:bg-white/[0.04] transition-colors">
-        <span className="flex items-center gap-1.5">
+        <motion.span layout="position" className="flex items-center gap-1.5">
           <span className={cn("h-2.5 w-2.5 rounded-sm shrink-0", COR_DA_FAIXA[faixa])} />
           <span className="text-[12.5px] font-medium">{titulo}</span>
-          {mudou && <span className="text-[9.5px] text-amber-300/80 ml-auto">não salvo</span>}
-        </span>
+          <AnimatePresence>
+            {mudou && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+                className="text-[9.5px] text-amber-300/80 ml-auto">não salvo</motion.span>
+            )}
+          </AnimatePresence>
+        </motion.span>
         <span className="text-[10.5px] text-muted-foreground/80 leading-snug">{descricao}</span>
-        <span className={cn("text-[11.5px] leading-snug mt-1 line-clamp-3",
-          resumo ? "text-foreground/85" : "text-muted-foreground/50 italic")}>
+        <motion.span
+          key={resumo}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}
+          className={cn("text-[11.5px] leading-snug mt-1 line-clamp-3",
+            resumo ? "text-foreground/85" : "text-muted-foreground/50 italic")}>
           {resumo || "sem mensagem. Ninguém recebe nada nesta faixa."}
-        </span>
+        </motion.span>
         <span className="text-[10.5px] text-primary/80 mt-0.5">
           {resumo ? "Clique para editar" : "Clique para escrever"}
         </span>
-      </button>
+      </motion.button>
     );
   }
 
   return (
+    <motion.div
+      layout
+      layoutId={`faixa-${faixa}`}
+      transition={{ layout: TRANSICAO_CARTAO }}
+      className="rounded-xl">
     <SpotlightCard sutil className="rounded-xl p-3.5 flex flex-col gap-2.5">
-      <div className="flex items-start justify-between gap-3">
+      <motion.div layout="position" className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-[12.5px] font-medium flex items-center gap-1.5">
             <span className={cn("h-2.5 w-2.5 rounded-sm", COR_DA_FAIXA[faixa])} />
@@ -9063,10 +9114,17 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
         <button onClick={onAbrir} title="Recolher"
           className="shrink-0 h-7 w-7 grid place-items-center rounded-lg text-muted-foreground/60
                      hover:text-foreground hover:bg-white/[0.05] transition-colors">
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className="h-4 w-4 rotate-180" />
         </button>
-      </div>
+      </motion.div>
 
+      {/* O CONTEÚDO ENTRA DEPOIS DO CARTÃO TER CRESCIDO. Aparecer junto faria o
+          texto nascer espremido e se esticar, que é o efeito de coisa mal
+          encaixada. */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25, delay: 0.12, ease: SUAVE }}
+        className="flex flex-col gap-2.5">
       <BarraDeMensagem
         linhas={5}
         texto={texto}
@@ -9086,19 +9144,28 @@ function EditorDaFaixa({ faixa, instancia, aoVivo, userId, titulo, descricao, gu
         </p>
       )}
 
-      {mudou && (
-        <div className="flex items-center gap-1.5">
-          <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvar} disabled={salvando || !aoVivo}>
-            {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Salvar
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={salvando}
-            onClick={() => { const b = JSON.parse(base); setTexto(b.t); setMantidos(b.m); setNovos([]); }}>
-            Desfazer
-          </Button>
-        </div>
-      )}
+      {/* Os botões ENTRAM quando há o que salvar, em vez de aparecerem secos.
+          É o aviso de que algo mudou, e ele chega junto com a possibilidade. */}
+      <AnimatePresence>
+        {mudou && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: SUAVE }}
+            className="flex items-center gap-1.5 overflow-hidden">
+            <Button size="sm" className="h-7 gap-1.5 text-[11px]" onClick={salvar} disabled={salvando || !aoVivo}>
+              {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Salvar
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={salvando}
+              onClick={() => { const b = JSON.parse(base); setTexto(b.t); setMantidos(b.m); setNovos([]); }}>
+              Desfazer
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </motion.div>
     </SpotlightCard>
+    </motion.div>
   );
 }
 
@@ -9175,38 +9242,54 @@ function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa, ins
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-3">
+      {/* O indicador DESLIZA de uma aba para a outra, como na barra do
+          dashboard: um fundo que acende e apaga em cada botão não diz que são
+          dois lados da mesma coisa. */}
       <div className="flex items-center gap-1 shrink-0">
         {([["fila", "Fila"], ["primeiro", "Primeiro atendimento"]] as const).map(([chave, rotulo]) => (
           <button key={chave} onClick={() => setSubAba(chave)}
-            className={cn("rounded-lg px-3 py-1.5 text-[12px] ring-1 transition-colors",
-              subAba === chave
-                ? "bg-primary/12 text-foreground ring-primary/25"
-                : "bg-white/[0.02] text-muted-foreground ring-white/[0.07] hover:bg-white/[0.05]")}>
-            {rotulo}
+            className={cn("relative rounded-lg px-3 py-1.5 text-[12px] transition-colors",
+              subAba === chave ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+            {subAba === chave && (
+              <motion.span
+                layoutId="sub-aba-programadas"
+                className="absolute inset-0 rounded-lg bg-primary/[0.12] ring-1 ring-primary/25"
+                transition={{ type: "spring", stiffness: 420, damping: 34 }} />
+            )}
+            <span className="relative">{rotulo}</span>
             {chave === "fila" && agendadas.length > 0 && (
-              <span className="ml-1.5 text-[10px] tabular-nums opacity-60">{agendadas.length}</span>
+              <span className="relative ml-1.5 text-[10px] tabular-nums opacity-60">{agendadas.length}</span>
             )}
           </button>
         ))}
       </div>
 
-      {subAba === "primeiro" ? (
-        <PrimeiroAtendimento instancia={instancia} aoVivo={aoVivo} userId={userId} />
-      ) : (
-        <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
-          {agendadas.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
-              Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
-            </p>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={subAba}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}>
+          {subAba === "primeiro" ? (
+            <PrimeiroAtendimento instancia={instancia} aoVivo={aoVivo} userId={userId} />
           ) : (
-            <>
-              <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
-              <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
-              <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
-            </>
+            <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
+              {agendadas.length === 0 ? (
+                <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
+                  Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
+                </p>
+              ) : (
+                <>
+                  <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
+                  <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
+                  <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
+                </>
+              )}
+            </SpotlightCard>
           )}
-        </SpotlightCard>
-      )}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
