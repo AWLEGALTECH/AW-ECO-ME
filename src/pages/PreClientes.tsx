@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -119,8 +120,14 @@ function rangeDoPeriodo(key: PeriodoKey, ini?: string, fim?: string): [Date | nu
   }
 }
 
-function ConfirmarDialog({ pre, onConfirmed }: { pre: PreCliente; onConfirmed: (driveUrl: string, observacoes: string) => void }) {
+function ConfirmarDialog({ pre, onConfirmed, abrirAgora = false }: {
+  pre: PreCliente;
+  onConfirmed: (driveUrl: string, observacoes: string) => void;
+  /** veio de uma conversa com `?pre=`: já abre, que é o que a pessoa pediu */
+  abrirAgora?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (abrirAgora) setOpen(true); }, [abrirAgora]);
   const [drive, setDrive] = useState(pre.drive_folder_url ?? "");
   const [observacoes, setObservacoes] = useState("");
   const [docsConfirmados, setDocsConfirmados] = useState(false);
@@ -474,6 +481,35 @@ export default function PreClientes() {
   const [customFim, setCustomFim] = useState("");
   const [voluntario, setVoluntario] = useState("todos");
   const [expandido, setExpandido] = useState<PreCliente | null>(null);
+
+  /* VEIO DE UMA CONVERSA. O atendimento manda para cá com `?pre=<id>` depois de
+     subir os documentos daquele contato para a pasta: o cadastro em si acontece
+     aqui, e duplicar essa rotina lá seria manter duas maneiras de criar cliente,
+     uma delas ficando para trás na primeira mudança.
+     A ficha alvo precisa APARECER, então o filtro abre em "todos": ela pode
+     estar em qualquer status, e chegar numa lista que a esconde é pior que não
+     ter link nenhum. */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const preAlvo = searchParams.get("pre");
+  const [destaque, setDestaque] = useState<string | null>(null);
+  useEffect(() => {
+    if (!preAlvo) return;
+    setFiltroStatus("todos");
+    setPeriodo("tudo");
+    setDestaque(preAlvo);
+    // O parâmetro sai da barra depois de usado: recarregar a página não deve
+    // reabrir um diálogo de confirmação que já foi respondido.
+    setSearchParams((p) => { const n = new URLSearchParams(p); n.delete("pre"); return n; }, { replace: true });
+  }, [preAlvo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rola até a ficha assim que ela existir na tela.
+  useEffect(() => {
+    if (!destaque) return;
+    const t = setTimeout(() => {
+      document.getElementById(`pre-${destaque}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [destaque]);
 
   const { data: preClientes, isLoading } = useQuery({
     queryKey: ["pre_clientes", filtroStatus],
@@ -980,8 +1016,11 @@ export default function PreClientes() {
         : fmtDate(pre.created_at);
     const rubricas = rubricasNaoBloqueadas(pre);
     const nBloq = rubricasBloqueadasCount(pre);
+    const alvo = destaque === pre.id;
     return (
-      <SpotlightCard key={pre.id} className="p-5" onClick={() => setExpandido(pre)}>
+      <SpotlightCard key={pre.id} id={`pre-${pre.id}`}
+        className={`p-5 ${alvo ? "ring-2 ring-primary/60" : ""}`}
+        onClick={() => setExpandido(pre)}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-medium truncate">{pre.nome}</h3>
@@ -1057,7 +1096,8 @@ export default function PreClientes() {
 
         {podeAgir && (
           <div className="mt-4 flex items-center gap-2 border-t border-border pt-3" onClick={(e) => e.stopPropagation()}>
-            <ConfirmarDialog pre={pre} onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
+            <ConfirmarDialog pre={pre} abrirAgora={alvo}
+              onConfirmed={(driveUrl, obs) => iniciarConfirmacao(pre, driveUrl, obs)} />
 
             <AlertDialog>
               <AlertDialogTrigger asChild>

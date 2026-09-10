@@ -11,10 +11,12 @@ interface SpotlightCardProps {
      o mesmo gesto com um terço da intensidade — o cartão ainda responde, mas
      para de piscar. */
   sutil?: boolean;
+  /** âncora do cartão, para um link de fora conseguir rolar até ele */
+  id?: string;
 }
 
 export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
-  ({ children, className, onClick, sutil = false }, forwardedRef) => {
+  ({ children, className, onClick, sutil = false, id }, forwardedRef) => {
     const internalRef = useRef<HTMLDivElement>(null);
     const ref = (forwardedRef as React.RefObject<HTMLDivElement>) || internalRef;
     const [coords, setCoords] = useState({ x: 0, y: 0 });
@@ -34,6 +36,7 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
     return (
       <div
         ref={ref}
+        id={id}
         onMouseMove={handleMove}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}

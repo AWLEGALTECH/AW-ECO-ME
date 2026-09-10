@@ -107,6 +107,9 @@ import {
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
+import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
+import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
+import type { AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -1147,6 +1150,13 @@ export default function AtendimentoPage() {
      extrato é foto de foto), e quem atende não pode ficar preso nela. A conversa
      continua nesta aba, do jeito que estava. */
   const docsDaConversa = useMemo(() => documentosDaConversa(lead.conversa), [lead.conversa]);
+
+  /* A FICHA DO WRITER COM O MESMO NÚMERO DESTA CONVERSA.
+     Só é buscada quando o lead está esperando assinatura, que é a única etapa
+     onde ela tem o que fazer: antes disso a ficha nem existe, e depois dela o
+     cadastro já aconteceu. */
+  const { data: preClienteDoLead } = usePreClienteDoNumero(
+    lead.telefone, aoVivo && estagioDe(lead) === "aguardando_assinatura");
   const abrirEscolhaDoFinder = () => {
     setDocsEscolhidos(selecaoInicial(docsDaConversa));
     setFinderAberto(true);
@@ -4452,6 +4462,9 @@ export default function AtendimentoPage() {
                     onLevarAoWriter={aoVivo ? levarAoWriter : undefined}
                     abrindoWriter={abrindoWriter}
                     docsNaConversa={docsDaConversa.length}
+                    preCliente={preClienteDoLead ?? null}
+                    anexosDaConversa={lead.conversa as AnexoCandidato[]}
+                    aoVivo={aoVivo}
                     onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
@@ -6836,7 +6849,7 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0 }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0, preCliente = null, anexosDaConversa = [], aoVivo = true }: {
   /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
   etapas: readonly EtapaDef[];
   perdidoMotivo?: string | null;
@@ -6856,6 +6869,11 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   abrindoWriter?: boolean;
   /** quantos PDFs a conversa tem, pra o botão dizer o tamanho da fila */
   docsNaConversa?: number;
+  /** a ficha do Writer que tem o mesmo número desta conversa, quando existe */
+  preCliente?: PreClienteDoLead | null;
+  /** as mensagens, pra escolher o que sobe pra pasta na hora de aprovar */
+  anexosDaConversa?: AnexoCandidato[];
+  aoVivo?: boolean;
   onConcluirTask: (id: string) => void;
   onAbrirTask: (t: Task) => void;
 }) {
@@ -7032,6 +7050,17 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                         <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{docsNaConversa}</span>
                       )}
                     </button>
+                  )}
+
+                  {/* ── A FICHA QUE O WRITER GEROU, AQUI DENTRO ──
+                      O kit saiu, o link de assinatura foi mandado, e a ficha
+                      com CPF, endereço e pasta existe em outra tela. Quem está
+                      conversando não sabia se ela já tinha sido aprovada, e
+                      para aprovar tinha que sair daqui e achar o nome numa
+                      lista de cento e vinte e seis. O que amarra os dois é o
+                      número: o Writer exige o WhatsApp para gerar o kit. */}
+                  {e.chave === "aguardando_assinatura" && preCliente && (
+                    <PreClienteNaJornada pre={preCliente} anexos={anexosDaConversa} aoVivo={aoVivo} />
                   )}
 
                   {/* ── E A PONTE COM O WRITER ──
