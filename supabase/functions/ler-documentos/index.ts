@@ -9,11 +9,13 @@
 // página, a assinatura de aplicativo de scanner de celular). Quem lê é um
 // modelo de visão.
 //
+// Secrets: OPENAI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+//
 // ───────────────────────────── o que esta função faz ────────────────────────
 //
 //   POST { conversa_id, paths?, refazer?, lote? }  ->  { leituras, restam }
 //
-// Baixa cada anexo, manda ao Claude UM DE CADA VEZ e guarda o cru em
+// Baixa cada anexo, manda ao modelo UM DE CADA VEZ e guarda o cru em
 // `wa_leitura_documentos`. Devolve o que leu, sem julgar nada.
 //
 // UM DE CADA VEZ, e não os nove juntos, por dois motivos que valem o custo:
@@ -27,22 +29,11 @@
 // worker. Cada chamada lê `lote` (quatro) e devolve quantos `restam`; a tela
 // chama de novo até zerar, e de quebra ganha barra de progresso.
 //
-// ──────────────────────── por que Claude e não Gemini ───────────────────────
-//
-// O Gemini estava no free tier, com teto de VINTE LEITURAS POR DIA. Um único
-// lead com doze anexos consumia mais da metade da cota diária, e o teste do
-// segundo lead do dia já batia em 429. Não era preço, era teto.
-//
-// Medido o custo do Claude para este trabalho: a foto custa cerca de 1.500
-// tokens (o modelo limita a imagem a ~1,15 megapixel), o prompt uns 500, e a
-// resposta uns 100. Dá algo perto de sete centavos por documento no Opus 5,
-// menos de um real no lead inteiro. O Opus é o mais caro dos três e é o
-// escolhido de propósito: a diferença para o modelo mais barato é de cinco
-// centavos por documento, e o que está em jogo é transcrever dígito de CPF e
-// número de RG de uma foto torta. A conferência do outro lado pega CPF com
-// dígito errado, mas NÃO pega RG errado, endereço errado nem nome da mãe no
-// lugar do titular. Economizar num campo que vai para a procuração é economia
-// ruim.
+// O CHAMADOR É O MESMO QUE O `spy-analisar` JÁ USA. Endpoint `/v1/responses`,
+// `text.format` com json_schema estrito, corte duro por AbortController e a
+// distinção entre 429 de ritmo e 429 de crédito acabado. Isso não foi escrito
+// de novo aqui: foi copiado de código que já roda em produção neste projeto,
+// porque helper de rede reescrito de memória é onde nascem os bugs mudos.
 //
 // QUEM JULGA NÃO É ESTA FUNÇÃO. O que volta daqui é o que o modelo disse, e o
 // modelo erra. A conferência (dígito do CPF, data que existe, nome cruzado)
@@ -51,9 +42,6 @@
 // leitura, não.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import Anthropic from "npm:@anthropic-ai/sdk";
-import { zodOutputFormat } from "npm:@anthropic-ai/sdk/helpers/zod";
-import { z } from "npm:zod";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -63,18 +51,17 @@ const CORS = {
 const j = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
-const MODELO = "claude-opus-5";
+/* `gpt-4o` e não o mini. A diferença é de centavos por documento e o que está
+   em jogo é transcrever dígito de CPF e número de RG de uma foto torta. A
+   conferência do outro lado pega CPF com dígito errado, mas NÃO pega RG errado,
+   endereço errado nem nome da mãe no lugar do titular. O `spy-insights` já faz
+   a mesma escolha pelo mesmo motivo. */
+const MODELO = "gpt-4o";
 
-/* O que o modelo enxerga. HEIC do iPhone não entra nesta lista: o WhatsApp
+/* O que o modelo enxerga como imagem. HEIC do iPhone não entra: o WhatsApp
    quase sempre converte para JPEG antes de enviar, e quando não converte é
    melhor dizer isso na tela do que mandar bytes que voltam em erro. */
-const IMAGENS_OK: Record<string, "image/jpeg" | "image/png" | "image/gif" | "image/webp"> = {
-  "image/jpeg": "image/jpeg",
-  "image/jpg": "image/jpeg",
-  "image/png": "image/png",
-  "image/gif": "image/gif",
-  "image/webp": "image/webp",
-};
+const IMAGENS_OK = new Set(["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]);
 
 /* Dez megas já é foto de documento muito acima do normal (as desta base têm
    entre 17 KB e 2 MB), e o base64 de um arquivo maior que isso é o que derruba
@@ -112,27 +99,24 @@ REGRAS, nesta ordem de importância:
 8. "endereco" é a linha completa: logradouro, número, complemento e bairro. O CEP vai separado, no campo "cep".
 9. "tipo" é o que este documento é, em duas ou três palavras: "RG", "CPF", "CNH", "comprovante de residência", "certidão de casamento", "contracheque", "extrato bancário", "outro".`;
 
-/* O formato da resposta. Com `output_config.format` o modelo não tem como
-   devolver outra coisa: some a etapa de caçar JSON dentro de crase, que era
-   metade dos erros da versão anterior. */
-const Ficha = z.object({
-  tipo: z.string(),
-  nome: z.string(),
-  cpf: z.string(),
-  rg: z.string(),
-  orgao_expedidor: z.string(),
-  nascimento: z.string(),
-  cep: z.string(),
-  endereco: z.string(),
-  profissao: z.string(),
-  estado_civil: z.string(),
-});
-type FichaLida = z.infer<typeof Ficha>;
-
 const CAMPOS = [
   "nome", "cpf", "rg", "orgao_expedidor", "nascimento",
   "cep", "endereco", "profissao", "estado_civil",
 ] as const;
+
+/* `strict: true` exige `additionalProperties: false` e TODOS os campos em
+   `required`. Com isso o modelo não tem como devolver outra coisa, e some a
+   etapa de caçar JSON dentro de crase, que era metade dos erros antes. */
+const SCHEMA_FICHA = {
+  type: "json_schema", name: "ficha_do_documento", strict: true,
+  schema: {
+    type: "object", additionalProperties: false,
+    required: ["tipo", ...CAMPOS],
+    properties: Object.fromEntries(
+      ["tipo", ...CAMPOS].map((c) => [c, { type: "string" }]),
+    ),
+  },
+};
 
 /* Sem `Array.from`: ele faz uma cópia do pedaço em array comum (oito bytes por
    número, em vez de um), e era parte do que estourava a memória do worker. */
@@ -145,71 +129,116 @@ function paraBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-/** O bloco que vai junto do prompt: documento para PDF, imagem para foto. */
-function anexoParaBloco(bytes: Uint8Array, mime: string) {
-  const dados = paraBase64(bytes);
-  if (mime.includes("pdf")) {
-    // O Claude lê PDF nativamente, então scan e foto seguem pelo mesmo caminho.
-    return {
-      type: "document" as const,
-      source: { type: "base64" as const, media_type: "application/pdf" as const, data: dados },
-    };
-  }
-  const media = IMAGENS_OK[mime];
-  if (!media) return null;
-  return { type: "image" as const, source: { type: "base64" as const, media_type: media, data: dados } };
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej) => {
+  const t = setTimeout(res, ms);
+  if (signal) signal.addEventListener("abort", () => { clearTimeout(t); rej(new Error("timeout")); }, { once: true });
+});
+
+/* O CHAMADOR, copiado do `spy-analisar` que já roda em produção. Corte duro por
+   tempo (AbortController), e a diferença entre 429 de ritmo (espera e tenta de
+   novo) e 429 de crédito acabado (desiste na hora, porque insistir não traz
+   crédito de volta). */
+async function openai(content: unknown[], maxTokens: number, timeoutMs = 45000): Promise<string> {
+  const key = Deno.env.get("OPENAI_API_KEY");
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  let lastErr = "";
+  const tries = 3;
+  try {
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      if (ac.signal.aborted) throw new Error("timeout_openai");
+      try {
+        const r = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify({
+            model: MODELO,
+            input: [{ role: "user", content }],
+            max_output_tokens: maxTokens,
+            // Zero: não se quer criatividade na leitura de um RG.
+            temperature: 0,
+            text: { format: SCHEMA_FICHA },
+          }),
+          signal: ac.signal,
+        });
+        if (r.status === 429) {
+          const body = (await r.text()).slice(0, 300);
+          lastErr = `openai 429: ${body.slice(0, 180)}`;
+          if (/insufficient_quota|no credits|billing/i.test(body)) {
+            throw new Error(`sem_creditos: ${body.slice(0, 140)}`);
+          }
+          if (attempt < tries) { await sleep(Math.min(attempt * 4000, 10000), ac.signal); continue; }
+          throw new Error(lastErr);
+        }
+        if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 260)}`);
+        const d = await r.json();
+        if (Array.isArray(d.output)) {
+          for (const o of d.output) {
+            for (const c of (o.content || [])) {
+              if (c?.type === "refusal" && c.refusal) throw new Error(`recusa: ${String(c.refusal).slice(0, 200)}`);
+            }
+          }
+        }
+        if (d.status === "incomplete") throw new Error(`incompleto: ${d.incomplete_details?.reason || "?"}`);
+        let txt = d.output_text;
+        if (!txt && Array.isArray(d.output)) {
+          for (const o of d.output) {
+            for (const c of (o.content || [])) if (typeof c.text === "string") { txt = c.text; break; }
+          }
+        }
+        if (txt) return txt;
+        throw new Error("resposta vazia");
+      } catch (e) {
+        lastErr = String((e as Error)?.message || e);
+        if (ac.signal.aborted || /aborted|the operation was aborted|timeout/i.test(lastErr)) {
+          throw new Error("timeout_openai");
+        }
+        if (/sem_creditos|insufficient_quota|no credits/i.test(lastErr)) break;
+        if (attempt < tries) await sleep(1500, ac.signal);
+      }
+    }
+    throw new Error(lastErr || "openai falhou");
+  } finally { clearTimeout(timer); }
 }
 
-/**
- * Uma leitura.
- *
- * O SDK já tenta de novo sozinho em 429 e 5xx (`maxRetries`), então aqui não
- * existe mais a escada de esperas que a versão do Gemini carregava: ela só
- * duplicava o que a biblioteca faz melhor, e foi o que fez uma tela parecer
- * travada por oitenta e cinco segundos.
- */
-async function lerComClaude(
-  claude: Anthropic, bytes: Uint8Array, mime: string,
+const parseJson = (s: string): Record<string, unknown> | null => {
+  try {
+    const v = JSON.parse(String(s).replace(/^```json\s*|```$/g, "").trim());
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch { return null; }
+};
+
+/** O bloco do anexo: `input_file` para PDF, `input_image` para foto. */
+function anexoParaBloco(bytes: Uint8Array, mime: string, nome: string) {
+  const dados = paraBase64(bytes);
+  if (mime.includes("pdf")) {
+    // O modelo abre o PDF sozinho, então scan e foto seguem pelo mesmo caminho.
+    return { type: "input_file", filename: nome.endsWith(".pdf") ? nome : `${nome}.pdf`,
+             file_data: `data:application/pdf;base64,${dados}` };
+  }
+  if (!IMAGENS_OK.has(mime)) return null;
+  const m = mime === "image/jpg" ? "image/jpeg" : mime;
+  return { type: "input_image", image_url: `data:${m};base64,${dados}` };
+}
+
+async function lerDocumento(
+  bytes: Uint8Array, mime: string, nome: string,
 ): Promise<{ campos: Record<string, string>; tipo: string } | { erro: string }> {
   if (bytes.length > LIMITE_BYTES) {
     return { erro: `arquivo grande demais (${Math.round(bytes.length / 1e6)} MB)` };
   }
-  const bloco = anexoParaBloco(bytes, mime);
+  const bloco = anexoParaBloco(bytes, mime, nome);
   if (!bloco) return { erro: `não sei ler ${mime}` };
 
   try {
-    const resposta = await claude.messages.parse({
-      model: MODELO,
-      /* Folga, não desperdício: só se paga o que for gerado. A resposta tem
-         cem tokens, mas o raciocínio adaptativo entra no mesmo teto, e teto
-         curto trunca no meio e obriga a refazer. */
-      max_tokens: 8192,
-      output_config: {
-        /* Esforço baixo de propósito. Copiar um CPF de uma imagem é leitura,
-           não raciocínio, e quem decide o que vale é a conferência do outro
-           lado. Baixar o esforço é melhor que desligar o raciocínio: desligado,
-           o Opus 5 às vezes escreve a resposta no texto visível em vez do
-           formato pedido. */
-        effort: "low",
-        format: zodOutputFormat(Ficha),
-      },
-      // O anexo vem ANTES do texto: é a ordem que o modelo lê melhor.
-      messages: [{ role: "user", content: [bloco, { type: "text", text: PROMPT }] }],
-    });
-
-    const ficha = resposta.parsed_output as FichaLida | null;
-    if (!ficha) return { erro: `o modelo não devolveu a ficha (${resposta.stop_reason ?? "sem motivo"})` };
-
+    const txt = await openai([bloco, { type: "input_text", text: PROMPT }], 1200);
+    const ficha = parseJson(txt);
+    if (!ficha) return { erro: `resposta não veio em JSON: ${String(txt).slice(0, 120)}` };
     const campos: Record<string, string> = {};
     for (const c of CAMPOS) campos[c] = String(ficha[c] ?? "").trim();
     return { campos, tipo: String(ficha.tipo ?? "").trim() };
   } catch (e) {
-    /* Classes tipadas em vez de comparar texto de erro: a diferença entre
-       "acabou a cota" e "a chave está errada" muda o que a tela diz. */
-    if (e instanceof Anthropic.AuthenticationError) return { erro: "a ANTHROPIC_API_KEY não foi aceita" };
-    if (e instanceof Anthropic.RateLimitError) return { erro: "limite de chamadas atingido, tente em instantes" };
-    if (e instanceof Anthropic.APIError) return { erro: `claude ${e.status}: ${String(e.message).slice(0, 160)}` };
-    return { erro: String((e as Error)?.message || e).slice(0, 200) };
+    return { erro: String((e as Error)?.message || e).slice(0, 220) };
   }
 }
 
@@ -221,14 +250,7 @@ Deno.serve(async (req: Request) => {
     const { conversa_id, paths, refazer = false, limite = 30, lote = LOTE_PADRAO } =
       await req.json().catch(() => ({}));
     if (!conversa_id) return j({ error: "conversa_id e obrigatorio" }, 400);
-
-    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!apiKey) return j({ error: "ANTHROPIC_API_KEY nao configurada" }, 500);
-
-    /* Um minuto por documento é muito mais que os poucos segundos que uma
-       leitura leva, e o suficiente para o SDK tentar de novo sem que o lote de
-       quatro estoure o relógio da função. */
-    const claude = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 });
+    if (!Deno.env.get("OPENAI_API_KEY")) return j({ error: "OPENAI_API_KEY nao configurado" }, 500);
 
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -301,7 +323,7 @@ Deno.serve(async (req: Request) => {
          estourar o relógio, o número diz qual documento segurou, em vez de
          deixar adivinhar. */
       const t0 = Date.now();
-      const r = await lerComClaude(claude, bytes, mime);
+      const r = await lerDocumento(bytes, mime, nome);
       const ms = Date.now() - t0;
 
       if ("erro" in r) {
@@ -310,7 +332,16 @@ Deno.serve(async (req: Request) => {
         continue;
       }
       leituras.push({ path, documento: nome, tipo: r.tipo, campos: r.campos, ms });
-      novas.push({ conversa_id, midia_path: path, documento: nome, tipo: r.tipo, campos: r.campos, modelo: MODELO });
+      /* `erro: null` EXPLÍCITO. O upsert só toca nas colunas que vão no
+         payload, então sem esta linha a leitura que deu certo herdava o erro da
+         tentativa anterior: a linha ficava com campos preenchidos E com o texto
+         do 429 antigo. A tela usa a presença de `erro` para decidir se a leitura
+         vale, então o resultado bom era descartado e relido a cada abertura,
+         para sempre. Apareceu no primeiro teste de verdade, com o Luan. */
+      novas.push({
+        conversa_id, midia_path: path, documento: nome,
+        tipo: r.tipo, campos: r.campos, erro: null, modelo: MODELO,
+      });
     }
 
     if (novas.length) {
