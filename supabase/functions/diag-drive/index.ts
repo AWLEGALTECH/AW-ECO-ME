@@ -87,15 +87,34 @@ Deno.serve(async (req: Request) => {
     }
 
     const t = await token(false);
-    const campos = "id,name,driveId,mimeType,owners(emailAddress,displayName),capabilities(canAddChildren,canEdit),permissions(emailAddress,role)";
+    const campos = "id,name,driveId,mimeType,owners(emailAddress,displayName),capabilities(canAddChildren,canEdit),permissions(emailAddress,role,type)";
     const r = await fetch(
       `https://www.googleapis.com/drive/v3/files/${folderId}?supportsAllDrives=true&fields=${encodeURIComponent(campos)}`,
       { headers: { Authorization: `Bearer ${t}` } });
     const info = await r.json();
     if (!r.ok) return j({ error: "drive recusou", status: r.status, detalhe: info }, 200);
 
+    /* QUEM MAIS ENXERGA A PASTA. Os domínios dessa lista dizem se o escritório
+       tem Workspace (domínio próprio) ou Gmail comum, e é isso que define quais
+       correções existem. Sem isso, a pergunta volta para o usuário. */
+    const quemVe: string[] = (info.permissions ?? [])
+      .map((p: any) => p.emailAddress).filter(Boolean);
+    const dominios = [...new Set(quemVe.map((e: string) => e.split("@")[1]).filter(Boolean))];
+
+    // A conta de serviço tem cota? (a resposta é sempre 0, e vale registrar.)
+    let cota: unknown = null;
+    try {
+      const a = await fetch(
+        "https://www.googleapis.com/drive/v3/about?fields=storageQuota,canCreateDrives,user(emailAddress)",
+        { headers: { Authorization: `Bearer ${t}` } });
+      if (a.ok) cota = await a.json();
+    } catch { /* diagnóstico não derruba por isso */ }
+
     const emShared = !!info.driveId;
     return j({
+      quem_enxerga: quemVe,
+      dominios,
+      sobre_a_conta: cota,
       pasta: { id: info.id, nome: info.name },
       conta_de_servico: sa.client_email,
       em_drive_compartilhado: emShared,
