@@ -114,8 +114,9 @@ import { VincularAnalise } from "@/components/VincularAnalise";
 import { nomeParaMostrar, nomeCurto, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
 import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
+import { LeituraDosDocumentos } from "@/components/LeituraDosDocumentos";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
-import type { AnexoCandidato } from "@/lib/anexosParaPasta";
+import { podeIrParaPasta, type AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -4614,6 +4615,7 @@ export default function AtendimentoPage() {
                     aoVivo={aoVivo}
                     conversaId={lead.id}
                     nomeDoLeadParaBusca={lead.nomeReal || lead.nome}
+                    nomeRealDoLead={lead.nomeReal ?? null}
                     telefoneDoLead={telefoneNaTela(lead.telefone)}
                     onVinculouAnalise={() => { invalidarWa(); invalidarEtapaLog(); }}
                     onNovaTask={novaProgramada}
@@ -7000,7 +7002,7 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0, preCliente = null, anexosDaConversa = [], aoVivo = true, conversaId, nomeDoLeadParaBusca, telefoneDoLead, onVinculouAnalise }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0, preCliente = null, anexosDaConversa = [], aoVivo = true, conversaId, nomeDoLeadParaBusca, nomeRealDoLead = null, telefoneDoLead, onVinculouAnalise }: {
   /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
   etapas: readonly EtapaDef[];
   perdidoMotivo?: string | null;
@@ -7024,6 +7026,9 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   conversaId?: string;
   /** o nome que a conversa mostra hoje, só para ordenar os candidatos */
   nomeDoLeadParaBusca?: string;
+  /** o nome de cartório, quando já se sabe: é contra ele que o nome lido nos
+   *  documentos é cruzado. Sem ele nada se confere sozinho, só se olha. */
+  nomeRealDoLead?: string | null;
   telefoneDoLead?: string | null;
   onVinculouAnalise?: () => void;
   /** a ficha do Writer que tem o mesmo número desta conversa, quando existe */
@@ -7045,6 +7050,13 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   const passagens = useMemo(
     () => passagensPorEtapa(log, trilho.map((e) => e.chave)),
     [log, trilho]);
+
+  /* Quantos papéis o LEAD mandou. `docsNaConversa` conta os PDFs dos dois
+     lados, e serve ao Finder; aqui o que interessa é o que veio dele, porque
+     contrato que nós enviamos não traz dado dele que já não saibamos. */
+  const docsDoLeadNaConversa = useMemo(
+    () => anexosDaConversa.filter((a) => a.de === "lead" && podeIrParaPasta(a)).length,
+    [anexosDaConversa]);
 
   /* As programadas de cada etapa. Uma mensagem marcada quando o lead estava em
      Extrato foi escrita pensando em Extrato -- dali a três dias ele já mudou de
@@ -7247,6 +7259,23 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                       assinatura. O Writer abre em outra guia, já com a análise
                       comercial deste contato: o nome que o extrato revelou, o
                       CPF e o réu entram sozinhos. */}
+                  {/* ── OS DOCUMENTOS DO LEAD, LIDOS ──
+                      Nesta etapa o RG, o CPF e o comprovante já estão na
+                      conversa, em foto. O caminho antigo era abrir cada um,
+                      ampliar, e copiar nove campos à mão para a outra guia.
+                      Aqui um modelo de visão lê, a máquina confere o que dá
+                      para conferir (o dígito do CPF fecha ou não fecha), e o
+                      que sobra vai marcado para olho humano. Só depois disso o
+                      Writer abre preenchido. */}
+                  {e.chave === "aguardando_documentos" && conversaId && (
+                    <LeituraDosDocumentos
+                      conversaId={conversaId}
+                      nomeConhecido={nomeRealDoLead}
+                      nomeDoLead={nomeDoLeadParaBusca}
+                      quantosDocumentos={docsDoLeadNaConversa}
+                      aoVivo={aoVivo} />
+                  )}
+
                   {e.chave === "aguardando_documentos" && onLevarAoWriter && (
                     <button onClick={onLevarAoWriter} disabled={abrindoWriter}
                       className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] py-1.5 text-[11px] font-medium text-primary hover:bg-primary/[0.13] transition-colors disabled:opacity-60">

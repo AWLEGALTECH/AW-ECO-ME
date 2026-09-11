@@ -60,6 +60,33 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.dadosPacote1.nacionalidade  = 'brasileiro';
     }
 
+    // A QUALIFICACAO LIDA NOS DOCUMENTOS DO LEAD (?qualificacao=base64 JSON).
+    //
+    // Vem da aba de atendimentos: la um modelo de visao leu o RG, o CPF e o
+    // comprovante que o lead mandou no WhatsApp, uma pessoa conferiu campo a
+    // campo, e o que sobreviveu a conferencia chega aqui pronto. Sem isto, os
+    // mesmos nove campos eram digitados de novo, olhando pra outra guia.
+    //
+    // NAO SOBRESCREVE o que ja existe: se veio ?cliente=, o cadastro do banco
+    // manda, porque ele ja foi conferido uma vez e assinado. Isto aqui preenche
+    // o que estiver vazio, e so.
+    const qualB64 = sp.get('qualificacao');
+    if (qualB64) {
+      try {
+        const q = JSON.parse(decodeURIComponent(escape(atob(qualB64))));
+        state.dadosPacote1 = state.dadosPacote1 || {};
+        state.dadosPacote2 = state.dadosPacote2 || {};
+        Object.entries(q.pacote1 || {}).forEach(([k, v]) => {
+          if (v && !state.dadosPacote1[k]) state.dadosPacote1[k] = v;
+        });
+        Object.entries(q.pacote2 || {}).forEach(([k, v]) => {
+          if (v && !state.dadosPacote2[k]) state.dadosPacote2[k] = v;
+        });
+      } catch (err) {
+        console.warn('[writer] qualificacao: falha ao decodificar', err);
+      }
+    }
+
     if (modo === 'peticao') {
       state.contextoAnaliseVinculada = {
         analise_id:  sp.get('analise_id') || null,
