@@ -108,7 +108,7 @@ import {
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
 import { VincularAnalise } from "@/components/VincularAnalise";
-import { nomeParaMostrar, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
+import { nomeParaMostrar, nomeCurto, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
 import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
@@ -1154,14 +1154,22 @@ export default function AtendimentoPage() {
      continua nesta aba, do jeito que estava. */
   const docsDaConversa = useMemo(() => documentosDaConversa(lead.conversa), [lead.conversa]);
 
-  /* O nome que o cabeçalho mostra, e o estado do botãozinho de troca. Volta ao
-     nome real ao mudar de conversa: o botão é uma espiada, não uma preferência. */
-  const [nomeTrocado, setNomeTrocado] = useState(false);
-  useEffect(() => { setNomeTrocado(false); }, [lead.id]);
-  const nomeMostrado = useMemo(
-    () => nomeParaMostrar(
-      { nomeReal: lead.nomeReal, nomeWa: lead.nome, telefone: lead.telefone }, nomeTrocado),
-    [lead.nomeReal, lead.nome, lead.telefone, nomeTrocado]);
+  /* COMO É DENTRO É FORA. O botãozinho de troca vale para a TELA, não para a
+     conversa aberta: ver "Jefferson Wollace" no cabeçalho e "😎" na caixa ao
+     lado é a mesma pessoa com dois nomes na mesma tela, e aí não se sabe mais
+     quem é quem na fila.
+     Fica no navegador porque é preferência de quem está olhando, e não um dado
+     do lead: a Adria pode querer o apelido e o Diego o nome de cartório. */
+  const [nomeTrocado, setNomeTrocado] = useState(
+    () => { try { return localStorage.getItem("wa:nome-do-zap") === "1"; } catch { return false; } });
+  useEffect(() => {
+    try { localStorage.setItem("wa:nome-do-zap", nomeTrocado ? "1" : "0"); } catch { /* aba anônima */ }
+  }, [nomeTrocado]);
+
+  /** O nome de QUALQUER lead, com a mesma regra da tela inteira. */
+  const nomeDoLead = useCallback((l: Lead) => nomeParaMostrar(
+    { nomeReal: l.nomeReal, nomeWa: l.nome, telefone: l.telefone }, nomeTrocado), [nomeTrocado]);
+  const nomeMostrado = useMemo(() => nomeDoLead(lead), [nomeDoLead, lead]);
 
   /* A FICHA DO WRITER COM O MESMO NÚMERO DESTA CONVERSA.
      Só é buscada quando o lead está esperando assinatura, que é a única etapa
@@ -3424,7 +3432,7 @@ export default function AtendimentoPage() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-1.5">
-                          <span className="text-[12px] font-medium truncate flex-1">{l.nome}</span>
+                          <span className="text-[12px] font-medium truncate flex-1">{nomeDoLead(l).texto}</span>
                           {/* O ROBÔ ANTES DA HORA, e sem círculo em volta. Ele
                               qualifica a última mensagem — "isto subiu sozinho"
                               — e a hora é exatamente o carimbo dessa mensagem;
@@ -3904,7 +3912,7 @@ export default function AtendimentoPage() {
                         <MidiaMensagem
                           id={msg.id ?? msg.chave}
                           conversaId={lead.id}
-                          conversaNome={lead.nome}
+                          conversaNome={nomeMostrado.texto}
                           tipo={msg.tipo ?? null}
                           path={msg.midiaPath}
                           mime={msg.midiaMime ?? null}
@@ -4351,6 +4359,17 @@ export default function AtendimentoPage() {
                       saiu daqui, fomos nós até ele. Campo escolhido à mão vira
                       campo em branco — ou, pior, preenchido no chute e depois
                       usado pra decidir onde investir. */}
+                  {/* ── A CARA DO CLIENTE, EM TAMANHO DE OLHAR ──
+                      No cabeçalho a foto tem vinte e oito pixels: serve para
+                      distinguir uma linha da outra na fila, e não para
+                      reconhecer alguém. Aqui ela é o começo do dossiê, porque a
+                      primeira pergunta de quem abre a ficha é "com quem eu
+                      estou falando". Clicando, abre inteira. */}
+                  <RetratoDoLead
+                    foto={fotoDe(lead)}
+                    nome={nomeMostrado.texto}
+                    legenda={lead.nomeReal && !nomeTrocado ? lead.nome : lead.nomeReal ? nomeCurto(lead.nomeReal) : null} />
+
                   {/* ── QUEM É ESTA PESSOA, EM DUAS LINHAS COPIÁVEIS ──
                       O nome real e o número são o que se leva daqui pra fora: o
                       nome vai pro contrato, o número vai pro cadastro e pra
@@ -4654,7 +4673,7 @@ export default function AtendimentoPage() {
                     icone={<Clock className="h-3 w-3 shrink-0" />}>
                     <div className="flex flex-col gap-2">
                       {agendadasDaAberta.map((a) => (
-                        <CardProgramada key={a.id} a={a} nome={lead.nome}
+                        <CardProgramada key={a.id} a={a} nome={nomeMostrado.texto}
                           onAbrir={() => campoResposta.current?.focus()}
                           onCancelar={() => cancelarProgramada(a.id)} />
                       ))}
@@ -5111,7 +5130,7 @@ export default function AtendimentoPage() {
               <GitBranch className="h-4 w-4" /> {perdendo ? "Por que saiu do funil?" : "Mover etapa"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              <span className="text-foreground/80">{lead.nome}</span> está em{" "}
+              <span className="text-foreground/80">{nomeMostrado.texto}</span> está em{" "}
               <span className="text-foreground/80">
                 {rotuloDaEtapa(lead.jornada, estagioDe(lead))}
               </span>.
@@ -5775,7 +5794,7 @@ export default function AtendimentoPage() {
               <BellRing className="h-4 w-4" /> {editandoFicha ? "Editar lembrete" : "Marcar lembrete"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              Sobre <span className="text-foreground/80">{lead.nome}</span>. É uma anotação sua:
+              Sobre <span className="text-foreground/80">{nomeMostrado.texto}</span>. É uma anotação sua:
               aparece no daily do dia que você escolher, e não vai para o cliente.
             </DialogDescription>
           </DialogHeader>
@@ -5913,7 +5932,7 @@ export default function AtendimentoPage() {
                         tamanho="h-8 w-8 shrink-0 text-[11px]"
                         classe="bg-white/[0.05] ring-white/10" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[12.5px] font-medium truncate">{lead.nome}</span>
+                        <span className="block text-[12.5px] font-medium truncate">{nomeMostrado.texto}</span>
                         <span className="block text-[10.5px] text-muted-foreground tabular-nums truncate">
                           {telefoneBonito(lead.telefone)}
                         </span>
@@ -8462,6 +8481,94 @@ function LinhaDeCustodia({ passagem, instancia, nome }: {
  * escolha barata: quem fechou "Lembretes" continua sabendo que existem dois lá
  * dentro, e reabre quando isso importar. Sem ele, fechar viraria esquecer.
  */
+/* O RETRATO DO CLIENTE, NO TOPO DO DOSSIÊ.
+ *
+ * A foto do cabeçalho tem vinte e oito pixels: ela serve para distinguir uma
+ * linha da outra na fila, e não para reconhecer uma pessoa. Quem abre o dossiê
+ * está fazendo outra pergunta, que é "com quem eu estou falando", e essa foto
+ * não responde.
+ *
+ * O BRILHO VEM DA PRÓPRIA FOTO, não de uma cor decidida aqui: a mesma imagem
+ * borrada atrás, ampliada e saturada, vira um halo que combina com quem está
+ * nela. É o mesmo truque das capas de álbum, e custa uma cópia da imagem que o
+ * navegador já baixou.
+ *
+ * SEM FOTO NÃO SE INVENTA INICIAL. A regra da casa é o ícone de pessoa: inicial
+ * grande num círculo grande parece avatar de verdade e engana o olho na hora de
+ * conferir se é o cliente certo.
+ */
+function RetratoDoLead({ foto, nome, legenda }: {
+  foto: string | null;
+  nome: string;
+  /** o outro nome, quando existem dois (o do zap embaixo do real, ou o contrário) */
+  legenda?: string | null;
+}) {
+  const [aberto, setAberto] = useState(false);
+
+  return (
+    <>
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={TRANSICAO_CARTAO}
+        className="relative flex flex-col items-center gap-2 py-1">
+        {/* o halo */}
+        {foto && (
+          <span aria-hidden
+            className="pointer-events-none absolute top-0 h-24 w-24 rounded-full overflow-hidden opacity-40 blur-2xl">
+            <img src={foto} alt="" className="h-full w-full object-cover scale-150 saturate-150" />
+          </span>
+        )}
+
+        <motion.button
+          type="button"
+          onClick={() => foto && setAberto(true)}
+          disabled={!foto}
+          whileHover={foto ? { scale: 1.03 } : undefined}
+          whileTap={foto ? { scale: 0.98 } : undefined}
+          transition={TRANSICAO_CARTAO}
+          title={foto ? "Ver a foto inteira" : undefined}
+          className={cn(
+            "relative h-[4.5rem] w-[4.5rem] rounded-full overflow-hidden ring-1 ring-white/[0.12]",
+            "shadow-[0_6px_24px_rgba(0,0,0,0.45)]",
+            foto ? "cursor-zoom-in" : "cursor-default")}>
+          {foto ? (
+            <img src={foto} alt={`Foto de ${nome}`} className="h-full w-full object-cover" />
+          ) : (
+            <span className="h-full w-full grid place-items-center bg-white/[0.05] text-muted-foreground/50">
+              <User className="h-8 w-8" strokeWidth={1.6} />
+            </span>
+          )}
+        </motion.button>
+
+        <span className="relative text-center min-w-0 max-w-full">
+          <span className="block text-[13px] font-semibold truncate">{nome}</span>
+          {legenda && (
+            <span className="block text-[10.5px] text-muted-foreground/70 truncate">{legenda}</span>
+          )}
+          {!foto && (
+            <span className="block text-[10px] text-muted-foreground/45 italic mt-0.5">
+              sem foto no WhatsApp
+            </span>
+          )}
+        </span>
+      </motion.div>
+
+      <Dialog open={aberto} onOpenChange={setAberto}>
+        <DialogContent className="max-w-[92vw] w-auto p-0 gap-0 overflow-hidden bg-black/95 border-white/10">
+          <DialogTitle className="sr-only">Foto de {nome}</DialogTitle>
+          {foto && (
+            <img src={foto} alt={`Foto de ${nome}`}
+              className="max-h-[82vh] max-w-[92vw] object-contain" />
+          )}
+          <p className="px-4 py-2.5 text-[12px] text-white/70 border-t border-white/10">{nome}</p>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /* UMA LINHA DO DOSSIÊ QUE SE COPIA.
  *
  * O nome e o número são os dois dados que saem daqui para outro lugar: o nome
