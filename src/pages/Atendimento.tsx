@@ -7377,7 +7377,7 @@ function PainelAjustes({
                   {/* A AMOSTRA É A COISA, e não um nome: ninguém sabe o que é
                       "trama" até ver, e um quadradinho responde antes da
                       legenda. */}
-                  <span className={cn("block h-12 bg-card fundo-conversa", `fundo-${f.chave}`)} />
+                  <span className={cn("block h-16 bg-card fundo-conversa", `fundo-${f.chave}`)} />
                   <span className="flex items-center gap-1 px-2 py-1.5">
                     <span className="text-[11px] truncate flex-1">{f.nome}</span>
                     {ativo && <Check className="h-3 w-3 text-primary shrink-0" />}
