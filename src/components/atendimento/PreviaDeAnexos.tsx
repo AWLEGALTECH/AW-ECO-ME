@@ -127,7 +127,9 @@ export function PreviaDeAnexos({
         <DialogTitle className="sr-only">Conferir os anexos antes de enviar</DialogTitle>
 
         {/* ── cabeçalho: o que é, e de quantos ── */}
-        <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.07]">
+        {/* `pr-12`: o X de fechar do diálogo mora no canto, e sem essa folga o
+            "Tirar" senta em cima dele. */}
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 pr-12 border-b border-white/[0.07]">
           <span className="min-w-0 flex-1">
             <span className="block text-[13px] font-medium truncate" title={atual.nome}>
               {nomeEncurtado(atual.nome)}
@@ -145,8 +147,14 @@ export function PreviaDeAnexos({
           )}
         </div>
 
-        {/* ── o palco ── */}
-        <div className="relative flex-1 min-h-0 grid place-items-center p-4">
+        {/* ── o palco ──
+            `absolute inset-0` no conteúdo, e não `h-full`: num `grid` que se
+            dimensiona pelo conteúdo, o `max-h-full` da imagem mede contra uma
+            altura que ela mesma define, o que não limita nada. Era por isso que
+            uma imagem alta empurrava as miniaturas e o botão de enviar para
+            fora da tela. Com a caixa absoluta, a altura existe antes da
+            imagem, e ela cabe dentro. */}
+        <div className="relative flex-1 min-h-0 overflow-hidden">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={atual.chave}
@@ -154,7 +162,7 @@ export function PreviaDeAnexos({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: CURVA }}
-              className="h-full w-full grid place-items-center">
+              className="absolute inset-0 flex items-center justify-center p-4">
               <Palco item={atual} fonte={fonteDe(atual)} />
             </motion.div>
           </AnimatePresence>
@@ -243,10 +251,13 @@ function Palco({ item, fonte }: { item: ItemDaPrevia; fonte: string | null }) {
   if (!fonte) return <CartaoGenerico item={item} />;
 
   if (tipo === "imagem") {
-    return <img src={fonte} alt={item.nome} className="max-h-full max-w-full object-contain rounded-lg" />;
+    return (
+      <img src={fonte} alt={item.nome}
+        className="max-h-full max-w-full w-auto h-auto object-contain rounded-lg" />
+    );
   }
   if (tipo === "video") {
-    return <video src={fonte} controls className="max-h-full max-w-full rounded-lg" />;
+    return <video src={fonte} controls className="max-h-full max-w-full w-auto h-auto rounded-lg" />;
   }
   if (tipo === "audio") {
     return (
