@@ -2,6 +2,8 @@ import { test, expect } from "bun:test";
 import {
   lerRespostaDoModelo, normalizarCampo, conferirCampo, montarKit,
   resumoDaLeitura, faltaParaOWriter, CAMPOS_DO_KIT,
+  anexosLegiveis, selecaoInicialDaLeitura, rotuloDeQuantos,
+  sugestoesDoCampo, ESTADOS_CIVIS,
   type LeituraBruta,
 } from "./leituraDeDocumentos";
 
@@ -196,4 +198,46 @@ test("sem nome e CPF a peça não sai, o resto pode ir em branco", () => {
   // CPF recusado é o mesmo que não ter CPF
   const ruim = montarKit([doc("a.pdf", { nome: "JEFFERSON WOLLACE", cpf: CPF_RUIM })], ctx);
   expect(faltaParaOWriter(ruim)).toEqual(["cpf"]);
+});
+
+/* ── a escolha do que ler ─────────────────────────────────────────────────── */
+
+test("o que já foi lido aparece marcado, e com o que era", () => {
+  const lista = anexosLegiveis(
+    [{ path: "a.jpg" }, { path: "b.pdf" }, { path: "c.jpg" }],
+    [
+      { midia_path: "a.jpg", tipo: "RG" },
+      { midia_path: "b.pdf", tipo: null, erro: "openai 429: cota" },
+    ],
+  );
+  expect(lista[0]).toMatchObject({ jaLido: true, falhou: false, lidoComo: "RG" });
+  // falhou NÃO conta como lido: o documento continua lá e vale tentar de novo
+  expect(lista[1]).toMatchObject({ jaLido: false, falhou: true, lidoComo: null });
+  expect(lista[2]).toMatchObject({ jaLido: false, falhou: false });
+});
+
+test("a escolha abre vazia: marcar tudo devolveria o gasto antigo", () => {
+  expect(selecaoInicialDaLeitura()).toEqual([]);
+});
+
+test("o botão diz o tamanho do gasto", () => {
+  expect(rotuloDeQuantos(1)).toBe("1 documento");
+  expect(rotuloDeQuantos(3)).toBe("3 documentos");
+});
+
+/* ── o que a tela oferece com um clique ───────────────────────────────────── */
+
+test("só profissão e estado civil têm sugestão", () => {
+  expect(sugestoesDoCampo("estado_civil")).toEqual(ESTADOS_CIVIS);
+  expect(sugestoesDoCampo("profissao").length).toBeGreaterThan(4);
+  // CPF e RG são daquela pessoa: não existe lista de onde escolher
+  expect(sugestoesDoCampo("cpf")).toEqual([]);
+  expect(sugestoesDoCampo("nome")).toEqual([]);
+  expect(sugestoesDoCampo("rg")).toEqual([]);
+});
+
+test("toda sugestão de estado civil é aceita pela própria conferência", () => {
+  for (const s of sugestoesDoCampo("estado_civil")) {
+    expect(conferirCampo("estado_civil", normalizarCampo("estado_civil", s)).estado).toBe("conferido");
+  }
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -8,15 +8,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ScanText, Loader2, Check, AlertTriangle, XCircle, PenSquare, RotateCw, FileText,
+  ScanText, Loader2, Check, AlertTriangle, XCircle, PenSquare,
+  FileText, Image as ImageIcon, ArrowLeft, Square, CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   montarKit, resumoDaLeitura, faltaParaOWriter, conferirCampo, ROTULO_DO_KIT,
+  anexosLegiveis, selecaoInicialDaLeitura, rotuloDeQuantos, sugestoesDoCampo,
   type LeituraBruta, type CampoLido, type CampoDoKit, type EstadoDoCampo,
+  type AnexoLegivel,
 } from "@/lib/leituraDeDocumentos";
 import { qualificacaoParaOWriter, paramDaQualificacao } from "@/lib/kitParaOWriter";
 import { linkDoWriter } from "@/lib/writerDaConversa";
+import { podeIrParaPasta, type AnexoCandidato } from "@/lib/anexosParaPasta";
 
 /* LER OS DOCUMENTOS DO LEAD E LEVAR AO WRITER.
  *
@@ -25,19 +29,26 @@ import { linkDoWriter } from "@/lib/writerDaConversa";
  * Writer, à mão, olhando para a outra guia. Um CPF tem onze dígitos e ninguém
  * confere duas vezes.
  *
- * ────────────────────────── por que esta tela existe ────────────────────────
+ * ─────────────────────────────── são duas telas ─────────────────────────────
  *
- * A leitura por si só não vale nada: um modelo de visão erra, e um CPF com um
- * dígito trocado entra na procuração, no contrato e na inicial, e só aparece no
- * protocolo. O que dá valor à leitura é O QUE VEM DEPOIS DELA, que é o que esta
- * tela mostra:
+ * 1. A ESCOLHA. Cada leitura custa, e uma conversa de doze anexos tem, quase
+ *    sempre, três que interessam: o RG, o comprovante e o CPF. Ler os doze para
+ *    achar os três é jogar nove fora. Então a tela pergunta antes de gastar, e
+ *    abre com nada marcado: lista toda marcada seria o gasto antigo com uma
+ *    etapa a mais no meio.
  *
- *   verde     a máquina PROVOU (o dígito do CPF fecha, a data existe)
- *   âmbar     ninguém provou nada, olhe (RG, endereço, profissão)
- *   vermelho  a máquina provou que está ERRADO, não use
+ * 2. A CONFERÊNCIA. A leitura por si só não vale nada: um modelo de visão erra,
+ *    e um CPF com um dígito trocado entra na procuração, no contrato e na
+ *    inicial, e só aparece no protocolo. O que dá valor à leitura é O QUE VEM
+ *    DEPOIS DELA:
+ *
+ *      verde     a máquina PROVOU (o dígito do CPF fecha, a data existe)
+ *      âmbar     ninguém provou nada, olhe (RG, endereço, profissão)
+ *      vermelho  a máquina provou que está ERRADO, não use
  *
  * E tudo é editável. Campo corrigido à mão passa pela MESMA conferência: quem
- * digita um CPF errado aqui vê o vermelho acender na hora.
+ * digita um CPF errado aqui vê o vermelho acender na hora. Profissão e estado
+ * civil, que documento nenhum traz, vêm com sugestão de um clique.
  *
  * NADA ATRAVESSA SOZINHO. O botão do Writer abre a outra guia com a
  * qualificação preenchida, mas só depois que os olhos de alguém passaram por
@@ -57,6 +68,15 @@ interface LeituraDaFuncao {
   de_antes?: boolean;
 }
 
+/** Uma linha da tabela de leituras guardadas. */
+interface LeituraGuardada {
+  midia_path: string;
+  documento: string | null;
+  tipo: string | null;
+  campos: Record<string, string> | null;
+  erro: string | null;
+}
+
 const CARA: Record<EstadoDoCampo, { cor: string; Ico: typeof Check; rotulo: string }> = {
   conferido: { cor: "text-emerald-500", Ico: Check, rotulo: "conferido" },
   revisar: { cor: "text-amber-500", Ico: AlertTriangle, rotulo: "revisar" },
@@ -64,7 +84,7 @@ const CARA: Record<EstadoDoCampo, { cor: string; Ico: typeof Check; rotulo: stri
 };
 
 export function LeituraDosDocumentos({
-  conversaId, nomeConhecido, nomeDoLead, analiseId, quantosDocumentos = 0, aoVivo = true,
+  conversaId, nomeConhecido, nomeDoLead, analiseId, anexos = [], aoVivo = true,
 }: {
   conversaId: string;
   /** o nome que já sabemos do lead (da análise comercial), para cruzar */
@@ -72,17 +92,66 @@ export function LeituraDosDocumentos({
   /** o nome que a conversa mostra, que vai no link do Writer */
   nomeDoLead?: string | null;
   analiseId?: string | null;
-  /** quantos anexos do lead existem na conversa, só para o número no botão */
-  quantosDocumentos?: number;
+  /** os anexos da conversa, para a pessoa escolher quais ler */
+  anexos?: AnexoCandidato[];
   aoVivo?: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
+  const [tela, setTela] = useState<"escolha" | "conferencia">("escolha");
   const [lendo, setLendo] = useState(false);
   const [progresso, setProgresso] = useState<{ feitos: number; total: number } | null>(null);
+  const [guardadas, setGuardadas] = useState<LeituraGuardada[]>([]);
   const [leituras, setLeituras] = useState<LeituraDaFuncao[]>([]);
+  const [marcados, setMarcados] = useState<string[]>(selecaoInicialDaLeitura());
   const [edicoes, setEdicoes] = useState<Partial<Record<CampoDoKit, string>>>({});
 
   const ctx = useMemo(() => ({ nomeConhecido }), [nomeConhecido]);
+
+  /* Só o que o LEAD mandou e o modelo consegue abrir. Documento que nós
+     enviamos (contrato, procuração) não traz dado dele que já não saibamos. */
+  const doLead = useMemo(
+    () => anexos.filter((a) => a.de === "lead" && podeIrParaPasta(a)),
+    [anexos]);
+
+  /* A LISTA DA ESCOLHA, já sabendo o que foi lido. A consulta é de graça e
+     instantânea: a leitura fica guardada por arquivo, então reabrir a tela não
+     custa nada nem lê nada de novo. */
+  const lista: AnexoLegivel[] = useMemo(
+    () => anexosLegiveis(
+      doLead.map((a) => ({
+        path: a.midiaPath!,
+        nome: a.midiaNome ?? null,
+        tipo: a.tipo ?? null,
+        quando: [a.dia, a.hora].filter(Boolean).join(" ") || null,
+      })),
+      guardadas.map((g) => ({ midia_path: g.midia_path, tipo: g.tipo, erro: g.erro })),
+    ),
+    [doLead, guardadas]);
+
+  const jaLidos = lista.filter((l) => l.jaLido);
+  const porLer = lista.filter((l) => !l.jaLido);
+
+  /* O que já foi lido chega na abertura, sem passar pela função e sem gastar. */
+  useEffect(() => {
+    if (!aberto) return;
+    let cancel = false;
+    (async () => {
+      const { data } = await (supabase.from("wa_leitura_documentos" as never) as never as {
+        select: (c: string) => { eq: (a: string, b: string) => Promise<{ data: LeituraGuardada[] | null }> };
+      }).select("midia_path, documento, tipo, campos, erro").eq("conversa_id", conversaId);
+      if (cancel) return;
+      const linhas = data ?? [];
+      setGuardadas(linhas);
+      const boas = linhas.filter((l) => !l.erro && l.campos);
+      setLeituras(boas.map((l) => ({
+        path: l.midia_path, documento: l.documento ?? l.midia_path,
+        tipo: l.tipo, campos: l.campos, de_antes: true,
+      })));
+      // Com leitura guardada, o caminho normal é conferir, não escolher de novo.
+      setTela(boas.length > 0 ? "conferencia" : "escolha");
+    })();
+    return () => { cancel = true; };
+  }, [aberto, conversaId]);
 
   /* O kit vem da leitura; o que foi digitado à mão vence, mas passa pela mesma
      conferência. Corrigir um CPF e ver o verde acender é o retorno que faz a
@@ -109,54 +178,62 @@ export function LeituraDosDocumentos({
     return montarKit(cruas, ctx).map((c) => {
       const mao = edicoes[c.campo];
       if (mao === undefined) return c;
-      return { ...c, valor: mao, documento: "digitado à mão", ...conferirCampo(c.campo, mao, ctx) };
+      return { ...c, valor: mao, documento: "escolhido à mão", ...conferirCampo(c.campo, mao, ctx) };
     });
   }, [leituras, edicoes, ctx]);
 
   const falta = faltaParaOWriter(kit);
-  const erros = leituras.filter((l) => l.erro);
+  const comErro = leituras.filter((l) => l.erro);
 
   /**
-   * Lê, e continua lendo até acabar.
+   * Lê os escolhidos, e continua lendo até acabar.
    *
    * A função lê quatro por chamada para não estourar a memória do worker, e
    * devolve quantos `restam`. O laço aqui é o que transforma isso em uma barra
    * de progresso em vez de um botão que a pessoa clica quatro vezes.
    */
-  const ler = useCallback(async (refazer = false) => {
-    if (lendo || !aoVivo) return;
+  const ler = useCallback(async (paths: string[], refazer = false) => {
+    if (lendo || !aoVivo || paths.length === 0) return;
     setLendo(true);
-    setProgresso({ feitos: 0, total: quantosDocumentos || 0 });
+    setTela("conferencia");
+    setProgresso({ feitos: 0, total: paths.length });
     try {
       let voltas = 0;
       for (;;) {
         const { data, error } = await supabase.functions.invoke("ler-documentos", {
-          body: { conversa_id: conversaId, lote: 4, refazer: refazer && voltas === 0 },
+          body: { conversa_id: conversaId, paths, lote: 4, refazer: refazer && voltas === 0 },
         });
         if (error) throw new Error(error.message);
         const r = (data ?? {}) as { leituras?: LeituraDaFuncao[]; restam?: number; recado?: string };
-        if (r.recado) { toast.info(r.recado); setLeituras([]); break; }
+        if (r.recado) { toast.info(r.recado); break; }
 
-        const lidas = r.leituras ?? [];
-        setLeituras(lidas);
+        const novas = r.leituras ?? [];
+        /* Junta com o que já estava na tela: a chamada só devolve os `paths`
+           pedidos, e as leituras antigas continuam valendo para o kit. */
+        setLeituras((antes) => {
+          const porPath = new Map(antes.map((l) => [l.path, l]));
+          for (const n of novas) porPath.set(n.path, n);
+          return [...porPath.values()];
+        });
         const restam = r.restam ?? 0;
-        setProgresso({ feitos: lidas.length, total: lidas.length + restam });
+        setProgresso({ feitos: paths.length - restam, total: paths.length });
         if (restam <= 0) break;
         // Trava de segurança: sem ela, um `restam` que nunca zera vira laço eterno.
         if (++voltas > 12) break;
       }
+      // A lista de escolha precisa saber o que virou lido.
+      const { data } = await (supabase.from("wa_leitura_documentos" as never) as never as {
+        select: (c: string) => { eq: (a: string, b: string) => Promise<{ data: LeituraGuardada[] | null }> };
+      }).select("midia_path, documento, tipo, campos, erro").eq("conversa_id", conversaId);
+      setGuardadas(data ?? []);
     } catch (e) {
       toast.error("Não consegui ler os documentos: " + (e as Error).message);
     } finally {
       setLendo(false);
       setProgresso(null);
+      setMarcados([]);
     }
-  }, [conversaId, lendo, aoVivo, quantosDocumentos]);
-
-  const abrir = () => {
-    setAberto(true);
-    if (leituras.length === 0) void ler(false);
-  };
+  }, [conversaId, lendo, aoVivo]);
 
   /* A passagem para o Writer. O que a máquina recusou não atravessa: em branco
      a pessoa percebe e digita, preenchido errado ela confia e assina. */
@@ -166,17 +243,20 @@ export function LeituraDosDocumentos({
     setAberto(false);
   };
 
+  const alternar = (path: string) =>
+    setMarcados((m) => (m.includes(path) ? m.filter((p) => p !== path) : [...m, path]));
+
   return (
     <>
       <button
-        onClick={abrir}
-        disabled={!aoVivo}
+        onClick={() => setAberto(true)}
+        disabled={!aoVivo || doLead.length === 0}
         className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] py-1.5 text-[11px] font-medium text-primary hover:bg-primary/[0.13] transition-colors disabled:opacity-60"
       >
         <ScanText className="h-3.5 w-3.5" />
         Ler os documentos
-        {quantosDocumentos > 0 && (
-          <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{quantosDocumentos}</span>
+        {doLead.length > 0 && (
+          <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{doLead.length}</span>
         )}
       </button>
 
@@ -185,19 +265,21 @@ export function LeituraDosDocumentos({
           <DialogHeader className="px-5 pt-5 pb-3 shrink-0">
             <DialogTitle className="flex items-center gap-2 text-base">
               <ScanText className="h-4 w-4 text-primary" />
-              O que os documentos dizem
+              {tela === "escolha" ? "Quais documentos ler?" : "O que os documentos dizem"}
             </DialogTitle>
             <DialogDescription className="text-[12px]">
-              {lendo
-                ? "Lendo os anexos desta conversa."
-                : leituras.length > 0
-                  ? `${resumoDaLeitura(kit)}. Confira antes de levar ao Writer.`
-                  : "Nenhum documento lido ainda."}
+              {tela === "escolha"
+                ? "Cada leitura custa, então só o que interessa. O RG, o CPF e o comprovante bastam para o kit."
+                : lendo
+                  ? "Lendo os escolhidos."
+                  : leituras.length > 0
+                    ? `${resumoDaLeitura(kit)}. Confira antes de levar ao Writer.`
+                    : "Nenhum documento lido ainda."}
             </DialogDescription>
           </DialogHeader>
 
-          {/* A BARRA. Quatro documentos levam uns vinte segundos, e vinte
-              segundos sem sinal de vida é quando a pessoa clica de novo. */}
+          {/* A BARRA. Cada documento leva alguns segundos, e tempo sem sinal de
+              vida é quando a pessoa clica de novo. */}
           <AnimatePresence>
             {lendo && progresso && (
               <motion.div
@@ -209,19 +291,13 @@ export function LeituraDosDocumentos({
               >
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground pb-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  {progresso.total > 0
-                    ? `${progresso.feitos} de ${progresso.total}`
-                    : "abrindo os arquivos"}
+                  {progresso.feitos} de {progresso.total}
                 </div>
                 <div className="h-1 rounded-full bg-primary/10 overflow-hidden">
                   <motion.div
                     className="h-full bg-primary/60"
                     initial={{ width: 0 }}
-                    animate={{
-                      width: progresso.total > 0
-                        ? `${Math.round((progresso.feitos / progresso.total) * 100)}%`
-                        : "15%",
-                    }}
+                    animate={{ width: `${Math.round((progresso.feitos / Math.max(1, progresso.total)) * 100)}%` }}
                     transition={MOLA}
                   />
                 </div>
@@ -229,70 +305,106 @@ export function LeituraDosDocumentos({
             )}
           </AnimatePresence>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-1.5">
-            <AnimatePresence initial={false}>
-              {leituras.length > 0 && kit.map((c, i) => (
-                <LinhaDoCampo
-                  key={c.campo}
-                  campo={c}
-                  atraso={i * 0.04}
-                  aoEditar={(v) => setEdicoes((e) => ({ ...e, [c.campo]: v }))}
-                />
-              ))}
-            </AnimatePresence>
-
-            {/* DE ONDE SAIU CADA COISA. Sem esta lista, "conferido" é uma
-                palavra; com ela, dá para abrir o documento e olhar. */}
-            {leituras.length > 0 && (
-              <motion.div
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...MOLA, delay: 0.4 }}
-                className="pt-3 mt-1 border-t border-border/60"
-              >
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1.5">
-                  Lidos
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {leituras.filter((l) => !l.erro).map((l) => (
-                    <span key={l.path}
-                      className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      <FileText className="h-3 w-3 shrink-0" />
-                      {l.tipo || "documento"}
-                    </span>
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3">
+            <AnimatePresence mode="wait" initial={false}>
+              {tela === "escolha" ? (
+                <motion.div
+                  key="escolha"
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  transition={{ duration: 0.22, ease: CURVA }}
+                  className="space-y-1.5"
+                >
+                  {lista.map((a, i) => (
+                    <LinhaDoAnexo
+                      key={a.path}
+                      anexo={a}
+                      marcado={marcados.includes(a.path)}
+                      atraso={i * 0.03}
+                      aoClicar={() => alternar(a.path)}
+                    />
                   ))}
-                </div>
-                {erros.length > 0 && (
-                  <p className="mt-2 text-[10.5px] text-amber-600 dark:text-amber-500">
-                    {erros.length === 1
-                      ? "1 anexo não deu para ler."
-                      : `${erros.length} anexos não deram para ler.`}{" "}
-                    O que foi lido continua valendo.
-                  </p>
-                )}
-              </motion.div>
-            )}
+                  {lista.length === 0 && (
+                    <p className="py-10 text-center text-[12px] text-muted-foreground">
+                      O lead ainda não mandou documento nenhum nesta conversa.
+                    </p>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="conferencia"
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 12 }}
+                  transition={{ duration: 0.22, ease: CURVA }}
+                  className="space-y-1.5"
+                >
+                  {kit.map((c, i) => (
+                    <LinhaDoCampo
+                      key={c.campo}
+                      campo={c}
+                      atraso={i * 0.04}
+                      aoEditar={(v) => setEdicoes((e) => ({ ...e, [c.campo]: v }))}
+                    />
+                  ))}
+
+                  {comErro.length > 0 && (
+                    <p className="pt-2 text-[10.5px] text-amber-600 dark:text-amber-500">
+                      {rotuloDeQuantos(comErro.length)} não {comErro.length === 1 ? "deu" : "deram"} para ler.
+                      O que foi lido continua valendo.
+                    </p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <DialogFooter className="px-5 py-3 border-t border-border/60 shrink-0 gap-2 sm:justify-between">
-            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-[11px]"
-              onClick={() => { setEdicoes({}); void ler(true); }} disabled={lendo}>
-              <RotateCw className={cn("h-3.5 w-3.5", lendo && "animate-spin")} />
-              Ler de novo
-            </Button>
-            <div className="flex items-center gap-2">
-              {falta.length > 0 && leituras.length > 0 && (
-                <span className="text-[10.5px] text-muted-foreground">
-                  falta {falta.map((f) => ROTULO_DO_KIT[f].toLowerCase()).join(" e ")}
-                </span>
-              )}
-              <Button size="sm" className="h-8 gap-1.5 text-[11px]"
-                onClick={levarAoWriter} disabled={lendo || falta.length > 0 || leituras.length === 0}>
-                <PenSquare className="h-3.5 w-3.5" />
-                Levar ao Writer
-              </Button>
-            </div>
+            {tela === "escolha" ? (
+              <>
+                <div className="flex items-center gap-2">
+                  {porLer.length > 0 && (
+                    <Button variant="ghost" size="sm" className="h-8 text-[11px]"
+                      onClick={() => setMarcados(
+                        marcados.length === porLer.length ? [] : porLer.map((a) => a.path))}>
+                      {marcados.length === porLer.length ? "Desmarcar todos" : `Marcar os ${porLer.length} não lidos`}
+                    </Button>
+                  )}
+                  {jaLidos.length > 0 && (
+                    <Button variant="ghost" size="sm" className="h-8 text-[11px]"
+                      onClick={() => setTela("conferencia")}>
+                      Ver o que já foi lido
+                    </Button>
+                  )}
+                </div>
+                <Button size="sm" className="h-8 gap-1.5 text-[11px]"
+                  onClick={() => ler(marcados)} disabled={lendo || marcados.length === 0}>
+                  <ScanText className="h-3.5 w-3.5" />
+                  Ler {rotuloDeQuantos(marcados.length)}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-[11px]"
+                  onClick={() => { setMarcados([]); setTela("escolha"); }} disabled={lendo}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Escolher documentos
+                </Button>
+                <div className="flex items-center gap-2">
+                  {falta.length > 0 && leituras.length > 0 && (
+                    <span className="text-[10.5px] text-muted-foreground">
+                      falta {falta.map((f) => ROTULO_DO_KIT[f].toLowerCase()).join(" e ")}
+                    </span>
+                  )}
+                  <Button size="sm" className="h-8 gap-1.5 text-[11px]"
+                    onClick={levarAoWriter} disabled={lendo || falta.length > 0 || leituras.length === 0}>
+                    <PenSquare className="h-3.5 w-3.5" />
+                    Levar ao Writer
+                  </Button>
+                </div>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -300,7 +412,54 @@ export function LeituraDosDocumentos({
   );
 }
 
-/* ── uma linha ────────────────────────────────────────────────────────────── */
+/* ── uma linha da escolha ─────────────────────────────────────────────────── */
+
+function LinhaDoAnexo({ anexo, marcado, atraso, aoClicar }: {
+  anexo: AnexoLegivel;
+  marcado: boolean;
+  atraso: number;
+  aoClicar: () => void;
+}) {
+  const Ico = (anexo.tipo ?? "").toLowerCase() === "imagem" ? ImageIcon : FileText;
+  const Caixa = marcado ? CheckSquare : Square;
+
+  return (
+    <motion.button
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...MOLA, delay: atraso }}
+      onClick={aoClicar}
+      disabled={anexo.jaLido}
+      className={cn(
+        "w-full text-left rounded-lg border px-3 py-2 transition-colors",
+        "grid grid-cols-[1.1rem_1.1rem_minmax(0,1fr)_auto] items-center gap-2",
+        anexo.jaLido
+          ? "border-emerald-500/20 bg-emerald-500/[0.05] cursor-default"
+          : marcado
+            ? "border-primary/40 bg-primary/[0.08]"
+            : "border-border/60 bg-card/40 hover:border-primary/30 hover:bg-primary/[0.03]",
+      )}
+    >
+      {anexo.jaLido
+        ? <Check className="h-4 w-4 text-emerald-500" />
+        : <Caixa className={cn("h-4 w-4", marcado ? "text-primary" : "text-muted-foreground/40")} />}
+      <Ico className="h-3.5 w-3.5 text-muted-foreground/70" />
+      <span className="text-[12px] truncate">
+        {/* O QUE ELE ERA vale mais que o nome do arquivo, que é um uuid. */}
+        {anexo.lidoComo || anexo.nome || (anexo.tipo === "imagem" ? "Imagem" : "Documento")}
+        {anexo.falhou && (
+          <span className="ml-1.5 text-[10px] text-amber-500">tentado, não deu</span>
+        )}
+      </span>
+      <span className="text-[10px] tabular-nums text-muted-foreground/60 shrink-0">
+        {anexo.jaLido ? "já lido" : anexo.quando || ""}
+      </span>
+    </motion.button>
+  );
+}
+
+/* ── uma linha da conferência ─────────────────────────────────────────────── */
 
 function LinhaDoCampo({ campo, atraso, aoEditar }: {
   campo: CampoLido;
@@ -308,6 +467,7 @@ function LinhaDoCampo({ campo, atraso, aoEditar }: {
   aoEditar: (v: string) => void;
 }) {
   const { cor, Ico, rotulo } = CARA[campo.estado];
+  const sugestoes = sugestoesDoCampo(campo.campo);
 
   return (
     <motion.div
@@ -325,7 +485,7 @@ function LinhaDoCampo({ campo, atraso, aoEditar }: {
         <Input
           value={campo.valor}
           onChange={(e) => aoEditar(e.target.value)}
-          placeholder="não veio nos documentos"
+          placeholder={sugestoes.length > 0 ? "escolha abaixo ou digite" : "não veio nos documentos"}
           className={cn("h-7 text-[12px] px-2", campo.estado === "recusado" && "border-rose-500/40")}
         />
         <span className={cn("flex items-center gap-1 text-[10px] shrink-0", cor)} title={campo.porque}>
@@ -341,6 +501,24 @@ function LinhaDoCampo({ campo, atraso, aoEditar }: {
           {campo.porque}
           {campo.valor && campo.documento ? ` · ${campo.documento}` : ""}
         </p>
+      )}
+
+      {/* O QUE DOCUMENTO NENHUM TRAZ, A TELA OFERECE.
+          Profissão e estado civil vieram vazios em todos os documentos lidos
+          nesta base, e é assim mesmo: RG não diz profissão e conta de luz não
+          diz estado civil. Um clique preenche, e o campo continua editável. */}
+      {sugestoes.length > 0 && !campo.valor && (
+        <div className="mt-1.5 pl-[8.2rem] flex flex-wrap gap-1">
+          {sugestoes.map((s) => (
+            <button
+              key={s}
+              onClick={() => aoEditar(s)}
+              className="rounded-md border border-border/70 bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/[0.06] transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       )}
 
       {/* O QUE OS OUTROS DOCUMENTOS DISSERAM. Escolher por semelhança seria

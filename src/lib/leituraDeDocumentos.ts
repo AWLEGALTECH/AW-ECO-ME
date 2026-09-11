@@ -80,6 +80,68 @@ export interface CampoLido {
   divergentes: { valor: string; documento: string }[];
 }
 
+/* ── o que ler, e o que não ler de novo ───────────────────────────────────── */
+
+/** Um anexo da conversa, do jeito que a tela de escolha precisa vê-lo. */
+export interface AnexoLegivel {
+  path: string;
+  /** o nome do arquivo, quando o WhatsApp mandou um */
+  nome?: string | null;
+  tipo?: string | null;
+  /** dd/mm e hora da mensagem, para a pessoa achar o papel na conversa */
+  quando?: string | null;
+  /** o que a leitura guardada disse que era ("RG"), quando já foi lido */
+  lidoComo?: string | null;
+  jaLido: boolean;
+  /** já foi tentado e falhou: vale tentar de novo, e não conta como lido */
+  falhou: boolean;
+}
+
+/**
+ * Junta os anexos da conversa com o que já foi lido de cada um.
+ *
+ * É o que permite a tela PERGUNTAR antes de gastar. Cada leitura custa, e uma
+ * conversa de doze anexos tem, quase sempre, três que interessam: o RG, o
+ * comprovante e o CPF. Ler os doze para achar os três é jogar nove fora.
+ *
+ * Leitura que FALHOU não conta como lida. O documento continua lá, o erro foi
+ * do caminho (cota, rede, arquivo grande), e a pessoa precisa poder tentar de
+ * novo sem que a tela finja que aquilo já está resolvido.
+ */
+export function anexosLegiveis(
+  anexos: { path: string; nome?: string | null; tipo?: string | null; quando?: string | null }[],
+  guardadas: { midia_path: string; tipo?: string | null; erro?: string | null }[],
+): AnexoLegivel[] {
+  const porPath = new Map(guardadas.map((g) => [g.midia_path, g]));
+  return anexos.map((a) => {
+    const g = porPath.get(a.path);
+    const falhou = !!g?.erro;
+    return {
+      ...a,
+      lidoComo: g && !falhou ? (g.tipo || null) : null,
+      jaLido: !!g && !falhou,
+      falhou,
+    };
+  });
+}
+
+/**
+ * O que já vem marcado quando a escolha abre: NADA.
+ *
+ * A tentação é marcar tudo que não foi lido, porque é um clique a menos. Mas o
+ * pedido aqui era justamente não gastar à toa, e uma lista toda marcada devolve
+ * exatamente o comportamento antigo com uma etapa a mais no meio. Vazio força a
+ * escolha a ser uma escolha, e quem quiser tudo tem o "marcar todos" ao lado.
+ */
+export function selecaoInicialDaLeitura(): string[] {
+  return [];
+}
+
+/** "3 documentos" / "1 documento", para o botão dizer o tamanho do gasto. */
+export function rotuloDeQuantos(n: number): string {
+  return n === 1 ? "1 documento" : `${n} documentos`;
+}
+
 /* ── o envelope ───────────────────────────────────────────────────────────── */
 
 /**
@@ -121,6 +183,36 @@ const VAZIO = /^(|-+|n\/?a|nao informado|não informado|nao consta|não consta|n
 export const ESTADOS_CIVIS = [
   "Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "Separado(a)", "União estável",
 ] as const;
+
+/* As profissões que ESTA base realmente tem, em ordem de frequência, e não uma
+   lista inventada: aposentado aparece dezesseis vezes, professor sete, militar
+   cinco. Faz sentido para a carteira: o desconto indevido em conta salarial e
+   em benefício pega justamente aposentado, servidor e quem recebe por conta
+   fixa. Os dois primeiros vêm nos dois gêneros porque são a maioria dos casos;
+   nos outros, a pessoa ajusta digitando, que é mais rápido que procurar num
+   menu de trinta itens. */
+const PROFISSOES_COMUNS = [
+  "Aposentado", "Aposentada", "Pensionista", "Professor", "Militar",
+  "Motorista", "Agricultor", "Autônomo", "Do lar", "Funcionário público",
+] as const;
+
+/**
+ * O que a tela oferece com um clique, para o campo que o documento não traz.
+ *
+ * Profissão e estado civil quase nunca estão escritos em RG, CPF ou conta de
+ * luz: medido nesta base, vieram vazios em TODOS os documentos lidos até aqui.
+ * Deixá-los em branco esperando o modelo é esperar por algo que não vem, e
+ * digitar "Aposentado" à mão toda vez é o trabalho que este projeto existe para
+ * tirar. O clique preenche; o campo continua editável.
+ *
+ * Os outros campos não têm sugestão de propósito: CPF e RG são daquela pessoa e
+ * não existe lista de onde escolher.
+ */
+export function sugestoesDoCampo(campo: CampoDoKit): readonly string[] {
+  if (campo === "estado_civil") return ESTADOS_CIVIS;
+  if (campo === "profissao") return PROFISSOES_COMUNS;
+  return [];
+}
 
 function civilCanonico(bruto: string): string | null {
   const c = semAcento(bruto).toUpperCase().replace(/[^A-Z ]/g, " ").replace(/\s+/g, " ").trim();

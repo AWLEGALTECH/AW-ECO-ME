@@ -23,6 +23,11 @@
 //   2. quando dois documentos discordam, ver a discordância em vez de receber
 //      uma média inventada
 //
+// QUEM ESCOLHE O QUE LER É A PESSOA. A tela pergunta antes de gastar e manda os
+// `paths` marcados: uma conversa de doze anexos tem, quase sempre, três que
+// interessam (o RG, o comprovante e o CPF), e ler os doze para achar os três é
+// jogar nove fora.
+//
 // E POUCOS POR CHAMADA. A primeira versão lia os doze anexos de uma vez e morria
 // com WORKER_RESOURCE_LIMIT: para mandar ao modelo o arquivo vira base64, que é
 // um terço maior, e doze scans de celular na mesma função estouram a memória do
@@ -83,7 +88,12 @@ const LOTE_PADRAO = 4;
 
    "DÍGITO POR DÍGITO" porque o CPF vai ser conferido pelo dígito verificador do
    lado de cá: se o modelo "arredondar" um número mal impresso, a conta não
-   fecha e o achado é descartado em vez de entrar errado na procuração. */
+   fecha e o achado é descartado em vez de entrar errado na procuração.
+
+   O CEP GANHOU PESO porque o Writer, recebendo oito dígitos, busca no ViaCEP e
+   preenche logradouro, bairro, município e UF sozinho. Ou seja: o CEP vale mais
+   que a linha de endereço inteira, e o número da casa é a única parte que ele
+   não revela. Por isso os dois são pedidos em separado, e nessa ordem. */
 const PROMPT = `Você está lendo UM documento de identificação ou comprovante brasileiro para preencher uma qualificação jurídica.
 
 Extraia SOMENTE o que está VISIVELMENTE ESCRITO neste documento.
@@ -96,8 +106,9 @@ REGRAS, nesta ordem de importância:
 5. "orgao_expedidor" é a SIGLA com a UF, como SSP/AM ou DETRAN/AM. Nome de pessoa impresso no documento (diretor, chefe do instituto) NÃO é órgão expedidor.
 6. "estado_civil" só se estiver escrito no documento. Certidão de casamento e RG às vezes trazem; conta de luz nunca traz.
 7. "nascimento" no formato DD/MM/AAAA.
-8. "endereco" é a linha completa: logradouro, número, complemento e bairro. O CEP vai separado, no campo "cep".
-9. "tipo" é o que este documento é, em duas ou três palavras: "RG", "CPF", "CNH", "comprovante de residência", "certidão de casamento", "contracheque", "extrato bancário", "outro".`;
+8. O CEP É O CAMPO MAIS IMPORTANTE DO ENDEREÇO. Procure-o com atenção em conta de luz, água, telefone e em qualquer carimbo ou rodapé: oito dígitos, geralmente escritos 00000-000. Vai no campo "cep", sozinho.
+9. "endereco" é a linha do logradouro com o NÚMERO da casa, escrito assim: "Rua das Flores, nº 422, Apto 2, Centro". O número é a única parte que o CEP não revela, então não o deixe de fora quando estiver impresso.
+10. "tipo" é o que este documento é, em duas ou três palavras: "RG", "CPF", "CNH", "comprovante de residência", "certidão de casamento", "contracheque", "extrato bancário", "outro".`;
 
 const CAMPOS = [
   "nome", "cpf", "rg", "orgao_expedidor", "nascimento",

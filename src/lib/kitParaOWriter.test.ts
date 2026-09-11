@@ -99,3 +99,35 @@ test("o embrulho sobrevive a acento, e nada a levar não vira parâmetro", () =>
 
   expect(paramDaQualificacao({ pacote1: {}, pacote2: {} })).toBe("");
 });
+
+/* O Writer desmonta a linha de endereço com estas duas expressões (kit.js,
+   `_parseEnderecoKit`) e, com oito dígitos de CEP, busca no ViaCEP e preenche
+   logradouro, bairro, município e UF sozinho. Ou seja: a linha que sai daqui
+   precisa sobreviver àquele parser, senão o auto-preenchimento não acontece e
+   a pessoa digita o endereço inteiro à mão do outro lado. */
+const cepDoWriter = (s: string) => s.match(/(\d{5}-?\d{3})/)?.[1] ?? null;
+const numeroDoWriter = (s: string) => s.match(/n[ºo°.]?\s*(\d+)/i)?.[1] ?? null;
+
+test("a linha de endereço sobrevive ao parser do Writer: CEP e número saem inteiros", () => {
+  const q = qualificacaoParaOWriter([
+    campo("endereco", "Rua das Flores, nº 422, Apto 2, Centro", "revisar"),
+    campo("cep", "69093-020"),
+  ]);
+  const linha = q.pacote1.endereco_completo!;
+  expect(cepDoWriter(linha)).toBe("69093-020");
+  expect(numeroDoWriter(linha)).toBe("422");
+});
+
+test("sem número impresso, o CEP ainda atravessa sozinho", () => {
+  // o CEP revela rua, bairro, município e UF; só o número ele não sabe
+  const q = qualificacaoParaOWriter([
+    campo("endereco", "Rua Canário, Cj. Hileia I, Redenção", "revisar"),
+    campo("cep", "69093-020"),
+  ]);
+  expect(cepDoWriter(q.pacote1.endereco_completo!)).toBe("69093-020");
+});
+
+test("só o CEP, sem endereço nenhum, já vale a viagem", () => {
+  const q = qualificacaoParaOWriter([campo("cep", "69093-020")]);
+  expect(cepDoWriter(q.pacote1.endereco_completo!)).toBe("69093-020");
+});

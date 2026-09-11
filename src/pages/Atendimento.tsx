@@ -116,7 +116,7 @@ import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { LeituraDosDocumentos } from "@/components/LeituraDosDocumentos";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
-import { podeIrParaPasta, type AnexoCandidato } from "@/lib/anexosParaPasta";
+import type { AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
 import {
   useRegraFollowUp, useInvalidarRegra, salvarRegraFollowUp, followUpDoContato,
@@ -7051,12 +7051,6 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
     () => passagensPorEtapa(log, trilho.map((e) => e.chave)),
     [log, trilho]);
 
-  /* Quantos papéis o LEAD mandou. `docsNaConversa` conta os PDFs dos dois
-     lados, e serve ao Finder; aqui o que interessa é o que veio dele, porque
-     contrato que nós enviamos não traz dado dele que já não saibamos. */
-  const docsDoLeadNaConversa = useMemo(
-    () => anexosDaConversa.filter((a) => a.de === "lead" && podeIrParaPasta(a)).length,
-    [anexosDaConversa]);
 
   /* As programadas de cada etapa. Uma mensagem marcada quando o lead estava em
      Extrato foi escrita pensando em Extrato -- dali a três dias ele já mudou de
@@ -7272,7 +7266,7 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                       conversaId={conversaId}
                       nomeConhecido={nomeRealDoLead}
                       nomeDoLead={nomeDoLeadParaBusca}
-                      quantosDocumentos={docsDoLeadNaConversa}
+                      anexos={anexosDaConversa}
                       aoVivo={aoVivo} />
                   )}
 
