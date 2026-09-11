@@ -8488,10 +8488,10 @@ function LinhaDeCustodia({ passagem, instancia, nome }: {
  * está fazendo outra pergunta, que é "com quem eu estou falando", e essa foto
  * não responde.
  *
- * O BRILHO VEM DA PRÓPRIA FOTO, não de uma cor decidida aqui: a mesma imagem
- * borrada atrás, ampliada e saturada, vira um halo que combina com quem está
- * nela. É o mesmo truque das capas de álbum, e custa uma cópia da imagem que o
- * navegador já baixou.
+ * QUADRADA, e não redonda. O círculo corta orelha, ombro e cabelo, que é
+ * justamente o que se usa para reconhecer alguém numa foto de perfil tirada de
+ * qualquer jeito. O canto arredondado de leve mantém a cara do resto da tela
+ * sem comer a imagem.
  *
  * SEM FOTO NÃO SE INVENTA INICIAL. A regra da casa é o ícone de pessoa: inicial
  * grande num círculo grande parece avatar de verdade e engana o olho na hora de
@@ -8512,37 +8512,28 @@ function RetratoDoLead({ foto, nome, legenda }: {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={TRANSICAO_CARTAO}
-        className="relative flex flex-col items-center gap-2 py-1">
-        {/* o halo */}
-        {foto && (
-          <span aria-hidden
-            className="pointer-events-none absolute top-0 h-24 w-24 rounded-full overflow-hidden opacity-40 blur-2xl">
-            <img src={foto} alt="" className="h-full w-full object-cover scale-150 saturate-150" />
-          </span>
-        )}
-
+        className="flex flex-col items-center gap-2 py-1">
         <motion.button
           type="button"
           onClick={() => foto && setAberto(true)}
           disabled={!foto}
-          whileHover={foto ? { scale: 1.03 } : undefined}
+          whileHover={foto ? { scale: 1.02 } : undefined}
           whileTap={foto ? { scale: 0.98 } : undefined}
           transition={TRANSICAO_CARTAO}
           title={foto ? "Ver a foto inteira" : undefined}
           className={cn(
-            "relative h-[4.5rem] w-[4.5rem] rounded-full overflow-hidden ring-1 ring-white/[0.12]",
-            "shadow-[0_6px_24px_rgba(0,0,0,0.45)]",
+            "h-20 w-20 rounded-2xl overflow-hidden ring-1 ring-white/[0.10]",
             foto ? "cursor-zoom-in" : "cursor-default")}>
           {foto ? (
             <img src={foto} alt={`Foto de ${nome}`} className="h-full w-full object-cover" />
           ) : (
-            <span className="h-full w-full grid place-items-center bg-white/[0.05] text-muted-foreground/50">
+            <span className="h-full w-full grid place-items-center bg-white/[0.04] text-muted-foreground/45">
               <User className="h-8 w-8" strokeWidth={1.6} />
             </span>
           )}
         </motion.button>
 
-        <span className="relative text-center min-w-0 max-w-full">
+        <span className="text-center min-w-0 max-w-full">
           <span className="block text-[13px] font-semibold truncate">{nome}</span>
           {legenda && (
             <span className="block text-[10.5px] text-muted-foreground/70 truncate">{legenda}</span>
