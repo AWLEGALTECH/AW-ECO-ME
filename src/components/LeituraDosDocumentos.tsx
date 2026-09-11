@@ -15,8 +15,9 @@ import { cn } from "@/lib/utils";
 import {
   montarKit, resumoDaLeitura, faltaParaOWriter, conferirCampo, ROTULO_DO_KIT,
   anexosLegiveis, selecaoInicialDaLeitura, rotuloDeQuantos, sugestoesDoCampo,
+  confereCep, soDigitosDoCep,
   type LeituraBruta, type CampoLido, type CampoDoKit, type EstadoDoCampo,
-  type AnexoLegivel,
+  type AnexoLegivel, type CepConferido,
 } from "@/lib/leituraDeDocumentos";
 import { qualificacaoParaOWriter, paramDaQualificacao } from "@/lib/kitParaOWriter";
 import { linkDoWriter } from "@/lib/writerDaConversa";
@@ -104,6 +105,10 @@ export function LeituraDosDocumentos({
   const [leituras, setLeituras] = useState<LeituraDaFuncao[]>([]);
   const [marcados, setMarcados] = useState<string[]>(selecaoInicialDaLeitura());
   const [edicoes, setEdicoes] = useState<Partial<Record<CampoDoKit, string>>>({});
+  /* O QUE OS CORREIOS DIZEM DO CEP LIDO. Oito dígitos é forma, não é verdade:
+     o mesmo comprovante devolveu três CEPs diferentes em três leituras, e os
+     três passavam verde pela contagem de dígitos. Quem prova é o ViaCEP. */
+  const [cepConferido, setCepConferido] = useState<Record<string, CepConferido>>({});
 
   const ctx = useMemo(() => ({ nomeConhecido }), [nomeConhecido]);
 
@@ -175,12 +180,45 @@ export function LeituraDosDocumentos({
         campos: l.campos as LeituraBruta["campos"],
       };
     });
-    return montarKit(cruas, ctx).map((c) => {
+    const montado = montarKit(cruas, ctx).map((c) => {
       const mao = edicoes[c.campo];
       if (mao === undefined) return c;
       return { ...c, valor: mao, documento: "escolhido à mão", ...conferirCampo(c.campo, mao, ctx) };
     });
-  }, [leituras, edicoes, ctx]);
+    /* O CEP passa a valer o que os Correios dizem, e não a contagem de
+       dígitos. Enquanto a consulta não voltou, fica como estava: melhor um
+       "confira o logradouro" por dois segundos que um verde que mente. */
+    return montado.map((c) => {
+      if (c.campo !== "cep") return c;
+      const veredito = cepConferido[soDigitosDoCep(c.valor)];
+      return veredito ? { ...c, estado: veredito.estado, porque: veredito.porque } : c;
+    });
+  }, [leituras, edicoes, ctx, cepConferido]);
+
+  const cepAtual = kit.find((c) => c.campo === "cep")?.valor ?? "";
+  const enderecoAtual = kit.find((c) => c.campo === "endereco")?.valor ?? "";
+
+  /* A CONSULTA AOS CORREIOS. Só quando há oito dígitos, só uma vez por CEP, e
+     a falha de rede não vira erro na cara de ninguém: o campo simplesmente
+     continua em "confira o logradouro", que é o que era antes disto existir. */
+  useEffect(() => {
+    const oito = soDigitosDoCep(cepAtual);
+    if (!oito || cepConferido[oito]) return;
+    let cancel = false;
+    (async () => {
+      try {
+        const r = await fetch(`https://viacep.com.br/ws/${oito}/json/`);
+        const j = r.ok ? await r.json() : null;
+        if (cancel) return;
+        setCepConferido((antes) => ({ ...antes, [oito]: confereCep(j, enderecoAtual) }));
+      } catch { /* sem rede, sem veredito: o campo fica como estava */ }
+    })();
+    return () => { cancel = true; };
+    /* `enderecoAtual` de propósito FORA das dependências: ele muda a cada
+       tecla enquanto a pessoa corrige o endereço, e o CEP não precisa ser
+       reconsultado por causa disso. O que dispara a consulta é o CEP. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cepAtual, cepConferido]);
 
   const falta = faltaParaOWriter(kit);
   const comErro = leituras.filter((l) => l.erro);

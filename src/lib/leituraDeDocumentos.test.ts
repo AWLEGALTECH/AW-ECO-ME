@@ -3,7 +3,7 @@ import {
   lerRespostaDoModelo, normalizarCampo, conferirCampo, montarKit,
   resumoDaLeitura, faltaParaOWriter, CAMPOS_DO_KIT,
   anexosLegiveis, selecaoInicialDaLeitura, rotuloDeQuantos,
-  sugestoesDoCampo, ESTADOS_CIVIS,
+  sugestoesDoCampo, ESTADOS_CIVIS, confereCep,
   type LeituraBruta,
 } from "./leituraDeDocumentos";
 
@@ -240,4 +240,50 @@ test("toda sugestão de estado civil é aceita pela própria conferência", () =
   for (const s of sugestoesDoCampo("estado_civil")) {
     expect(conferirCampo("estado_civil", normalizarCampo("estado_civil", s)).estado).toBe("conferido");
   }
+});
+
+/* ── o CEP conferido contra os Correios ───────────────────────────────────── */
+
+const CANARIO = {
+  cep: "69093-020", logradouro: "Rua Canário", bairro: "Cidade de Deus",
+  localidade: "Manaus", uf: "AM",
+};
+
+test("CEP que não existe é RECUSADO, e não é sugestão", () => {
+  expect(confereCep(null).estado).toBe("recusado");
+  expect(confereCep({ erro: true }).estado).toBe("recusado");
+  expect(confereCep({ erro: "true" }).estado).toBe("recusado");
+});
+
+test("CEP que existe e bate com a rua lida fica conferido", () => {
+  const r = confereCep(CANARIO, "Rua Canário, nº 422, Apto 2, Cidade de Deus");
+  expect(r.estado).toBe("conferido");
+  expect(r.sugestao).toBe("Rua Canário, Cidade de Deus, Manaus/AM");
+});
+
+test("o tipo do logradouro não atrapalha: R. Canário é Rua Canário", () => {
+  expect(confereCep({ ...CANARIO, logradouro: "R. Canário" }, "Rua Canario, 422").estado)
+    .toBe("conferido");
+  // e o acento também não
+  expect(confereCep(CANARIO, "RUA CANARIO, 422").estado).toBe("conferido");
+});
+
+test("CEP existe mas é de outra rua: revisar, não recusar", () => {
+  const r = confereCep(CANARIO, "Avenida Djalma Batista, nº 100");
+  expect(r.estado).toBe("revisar");
+  expect(r.porque).toContain("Rua Canário");
+  // a sugestão continua ali para a pessoa adotar se o CEP é que estiver certo
+  expect(r.sugestao).toContain("Manaus/AM");
+});
+
+test("sem endereço lido, o CEP sozinho já revela o resto", () => {
+  const r = confereCep(CANARIO, "");
+  expect(r.estado).toBe("conferido");
+  expect(r.porque).toContain("Rua Canário");
+});
+
+test("CEP geral de cidade não confirma rua nenhuma", () => {
+  const r = confereCep({ cep: "69000-000", logradouro: "", localidade: "Manaus", uf: "AM" }, "Rua X");
+  expect(r.estado).toBe("revisar");
+  expect(r.porque).toContain("Manaus/AM");
 });

@@ -379,6 +379,93 @@ export function conferirCampo(
   }
 }
 
+/* ── o CEP, conferido contra os Correios ──────────────────────────────────── */
+
+/** O que o ViaCEP devolve. `erro` vem quando o CEP não existe. */
+/** Os oito dígitos do CEP, ou vazio quando o que veio não é um CEP. */
+export function soDigitosDoCep(valor: string): string {
+  const d = soDigitos(valor || "");
+  return d.length === 8 ? d : "";
+}
+
+export interface RespostaViaCep {
+  cep?: string;
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+  erro?: boolean | string;
+}
+
+export interface CepConferido {
+  estado: EstadoDoCampo;
+  porque: string;
+  /** o endereço que o CEP revela, para a tela oferecer com um clique */
+  sugestao?: string;
+}
+
+/**
+ * O CEP existe, e é da rua que o documento diz?
+ *
+ * ESTE É O ÚNICO CAMPO DE ENDEREÇO QUE SE PROVA, e a prova foi descoberta no
+ * teste, não no projeto. O mesmo comprovante, lido três vezes, devolveu três
+ * CEPs diferentes: 69093-020, 69099-345 e 69093-422 (este último terminando,
+ * suspeitamente, no número da casa). O documento era um mock e o modelo
+ * inventou um preenchedor plausível a cada leitura.
+ *
+ * Os três CPFs daquelas leituras também eram diferentes, e os três foram
+ * barrados pelo dígito verificador. O CEP passava verde nos três, porque "oito
+ * dígitos" era tudo que se checava. Oito dígitos é forma, não é verdade.
+ *
+ * Os Correios são a verdade. CEP que não existe é RECUSADO, e CEP que existe
+ * mas aponta para outra rua vai para revisão em vez de mandar a peça para a
+ * comarca errada.
+ */
+export function confereCep(
+  resposta: RespostaViaCep | null,
+  enderecoLido = "",
+): CepConferido {
+  if (!resposta || resposta.erro) {
+    return { estado: "recusado", porque: "este CEP não existe nos Correios" };
+  }
+
+  const cidade = [resposta.localidade, resposta.uf].filter(Boolean).join("/");
+  const rua = (resposta.logradouro || "").trim();
+  const sugestao = [rua, resposta.bairro, cidade].filter(Boolean).join(", ");
+
+  /* CEP de cidade inteira (as capitais têm um) não aponta para rua nenhuma.
+     Não é erro, mas também não confirma o endereço lido. */
+  if (!rua) {
+    return {
+      estado: "revisar",
+      porque: cidade ? `é um CEP geral de ${cidade}, sem rua` : "existe, mas não aponta para uma rua",
+      sugestao: sugestao || undefined,
+    };
+  }
+
+  if (!enderecoLido.trim()) {
+    return { estado: "conferido", porque: `existe: ${sugestao}`, sugestao };
+  }
+
+  /* A comparação ignora o tipo do logradouro e olha o NOME. "R. Canário" e
+     "Rua Canário" são a mesma rua, e o documento escreve de um jeito enquanto
+     os Correios escrevem de outro. */
+  const semTipo = (s: string) => semAcento(s).toUpperCase()
+    .replace(/^\s*(RUA|R\.|AV\.?|AVENIDA|TRAVESSA|TV\.?|ALAMEDA|AL\.?|ESTRADA|EST\.?|ROD\.?|RODOVIA|PRACA|PC\.?|BECO|CONJUNTO|CONJ\.?|QUADRA|Q\.)\s+/, "")
+    .replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+  const nomeDaRua = semTipo(rua);
+  const noDocumento = semTipo(enderecoLido);
+  if (nomeDaRua && noDocumento.includes(nomeDaRua)) {
+    return { estado: "conferido", porque: `confere com a rua lida (${cidade})`, sugestao };
+  }
+  return {
+    estado: "revisar",
+    porque: `os Correios dizem ${rua}, e o documento diz outra coisa`,
+    sugestao,
+  };
+}
+
 /* ── juntar os documentos ─────────────────────────────────────────────────── */
 
 const mesmo = (a: string, b: string) => semAcento(a).toUpperCase().replace(/\s+/g, " ").trim()
