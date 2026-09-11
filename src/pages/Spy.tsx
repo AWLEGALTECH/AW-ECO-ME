@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { extrairTextoPdf } from "@/lib/pdfText";
 import { analisarExtrato } from "@/lib/parseExtrato";
+import { paraBusca, combina } from "@/lib/buscaSemAcento";
 import { useAuth } from "@/hooks/useAuth";
 import { appConfig } from "@/config/app-config";
 import { toast } from "sonner";
@@ -515,6 +516,14 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
   const [totalEsperado, setTotalEsperado] = useState(0);
   const [carregandoBanco, setCarregandoBanco] = useState(true);
   const [paginasFalhas, setPaginasFalhas] = useState(0);
+  /* O ERRO DA CONTAGEM PRECISA APARECER.
+     Ela é a primeira requisição, e o resto do carregamento depende do número
+     que ela traz. Falhando, `count` volta nulo, o total vira zero, o laço não
+     roda nenhuma vez e a tela desenhava "o banco enche conforme as análises
+     rodarem" -- uma frase que diz que está tudo bem. Foi assim que nove
+     segundos de RLS estourando o `statement_timeout` viraram, na tela, um banco
+     vazio sem uma única reclamação. */
+  const [erroBanco, setErroBanco] = useState<string | null>(null);
   useEffect(() => {
     let vivo = true;
     const pagina = async (de: number, ate: number): Promise<any[]> => {
@@ -535,9 +544,14 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
     };
     (async () => {
       try {
-        const { count } = await (supabase.from("spy_transacao" as any) as any).select("id", { count: "exact", head: true });
-        const total = count ?? 0;
+        const { count, error: eConta } = await (supabase.from("spy_transacao" as any) as any)
+          .select("id", { count: "exact", head: true });
         if (!vivo) return;
+        if (eConta || count == null) {
+          setErroBanco(eConta?.message || "a contagem não voltou");
+          return;
+        }
+        const total = count;
         setTotalEsperado(total);
         const out: any[] = [];
         for (let de = 0; de < total && vivo; de += 4000) {
@@ -563,13 +577,16 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
     const nome = clientePor.get(t.cliente_id)?.nome || "";
     return {
       ...t, v, nome,
-      blob: `${t.data || ""} ${t.descricao || ""} ${nome} ${Math.abs(v).toFixed(2)} ${fmtBRL(Math.abs(v))}`.toLowerCase(),
+      /* SEM ACENTO. O extrato do banco grava "OPERACOES VENCIDAS" e quem
+         procura escreve "OPERAÇÕES VENCIDAS": comparando cru, a tela respondia
+         "nenhuma transação bate" em cima de 109 lançamentos que estavam ali. */
+      blob: paraBusca(`${t.data || ""} ${t.descricao || ""} ${nome} ${Math.abs(v).toFixed(2)} ${fmtBRL(Math.abs(v))}`),
     };
   }), [txs, clientePor]);
 
   const filtradas = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return q ? enriquecidas.filter((t) => t.blob.includes(q)) : enriquecidas;
+    if (!busca.trim()) return enriquecidas;
+    return enriquecidas.filter((t) => combina(t.blob, busca));
   }, [enriquecidas, busca]);
 
   // Mede a janela e decide o nº de colunas pelo espaço real.
@@ -629,7 +646,24 @@ function BancoTransacoes({ clientes, onBack, onAbrir }: {
         </div>
       </div>
 
-      {isLoading ? (
+      {erroBanco ? (
+        /* O BANCO NÃO ABRIU, E ISSO SE DIZ. Um banco vazio e um banco que
+           falhou não são a mesma coisa, e o chamado do Diego nasceu de a tela
+           tratar os dois igual: ele viu "o banco enche conforme as análises
+           rodarem" enquanto havia setenta mil transações do outro lado. */
+        <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.06] py-10 px-6">
+          <p className="text-[13px] text-rose-300 text-center font-medium flex items-center justify-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> O banco não carregou.
+          </p>
+          <p className="text-[12px] text-muted-foreground text-center mt-1.5 font-mono">{erroBanco}</p>
+          <div className="flex justify-center mt-4">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]"
+              onClick={() => window.location.reload()}>
+              <RefreshCw className="h-3.5 w-3.5" /> Tentar de novo
+            </Button>
+          </div>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-20 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Carregando o banco completo…
         </div>
