@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { ordenarPorPreferencia, paletaValida, mesmaOrdem } from "./preferencias";
+import { ordenarPorPreferencia, paletaValida, mesmaOrdem , FUNDOS, fundoValido, fundoOuPadrao } from "./preferencias";
 
 const itens = ["dashboard", "clientes", "atendimento", "esteira", "processos"];
 const id = (s: string) => s;
@@ -45,4 +45,27 @@ test("mesmaOrdem compara posição a posição e trata nulo como vazio", () => {
   expect(mesmaOrdem(["a", "b"], ["a", "b"])).toBe(true);
   expect(mesmaOrdem(["a", "b"], ["b", "a"])).toBe(false);
   expect(mesmaOrdem(null, [])).toBe(true);
+});
+
+/* ── O FUNDO DA CONVERSA ── */
+test("o fundo salvo só vale se a tela souber desenhá-lo", () => {
+  expect(fundoValido("granulado")).toBe(true);
+  expect(fundoValido("solido")).toBe(true);
+  // chave de uma versão futura, ou lixo: a tela não pode ficar sem fundo
+  expect(fundoValido("holograma")).toBe(false);
+  expect(fundoValido(null)).toBe(false);
+  expect(fundoValido(42)).toBe(false);
+});
+
+test("sem escolha, o fundo é o sólido de sempre", () => {
+  expect(fundoOuPadrao(null)).toBe("solido");
+  expect(fundoOuPadrao("holograma")).toBe("solido");
+  expect(fundoOuPadrao("bruma")).toBe("bruma");
+});
+
+test("toda opção da lista é válida, e o sólido é a primeira", () => {
+  for (const f of FUNDOS) expect(fundoValido(f.chave)).toBe(true);
+  expect(FUNDOS[0].chave).toBe("solido");
+  // nome e descrição existem para todas: opção sem legenda vira adivinhação
+  for (const f of FUNDOS) { expect(f.nome.length).toBeGreaterThan(2); expect(f.descricao.length).toBeGreaterThan(5); }
 });

@@ -492,3 +492,59 @@ body {
     .bolha-entra { animation: none; }
   }
 }
+/* ═══ O FUNDO DA CONVERSA ═══
+   Preto chapado atrás de uma conversa cansa: não há onde o olho descanse entre
+   uma bolha e outra, e a tela parece um buraco. Estas são as texturas que a
+   pessoa escolhe nos Ajustes do atendimento.
+
+   SÃO CSS, NÃO IMAGEM. Nada para baixar, nada para esperar, e o arquivo não
+   cresce. E todas são feitas com BRANCO TRANSLÚCIDO em cima do fundo do tema,
+   e não com uma cor fixa: assim a textura acompanha a paleta que a pessoa
+   escolheu, em vez de brigar com ela.
+
+   Tudo mora no ::before para a textura não interferir no conteúdo, e com
+   `pointer-events:none` para não roubar o clique de nada. */
+.fundo-conversa { position: relative; }
+.fundo-conversa > * { position: relative; z-index: 1; }
+.fundo-conversa::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* GRANULADO: ruído gerado pelo próprio SVG. `baseFrequency` alto dá grão fino;
+   baixo daria manchas. A opacidade é pequena de propósito: textura que se nota
+   deixa de ser textura e vira assunto. */
+.fundo-granulado::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23r)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+}
+
+/* BRUMA: três manchas largas de luz, fixas. Não anima: fundo que se mexe atrás
+   de texto que se lê é o caminho mais curto para o enjoo. */
+.fundo-bruma::before {
+  background-image:
+    radial-gradient(60rem 40rem at 12% 8%,  hsl(var(--primary) / 0.07), transparent 62%),
+    radial-gradient(48rem 36rem at 88% 32%, rgba(255,255,255,0.045), transparent 60%),
+    radial-gradient(52rem 42rem at 50% 96%, hsl(var(--primary) / 0.05), transparent 64%);
+}
+
+/* PARTÍCULAS: pontinhos de meio pixel, esparsos. Duas grades sobrepostas com
+   passos diferentes para o olho não achar o padrão. */
+.fundo-particula::before {
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.10) 0.5px, transparent 0.5px),
+    radial-gradient(circle, rgba(255,255,255,0.07) 0.5px, transparent 0.5px);
+  background-size: 34px 34px, 53px 53px;
+  background-position: 0 0, 17px 26px;
+}
+
+/* TRAMA: riscado diagonal fino, o mais discreto de todos. */
+.fundo-trama::before {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255,255,255,0.028) 0 1px,
+    transparent 1px 9px);
+}

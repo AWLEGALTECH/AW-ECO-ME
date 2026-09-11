@@ -10,23 +10,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { paletaValida, mesmaOrdem, type Paleta } from "@/lib/preferencias";
+import { paletaValida, mesmaOrdem, fundoOuPadrao, type Paleta, type Fundo } from "@/lib/preferencias";
 
 interface Preferencias {
   carregado: boolean;
   paleta: Paleta | null;
   ordemMenu: string[] | null;
+  /** a textura de fundo da conversa; nunca nulo, porque a tela sempre desenha algo */
+  fundoConversa: Fundo;
   setPaleta: (p: Paleta) => void;
   setOrdemMenu: (ordem: string[] | null) => void;
+  setFundoConversa: (f: Fundo) => void;
 }
 
 const Ctx = createContext<Preferencias>({
-  carregado: false, paleta: null, ordemMenu: null, setPaleta: () => {}, setOrdemMenu: () => {},
+  carregado: false, paleta: null, ordemMenu: null, fundoConversa: "solido",
+  setPaleta: () => {}, setOrdemMenu: () => {}, setFundoConversa: () => {},
 });
 
 export const usePreferencias = () => useContext(Ctx);
 
-interface Linha { paleta: string | null; ordem_menu: string[] | null }
+interface Linha { paleta: string | null; ordem_menu: string[] | null; fundo_conversa: string | null }
 
 export function PreferenciasProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -34,6 +38,7 @@ export function PreferenciasProvider({ children }: { children: ReactNode }) {
   const [carregado, setCarregado] = useState(false);
   const [paleta, setPaletaState] = useState<Paleta | null>(null);
   const [ordemMenu, setOrdemState] = useState<string[] | null>(null);
+  const [fundoConversa, setFundoState] = useState<Fundo>("solido");
   const uidRef = useRef(uid);
   uidRef.current = uid;
 
@@ -41,12 +46,13 @@ export function PreferenciasProvider({ children }: { children: ReactNode }) {
     setCarregado(false);
     setPaletaState(null);
     setOrdemState(null);
+    setFundoState("solido");
     if (!uid) return;
     let vivo = true;
     (async () => {
       const { data, error } = await supabase
         .from("preferencias_usuario" as never)
-        .select("paleta, ordem_menu")
+        .select("paleta, ordem_menu, fundo_conversa")
         .eq("user_id", uid)
         .maybeSingle();
       if (!vivo) return;
@@ -54,6 +60,7 @@ export function PreferenciasProvider({ children }: { children: ReactNode }) {
         const l = data as unknown as Linha;
         setPaletaState(paletaValida(l.paleta) ? l.paleta : null);
         setOrdemState(Array.isArray(l.ordem_menu) ? l.ordem_menu : null);
+        setFundoState(fundoOuPadrao(l.fundo_conversa));
       }
       setCarregado(true);
     })();
@@ -83,8 +90,16 @@ export function PreferenciasProvider({ children }: { children: ReactNode }) {
     });
   }, [gravar]);
 
-  const valor = useMemo(() => ({ carregado, paleta, ordemMenu, setPaleta, setOrdemMenu }),
-    [carregado, paleta, ordemMenu, setPaleta, setOrdemMenu]);
+  const setFundoConversa = useCallback((f: Fundo) => {
+    setFundoState((atual) => {
+      if (atual !== f) void gravar({ fundo_conversa: f });
+      return f;
+    });
+  }, [gravar]);
+
+  const valor = useMemo(
+    () => ({ carregado, paleta, ordemMenu, fundoConversa, setPaleta, setOrdemMenu, setFundoConversa }),
+    [carregado, paleta, ordemMenu, fundoConversa, setPaleta, setOrdemMenu, setFundoConversa]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

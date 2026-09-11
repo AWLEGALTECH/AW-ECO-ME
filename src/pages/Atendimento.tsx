@@ -107,6 +107,8 @@ import {
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
+import { usePreferencias } from "@/hooks/usePreferencias";
+import { FUNDOS, type Fundo } from "@/lib/preferencias";
 import { PreviaDeAnexos, type ItemDaPrevia } from "@/components/atendimento/PreviaDeAnexos";
 import { VincularAnalise } from "@/components/VincularAnalise";
 import { nomeParaMostrar, nomeCurto, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
@@ -1229,6 +1231,7 @@ export default function AtendimentoPage() {
   /* ── AS FOTOS DE PERFIL ──
      Uma assinatura para todas as fotos da caixa, e não uma por avatar. Quem
      não tem foto (ou escondeu) não entra na conta e fica nas iniciais. */
+  const { fundoConversa, setFundoConversa } = usePreferencias();
   const { data: fotos = {} } = useFotosAssinadas(leadsBase.map((l) => l.fotoPath));
   const fotoDe = (l: Lead): string | null => (l.fotoPath ? fotos[l.fotoPath] ?? null : null);
 
@@ -2823,6 +2826,8 @@ export default function AtendimentoPage() {
         />
       ) : aba === "config" ? (
         <PainelAjustes
+          fundoConversa={fundoConversa}
+          onFundoConversa={setFundoConversa}
           instancias={instancias}
           instanciaId={instancia.id}
           nomeDe={nomeDe}
@@ -3903,7 +3908,14 @@ export default function AtendimentoPage() {
                   bolhas "já vistas". Sem isso, abrir uma conversa faria as
                   trezentas mensagens do histórico expandirem de uma vez. */}
               <div key={lead.id} ref={caixaDaConversa}
-                className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2">
+                className={cn(
+                  "flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 py-3 flex flex-col gap-2",
+                  /* A TEXTURA DE FUNDO, escolhida nos Ajustes. Ela mora no
+                     ::before do contêiner que ROLA, e não numa camada fixa por
+                     cima: assim ela acompanha o histórico, como papel de parede
+                     acompanha a parede, e não fica parada enquanto as bolhas
+                     passam por baixo. */
+                  "fundo-conversa", `fundo-${fundoConversa}`)}>
                 {/* O que separa "mensagem nova" de "mensagem que já estava
                     aqui" é o conjunto `jaNaTela`, montado depois de cada
                     pintura: o que existe quando a conversa abre entra sem
@@ -7294,8 +7306,11 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
 function PainelAjustes({
   instancias, instanciaId, nomeDe, onEscolherInstancia, mudo, onAlternarMudo, regua,
   agendadas, aoVivo, onAbrirRegua, onAbrirProgramadas, onReaplicarEventos, onDiagnosticar,
-  onPuxarFotos, puxandoFotos,
+  onPuxarFotos, puxandoFotos, fundoConversa, onFundoConversa,
 }: {
+  /** a textura de fundo da conversa, e quem a troca */
+  fundoConversa: Fundo;
+  onFundoConversa: (f: Fundo) => void;
   instancias: Instancia[];
   instanciaId: string;
   nomeDe: (nome: string) => string;
@@ -7341,6 +7356,37 @@ function PainelAjustes({
             na frente.
           </p>
         </div>
+
+        {/* ── O FUNDO DA CONVERSA ──
+            Preto chapado atrás de uma conversa cansa: não há onde o olho
+            descanse entre uma bolha e outra. As opções são texturas de CSS, sem
+            imagem para baixar, e feitas com a cor do tema: acompanham a paleta
+            em vez de brigar com ela. O sólido fica na lista porque quem gosta
+            dele gosta dele. */}
+        <Bloco
+          titulo="Fundo da conversa"
+          descricao="Fica na sua conta, não neste computador: limpar o navegador não desfaz a escolha.">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {FUNDOS.map((f) => {
+              const ativo = f.chave === fundoConversa;
+              return (
+                <button key={f.chave} onClick={() => onFundoConversa(f.chave)}
+                  title={f.descricao}
+                  className={cn("group text-left rounded-lg overflow-hidden ring-1 transition-colors",
+                    ativo ? "ring-primary/60 bg-primary/[0.06]" : "ring-white/[0.08] hover:ring-white/20")}>
+                  {/* A AMOSTRA É A COISA, e não um nome: ninguém sabe o que é
+                      "trama" até ver, e um quadradinho responde antes da
+                      legenda. */}
+                  <span className={cn("block h-12 bg-card fundo-conversa", `fundo-${f.chave}`)} />
+                  <span className="flex items-center gap-1 px-2 py-1.5">
+                    <span className="text-[11px] truncate flex-1">{f.nome}</span>
+                    {ativo && <Check className="h-3 w-3 text-primary shrink-0" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Bloco>
 
         <div className="grid gap-2.5 md:grid-cols-2">
           {/* ── O NÚMERO QUE ABRE ── */}

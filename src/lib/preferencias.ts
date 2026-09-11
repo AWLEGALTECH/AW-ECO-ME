@@ -13,6 +13,36 @@ export function paletaValida(x: unknown): x is Paleta {
   return typeof x === "string" && (PALETAS as readonly string[]).includes(x);
 }
 
+/* ── O FUNDO DA CONVERSA ──────────────────────────────────────────────────
+ *
+ * Preto chapado atrás de uma conversa cansa: não há nada em que o olho
+ * descanse entre uma bolha e outra, e a tela parece um buraco. O WhatsApp
+ * resolve com papel de parede, e a razão é a mesma.
+ *
+ * São TEXTURAS DE CSS, não imagens: nada para baixar, nada para esperar, e
+ * funcionam em qualquer paleta porque são feitas com a cor do tema, e não com
+ * uma cor escolhida aqui. O sólido continua na lista, porque quem gosta dele
+ * gosta dele.
+ */
+export const FUNDOS = [
+  { chave: "solido",    nome: "Sólido",    descricao: "o de sempre, sem textura" },
+  { chave: "granulado", nome: "Granulado", descricao: "grão fino, como papel fotográfico" },
+  { chave: "bruma",     nome: "Bruma",     descricao: "manchas largas de luz, bem de leve" },
+  { chave: "particula", nome: "Partículas", descricao: "pontinhos esparsos, quase invisíveis" },
+  { chave: "trama",     nome: "Trama",     descricao: "riscado diagonal fino" },
+] as const;
+
+export type Fundo = (typeof FUNDOS)[number]["chave"];
+
+export function fundoValido(x: unknown): x is Fundo {
+  return typeof x === "string" && FUNDOS.some((f) => f.chave === x);
+}
+
+/** O fundo a usar: o que a pessoa escolheu, ou o sólido de sempre. */
+export function fundoOuPadrao(x: unknown): Fundo {
+  return fundoValido(x) ? x : "solido";
+}
+
 /**
  * Aplica uma ordem salva (lista de chaves) a uma lista de itens.
  *
