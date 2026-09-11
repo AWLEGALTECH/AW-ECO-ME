@@ -122,8 +122,15 @@ export function PreviaDeAnexos({
 
   return (
     <Dialog open={aberto} onOpenChange={(o) => { if (!o) onFechar(); }}>
+      {/* `overflow-y-hidden` EXPLÍCITO, e não só `overflow-hidden`.
+          O `DialogContent` da casa já vem com `overflow-y-auto`, e essas duas
+          classes são de grupos diferentes para o tailwind-merge: a herdada
+          sobrevive ao lado da minha, e quem decide vira a ordem em que o
+          Tailwind gera as regras. Dizer o eixo no mesmo grupo tira a disputa do
+          acaso: a rolagem é do palco e das miniaturas, nunca do diálogo
+          inteiro, que é o que faria a barra de enviar sair de vista. */}
       <DialogContent className="max-w-[94vw] w-[94vw] h-[90dvh] p-0 gap-0 flex flex-col
-                                overflow-hidden bg-[#0b0d10] border-white/10">
+                                overflow-hidden overflow-y-hidden bg-[#0b0d10] border-white/10">
         <DialogTitle className="sr-only">Conferir os anexos antes de enviar</DialogTitle>
 
         {/* ── cabeçalho: o que é, e de quantos ── */}
