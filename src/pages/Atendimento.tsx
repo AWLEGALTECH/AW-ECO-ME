@@ -2533,7 +2533,49 @@ export default function AtendimentoPage() {
     }))]);
   };
 
-  const colarNoCampo = (e: React.ClipboardEvent) => colarEmLista(e, setAnexos);
+  /* ── A PRÉVIA DA BARRA DA CONVERSA ──
+     A `BarraDeMensagem` (a das telas de fora) já tem a dela. Esta barra é uma
+     cópia antiga e independente, e foi por isso que a prévia não apareceu onde
+     mais importa: anexar aqui é o gesto de todo dia.
+     Juntar um anexo passa a ser uma porta só, `juntarAnexos`, e é ela que abre
+     a prévia na página do PRIMEIRO dos novos: escolhendo três de uma vez, a
+     tela abre no primeiro deles e não no que já estava lá. */
+  const [previaAberta, setPreviaAberta] = useState(false);
+  const [previaEm, setPreviaEm] = useState(0);
+  const pedindoMaisAnexo = useRef(false);
+
+  const juntarAnexos = (novos: File[]) => {
+    if (novos.length === 0) return;
+    setPreviaEm(anexos.length);
+    setAnexos((p) => [...p, ...novos.map((arquivo) => ({ arquivo }))]);
+    setPreviaAberta(true);
+  };
+
+  /* O seletor do sistema tira o foco da aba, e alguns navegadores contam isso
+     como clique fora e fechariam a prévia. A marca segura a porta; o foco
+     voltando a solta, tendo escolhido arquivo ou desistido. */
+  useEffect(() => {
+    if (!pedindoMaisAnexo.current) return;
+    const soltar = () => { pedindoMaisAnexo.current = false; };
+    window.addEventListener("focus", soltar, { once: true });
+    return () => window.removeEventListener("focus", soltar);
+  });
+
+  const colarNoCampo = (e: React.ClipboardEvent) => {
+    const arquivos = Array.from(e.clipboardData?.items ?? [])
+      .filter((i) => i.kind === "file")
+      .map((i) => i.getAsFile())
+      .filter((f): f is File => !!f);
+    if (arquivos.length === 0) return;
+    e.preventDefault();
+    /* O print chega sem nome próprio: o navegador entrega "image.png" pra
+       todos. Um nome com a hora é o que evita três anexos idênticos na mesma
+       fila, indistinguíveis na hora de tirar o errado. */
+    juntarAnexos(arquivos.map((bruto) => (bruto.name && bruto.name !== "image.png"
+      ? bruto
+      : new File([bruto], `print-${new Date().toLocaleTimeString("pt-BR").replace(/\D/g, "")}.png`,
+          { type: bruto.type || "image/png" }))));
+  };
 
   /**
    * O RELÓGIO DA BARRA: a mesma mensagem, marcada pra depois.
@@ -4093,6 +4135,7 @@ export default function AtendimentoPage() {
                 {anexos.length > 0 && (
                   <div className="px-3 pt-2.5">
                     <TiraDeAnexos
+                      onAbrir={(i) => { setPreviaEm(i); setPreviaAberta(true); }}
                       itens={anexos.map((a, i) => ({
                         chave: `${i}-${a.arquivo.name}-${a.arquivo.size}`,
                         nome: a.arquivo.name,
@@ -4188,9 +4231,9 @@ export default function AtendimentoPage() {
                         onChange={(e) => {
                           /* SOMA, NÃO TROCA. Escolher vários de uma vez e voltar
                              pra escolher mais são o mesmo gesto no WhatsApp. */
-                          const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
-                          setAnexos((p) => [...p, ...novos]);
+                          juntarAnexos(Array.from(e.target.files ?? []));
                           e.target.value = "";
+                          pedindoMaisAnexo.current = false;
                         }}
                       />
                       <Button size="sm" variant="ghost" title="Anexar arquivos"
@@ -4286,6 +4329,28 @@ export default function AtendimentoPage() {
                     </Button>
                   )}
                 </div>
+
+                {/* A PRÉVIA DESTA CONVERSA. Fica aqui embaixo, junto da barra
+                    que a abre, e não no topo da página: quem for mexer na barra
+                    tropeça nela em vez de descobrir depois que ela existia. */}
+                <PreviaDeAnexos
+                  aberto={previaAberta && anexos.length > 0}
+                  itens={anexos.map((a, i) => ({
+                    chave: `${i}-${a.arquivo.name}-${a.arquivo.size}`,
+                    nome: a.arquivo.name,
+                    mime: a.arquivo.type,
+                    arquivo: a.arquivo,
+                    tamanho: a.arquivo.size,
+                  }))}
+                  indiceInicial={previaEm}
+                  legenda={rascunho}
+                  onLegenda={setRascunho}
+                  onFechar={() => { if (!pedindoMaisAnexo.current) setPreviaAberta(false); }}
+                  onRemover={(chave) => {
+                    const i = anexos.findIndex((a, k) => `${k}-${a.arquivo.name}-${a.arquivo.size}` === chave);
+                    if (i >= 0) setAnexos((p) => p.filter((_, j) => j !== i));
+                  }}
+                  onAdicionar={() => { pedindoMaisAnexo.current = true; seletorArquivo.current?.click(); }} />
                 </>
                 )}
               </div>
