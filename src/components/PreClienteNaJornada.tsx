@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   FileSignature, FolderOpen, ExternalLink, CheckCircle2, Loader2, FileText, Image as Icone,
-  ArrowRight, AlertTriangle,
+  ArrowRight, AlertTriangle, Download,
 } from "lucide-react";
 import {
   arquivosDaConversa, selecaoInicialDaPasta, nomesSemColisao,
@@ -56,6 +56,7 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
   const navigate = useNavigate();
   const [aberto, setAberto] = useState(false);
   const [subindo, setSubindo] = useState(false);
+  const [baixando, setBaixando] = useState(false);
   const arquivos = useMemo(() => arquivosDaConversa(anexos), [anexos]);
   const [marcados, setMarcados] = useState<string[]>([]);
   const [nomes, setNomes] = useState<Record<string, string>>({});
@@ -85,6 +86,38 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
   const seguirParaAprovacao = (docsSubidos = 0) => {
     const qs = docsSubidos > 0 ? `?pre=${pre.id}&docs=${docsSubidos}` : `?pre=${pre.id}`;
     window.open(`/pre-clientes${qs}`, "_blank", "noopener");
+  };
+
+  /* ── O CAMINHO QUE FUNCIONA HOJE ──────────────────────────────────────────
+     O Drive do escritório é Gmail comum, e as pastas pertencem à conta de
+     serviço, que tem zero byte de cota: ela CRIA pasta mas não pode ser dona
+     de arquivo. Enquanto isso não muda, subir daqui é impossível, e insistir
+     seria gastar o clique de quem está atendendo.
+     Então este botão faz a parte chata: baixa os escolhidos JÁ COM OS NOMES
+     CERTOS, de uma vez, e abre a pasta do Drive do lado. Sobra arrastar. */
+  const baixarEabrirPasta = async () => {
+    const escolhidos = arquivos.filter((a) => marcados.includes(a.id));
+    if (escolhidos.length === 0) { toast.error("Marque ao menos um documento."); return; }
+    setBaixando(true);
+    const finais = nomesSemColisao(escolhidos.map((a) => (nomes[a.id] ?? a.nome).trim() || a.nome));
+    let n = 0;
+    for (let i = 0; i < escolhidos.length; i++) {
+      const { data, error } = await supabase.storage.from("wa-midia").download(escolhidos[i].path);
+      if (error || !data) { console.warn("[pasta] não baixou", escolhidos[i].path, error?.message); continue; }
+      const url = URL.createObjectURL(data);
+      const link = document.createElement("a");
+      link.href = url; link.download = finais[i];
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      n++;
+      // O navegador trata uma rajada de downloads como pop-up e barra do
+      // segundo em diante; um respiro entre eles resolve.
+      if (i < escolhidos.length - 1) await new Promise((r) => setTimeout(r, 350));
+    }
+    setBaixando(false);
+    if (n === 0) { toast.error("Não consegui baixar nenhum."); return; }
+    toast.success(`${n} ${n === 1 ? "arquivo baixado" : "arquivos baixados"}. Agora é arrastar para a pasta que abriu.`);
+    if (pre.drive_folder_url) window.open(pre.drive_folder_url, "_blank", "noopener");
   };
 
   const subirEseguir = async () => {
@@ -196,8 +229,8 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
               Documentos desta conversa
             </DialogTitle>
             <DialogDescription>
-              Escolha o que vai para a pasta de <strong>{pre.nome}</strong> antes de aprovar. Eles entram numa
-              subpasta "Documentos do cliente", e depois disso a aprovação segue como sempre.
+              Escolha o que vai para a pasta de <strong>{pre.nome}</strong> antes de aprovar. Dá pra baixar
+              tudo de uma vez já com os nomes certos, e a pasta abre do lado pra você arrastar.
             </DialogDescription>
           </DialogHeader>
 
@@ -251,6 +284,18 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
             )}
           </div>
 
+          {/* POR QUE O "SUBIR" AINDA NÃO FUNCIONA, dito em uma linha e no lugar
+              onde a pessoa vai clicar. Sem isto, ela clica, vê o erro e acha
+              que o sistema quebrou. */}
+          {pre.drive_folder_url && arquivos.length > 0 && (
+            <p className="shrink-0 text-[11px] text-muted-foreground leading-snug pt-1">
+              O <strong className="text-foreground/80">baixar</strong> funciona agora. O{" "}
+              <strong className="text-foreground/80">subir</strong> ainda não: as pastas do Drive pertencem
+              à conta do sistema, que não tem espaço próprio para guardar arquivo. Some quando a conta do
+              Google for ajustada.
+            </p>
+          )}
+
           {!pre.drive_folder_url && arquivos.length > 0 && (
             <p className="shrink-0 text-[11px] text-amber-300 flex items-start gap-1.5 pt-1">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
@@ -260,10 +305,15 @@ export function PreClienteNaJornada({ pre, anexos, aoVivo = true }: {
           )}
 
           <DialogFooter className="shrink-0 gap-2 pt-2">
-            <Button variant="ghost" onClick={() => { setAberto(false); seguirParaAprovacao(); }} disabled={subindo}>
-              Aprovar sem subir nada
+            <Button variant="ghost" onClick={() => { setAberto(false); seguirParaAprovacao(); }} disabled={subindo || baixando}>
+              Aprovar sem nada disto
             </Button>
-            <Button onClick={subirEseguir} disabled={subindo}>
+            <Button variant="outline" onClick={baixarEabrirPasta} disabled={subindo || baixando || arquivos.length === 0}>
+              {baixando
+                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Baixando…</>
+                : <><Download className="h-4 w-4 mr-1.5" /> Baixar {marcados.length > 0 ? `${marcados.length} ` : ""}e abrir a pasta</>}
+            </Button>
+            <Button onClick={subirEseguir} disabled={subindo || baixando}>
               {subindo
                 ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Subindo…</>
                 : <><ArrowRight className="h-4 w-4 mr-1.5" /> Subir {marcados.length > 0 ? `${marcados.length} ` : ""}e aprovar</>}
