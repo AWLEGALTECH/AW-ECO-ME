@@ -107,6 +107,7 @@ import {
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
+import { PreviaDeAnexos, type ItemDaPrevia } from "@/components/atendimento/PreviaDeAnexos";
 import { VincularAnalise } from "@/components/VincularAnalise";
 import { nomeParaMostrar, nomeCurto, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
 import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
@@ -7998,14 +7999,17 @@ function CentralFollowUp({ tasks, leads, hoje, cadencias, onConcluir, onAbrirCon
  * informação que a pessoa precisa conferir num relance antes de programar. Cada
  * chip tem o seu X, porque tirar o terceiro de quatro é um gesto comum e a
  * alternativa (limpar tudo e reanexar) faz perder os outros três. */
-function TiraDeAnexos({ itens }: {
+function TiraDeAnexos({ itens, onAbrir }: {
   itens: Array<{ chave: string; nome: string; mime?: string | null; arquivo?: File; onRemover: () => void }>;
+  /** abre a prévia na posição clicada */
+  onAbrir?: (i: number) => void;
 }) {
   if (itens.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {itens.map((it) => (
-        <ChipDeAnexo key={it.chave} nome={it.nome} arquivo={it.arquivo} onRemover={it.onRemover} />
+      {itens.map((it, i) => (
+        <ChipDeAnexo key={it.chave} nome={it.nome} arquivo={it.arquivo} onRemover={it.onRemover}
+          onAbrir={onAbrir ? () => onAbrir(i) : undefined} />
       ))}
     </div>
   );
@@ -8048,6 +8052,35 @@ function BarraDeMensagem({
   const seletor = useRef<HTMLInputElement>(null);
   const temAnexo = mantidos.length + anexos.length > 0;
 
+  /* ── A PRÉVIA, COMO NO WHATSAPP ──
+     Anexou, ela abre: o anexo é conferido GRANDE antes de sair, e não depois,
+     no celular do cliente. `abrirEm` é a página que ela abre, e existe porque
+     clicar num chip da barra precisa cair naquele anexo, e não no primeiro.
+     `pedindoMais` é o vaivém do "+": o seletor de arquivos fecha o diálogo por
+     fora, e sem esta marca a prévia não voltaria depois de escolher. */
+  const [previa, setPrevia] = useState(false);
+  const [abrirEm, setAbrirEm] = useState(0);
+  const pedindoMais = useRef(false);
+
+  const itensDaPrevia: ItemDaPrevia[] = useMemo(() => [
+    ...mantidos.map((m, i) => ({
+      chave: `g${i}-${m.path}`, nome: m.nome, mime: m.mime,
+      podeRemover: !!onRemoverMantido,
+    })),
+    ...anexos.map((a, i) => ({
+      chave: `n${i}-${a.arquivo.name}-${a.arquivo.size}`, nome: a.arquivo.name,
+      mime: a.arquivo.type, arquivo: a.arquivo, tamanho: a.arquivo.size,
+    })),
+  ], [mantidos, anexos, onRemoverMantido]);
+
+  const juntar = (novos: File[]) => {
+    if (novos.length === 0) return;
+    const partida = mantidos.length + anexos.length;
+    onAnexos((p) => [...p, ...novos.map((arquivo) => ({ arquivo }))]);
+    setAbrirEm(partida);
+    setPrevia(true);
+  };
+
   /* Print colado é anexo. O navegador entrega todo print como "image.png": um
      nome com a hora é o que evita três anexos indistinguíveis na mesma fila. */
   const colar = (e: React.ClipboardEvent) => {
@@ -8057,12 +8090,30 @@ function BarraDeMensagem({
       .filter((f): f is File => !!f);
     if (arquivos.length === 0) return;
     e.preventDefault();
-    onAnexos((p) => [...p, ...arquivos.map((bruto) => ({
-      arquivo: bruto.name && bruto.name !== "image.png"
-        ? bruto
-        : new File([bruto], `print-${new Date().toLocaleTimeString("pt-BR").replace(/\D/g, "")}.png`,
-            { type: bruto.type || "image/png" }),
-    }))]);
+    juntar(arquivos.map((bruto) => (bruto.name && bruto.name !== "image.png"
+      ? bruto
+      : new File([bruto], `print-${new Date().toLocaleTimeString("pt-BR").replace(/\D/g, "")}.png`,
+          { type: bruto.type || "image/png" }))));
+  };
+
+  /* O "+" abre o seletor NATIVO, que é uma janela do sistema: enquanto ela está
+     aberta a aba perde o foco, e alguns navegadores contam isso como clique
+     fora e mandariam a prévia fechar. `pedindoMais` segura a porta.
+     Desistindo da escolha, nada volta pelo `onChange`, e sem soltar a marca aqui
+     a prévia ficaria impossível de fechar. O foco voltando é o sinal de que a
+     janela do sistema saiu, tendo escolhido arquivo ou não. */
+  useEffect(() => {
+    if (!pedindoMais.current) return;
+    const soltar = () => { pedindoMais.current = false; };
+    window.addEventListener("focus", soltar, { once: true });
+    return () => window.removeEventListener("focus", soltar);
+  });
+
+  const removerDaPrevia = (chave: string) => {
+    const i = itensDaPrevia.findIndex((x) => x.chave === chave);
+    if (i < 0) return;
+    if (i < mantidos.length) onRemoverMantido?.(i);
+    else { const k = i - mantidos.length; onAnexos((p) => p.filter((_, j) => j !== k)); }
   };
 
   return (
@@ -8072,6 +8123,7 @@ function BarraDeMensagem({
             acabaram de ser escolhidos aparecem juntos, porque para quem lê são
             a mesma coisa: a mensagem que vai. */}
         <TiraDeAnexos
+          onAbrir={(i) => { setAbrirEm(i); setPrevia(true); }}
           itens={[
             ...mantidos.map((m, i) => ({
               chave: `g${i}-${m.path}`, nome: m.nome, mime: m.mime,
@@ -8090,9 +8142,11 @@ function BarraDeMensagem({
               <input ref={seletor} type="file" className="hidden" multiple
                 accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
                 onChange={(e) => {
-                  const novos = Array.from(e.target.files ?? []).map((arquivo) => ({ arquivo }));
-                  onAnexos((p) => [...p, ...novos]);
+                  juntar(Array.from(e.target.files ?? []));
                   e.target.value = "";
+                  // Veio do "+" de dentro da prévia: ela reabre sozinha, e o
+                  // `juntar` acima já apontou para o primeiro dos novos.
+                  pedindoMais.current = false;
                 }} />
               <Button size="sm" variant="ghost" title="Anexar arquivos"
                 className="h-9 w-9 p-0 shrink-0" onClick={() => seletor.current?.click()}>
@@ -8113,6 +8167,9 @@ function BarraDeMensagem({
                 linhas > 1 ? "min-h-[6rem] max-h-[18rem]" : "min-h-9 max-h-[9rem]")} />
           )}
 
+          {/* O ÁUDIO GRAVADO NÃO PASSA PELA PRÉVIA: quem acabou de gravar já
+              ouviu o que gravou, e uma tela pedindo para conferir de novo é
+              um passo a mais entre a ideia e o envio. */}
           <GravadorDeAudio
             onEnviar={async (audio, segundos) => {
               const ext = audio.type.includes("mp4") ? "m4a" : "webm";
@@ -8124,6 +8181,16 @@ function BarraDeMensagem({
             onGravandoChange={setGravando} />
         </div>
       </div>
+
+      <PreviaDeAnexos
+        aberto={previa && itensDaPrevia.length > 0}
+        itens={itensDaPrevia}
+        indiceInicial={abrirEm}
+        legenda={texto}
+        onLegenda={onTexto}
+        onFechar={() => { if (!pedindoMais.current) setPrevia(false); }}
+        onRemover={removerDaPrevia}
+        onAdicionar={() => { pedindoMais.current = true; seletor.current?.click(); }} />
     </div>
   );
 }
@@ -8217,8 +8284,10 @@ function SeletorDeEmoji({ onEscolher }: { onEscolher: (e: string) => void }) {
   );
 }
 
-function ChipDeAnexo({ nome, arquivo, onRemover }: {
+function ChipDeAnexo({ nome, arquivo, onRemover, onAbrir }: {
   nome: string; arquivo?: File; onRemover: () => void;
+  /** abre a prévia grande neste anexo */
+  onAbrir?: () => void;
 }) {
   /* A PRÉVIA NASCE UMA VEZ E MORRE COM O CHIP. `createObjectURL` no meio do
      JSX criava um endereço novo a cada pintura e nunca soltava nenhum: com meia
@@ -8230,11 +8299,19 @@ function ChipDeAnexo({ nome, arquivo, onRemover }: {
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
 
   return (
-    <span className="flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5">
-      {previa
-        ? <img src={previa} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
-        : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
-      <span className="text-[11.5px] truncate max-w-[160px]" title={nome}>{nome}</span>
+    <span className={cn(
+      "flex items-center gap-2 min-w-0 rounded-lg bg-white/[0.05] ring-1 ring-white/[0.07] px-2 py-1.5",
+      onAbrir && "transition-colors hover:bg-white/[0.09] hover:ring-white/[0.14]")}>
+      {/* O CHIP INTEIRO ABRE A PRÉVIA, menos o X. Um anexo na barra é a pergunta
+          "o que é isso mesmo?", e a resposta estava a um clique que não existia. */}
+      <button type="button" onClick={onAbrir} disabled={!onAbrir}
+        title={onAbrir ? "Ver antes de enviar" : nome}
+        className="flex items-center gap-2 min-w-0 flex-1 text-left disabled:cursor-default">
+        {previa
+          ? <img src={previa} alt="" className="h-8 w-8 rounded object-cover shrink-0" />
+          : <FileText className="h-4 w-4 shrink-0 opacity-70" />}
+        <span className="text-[11.5px] truncate max-w-[160px]">{nome}</span>
+      </button>
       <button type="button" onClick={onRemover} title="Tirar este anexo"
         className="h-5 w-5 shrink-0 rounded-full grid place-items-center hover:bg-white/[0.12] transition-colors">
         <X className="h-3 w-3" />
