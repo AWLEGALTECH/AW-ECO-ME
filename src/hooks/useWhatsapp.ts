@@ -108,7 +108,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
+  "id, instancia, telefone, jid, nome_wa, nome_real, nome_real_origem, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -644,6 +644,8 @@ export function conversaParaLead(
     // Sem nome no WhatsApp, o telefone FORMATADO — "(92) 99165-3608" se lê como
     // um número de telefone; "5592991653608" se lê como um código de erro.
     nome: c.nome_wa?.trim() || telefoneBonito(c.telefone),
+    nomeReal: c.nome_real ?? null,
+    nomeRealOrigem: (c.nome_real_origem as Lead["nomeRealOrigem"]) ?? null,
     telefone: c.telefone,
     origem,
     // Sem etapa gravada, a primeira da jornada: "na base" para quem veio da

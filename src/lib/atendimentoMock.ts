@@ -136,6 +136,11 @@ export interface Lead {
   /* A foto de perfil do contato, no balde da mídia. Ausente é o normal: muita
      gente esconde a foto, e aí ficam as iniciais. */
   fotoPath?: string | null;
+  /* O NOME DE VERDADE, quando alguma fonte melhor já apareceu: o titular do
+     extrato, o nome do kit, o do contrato assinado. `nome` continua sendo o
+     apelido do WhatsApp, que às vezes é "😎". */
+  nomeReal?: string | null;
+  nomeRealOrigem?: "analise" | "pre_cliente" | "contrato" | "manual" | null;
   /** de qual base de leads essa pessoa veio, quando veio de alguma (nome para a tela) */
   base?: string | null;
   /* O DOSSIÊ DECIDE A JORNADA. `baseChave` é a chave gravada (bradesco,

@@ -107,6 +107,8 @@ import {
   salvarConfigAtendimento, salvarHorarios, salvarMsgDaFaixa, type MsgDaFaixa,
 } from "@/hooks/usePrimeiroAtendimento";
 import { PopDeAvanco } from "@/components/PopDeAvanco";
+import { VincularAnalise } from "@/components/VincularAnalise";
+import { nomeParaMostrar, telefoneNaTela, telefoneParaCopiar } from "@/lib/nomeDoLead";
 import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
@@ -1151,6 +1153,15 @@ export default function AtendimentoPage() {
      extrato é foto de foto), e quem atende não pode ficar preso nela. A conversa
      continua nesta aba, do jeito que estava. */
   const docsDaConversa = useMemo(() => documentosDaConversa(lead.conversa), [lead.conversa]);
+
+  /* O nome que o cabeçalho mostra, e o estado do botãozinho de troca. Volta ao
+     nome real ao mudar de conversa: o botão é uma espiada, não uma preferência. */
+  const [nomeTrocado, setNomeTrocado] = useState(false);
+  useEffect(() => { setNomeTrocado(false); }, [lead.id]);
+  const nomeMostrado = useMemo(
+    () => nomeParaMostrar(
+      { nomeReal: lead.nomeReal, nomeWa: lead.nome, telefone: lead.telefone }, nomeTrocado),
+    [lead.nomeReal, lead.nome, lead.telefone, nomeTrocado]);
 
   /* A FICHA DO WRITER COM O MESMO NÚMERO DESTA CONVERSA.
      Só é buscada quando o lead está esperando assinatura, que é a única etapa
@@ -3583,7 +3594,26 @@ export default function AtendimentoPage() {
                   )}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-semibold truncate leading-tight">{lead.nome}</p>
+                  {/* ── O NOME DE VERDADE, COM O APELIDO A UM CLIQUE ──
+                      Assim que a análise comercial revela o titular, é ELE que
+                      aparece: falar com "😎" por vinte e sete mensagens é o que
+                      acontecia antes. O botãozinho de troca existe porque o
+                      apelido do WhatsApp ainda serve (é por ele que a pessoa se
+                      identifica num grupo, e é ele no visor de quem liga), e
+                      some quando não há o que trocar. */}
+                  <p className="text-[13px] font-semibold truncate leading-tight flex items-center gap-1">
+                    <span className="truncate">{nomeMostrado.texto}</span>
+                    {nomeMostrado.podeTrocar && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setNomeTrocado((v) => !v); }}
+                        title={`Ver "${nomeMostrado.oOutro}"`}
+                        aria-label="Alternar entre o nome real e o do WhatsApp"
+                        className="shrink-0 h-4 w-4 grid place-items-center rounded text-muted-foreground/50
+                                   hover:text-foreground hover:bg-white/[0.08] transition-colors">
+                        <ArrowLeftRight className="h-3 w-3" />
+                      </button>
+                    )}
+                  </p>
                   {/* O QUE ELE ESTÁ FAZENDO AGORA, quando o WhatsApp conta.
                       Quando não conta — e é o caso da maioria, que esconde o
                       status — fica só o telefone. A tela NÃO escreve "offline":
@@ -4321,6 +4351,25 @@ export default function AtendimentoPage() {
                       saiu daqui, fomos nós até ele. Campo escolhido à mão vira
                       campo em branco — ou, pior, preenchido no chute e depois
                       usado pra decidir onde investir. */}
+                  {/* ── QUEM É ESTA PESSOA, EM DUAS LINHAS COPIÁVEIS ──
+                      O nome real e o número são o que se leva daqui pra fora: o
+                      nome vai pro contrato, o número vai pro cadastro e pra
+                      ligação. Sem o botão de copiar, quem precisa deles
+                      seleciona com o mouse a partir de um texto truncado, e leva
+                      junto o que não queria. */}
+                  <LinhaCopiavel
+                    rotulo="Nome real"
+                    valor={lead.nomeReal || null}
+                    vazio={lead.nomeReal ? "" : "aparece quando a análise comercial for feita"}
+                    nota={lead.nomeRealOrigem === "contrato" ? "do contrato assinado"
+                        : lead.nomeRealOrigem === "pre_cliente" ? "do kit do Writer"
+                        : lead.nomeRealOrigem === "analise" ? "do extrato" : null} />
+                  <LinhaCopiavel
+                    rotulo="WhatsApp"
+                    valor={telefoneNaTela(lead.telefone)}
+                    paraCopiar={telefoneParaCopiar(lead.telefone)}
+                    nota={lead.nome && lead.nome !== telefoneNaTela(lead.telefone) ? `salvo como ${lead.nome}` : null} />
+
                   <div className="flex flex-col gap-1 items-start">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
                     {/* SÓ A ORIGEM AQUI. A etiqueta de follow-up saiu deste
@@ -4466,6 +4515,10 @@ export default function AtendimentoPage() {
                     preCliente={preClienteDoLead ?? null}
                     anexosDaConversa={lead.conversa as AnexoCandidato[]}
                     aoVivo={aoVivo}
+                    conversaId={lead.id}
+                    nomeDoLeadParaBusca={lead.nomeReal || lead.nome}
+                    telefoneDoLead={telefoneNaTela(lead.telefone)}
+                    onVinculouAnalise={() => { invalidarWa(); invalidarEtapaLog(); }}
                     onNovaTask={novaProgramada}
                     onConcluirTask={concluir}
                     onAbrirTask={abrirLembrete}
@@ -6850,7 +6903,7 @@ function CardProgramada({ a, nome, onAbrir, onCancelar }: {
    A ETAPA CORRENTE FICA ABERTA, como lá: é dentro dela que as tasks do lead
    aparecem e é dali que se insere uma nova. Avançar marca como PULADA o que
    ficou pelo caminho, em vez de fingir que foi concluído. */
-function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0, preCliente = null, anexosDaConversa = [], aoVivo = true }: {
+function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, programadas, onEscolherEtapa, onNovaTask, onConcluirTask, onAbrirTask, onLevarAoFinder, onLevarAoWriter, abrindoWriter = false, docsNaConversa = 0, preCliente = null, anexosDaConversa = [], aoVivo = true, conversaId, nomeDoLeadParaBusca, telefoneDoLead, onVinculouAnalise }: {
   /** as etapas da jornada DESTE lead (a Bradesco ou a padrão, conforme o dossiê) */
   etapas: readonly EtapaDef[];
   perdidoMotivo?: string | null;
@@ -6870,6 +6923,12 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
   abrindoWriter?: boolean;
   /** quantos PDFs a conversa tem, pra o botão dizer o tamanho da fila */
   docsNaConversa?: number;
+  /** a conversa desta jornada, para vincular uma análise solta a ela */
+  conversaId?: string;
+  /** o nome que a conversa mostra hoje, só para ordenar os candidatos */
+  nomeDoLeadParaBusca?: string;
+  telefoneDoLead?: string | null;
+  onVinculouAnalise?: () => void;
   /** a ficha do Writer que tem o mesmo número desta conversa, quando existe */
   preCliente?: PreClienteDoLead | null;
   /** as mensagens, pra escolher o que sobe pra pasta na hora de aprovar */
@@ -7059,6 +7118,20 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
                         <span className="rounded-full bg-primary/15 px-1.5 text-[9.5px] tabular-nums">{docsNaConversa}</span>
                       )}
                     </button>
+                  )}
+
+                  {/* ── A ANÁLISE QUE JÁ FOI FEITA, LÁ FORA ──
+                      Aberto pelo menu em vez do botão acima, o Finder salva a
+                      análise solta: ela fica pronta e o lead espera para sempre
+                      numa etapa que já passou, sem erro nenhum aparecer. Aqui
+                      se liga na mão, e o banco faz o resto: move a etapa e
+                      batiza o lead com o nome do titular. */}
+                  {e.chave === "aguardando_analise" && conversaId && onVinculouAnalise && (
+                    <VincularAnalise
+                      conversaId={conversaId}
+                      nomeDoLead={nomeDoLeadParaBusca ?? ""}
+                      telefone={telefoneDoLead}
+                      onVinculou={onVinculouAnalise} />
                   )}
 
                   {/* ── A FICHA QUE O WRITER GEROU, AQUI DENTRO ──
@@ -8389,6 +8462,72 @@ function LinhaDeCustodia({ passagem, instancia, nome }: {
  * escolha barata: quem fechou "Lembretes" continua sabendo que existem dois lá
  * dentro, e reabre quando isso importar. Sem ele, fechar viraria esquecer.
  */
+/* UMA LINHA DO DOSSIÊ QUE SE COPIA.
+ *
+ * O nome e o número são os dois dados que saem daqui para outro lugar: o nome
+ * vai para o contrato, o número vai para o cadastro e para a ligação. Selecionar
+ * com o mouse a partir de um texto truncado leva junto o que não se queria, e
+ * num telefone isso vira um dígito a menos sem ninguém ver.
+ *
+ * O QUE SE COPIA PODE NÃO SER O QUE SE LÊ: na tela o número aparece "(92)
+ * 98819-9101", porque é assim que se lê; na área de transferência vai
+ * "+5592988199101", porque é assim que outro sistema aceita.
+ */
+function LinhaCopiavel({ rotulo, valor, paraCopiar, nota, vazio }: {
+  rotulo: string;
+  valor: string | null;
+  /** o que vai para a área de transferência, quando difere do que se lê */
+  paraCopiar?: string;
+  nota?: string | null;
+  /** o que dizer quando ainda não há valor */
+  vazio?: string;
+}) {
+  const [copiou, setCopiou] = useState(false);
+  const copiar = () => {
+    const texto = paraCopiar ?? valor ?? "";
+    if (!texto) return;
+    navigator.clipboard.writeText(texto)
+      .then(() => { setCopiou(true); setTimeout(() => setCopiou(false), 1600); })
+      .catch(() => toast.error("Não consegui copiar."));
+  };
+
+  return (
+    <div className="flex flex-col gap-0.5 items-start min-w-0 w-full">
+      <span className="text-[9.5px] text-muted-foreground/70">{rotulo}</span>
+      {valor ? (
+        <span className="flex items-center gap-1.5 min-w-0 w-full group/copia">
+          <span className="text-[12px] text-foreground/90 truncate" title={valor}>{valor}</span>
+          <button
+            onClick={copiar}
+            title={`Copiar ${rotulo.toLowerCase()}`}
+            aria-label={`Copiar ${rotulo.toLowerCase()}`}
+            className="shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40
+                       hover:text-foreground hover:bg-white/[0.08] transition-colors">
+            <AnimatePresence mode="wait" initial={false}>
+              {copiou ? (
+                <motion.span key="ok"
+                  initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }} transition={TRANSICAO_CARTAO}>
+                  <Check className="h-3 w-3 text-emerald-400" />
+                </motion.span>
+              ) : (
+                <motion.span key="copiar"
+                  initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }} transition={TRANSICAO_CARTAO}>
+                  <Copy className="h-3 w-3" />
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+        </span>
+      ) : (
+        <span className="text-[11px] text-muted-foreground/50 italic leading-snug">{vazio || "não sei ainda"}</span>
+      )}
+      {nota && <span className="text-[9.5px] text-muted-foreground/50">{nota}</span>}
+    </div>
+  );
+}
+
 function SecaoFicha({
   id, titulo, icone, contador, aberta, onAlternar, children, semDivisor,
 }: {

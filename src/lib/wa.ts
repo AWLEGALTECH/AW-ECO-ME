@@ -23,6 +23,9 @@ export interface ConversaRow {
   telefone: string;
   jid: string | null;
   nome_wa: string | null;
+  /** o nome do titular, quando a análise/kit/contrato já revelou */
+  nome_real?: string | null;
+  nome_real_origem?: string | null;
   foto_url: string | null;
   nao_lidas: number;
   ultima_em: string | null;
