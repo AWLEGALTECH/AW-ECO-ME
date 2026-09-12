@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ScanText, Loader2, Check, AlertTriangle, XCircle, PenSquare,
-  FileText, Image as ImageIcon, ArrowLeft, Square, CheckSquare,
+  FileText, Image as ImageIcon, ArrowLeft, Square, CheckSquare, Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -22,6 +22,8 @@ import {
 import { qualificacaoParaOWriter, paramDaQualificacao } from "@/lib/kitParaOWriter";
 import { linkDoWriter } from "@/lib/writerDaConversa";
 import { podeIrParaPasta, type AnexoCandidato } from "@/lib/anexosParaPasta";
+import { useFotosAssinadas } from "@/hooks/useWhatsapp";
+import { miniaturaDoPdf } from "@/lib/miniaturaPdf";
 
 /* LER OS DOCUMENTOS DO LEAD E LEVAR AO WRITER.
  *
@@ -135,6 +137,38 @@ export function LeituraDosDocumentos({
 
   const jaLidos = lista.filter((l) => l.jaLido);
   const porLer = lista.filter((l) => !l.jaLido);
+
+  /* O balde é privado, então cada arquivo precisa de link assinado. Assinados
+     em lote: uma chamada por anexo seriam doze idas ao servidor para desenhar
+     uma lista de doze linhas. */
+  const { data: urls = {} } = useFotosAssinadas(aberto ? doLead.map((a) => a.midiaPath) : []);
+
+  /* AS MINIATURAS DOS PDFs, uma de cada vez.
+     Foto se resolve sozinha na tag de imagem. PDF precisa ser desenhado, e
+     desenhar doze de uma vez seria doze arquivos de até dois megas abertos ao
+     mesmo tempo na memória do navegador. Em fila, a lista vai ganhando cara
+     enquanto a pessoa lê a primeira linha. */
+  const [miniaturas, setMiniaturas] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!aberto) return;
+    const pendentes = doLead.filter((a) => {
+      const path = a.midiaPath!;
+      return (a.tipo ?? "").toLowerCase() !== "imagem" && urls[path] && !(path in miniaturas);
+    });
+    if (pendentes.length === 0) return;
+    let cancel = false;
+    (async () => {
+      for (const a of pendentes) {
+        if (cancel) return;
+        const path = a.midiaPath!;
+        const dataUrl = await miniaturaDoPdf(urls[path], 120);
+        if (cancel) return;
+        // Guarda até o vazio: sem isto, o que falhou seria tentado para sempre.
+        setMiniaturas((m) => ({ ...m, [path]: dataUrl }));
+      }
+    })();
+    return () => { cancel = true; };
+  }, [aberto, doLead, urls, miniaturas]);
 
   /* O que já foi lido chega na abertura, sem passar pela função e sem gastar. */
   useEffect(() => {
@@ -360,6 +394,12 @@ export function LeituraDosDocumentos({
                       anexo={a}
                       marcado={marcados.includes(a.path)}
                       atraso={i * 0.03}
+                      url={urls[a.path]}
+                      miniatura={
+                        (a.tipo ?? "").toLowerCase() === "imagem"
+                          ? urls[a.path]          // foto é a própria miniatura
+                          : miniaturas[a.path] || null
+                      }
                       aoClicar={() => alternar(a.path)}
                     />
                   ))}
@@ -452,48 +492,83 @@ export function LeituraDosDocumentos({
 
 /* ── uma linha da escolha ─────────────────────────────────────────────────── */
 
-function LinhaDoAnexo({ anexo, marcado, atraso, aoClicar }: {
+function LinhaDoAnexo({ anexo, marcado, atraso, url, miniatura, aoClicar }: {
   anexo: AnexoLegivel;
   marcado: boolean;
   atraso: number;
+  /** o link assinado do arquivo, para abrir em tamanho de gente */
+  url?: string | null;
+  /** a cara do documento: a própria foto, ou a primeira página do PDF */
+  miniatura?: string | null;
   aoClicar: () => void;
 }) {
-  const Ico = (anexo.tipo ?? "").toLowerCase() === "imagem" ? ImageIcon : FileText;
+  const ehImagem = (anexo.tipo ?? "").toLowerCase() === "imagem";
+  const Ico = ehImagem ? ImageIcon : FileText;
   const Caixa = marcado ? CheckSquare : Square;
 
   return (
-    <motion.button
+    <motion.div
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...MOLA, delay: atraso }}
-      onClick={aoClicar}
-      disabled={anexo.jaLido}
       className={cn(
-        "w-full text-left rounded-lg border px-3 py-2 transition-colors",
-        "grid grid-cols-[1.1rem_1.1rem_minmax(0,1fr)_auto] items-center gap-2",
+        "rounded-lg border transition-colors",
+        "grid grid-cols-[1.1rem_2.75rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2",
         anexo.jaLido
-          ? "border-emerald-500/20 bg-emerald-500/[0.05] cursor-default"
+          ? "border-emerald-500/20 bg-emerald-500/[0.05]"
           : marcado
             ? "border-primary/40 bg-primary/[0.08]"
             : "border-border/60 bg-card/40 hover:border-primary/30 hover:bg-primary/[0.03]",
       )}
     >
-      {anexo.jaLido
-        ? <Check className="h-4 w-4 text-emerald-500" />
-        : <Caixa className={cn("h-4 w-4", marcado ? "text-primary" : "text-muted-foreground/40")} />}
-      <Ico className="h-3.5 w-3.5 text-muted-foreground/70" />
-      <span className="text-[12px] truncate">
-        {/* O QUE ELE ERA vale mais que o nome do arquivo, que é um uuid. */}
-        {anexo.lidoComo || anexo.nome || (anexo.tipo === "imagem" ? "Imagem" : "Documento")}
-        {anexo.falhou && (
-          <span className="ml-1.5 text-[10px] text-amber-500">tentado, não deu</span>
-        )}
-      </span>
-      <span className="text-[10px] tabular-nums text-muted-foreground/60 shrink-0">
-        {anexo.jaLido ? "já lido" : anexo.quando || ""}
-      </span>
-    </motion.button>
+      <button onClick={aoClicar} disabled={anexo.jaLido} className="contents" aria-label="escolher">
+        <span className="flex items-center justify-center">
+          {anexo.jaLido
+            ? <Check className="h-4 w-4 text-emerald-500" />
+            : <Caixa className={cn("h-4 w-4", marcado ? "text-primary" : "text-muted-foreground/40")} />}
+        </span>
+
+        {/* A CARA DO DOCUMENTO.
+            Sem ela a lista dizia "Documento" e uma hora, e três PDFs da mesma
+            conversa eram três retângulos iguais: isso não é escolha, é sorteio.
+            O quadro é retrato, como papel, e o `object-top` mostra o cabeçalho,
+            que é onde mora o que identifica a folha. */}
+        <span className={cn(
+          "relative h-14 w-11 shrink-0 overflow-hidden rounded border",
+          "grid place-items-center bg-background/60",
+          marcado ? "border-primary/30" : "border-border/60",
+        )}>
+          {miniatura
+            ? <img src={miniatura} alt="" loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover object-top" />
+            : <Ico className="h-4 w-4 text-muted-foreground/40" />}
+        </span>
+
+        <span className="text-left min-w-0">
+          <span className="block text-[12px] truncate">
+            {/* O QUE ELE ERA vale mais que o nome do arquivo, que é um uuid. */}
+            {anexo.lidoComo || anexo.nome || (ehImagem ? "Imagem" : "Documento")}
+          </span>
+          <span className="block text-[10px] tabular-nums text-muted-foreground/60">
+            {anexo.jaLido ? "já lido" : anexo.quando || ""}
+            {anexo.falhou && <span className="ml-1.5 text-amber-500">tentado, não deu</span>}
+          </span>
+        </span>
+      </button>
+
+      {/* MINIATURA NÃO SUBSTITUI OLHAR. Onze pixels de largura não distinguem um
+          RG de uma CNH, e é justamente aí que a escolha erra. Este botão abre o
+          arquivo do tamanho que ele é, em outra guia. */}
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title="Abrir o documento em outra guia"
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground/50 hover:text-primary hover:bg-primary/[0.08] transition-colors">
+          <Maximize2 className="h-3.5 w-3.5" />
+        </a>
+      ) : <span />}
+    </motion.div>
   );
 }
 
