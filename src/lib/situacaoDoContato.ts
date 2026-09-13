@@ -106,6 +106,63 @@ export function situacaoSugerida(args: {
   return situacaoOuPadrao(args.situacaoGravada);
 }
 
+/* ── o que muda quando a situação muda ────────────────────────────────────── */
+
+/** O nome de cada seção como a pessoa a vê na ficha. */
+const NOME_DA_SECAO: Record<SecaoCondicional, string> = {
+  followup: "Follow-up",
+  jornada: "Jornada",
+  programadas: "Programadas",
+  chegada: "tempo no funil",
+  processos: "Processos",
+  pendencias: "Pendências",
+  ficha_cliente: "atalho para a ficha do cliente",
+};
+
+const TODAS_AS_SECOES: readonly SecaoCondicional[] = [
+  "followup", "jornada", "programadas", "chegada", "processos", "pendencias", "ficha_cliente",
+];
+
+export interface ConsequenciasDaTroca {
+  /** o que passa a aparecer na ficha */
+  ganha: string[];
+  /** o que some da ficha */
+  perde: string[];
+  /** a pessoa sai da régua de cobrança */
+  saiDaRegua: boolean;
+  /** a pessoa volta a poder entrar na régua */
+  voltaARegua: boolean;
+}
+
+/**
+ * O que acontece se a situação trocar de `de` para `para`.
+ *
+ * Calculado da MESMA regra que desenha a ficha (`mostraSecao`), e não escrito
+ * à mão num texto de aviso: aviso escrito à mão descreve a tela de ontem. O que
+ * este cálculo devolve é o que a tela vai fazer de verdade no segundo seguinte.
+ *
+ * A RÉGUA É A CONSEQUÊNCIA QUE NÃO SE VÊ. Sumir uma seção a pessoa percebe na
+ * hora; continuar cobrando por WhatsApp alguém que virou cliente, ou o advogado
+ * do banco, ninguém percebe até o constrangimento. Por isso ela é dita aqui e
+ * feita no banco, na mesma troca.
+ */
+export function consequenciasDaTroca(de: Situacao, para: Situacao): ConsequenciasDaTroca {
+  const ganha: string[] = [];
+  const perde: string[] = [];
+  for (const sec of TODAS_AS_SECOES) {
+    const antes = mostraSecao(de, sec);
+    const depois = mostraSecao(para, sec);
+    if (!antes && depois) ganha.push(NOME_DA_SECAO[sec]);
+    if (antes && !depois) perde.push(NOME_DA_SECAO[sec]);
+  }
+  return {
+    ganha,
+    perde,
+    saiDaRegua: de === "lead" && para !== "lead",
+    voltaARegua: de !== "lead" && para === "lead",
+  };
+}
+
 /* ── pendências de um cliente ─────────────────────────────────────────────── */
 
 /**

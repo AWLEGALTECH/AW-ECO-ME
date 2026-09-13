@@ -4509,6 +4509,7 @@ export default function AtendimentoPage() {
                 <SituacaoDoContato
                   situacao={situacaoDoLead}
                   sugerida={situacaoQueOsDadosSugerem}
+                  nomeDaPessoa={nomeMostrado.texto}
                   ocupado={mudandoSituacao}
                   podeMudar={aoVivo && !semConversas}
                   onMudar={mudarSituacaoAqui} />

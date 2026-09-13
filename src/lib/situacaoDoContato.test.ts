@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   SITUACOES, SITUACOES_DEF, situacaoValida, situacaoOuPadrao, defDaSituacao,
-  mostraSecao, situacaoSugerida, ehPendente,
+  mostraSecao, situacaoSugerida, ehPendente, consequenciasDaTroca,
 } from "./situacaoDoContato";
 
 test("toda situação tem definição, e só as cinco existem", () => {
@@ -77,4 +77,46 @@ test("pendência é o que ainda está na mão de alguém", () => {
   expect(ehPendente("resolvida")).toBe(false);
   expect(ehPendente("cancelada")).toBe(false);
   expect(ehPendente(null)).toBe(false);
+});
+
+/* ── o "tem certeza?" diz o que vai acontecer de verdade ──────────────────── */
+
+test("lead que vira cliente perde o funil, ganha processos e sai da régua", () => {
+  const c = consequenciasDaTroca("lead", "cliente");
+  expect(c.perde).toEqual(["Follow-up", "Jornada", "Programadas", "tempo no funil"]);
+  expect(c.ganha).toEqual(["Processos", "Pendências", "atalho para a ficha do cliente"]);
+  expect(c.saiDaRegua).toBe(true);
+  expect(c.voltaARegua).toBe(false);
+});
+
+test("lead que vira contraparte perde o funil e não ganha nada: só sai da régua", () => {
+  const c = consequenciasDaTroca("lead", "contraparte");
+  expect(c.perde.length).toBe(4);
+  expect(c.ganha).toEqual([]);
+  expect(c.saiDaRegua).toBe(true);
+});
+
+test("cliente que volta a lead recupera o funil e volta a poder ser cobrado", () => {
+  const c = consequenciasDaTroca("cliente", "lead");
+  expect(c.ganha).toEqual(["Follow-up", "Jornada", "Programadas", "tempo no funil"]);
+  expect(c.perde).toEqual(["Processos", "Pendências", "atalho para a ficha do cliente"]);
+  expect(c.saiDaRegua).toBe(false);
+  expect(c.voltaARegua).toBe(true);
+});
+
+test("trocar entre situações que não são lead não mexe na régua", () => {
+  const c = consequenciasDaTroca("interno", "contraparte");
+  expect(c.ganha).toEqual([]);
+  expect(c.perde).toEqual([]);
+  expect(c.saiDaRegua).toBe(false);
+  expect(c.voltaARegua).toBe(false);
+});
+
+test("as consequências vêm da mesma regra que desenha a ficha", () => {
+  // se um dia mostraSecao mudar, o aviso muda junto, sem texto para atualizar
+  for (const de of SITUACOES) for (const para of SITUACOES) {
+    const c = consequenciasDaTroca(de, para);
+    for (const nome of c.ganha) expect(nome.length).toBeGreaterThan(3);
+    if (de === para) { expect(c.ganha).toEqual([]); expect(c.perde).toEqual([]); }
+  }
 });
