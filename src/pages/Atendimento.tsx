@@ -116,6 +116,7 @@ import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { LeituraDosDocumentos } from "@/components/LeituraDosDocumentos";
 import { mensagemDeBoasVindas } from "@/lib/leadViraCliente";
 import { FinalizarAtendimento } from "@/components/FinalizarAtendimento";
+import { BoasVindasPorNumero } from "@/components/BoasVindasPorNumero";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
 import type { AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
@@ -1773,7 +1774,8 @@ export default function AtendimentoPage() {
      A trava de follow-up continua existindo, mas agora é consequência da
      escolha, e não a escolha inteira. */
   const [finalizarAberto, setFinalizarAberto] = useState(false);
-  const { data: boasVindas = {} } = useMensagensBoasVindas();
+  const { data: boasVindas = {}, refetch: recarregarBoasVindasQ } = useMensagensBoasVindas();
+  const recarregarBoasVindas = () => { void recarregarBoasVindasQ(); };
 
   const descartarEsteLead = (motivo: string) => {
     if (!aoVivo) return;
@@ -2883,6 +2885,8 @@ export default function AtendimentoPage() {
           instanciaId={instancia.id}
           nomeDe={nomeDe}
           onEscolherInstancia={trocarInstancia}
+          boasVindasAjustes={boasVindas}
+          onRecarregarBoasVindas={recarregarBoasVindas}
           mudo={mudo}
           onAlternarMudo={alternarMudo}
           regua={regua}
@@ -7387,12 +7391,15 @@ function JornadaLead({ etapas, perdidoMotivo, atual, puladas, tasksDoLead, log, 
 function PainelAjustes({
   instancias, instanciaId, nomeDe, onEscolherInstancia, mudo, onAlternarMudo, regua,
   agendadas, aoVivo, onAbrirRegua, onAbrirProgramadas, onReaplicarEventos, onDiagnosticar,
-  onPuxarFotos, puxandoFotos,
+  onPuxarFotos, puxandoFotos, boasVindasAjustes, onRecarregarBoasVindas,
 }: {
   instancias: Instancia[];
   instanciaId: string;
   nomeDe: (nome: string) => string;
   onEscolherInstancia: (id: string) => void;
+  /** a mensagem de boas-vindas gravada de cada número, e como recarregá-la */
+  boasVindasAjustes: Record<string, string>;
+  onRecarregarBoasVindas: () => void;
   mudo: boolean;
   onAlternarMudo: () => void;
   regua: Regua;
@@ -7434,6 +7441,20 @@ function PainelAjustes({
             na frente.
           </p>
         </div>
+
+        {/* ── A PRIMEIRA PALAVRA COM QUEM VIROU CLIENTE ──
+            Quando um lead é aprovado, a conversa passa para o número de
+            atendimento e esta mensagem fica escrita na barra, esperando o
+            enter. Ela nunca se envia sozinha: é a primeira frase do escritório
+            com alguém que acabou de assinar um contrato. */}
+        <Bloco
+          titulo="Boas-vindas do cliente novo"
+          descricao="Fica engatilhada na barra quando o lead vira cliente. Ninguém envia por você: você lê e aperta o enter.">
+          <BoasVindasPorNumero
+            instancias={instancias}
+            mensagens={boasVindasAjustes}
+            aoSalvar={onRecarregarBoasVindas} />
+        </Bloco>
 
         <div className="grid gap-2.5 md:grid-cols-2">
           {/* ── O NÚMERO QUE ABRE ── */}
