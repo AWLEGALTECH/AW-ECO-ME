@@ -4556,6 +4556,20 @@ export default function AtendimentoPage() {
                     paraCopiar={telefoneParaCopiar(lead.telefone)}
                     nota={lead.nome && lead.nome !== telefoneNaTela(lead.telefone) ? `salvo como ${lead.nome}` : null} />
 
+                  {/* A PORTA PARA A FICHA. Quem tem ficha de cliente tem processos,
+                      contratos, demandas e a pasta do Drive numa tela própria, e
+                      a conversa é onde a pergunta "deixa eu ver a ficha dele"
+                      mais aparece. Fica junto do nome e do número, que é o "quem
+                      é esta pessoa" do dossiê, e não escondida dentro de uma
+                      seção que talvez esteja fechada. Só aparece quando há ficha
+                      para abrir: botão para lugar nenhum é pior que botão nenhum. */}
+                  {lead.clienteId && (
+                    <Link to={`/clientes/${lead.clienteId}`}
+                      className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/[0.07] py-1.5 text-[11px] font-medium text-primary hover:bg-primary/[0.13] transition-colors">
+                      <ExternalLink className="h-3.5 w-3.5" /> Abrir ficha do cliente
+                    </Link>
+                  )}
+
                   <div className="flex flex-col gap-1 items-start">
                     <span className="text-[9.5px] text-muted-foreground/70">Origem</span>
                     {/* SÓ A ORIGEM AQUI. A etiqueta de follow-up saiu deste
