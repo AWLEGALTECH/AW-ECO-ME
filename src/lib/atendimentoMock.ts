@@ -145,6 +145,10 @@ export interface Lead {
   virouClienteEm?: string | null;
   /** a jornada que ele percorreu como lead, para o histórico do dossiê */
   jornadaAnterior?: string | null;
+  /** o que esta pessoa é para o escritório; decide que ficha a tela desenha */
+  situacao?: string | null;
+  /** a ficha de cliente ligada a esta conversa, quando existe */
+  clienteId?: string | null;
   /** de qual base de leads essa pessoa veio, quando veio de alguma (nome para a tela) */
   base?: string | null;
   /* O DOSSIÊ DECIDE A JORNADA. `baseChave` é a chave gravada (bradesco,
@@ -153,7 +157,7 @@ export interface Lead {
      Sem base, a jornada é a padrão e a ficha avisa que o dossiê está incompleto. */
   baseChave?: string | null;
   baseOrigem?: "detectada" | "informada" | null;
-  jornada?: "padrao" | "bradesco";
+  jornada?: "padrao" | "bradesco" | "cliente";
   /** por que saiu do funil, quando a etapa é "perdido" */
   perdidoMotivo?: string | null;
   /* POR QUAL NÚMERO essa conversa acontece. Passou a importar quando a caixa

@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 
 /** As seções que se pode fechar. A ordem aqui é a ordem na tela. */
 export const SECOES_DA_FICHA = [
-  "dossie", "followup", "jornada", "lembretes", "programadas", "notas",
+  "dossie", "followup", "jornada", "processos", "pendencias", "lembretes", "programadas", "notas",
 ] as const;
 
 export type SecaoDaFicha = (typeof SECOES_DA_FICHA)[number];

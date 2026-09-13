@@ -108,7 +108,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, nome_real, nome_real_origem, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, virou_cliente_em, jornada_anterior, created_at";
+  "id, instancia, telefone, jid, nome_wa, nome_real, nome_real_origem, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, virou_cliente_em, jornada_anterior, situacao, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -472,6 +472,75 @@ export async function salvarBoasVindas(instancia: string, mensagem: string) {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Mudar o que esta pessoa é para o escritório.
+ *
+ * Vale para o grupo inteiro da conversa: a pessoa é uma só, em quantos números
+ * estiver, e marcar cliente num número deixando lead no outro é o mesmo erro
+ * que a virada acabou de fechar. A regra mora no banco por isso.
+ */
+export async function mudarSituacao(conversaId: string, situacao: string) {
+  const { data, error } = await supabase.rpc("fn_wa_mudar_situacao" as never, {
+    p_conversa: conversaId, p_situacao: situacao,
+  } as never);
+  if (error) throw new Error(error.message);
+  const r = (Array.isArray(data) ? (data as unknown[])[0] : data) as { ok?: boolean; erro?: string | null } | null;
+  if (!r?.ok) throw new Error(r?.erro || "Não consegui mudar a situação.");
+}
+
+export interface ProcessoDoCliente {
+  id: string;
+  numero_processo: string;
+  materia: string | null;
+  fase_processual: string | null;
+  status_tarefa: string | null;
+  data_ultimo_andamento: string | null;
+}
+
+/** Os processos de quem já é cliente, para a ficha responder "em que pé está". */
+export function useProcessosDoCliente(clienteId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["wa", "processos-do-cliente", clienteId],
+    enabled: !!clienteId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ProcessoDoCliente[]> => {
+      const { data, error } = await supabase.from("processos")
+        .select("id, numero_processo, materia, fase_processual, status_tarefa, data_ultimo_andamento")
+        .eq("cliente_id", clienteId!)
+        .order("data_ultimo_andamento", { ascending: false, nullsFirst: false });
+      if (error) throw new Error(error.message);
+      return (data || []) as ProcessoDoCliente[];
+    },
+  });
+}
+
+export interface PendenciaDoCliente {
+  id: string;
+  titulo: string | null;
+  tipo: string | null;
+  etapa: string | null;
+  status: string | null;
+  created_at: string;
+}
+
+/** O que ainda está na mão de alguém para este cliente. O filtro de status é da lib. */
+export function usePendenciasDoCliente(clienteId: string | null | undefined, statusAbertos: readonly string[]) {
+  return useQuery({
+    queryKey: ["wa", "pendencias-do-cliente", clienteId],
+    enabled: !!clienteId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<PendenciaDoCliente[]> => {
+      const { data, error } = await tabela("demandas")
+        .select("id, titulo, tipo, etapa, status, created_at")
+        .eq("cliente_id", clienteId!)
+        .in("status", [...statusAbertos])
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data || []) as PendenciaDoCliente[];
+    },
+  });
+}
+
 export async function descartarLeadDaConversa(conversaId: string, motivo: string) {
   const { data, error } = await supabase.rpc("fn_wa_descartar_lead" as never, {
     p_conversa: conversaId, p_motivo: motivo,
@@ -719,7 +788,10 @@ export function conversaParaLead(
     // Sem etapa gravada, a primeira da jornada: "na base" para quem veio da
     // base Bradesco, "chegou" para o resto.
     estagio: (c.etapa || (c.jornada === "bradesco" ? "na_base" : "chegou")) as Estagio,
-    jornada: c.jornada === "bradesco" ? "bradesco" : "padrao",
+    /* 'cliente' PASSA. A versão anterior reduzia tudo a bradesco-ou-padrão e
+       jogava fora a jornada de cliente antes de ela chegar à tela: com o banco
+       certo, a ficha ainda desenharia funil para quem já não está em funil. */
+    jornada: c.jornada === "bradesco" ? "bradesco" : c.jornada === "cliente" ? "cliente" : "padrao",
     baseChave: c.base ?? null,
     baseOrigem: (c.base_origem as "detectada" | "informada" | null) ?? null,
     perdidoMotivo: c.perdido_motivo ?? null,
@@ -742,6 +814,8 @@ export function conversaParaLead(
     instancia: c.instancia,
     movidaDe: c.movida_de ?? null,
     virouClienteEm: c.virou_cliente_em ?? null,
+    situacao: c.situacao ?? null,
+    clienteId: c.cliente_id ?? null,
     jornadaAnterior: c.jornada_anterior ?? null,
     movidaEm: c.movida_em ?? null,
     followupAtivo: c.followup_ativo ?? null,

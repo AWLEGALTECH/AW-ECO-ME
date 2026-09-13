@@ -56,6 +56,7 @@ export interface ConversaRow {
   movida_de: string | null;
   virou_cliente_em?: string | null;
   jornada_anterior?: string | null;
+  situacao?: string | null;
   movida_em: string | null;
   /* Null = este contato segue a regra do número. True/false = decisão explícita
      dele, e vence a regra. */
@@ -74,7 +75,7 @@ export interface ConversaRow {
   foto_path: string | null;
   base: string | null;
   base_origem: string | null;
-  jornada: "padrao" | "bradesco";
+  jornada: "padrao" | "bradesco" | "cliente" | null;
   perdido_motivo: string | null;
   pre_cliente_id: string | null;
 }

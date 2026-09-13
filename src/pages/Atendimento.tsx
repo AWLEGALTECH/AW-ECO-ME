@@ -45,7 +45,9 @@ import {
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
+  Scale, ExternalLink, ListChecks,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LEADS, LEMBRETES, ESTAGIOS, ORIGENS,
@@ -63,6 +65,7 @@ import {
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia, useFotosAssinadas, puxarFotosDePerfil,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
   moverConversaDeInstancia, descartarLeadDaConversa, virarCliente, useMensagensBoasVindas,
+  mudarSituacao, useProcessosDoCliente, usePendenciasDoCliente,
   diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
@@ -117,6 +120,8 @@ import { LeituraDosDocumentos } from "@/components/LeituraDosDocumentos";
 import { mensagemDeBoasVindas } from "@/lib/leadViraCliente";
 import { FinalizarAtendimento } from "@/components/FinalizarAtendimento";
 import { BoasVindasPorNumero } from "@/components/BoasVindasPorNumero";
+import { SituacaoDoContato } from "@/components/SituacaoDoContato";
+import { situacaoSugerida, situacaoOuPadrao, mostraSecao, STATUS_PENDENTE, type Situacao } from "@/lib/situacaoDoContato";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
 import type { AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
@@ -1774,6 +1779,30 @@ export default function AtendimentoPage() {
      A trava de follow-up continua existindo, mas agora é consequência da
      escolha, e não a escolha inteira. */
   const [finalizarAberto, setFinalizarAberto] = useState(false);
+
+  /* O QUE ESTA PESSOA É decide o que a ficha desenha. A gravada vence; quando
+     ela ainda está no padrão e os dados dizem outra coisa (tem ficha de
+     cliente, passou pela virada), a tela sugere sem trocar sozinha. */
+  const situacaoDoLead: Situacao = situacaoOuPadrao(lead.situacao);
+  const situacaoQueOsDadosSugerem: Situacao = situacaoSugerida({
+    situacaoGravada: lead.situacao, clienteId: lead.clienteId, virouClienteEm: lead.virouClienteEm,
+  });
+  const [mudandoSituacao, setMudandoSituacao] = useState(false);
+  const mudarSituacaoAqui = (s: Situacao) => {
+    if (!aoVivo) return;
+    setMudandoSituacao(true);
+    mudarSituacao(lead.id, s)
+      .then(() => { invalidarWa(); toast.success(`${nomeMostrado.texto} agora é ${s}.`); })
+      .catch((e) => toast.error("Não consegui mudar a situação: " + (e as Error).message))
+      .finally(() => setMudandoSituacao(false));
+  };
+
+  /* AS COISAS DE QUEM JÁ É CLIENTE. Os hooks rodam sempre e só consultam quando
+     há ficha ligada: a regra dos hooks não deixa chamá-los dentro de um if. */
+  const { data: processosDoCliente = [] } = useProcessosDoCliente(
+    situacaoDoLead === "cliente" ? lead.clienteId : null);
+  const { data: pendenciasDoCliente = [] } = usePendenciasDoCliente(
+    situacaoDoLead === "cliente" ? lead.clienteId : null, STATUS_PENDENTE);
   const { data: boasVindas = {}, refetch: recarregarBoasVindasQ } = useMensagensBoasVindas();
   const recarregarBoasVindas = () => { void recarregarBoasVindasQ(); };
 
@@ -4472,6 +4501,18 @@ export default function AtendimentoPage() {
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+                {/* ═══ A SITUAÇÃO, ANTES DE TUDO ═══
+                    Não é um dado da pessoa: é a decisão que escolhe quais dados
+                    aparecem. Lead vê jornada e follow-up. Cliente vê processos
+                    e pendências. Contraparte vê o mínimo. Colocá-la dentro do
+                    dossiê seria esconder a alavanca dentro do que ela move. */}
+                <SituacaoDoContato
+                  situacao={situacaoDoLead}
+                  sugerida={situacaoQueOsDadosSugerem}
+                  ocupado={mudandoSituacao}
+                  podeMudar={aoVivo && !semConversas}
+                  onMudar={mudarSituacaoAqui} />
+
                 {/* ═══ DOSSIÊ ═══
                     Ganhou título quando as seções viraram retráteis: sem ele,
                     era o único bloco sem alça — e um bloco sem alça no meio de
@@ -4529,14 +4570,16 @@ export default function AtendimentoPage() {
                     </span>
                   </div>
 
-                  {/* A BASE DECIDE A JORNADA. Detectada pelo telefone na planilha
-                      quando dá; quando não dá, o dossiê está incompleto e é o
-                      atendente que diz de onde a pessoa veio. Sem isso, a
-                      jornada não sabe qual régua usar. */}
-                  <BaseDoDossie
-                    baseChave={lead.baseChave} baseOrigem={lead.baseOrigem} baseNome={lead.base}
-                    jornada={lead.jornada}
-                    onInformar={(b) => informarBase(lead, b)} />
+                  {/* A BASE SÓ APARECE QUANDO FALTA. Com ela conhecida, a
+                      etiqueta de Origem logo acima já a diz, e o bloco que
+                      ficava aqui repetia a mesma informação em outra letra. O
+                      que sobra é o caso em que o dossiê está incompleto e é o
+                      atendente que precisa dizer de onde a pessoa veio. */}
+                  {!lead.baseChave && situacaoDoLead === "lead" && (
+                    <BaseDoDossie
+                      baseChave={lead.baseChave} baseOrigem={lead.baseOrigem} baseNome={lead.base}
+                      onInformar={(b) => informarBase(lead, b)} />
+                  )}
 
                   {/* O RESUMO DO FOLLOW-UP SAIU DAQUI e foi pra seção de
                       follow-up, que é onde ele se explica. Aqui ele era um
@@ -4554,10 +4597,14 @@ export default function AtendimentoPage() {
                       que cobra ação — se perdia no fim dela. */}
                   <Campo icone={<CalendarDays className="h-3 w-3" />} rotulo="Chegou em"
                     valor={fmtDiaLongo(lead.chegouEm)} />
-                  <Campo icone={<Clock className="h-3 w-3" />} rotulo="No funil"
-                    valor={diasEntre(lead.chegouEm, HOJE) === 0
-                      ? "chegou hoje"
-                      : `${diasEntre(lead.chegouEm, HOJE)} ${diasEntre(lead.chegouEm, HOJE) === 1 ? "dia" : "dias"}`} />
+                  {/* "No funil há N dias" só faz sentido para quem está em funil.
+                      Para um cliente com cinco processos ativos é ruído. */}
+                  {mostraSecao(situacaoDoLead, "chegada") && (
+                    <Campo icone={<Clock className="h-3 w-3" />} rotulo="No funil"
+                      valor={diasEntre(lead.chegouEm, HOJE) === 0
+                        ? "chegou hoje"
+                        : `${diasEntre(lead.chegouEm, HOJE)} ${diasEntre(lead.chegouEm, HOJE) === 1 ? "dia" : "dias"}`} />
+                  )}
                 </div>
                 </SecaoFicha>
 
@@ -4588,6 +4635,7 @@ export default function AtendimentoPage() {
                     rodada está, há quanto tempo está calada, quando vence a
                     próxima, e a chave de ligar ou desligar a cobrança. Estavam
                     em três lugares diferentes da mesma coluna. */}
+                {mostraSecao(situacaoDoLead, "followup") && (
                 <SecaoFicha id="followup" titulo="Follow-up" aberta={secaoAberta("followup")}
                   onAlternar={alternarSecao} icone={<Repeat className="h-3 w-3 shrink-0" />}>
                   <div className="flex flex-col gap-3.5">
@@ -4640,8 +4688,10 @@ export default function AtendimentoPage() {
                     )}
                   </div>
                 </SecaoFicha>
+                )}
 
-                {/* jornada */}
+                {/* jornada: coisa de funil, e só de funil */}
+                {mostraSecao(situacaoDoLead, "jornada") && (
                 <SecaoFicha id="jornada" titulo="Jornada" aberta={secaoAberta("jornada")} onAlternar={alternarSecao}
                   icone={<GitBranch className="h-3 w-3 shrink-0" />}>
                   <JornadaLead
@@ -4670,6 +4720,64 @@ export default function AtendimentoPage() {
                     onAbrirTask={abrirLembrete}
                   />
                 </SecaoFicha>
+                )}
+
+                {/* ═══ AS COISAS DE QUEM JÁ É CLIENTE ═══
+                    Quem virou cliente não está em funil nenhum: o que se quer
+                    saber com a conversa aberta é em que pé estão os processos e
+                    o que ainda está na mão de alguém. É a ficha de cliente em
+                    acesso rápido, sem sair do atendimento. */}
+                {mostraSecao(situacaoDoLead, "processos") && (
+                  <SecaoFicha id="processos" titulo="Processos" aberta={secaoAberta("processos")}
+                    onAlternar={alternarSecao} contador={processosDoCliente.length}
+                    icone={<Scale className="h-3 w-3 shrink-0" />}>
+                    <div className="flex flex-col gap-1.5">
+                      {!lead.clienteId && (
+                        <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                          Esta conversa ainda não está ligada a uma ficha de cliente. Aprovar o pré-cliente dela cria a ficha e liga sozinho.
+                        </p>
+                      )}
+                      {lead.clienteId && processosDoCliente.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground/70">Nenhum processo cadastrado ainda.</p>
+                      )}
+                      {processosDoCliente.map((p) => (
+                        <Link key={p.id} to={`/processos/${p.id}`}
+                          className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2 hover:ring-primary/40 hover:bg-white/[0.06] transition-colors">
+                          <p className="text-[11px] font-mono tabular-nums text-foreground/85 truncate">{p.numero_processo}</p>
+                          <p className="text-[10.5px] text-muted-foreground/80 truncate mt-0.5">
+                            {[p.materia, p.fase_processual].filter(Boolean).join(" · ") || "sem fase registrada"}
+                          </p>
+                        </Link>
+                      ))}
+                      {lead.clienteId && (
+                        <Link to={`/clientes/${lead.clienteId}`}
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-primary/[0.04] py-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors">
+                          <ExternalLink className="h-3.5 w-3.5" /> Abrir a ficha completa
+                        </Link>
+                      )}
+                    </div>
+                  </SecaoFicha>
+                )}
+
+                {mostraSecao(situacaoDoLead, "pendencias") && lead.clienteId && (
+                  <SecaoFicha id="pendencias" titulo="Pendências" aberta={secaoAberta("pendencias")}
+                    onAlternar={alternarSecao} contador={pendenciasDoCliente.length}
+                    icone={<ListChecks className="h-3 w-3 shrink-0" />}>
+                    <div className="flex flex-col gap-1.5">
+                      {pendenciasDoCliente.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground/70">Nada em aberto para esta pessoa.</p>
+                      )}
+                      {pendenciasDoCliente.map((d) => (
+                        <div key={d.id} className="rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2">
+                          <p className="text-[11.5px] leading-snug break-words">{d.titulo || d.tipo || "demanda"}</p>
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                            {[d.etapa, d.status === "em_andamento" ? "em andamento" : d.status].filter(Boolean).join(" · ")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </SecaoFicha>
+                )}
 
                 {/* ── O FOLLOW-UP DESTE CLIENTE ────────────────────────────
                     A central responde "quem eu cobro hoje". Esta janela
@@ -4794,7 +4902,7 @@ export default function AtendimentoPage() {
                     com a ficha aberta, prestes a escrever: o que já está a
                     caminho pra ela? Sem isso, o risco é escrever à mão o que já
                     vai sair sozinho daqui a uma hora. */}
-                {agendadasDaAberta.length > 0 && (
+                {agendadasDaAberta.length > 0 && mostraSecao(situacaoDoLead, "programadas") && (
                   <SecaoFicha id="programadas" titulo="Programadas" aberta={secaoAberta("programadas")}
                     onAlternar={alternarSecao} contador={agendadasDaAberta.length}
                     icone={<Clock className="h-3 w-3 shrink-0" />}>
@@ -7679,11 +7787,10 @@ function PassagensDaEtapa({ passagens, agendadas, eAtual }: {
    liga, com um "alterar" discreto para o caso de a detecção ter errado. Sem
    base: a pergunta e as opções, porque enquanto ela não for respondida o lead
    anda pela régua padrão e não pela dele. */
-function BaseDoDossie({ baseChave, baseOrigem, baseNome, jornada, onInformar }: {
+function BaseDoDossie({ baseChave, baseOrigem, baseNome, onInformar }: {
   baseChave?: string | null;
   baseOrigem?: "detectada" | "informada" | null;
   baseNome?: string | null;
-  jornada?: "padrao" | "bradesco";
   onInformar: (base: string) => void;
 }) {
   const [alterando, setAlterando] = useState(false);
@@ -7722,7 +7829,6 @@ function BaseDoDossie({ baseChave, baseOrigem, baseNome, jornada, onInformar }: 
       </span>
       <span className="text-[10px] text-muted-foreground/60">
         {baseOrigem === "informada" ? "informada pelo atendente" : "detectada pelo telefone na planilha"}
-        {" · jornada "}{jornada === "bradesco" ? "Bradesco" : "padrão"}
       </span>
       {alterando && opcoes}
     </div>
