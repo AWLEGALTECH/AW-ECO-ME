@@ -108,7 +108,7 @@ export function useInstancias() {
 }
 
 const COLUNAS_CONVERSA =
-  "id, instancia, telefone, jid, nome_wa, nome_real, nome_real_origem, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, created_at";
+  "id, instancia, telefone, jid, nome_wa, nome_real, nome_real_origem, foto_path, nao_lidas, ultima_em, ultima_previa, arquivada, cliente_id, origem, importada, fonte_id, presenca, presenca_em, visto_em, etapa, etapas_puladas, atendimento_finalizado_em, fixada_em, ultima_automatica, movida_de, movida_em, followup_ativo, grupo_id, base, base_origem, jornada, perdido_motivo, pre_cliente_id, pode_escrever, virou_cliente_em, jornada_anterior, created_at";
 
 /**
  * A caixa — de um número ou de vários.
@@ -433,6 +433,74 @@ export async function marcarPerdidoWa(conversaId: string, motivo: string) {
   if (error) throw error;
 }
 
+/**
+ * O lead deu pra trás: marca perdido com o motivo, desliga a cobrança e
+ * arquiva, numa chamada só.
+ *
+ * Numa chamada só porque, em duas, existe o estado do meio — perdido mas ainda
+ * na caixa — e é justamente nele que alguém volta a cobrar quem já desistiu.
+ */
+/**
+ * A mensagem de boas-vindas de cada número.
+ *
+ * Mora em `wa_atendimento_config` e não em `wa_instancias` porque é
+ * configuração de ATENDIMENTO, como o horário: diz o que aquele número fala,
+ * não o que ele é. Número sem linha na config simplesmente não aparece no mapa,
+ * e a tela cai no texto padrão.
+ */
+export function useMensagensBoasVindas() {
+  return useQuery({
+    queryKey: ["wa", "boas-vindas"],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<Record<string, string>> => {
+      const { data, error } = await tabela("wa_atendimento_config")
+        .select("instancia, mensagem_boas_vindas");
+      if (error) return {};
+      const mapa: Record<string, string> = {};
+      for (const r of (data || []) as { instancia?: string; mensagem_boas_vindas?: string | null }[]) {
+        if (r.instancia && r.mensagem_boas_vindas) mapa[r.instancia] = r.mensagem_boas_vindas;
+      }
+      return mapa;
+    },
+  });
+}
+
+export async function salvarBoasVindas(instancia: string, mensagem: string) {
+  const { error } = await tabela("wa_atendimento_config")
+    .upsert({ instancia, mensagem_boas_vindas: mensagem.trim() || null } as never,
+            { onConflict: "instancia" });
+  if (error) throw new Error(error.message);
+}
+
+export async function descartarLeadDaConversa(conversaId: string, motivo: string) {
+  const { data, error } = await supabase.rpc("fn_wa_descartar_lead" as never, {
+    p_conversa: conversaId, p_motivo: motivo,
+  } as never);
+  if (error) throw new Error(error.message);
+  const r = (Array.isArray(data) ? (data as unknown[])[0] : data) as { ok?: boolean; erro?: string | null } | null;
+  if (!r?.ok) throw new Error(r?.erro || "Não consegui descartar o lead.");
+}
+
+/**
+ * O lead virou cliente: a conversa passa para o número onde ele será atendido.
+ *
+ * Devolve o ID da conversa de DESTINO e a mensagem de boas-vindas daquele
+ * número. A tela precisa dos dois: do primeiro para abrir a conversa certa, do
+ * segundo para deixar o texto escrito na barra. Sem o destino a tela teria que
+ * adivinhar qual linha nasceu do repasse, e adivinhar aqui é escrever para a
+ * pessoa errada.
+ */
+export async function virarCliente(conversaId: string, instancia: string) {
+  const { data, error } = await supabase.rpc("fn_wa_lead_vira_cliente" as never, {
+    p_conversa: conversaId, p_para: instancia,
+  } as never);
+  if (error) throw new Error(error.message);
+  const r = (Array.isArray(data) ? (data as unknown[])[0] : data) as
+    { ok?: boolean; erro?: string | null; destino?: string | null; mensagem?: string | null } | null;
+  if (!r?.ok) throw new Error(r?.erro || "Não consegui levar o lead para o outro número.");
+  return { destino: r.destino ?? null, mensagem: r.mensagem ?? null };
+}
+
 export async function moverEtapaWa(conversaId: string, etapa: string, puladas: string[]) {
   const { error } = await tabela("wa_conversas")
     .update({ etapa, etapas_puladas: puladas }).eq("id", conversaId);
@@ -673,6 +741,8 @@ export function conversaParaLead(
     base: c.fonte_id ? (basePorId?.[c.fonte_id] ?? rotuloDaBase(c.base)) : rotuloDaBase(c.base),
     instancia: c.instancia,
     movidaDe: c.movida_de ?? null,
+    virouClienteEm: c.virou_cliente_em ?? null,
+    jornadaAnterior: c.jornada_anterior ?? null,
     movidaEm: c.movida_em ?? null,
     followupAtivo: c.followup_ativo ?? null,
     grupoId: c.grupo_id ?? null,

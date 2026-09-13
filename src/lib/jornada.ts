@@ -105,7 +105,7 @@ export function tempoNaEtapa(desdeISO: string, agora = new Date()): string {
  * a regra em prosa. Se os dois divergirem, o do banco é o que vale.
  */
 
-export type Jornada = "padrao" | "bradesco";
+export type Jornada = "padrao" | "bradesco" | "cliente";
 
 export interface EtapaDef {
   chave: string;
@@ -121,6 +121,19 @@ export const ETAPAS_PADRAO: readonly EtapaDef[] = [
   { chave: "extrato",  rotulo: "Extrato",   descricao: "esperando o documento, que é o gargalo" },
   { chave: "proposta", rotulo: "Proposta",  descricao: "sabe o que dá pra pedir, falta fechar" },
   { chave: "fechado",  rotulo: "Fechado",   descricao: "virou cliente" },
+  /* PERDIDO VALE NAS DUAS RÉGUAS. Ele só existia na Bradesco, e descartar um
+     lead da régua padrão não tinha para onde mandá-lo: a etapa ia para uma
+     chave que a tela não sabia desenhar. */
+  { chave: "perdido",  rotulo: "Perdido",   descricao: "saiu do funil", terminal: true },
+];
+
+/* A JORNADA DE CLIENTE começa onde a de lead termina. Por enquanto ela tem um
+   degrau só: a pessoa acabou de chegar no número de atendimento e ainda não foi
+   recebida por ninguém de lá. O resto do dossiê de cliente vem depois; o que
+   importa agora é que a conversa não fique numa jornada de lead depois de a
+   pessoa ter deixado de ser lead. */
+export const ETAPAS_CLIENTE: readonly EtapaDef[] = [
+  { chave: "cliente_novo", rotulo: "Cliente novo", descricao: "acabou de ser aprovado; ainda não foi recebido no número novo" },
 ];
 
 export const ETAPAS_BRADESCO: readonly EtapaDef[] = [
@@ -139,6 +152,7 @@ export const ETAPAS_BRADESCO: readonly EtapaDef[] = [
 ];
 
 export function etapasDaJornada(j: Jornada | null | undefined): readonly EtapaDef[] {
+  if (j === "cliente") return ETAPAS_CLIENTE;
   return j === "bradesco" ? ETAPAS_BRADESCO : ETAPAS_PADRAO;
 }
 

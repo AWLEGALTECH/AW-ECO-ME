@@ -62,7 +62,7 @@ import {
   analiseComercialDaConversa,
   usePresencaDaConversa, criarInstancia, qrDaInstancia, estadoDaInstancia, useFotosAssinadas, puxarFotosDePerfil,
   reaplicarWebhook, importarConversas, registrarInstancia, fixarConversaWa, useInvalidarWa,
-  moverConversaDeInstancia,
+  moverConversaDeInstancia, descartarLeadDaConversa, virarCliente, useMensagensBoasVindas,
   diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
@@ -114,6 +114,8 @@ import { nomeParaMostrar, nomeCurto, telefoneNaTela, telefoneParaCopiar } from "
 import { DiagnosticoDeSom } from "@/components/DiagnosticoDeSom";
 import { PreClienteNaJornada } from "@/components/PreClienteNaJornada";
 import { LeituraDosDocumentos } from "@/components/LeituraDosDocumentos";
+import { mensagemDeBoasVindas } from "@/lib/leadViraCliente";
+import { FinalizarAtendimento } from "@/components/FinalizarAtendimento";
 import { usePreClienteDoNumero, type PreClienteDoLead } from "@/hooks/usePreClienteDoNumero";
 import type { AnexoCandidato } from "@/lib/anexosParaPasta";
 import { useSecoesDaFicha, type SecaoDaFicha } from "@/hooks/useSecoesDaFicha";
@@ -1762,6 +1764,58 @@ export default function AtendimentoPage() {
           : `${lead.nome}: atendimento reaberto.`);
       })
       .catch((e) => toast.error("Não consegui: " + (e as Error).message))
+      .finally(() => setFinalizando(false));
+  };
+
+  /* AS DUAS SAÍDAS DE UM LEAD.
+     Finalizar deixou de ser um interruptor: ou a pessoa virou cliente e a
+     conversa muda de número, ou ela deu pra trás e sai do funil com um motivo.
+     A trava de follow-up continua existindo, mas agora é consequência da
+     escolha, e não a escolha inteira. */
+  const [finalizarAberto, setFinalizarAberto] = useState(false);
+  const { data: boasVindas = {} } = useMensagensBoasVindas();
+
+  const descartarEsteLead = (motivo: string) => {
+    if (!aoVivo) return;
+    setFinalizando(true);
+    descartarLeadDaConversa(lead.id, motivo)
+      .then(() => {
+        invalidarWa(); invalidarTasks(); invalidarEtapaLog();
+        setFinalizarAberto(false);
+        if (ehMobile) setTelaMobile("caixa");
+        toast.success(`${lead.nome} saiu do funil.`, { description: motivo });
+      })
+      .catch((e) => toast.error("Não consegui descartar: " + (e as Error).message))
+      .finally(() => setFinalizando(false));
+  };
+
+  /* A MENSAGEM CHEGA ESCRITA E NÃO ENVIADA. É a primeira palavra do escritório
+     com alguém que acabou de assinar um contrato, e o nome que vai nela saiu de
+     um extrato lido por máquina. O sistema prepara; quem aperta o enter lê
+     antes. Por isso aqui só se troca de número, abre a conversa de lá e escreve
+     no rascunho: enviar é gesto de gente. */
+  const virarClienteAqui = (instancia: string) => {
+    if (!aoVivo) return;
+    setFinalizando(true);
+    virarCliente(lead.id, instancia)
+      .then(({ destino, mensagem }) => {
+        const destinoInst = instancias.find((i) => mesmaInstancia(i.nome, instancia));
+        if (destinoInst) trocarInstancia(destinoInst.id);
+        invalidarWa(); invalidarTasks(); invalidarEtapaLog();
+        setFinalizarAberto(false);
+        /* O texto entra no rascunho DEPOIS de a caixa trocar de número: escrito
+           antes, ele morreria na troca de conversa. */
+        const texto = mensagemDeBoasVindas(mensagem, lead.nomeReal || lead.nome);
+        setTimeout(() => {
+          if (destino) setSelecionadoId(destino);
+          setRascunho(texto);
+        }, 80);
+        toast.success(`${lead.nome} agora é cliente de ${nomeDe(instancia)}.`, {
+          description: "A mensagem de boas-vindas está escrita na barra, esperando o enter.",
+          duration: 7000,
+        });
+      })
+      .catch((e) => toast.error("Não consegui levar: " + (e as Error).message))
       .finally(() => setFinalizando(false));
   };
 
@@ -4814,7 +4868,7 @@ export default function AtendimentoPage() {
                     </div>
                   ) : (
                     <button
-                      onClick={() => alternarFinalizado(true)}
+                      onClick={() => setFinalizarAberto(true)}
                       disabled={finalizando || semConversas}
                       className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px]
                                  ring-1 ring-white/[0.08] bg-white/[0.03] text-muted-foreground
@@ -5192,6 +5246,21 @@ export default function AtendimentoPage() {
           tamanho do certo, e ninguém via o estrago antes de fazer. Aqui a
           escolha é uma lista, e o que vai virar PULADA aparece escrito antes
           de virar. */}
+      {/* AS DUAS SAÍDAS DE UM LEAD, quando o atendimento termina. */}
+      <FinalizarAtendimento
+        aberto={finalizarAberto}
+        onOpenChange={setFinalizarAberto}
+        nomeDoLead={nomeMostrado.texto}
+        instanciaAtual={lead.instancia}
+        instancias={instancias}
+        jaVirouEm={lead.virouClienteEm}
+        mensagemDoDestino={(nome) =>
+          Object.entries(boasVindas).find(([k]) => mesmaInstancia(k, nome))?.[1]}
+        ocupado={finalizando}
+        onDescartar={descartarEsteLead}
+        onVirarCliente={virarClienteAqui}
+      />
+
       <Dialog open={etapaAberta} onOpenChange={(o) => { setEtapaAberta(o); if (!o) setPerdendo(false); }}>
         <DialogContent className="max-w-sm [&>*]:min-w-0">
           <DialogHeader>

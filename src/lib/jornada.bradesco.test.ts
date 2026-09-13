@@ -17,7 +17,21 @@ test("a jornada Bradesco tem sete etapas no trilho e perdido fora dele", () => {
   ]);
   expect(ehEtapaTerminal("bradesco", "perdido")).toBe(true);
   expect(ehEtapaTerminal("bradesco", "assinado")).toBe(false);
-  expect(etapasDaJornada("padrao").map((e) => e.chave)).toEqual(["chegou", "triagem", "extrato", "proposta", "fechado"]);
+});
+
+test("perdido vale nas DUAS réguas, e fica fora do trilho nas duas", () => {
+  /* Ele só existia na Bradesco, e descartar um lead da régua padrão mandava a
+     etapa para uma chave que a tela não sabia desenhar. */
+  expect(trilhoDaJornada("padrao").map((e) => e.chave))
+    .toEqual(["chegou", "triagem", "extrato", "proposta", "fechado"]);
+  expect(ehEtapaTerminal("padrao", "perdido")).toBe(true);
+  expect(ehEtapaTerminal("padrao", "fechado")).toBe(false);
+});
+
+test("a jornada de cliente começa onde a de lead termina", () => {
+  // por enquanto um degrau só: o dossiê de cliente vem depois
+  expect(etapasDaJornada("cliente").map((e) => e.chave)).toEqual(["cliente_novo"]);
+  expect(trilhoDaJornada("cliente")).toHaveLength(1);
 });
 
 test("a primeira mensagem dele não tira da base; a nossa leva à triagem", () => {

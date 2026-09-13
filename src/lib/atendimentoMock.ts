@@ -141,6 +141,10 @@ export interface Lead {
      apelido do WhatsApp, que às vezes é "😎". */
   nomeReal?: string | null;
   nomeRealOrigem?: "analise" | "pre_cliente" | "contrato" | "manual" | null;
+  /** quando este lead foi aprovado como cliente; null enquanto for lead */
+  virouClienteEm?: string | null;
+  /** a jornada que ele percorreu como lead, para o histórico do dossiê */
+  jornadaAnterior?: string | null;
   /** de qual base de leads essa pessoa veio, quando veio de alguma (nome para a tela) */
   base?: string | null;
   /* O DOSSIÊ DECIDE A JORNADA. `baseChave` é a chave gravada (bradesco,

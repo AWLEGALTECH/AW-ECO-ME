@@ -54,6 +54,8 @@ export interface ConversaRow {
   /* De onde a conversa veio, quando alguém a passou de um número para outro.
      Null = sempre esteve onde está. */
   movida_de: string | null;
+  virou_cliente_em?: string | null;
+  jornada_anterior?: string | null;
   movida_em: string | null;
   /* Null = este contato segue a regra do número. True/false = decisão explícita
      dele, e vence a regra. */
