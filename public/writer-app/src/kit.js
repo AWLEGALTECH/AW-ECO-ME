@@ -1379,9 +1379,21 @@ async function montarKitDocxNoNavegador(templateVarName, contexto) {
    HELPERS — formatação BRL, data por extenso, número por extenso
    ========================================================================= */
 function formatarWhatsapp(s) {
-  // Devolve no formato (XX)XXXXX-XXXX (celular BR, 11 dígitos). Máscara
+  // Devolve no formato (XX)XXXXX-XXXX (celular BR, 11 digitos). Mascara
   // progressiva enquanto digita.
-  const digits = String(s || '').replace(/\D/g, '').slice(0, 11);
+  //
+  // O 55 SAI ANTES DO CORTE. O numero que vem da conversa do WhatsApp tem o
+  // codigo do pais junto (5592988199101, treze digitos). Cortando em onze sem
+  // tirar o 55, sobrava 55929881991 e a mascara escrevia "(55)92988-1991": o
+  // codigo do pais virava DDD, o DDD entrava no meio do numero e os dois
+  // ultimos digitos caiam fora. Foi assim que o Jefferson entrou na base com
+  // um telefone que nao existe.
+  //
+  // So tira quando SOBRA numero brasileiro (12 ou 13 digitos): quem digita a
+  // mao comeca pelo DDD, e um "55" ali na frente e Rio Grande do Sul.
+  let digits = String(s || '').replace(/\D/g, '');
+  if (digits.length >= 12 && digits.startsWith('55')) digits = digits.slice(2);
+  digits = digits.slice(0, 11);
   if (digits.length === 0) return '';
   if (digits.length <= 2) return `(${digits}`;
   if (digits.length <= 7) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
