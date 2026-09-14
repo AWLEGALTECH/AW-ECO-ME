@@ -864,10 +864,13 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco, alvoTx }: { clien
           const ext = await extrairTextoPdf(f.name, buf);
           if (ext.vazio) { ilegiveis.push(f.name); continue; }
           const p = analisarExtrato(f.name, ext.texto);
-          if (p.reconciliado && p.transacoes.length >= 3) {
+          /* Reconciliou → vai pronto, mesmo curto ou vazio ("Extrato
+             inexistente"). Mandar esses para a IA era o que datava a página de
+             "Últimos Lançamentos" no dia da impressão e chutava o sinal. */
+          if (p.reconciliado) {
             arquivos.push({
               id: f.id, name: f.name, paginas: ext.paginas,
-              periodo: p.periodo, header: p.header, reconciliado: true,
+              periodo: p.periodo, header: p.header, reconciliado: true, semMovimento: p.semMovimento,
               saldoInicial: p.saldoInicial, saldoFinal: p.saldoFinal,
               transacoes: p.transacoes, resumo: p.resumo, candidatos: p.candidatos,
             });
@@ -942,8 +945,8 @@ function SpyClientPage({ cliente, userId, onBack, initialFoco, alvoTx }: { clien
           const ext = await extrairTextoPdf(d.name as string, buf);
           if (ext.vazio) { arquivos.push({ id: d.id, name: d.name, texto: "" }); continue; }
           const p = analisarExtrato(d.name as string, ext.texto);
-          if (p.reconciliado && p.transacoes.length >= 3) {
-            arquivos.push({ id: d.id, name: d.name, reconciliado: true, periodo: p.periodo, header: p.header, saldoInicial: p.saldoInicial, saldoFinal: p.saldoFinal, transacoes: p.transacoes, resumo: p.resumo, candidatos: p.candidatos });
+          if (p.reconciliado) {
+            arquivos.push({ id: d.id, name: d.name, reconciliado: true, semMovimento: p.semMovimento, periodo: p.periodo, header: p.header, saldoInicial: p.saldoInicial, saldoFinal: p.saldoFinal, transacoes: p.transacoes, resumo: p.resumo, candidatos: p.candidatos });
           } else {
             arquivos.push({ id: d.id, name: d.name, texto: ext.texto });
           }
@@ -1528,7 +1531,11 @@ function QuadroExtrato({ p, alvoTx }: { p: any; alvoTx?: AlvoTx | null }) {
   const entradas = txs.reduce((s, t) => s + (Number(t.valor) > 0 ? Number(t.valor) : 0), 0);
   const saidas = txs.reduce((s, t) => s + (Number(t.valor) < 0 ? Math.abs(Number(t.valor)) : 0), 0);
   const res = entradas - saidas;
-  const b = p?.reconciliado ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" } : { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" };
+  const b = p?.semMovimento
+    ? { txt: "sem movimento no período", cls: "text-muted-foreground ring-white/10 bg-white/[0.03]" }
+    : p?.reconciliado
+      ? { txt: "conferido pelo saldo", cls: "text-emerald-400 ring-emerald-500/25 bg-emerald-500/10" }
+      : { txt: "lido por IA", cls: "text-sky-400 ring-sky-500/25 bg-sky-500/10" };
   const KPI = ({ label, value, cls = "text-foreground" }: { label: string; value: string; cls?: string }) => (
     <div className="px-3 py-2">
       <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>

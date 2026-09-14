@@ -7,6 +7,10 @@
 // SUPABASE_SERVICE_ROLE_KEY.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+// Mesmo arquivo que o navegador usa (link simbólico para src/lib): a IA não vê
+// coluna nenhuma no texto e chuta o sinal; o vocabulário das rubricas corrige
+// o que é inequívoco (mora, tarifa e IOF nunca são entrada).
+import { corrigirSinalPeloHistorico } from "./sinalDoLancamento.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
@@ -112,7 +116,11 @@ const PROMPT_EXTRACAO = `Você é o mapeador de extratos do AW SPY. Recebe UM ex
 
 Preencha "periodo" com o intervalo do extrato (ex.: "2022", "jan-dez/2023", ou o mês/ano que constar).
 
-Em "transacoes_chave", liste TODAS as transações que conseguir extrair (o máximo possível, não só as maiores), na ordem em que aparecem. Para cada uma: data (AAAA-MM-DD), descricao (o histórico EXATAMENTE como aparece), valor (sempre positivo) e sinal (1 crédito/entrada, -1 débito/saída). NÃO invente transação; use apenas o que o texto mostra. Ignore linhas de saldo/total.`;
+Em "transacoes_chave", liste TODAS as transações que conseguir extrair (o máximo possível, não só as maiores), na ordem em que aparecem. Para cada uma: data (AAAA-MM-DD), descricao (o histórico EXATAMENTE como aparece), valor (sempre positivo) e sinal (1 crédito/entrada, -1 débito/saída). NÃO invente transação; use apenas o que o texto mostra. Ignore linhas de saldo/total e a linha de abertura "COD. LANC." (é saldo, não lançamento).
+
+ATENÇÃO AO SINAL. No texto do Bradesco a coluna se perdeu: crédito e débito viram um número só antes do saldo, e o saldo DEVEDOR é impresso SEM sinal (uma conta em 331,49 negativos aparece como "331,49"). Por isso o saldo "subir" NÃO quer dizer entrada: se a conta está no vermelho, uma tarifa aumenta o número impresso. Use a natureza do histórico: MORA, JUROS, ENCARGOS, IOF, TARIFA, PACOTE DE SERVIÇOS, PARCELA, SAQUE, PIX ENVIADO, TÍTULO DE CAPITALIZAÇÃO e OPERAÇÕES VENCIDAS CONTR. são SEMPRE débito (-1). INSS, SALÁRIO, TRANSF SALDO C/SAL, PIX RECEBIDO, RENDIMENTOS e DEPÓSITO são SEMPRE crédito (1). A linha "Total <créditos> <débitos> <saldo>" no fim de cada extrato diz quanto entrou e quanto saiu: confira seus sinais contra ela.
+
+A página "Últimos Lançamentos" traz lançamentos reais, com a data que consta neles: inclua-os com a data deles, e não com a data de impressão do extrato.`;
 
 async function estaViva(s: any, id: string): Promise<boolean> {
   const { data } = await s.from("spy_analise").select("status").eq("id", id).maybeSingle();
@@ -138,7 +146,10 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
   const deadline = new Date(row0.created_at).getTime() + TETO_MS;
   const parciais: any[] = Array.isArray(row0.parciais) ? row0.parciais : [];
   const feed: any[] = Array.isArray(row0.progresso?.feed) ? row0.progresso.feed.slice() : [];
-  const feitos = new Set(parciais.map((p) => p.name));
+  /* Pelo id do Drive quando há: quatro arquivos chamados "EXTRATOS" no mesmo
+     cliente são a regra, e por nome o segundo já contava como feito. */
+  const chaveDe = (x: { id?: string; name: string }) => (x.id ? `id:${x.id}` : `nome:${x.name}`);
+  const feitos = new Set(parciais.map((p) => chaveDe(p)));
   const total = arquivos.length;
 
   const prog = async (etapa: string, pct: number, detalhe: string, add?: any) => {
@@ -151,7 +162,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
   try {
     if (parciais.length === 0) await prog("analisando", 6, "Preparando a leitura", { msg: "Preparando a leitura dos extratos", kind: "step" });
 
-    const pendentes = arquivos.filter((a) => !feitos.has(a.name));
+    const pendentes = arquivos.filter((a) => !feitos.has(chaveDe(a)));
     if (pendentes.length > 0) {
       const INICIO = Date.now();
       const LIMITE_MS = 110000;
@@ -159,7 +170,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         const a = pendentes[idx];
         if (!(await estaViva(s, analiseId))) return;
         if (Date.now() > deadline - RESERVA_MS) {
-          for (let k = idx; k < pendentes.length; k++) parciais.push({ name: pendentes[k].name, falhou: true, erro: "tempo excedido (5 min)" });
+          for (let k = idx; k < pendentes.length; k++) parciais.push({ id: pendentes[k].id, name: pendentes[k].name, falhou: true, erro: "tempo excedido (5 min)" });
           await prog("analisando", pctLidos(), "Teto de 5 min", { msg: `Teto de 5 min atingido — ${pendentes.length - idx} extrato(s) ficaram para reprocessar`, kind: "warn" });
           await salvarParciais();
           break;
@@ -174,15 +185,30 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         await prog("analisando", pctLidos(), `Lendo ${a.name}`, { msg: `Lendo ${a.name}...`, kind: "step" });
 
         // Reconciliado pelo saldo (navegador) → mapeamento por código, SEM IA.
-        const codeTx = (a.reconciliado === true && Array.isArray(a.transacoes))
-          ? a.transacoes.filter((t: any) => typeof t?.valor === "number") : [];
-        if (codeTx.length >= 3) {
-          // Teto por extrato: 2500 (o antigo 600 truncava extratos grandes em
-          // silêncio — 19 quadros bateram exatamente em 600).
-          const transacoes = codeTx.slice(0, 2500).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: Number(t.valor) || 0 }));
+        // Vale também para extrato CURTO ou VAZIO ("Extrato inexistente"): antes
+        // esses caíam na IA, que datava a página "Últimos Lançamentos" no dia
+        // da impressão e chutava o sinal.
+        if (a.reconciliado === true && Array.isArray(a.transacoes)) {
+          const codeTx = a.transacoes.filter((t: any) => typeof t?.valor === "number");
+          // Teto por extrato: 20000. Um PDF com dez anos de extrato tem 2 mil
+          // lançamentos; o teto antigo de 2500 (e o de 600 antes dele)
+          // truncava em silêncio.
+          const transacoes = codeTx.slice(0, 20000).map((t: any) => ({
+            data: t.data || null,
+            descricao: String(t.descricao || ""),
+            valor: Number(t.valor) || 0,
+            saldo: typeof t.saldo === "number" ? t.saldo : null,
+            bloco: t.bloco === "ultimos" ? "ultimos" : "movimento",
+          }));
           const ent = Number(a.resumo?.entradas || 0), sai = Number(a.resumo?.saidas || 0);
-          parciais.push({ name: a.name, periodo: a.periodo || null, reconciliado: true, transacoes, header: String(a.header || "").slice(0, 300) });
-          const add: any[] = [{ msg: `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos mapeados (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`, kind: "ok" }];
+          const semMovimento = a.semMovimento === true;
+          parciais.push({ id: a.id, name: a.name, periodo: a.periodo || null, reconciliado: true, semMovimento, transacoes, header: String(a.header || "").slice(0, 300) });
+          const add: any[] = [{
+            msg: semMovimento
+              ? `${a.name}: ${a.periodo || "período"} · sem movimento no período${transacoes.length ? ` · ${transacoes.length} lançamento(s) recentes na página final` : ""}`
+              : `${a.name}: ${a.periodo || "período"} · ${transacoes.length} lançamentos mapeados (conferidos pelo saldo) · entra ${brl(ent)}, sai ${brl(sai)}`,
+            kind: "ok",
+          }];
           for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
           await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
           await salvarParciais();
@@ -193,7 +219,7 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         let parsed: any = null;
         const texto = String(a.texto || "").trim();
         if (texto.replace(/\s/g, "").length < 40) {
-          parciais.push({ name: a.name, falhou: true, erro: "sem texto" });
+          parciais.push({ id: a.id, name: a.name, falhou: true, erro: "sem texto" });
           await prog("analisando", pctLidos(), `Sem texto em ${a.name}`, { msg: `${a.name}: sem texto legível (escaneado?)`, kind: "warn" });
           await salvarParciais();
           continue;
@@ -212,13 +238,21 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
           return;
         }
         if (parsed) {
-          const transacoes = (parsed.transacoes_chave || []).map((t: any) => ({ data: t.data || null, descricao: String(t.descricao || ""), valor: (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0) }));
-          parciais.push({ name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes, header: texto.slice(0, 300) });
+          const transacoes = (parsed.transacoes_chave || [])
+            .map((t: any) => {
+              const descricao = String(t.descricao || "");
+              const chute = (t.sinal === 1 ? 1 : -1) * Math.abs(Number(t.valor) || 0);
+              // a rubrica inequívoca vence o chute do modelo
+              return { data: t.data || null, descricao, valor: corrigirSinalPeloHistorico(descricao, chute), saldo: null, bloco: "movimento" };
+            })
+            // "COD. LANC." é a linha de abertura (saldo), não lançamento
+            .filter((t: any) => t.valor !== 0 && !/COD\.?\s*LANC/i.test(t.descricao));
+          parciais.push({ id: a.id, name: a.name, periodo: parsed.periodo || null, reconciliado: false, transacoes, header: texto.slice(0, 300) });
           const add: any[] = [{ msg: `${a.name}: ${parsed.periodo || "período"} · ${transacoes.length} transações mapeadas (lido por IA)`, kind: "ok" }];
           for (const t of transacoes.slice(0, 6)) add.push({ kind: "tx", data: t.data || "", desc: t.descricao.slice(0, 48), valor: Math.abs(t.valor), sinal: t.valor >= 0 ? 1 : -1 });
           await prog("analisando", pctLidos(), `Quadro de ${a.name} pronto`, add);
         } else {
-          parciais.push({ name: a.name, falhou: true, erro: errFile });
+          parciais.push({ id: a.id, name: a.name, falhou: true, erro: errFile });
           await prog("analisando", pctLidos(), `Falha ao ler ${a.name}`, { msg: `${a.name}: não consegui ler${errFile ? ` (${errFile.slice(0, 100)})` : ""}`, kind: "warn" });
         }
         await salvarParciais();
@@ -229,7 +263,17 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
     if (!(await estaViva(s, analiseId))) return;
     const oks = parciais.filter((p) => !p.falhou)
       .sort((x, y) => String(x.periodo || x.name).localeCompare(String(y.periodo || y.name)));
-    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes) ? p.transacoes : []));
+    /* A página "Últimos Lançamentos" é a mesma em todo extrato impresso no
+       mesmo dia: quatro arquivos, quatro cópias dos mesmos cinco lançamentos.
+       Entra uma vez só. */
+    const vistosUltimos = new Set<string>();
+    const txs = oks.flatMap((p) => (Array.isArray(p.transacoes) ? p.transacoes : [])).filter((t: any) => {
+      if (t.bloco !== "ultimos") return true;
+      const chave = `${t.data}|${t.descricao}|${t.valor}|${t.saldo}`;
+      if (vistosUltimos.has(chave)) return false;
+      vistosUltimos.add(chave);
+      return true;
+    });
 
     const semCredito = parciais.some((p) => p.falhou && /sem_creditos|no credits|insufficient_quota/i.test(String(p.erro || "")));
     if (semCredito && oks.length === 0) {
@@ -258,7 +302,10 @@ async function pipeline(analiseId: string, clienteId: string, arquivos: Array<{ 
         data: normalizeDate(t.data),
         valor: Math.abs(Number(t.valor) || 0),
         sinal: Number(t.valor) >= 0 ? 1 : -1,
-        saldo: null, descricao: t.descricao || null,
+        // o saldo COM sinal fica gravado: é o que permite auditar o lançamento
+        // depois sem reabrir o PDF
+        saldo: typeof t.saldo === "number" ? t.saldo : null,
+        descricao: t.descricao || null,
       }));
       for (let i = 0; i < rows.length; i += 500) {
         const lote = rows.slice(i, i + 500);
@@ -306,8 +353,10 @@ Deno.serve(async (req: Request) => {
 
     if (reprocessar) {
       const { data: old } = await sb().from("spy_analise").select("parciais").eq("id", reprocessar).eq("cliente_id", clienteId).maybeSingle();
-      const reenviados = new Set(arquivos.filter((a) => a.reconciliado === true || typeof a.texto === "string").map((a) => a.name));
-      const seed = (Array.isArray(old?.parciais) ? old.parciais : []).filter((p: any) => !reenviados.has(p.name));
+      // pelo id do Drive quando há (arquivos homônimos são a regra), pelo nome quando não
+      const chave = (x: { id?: string; name: string }) => (x.id ? `id:${x.id}` : `nome:${x.name}`);
+      const reenviados = new Set(arquivos.filter((a) => a.reconciliado === true || typeof a.texto === "string").map(chave));
+      const seed = (Array.isArray(old?.parciais) ? old.parciais : []).filter((p: any) => !reenviados.has(chave(p)));
       const { data: novo, error } = await sb().from("spy_analise").insert({
         cliente_id: clienteId, status: "processando", arquivos: arquivos.map((a) => ({ id: a.id, name: a.name })),
         modelo: MODELO, created_by: (body.created_by as string) || null, parciais: seed,
