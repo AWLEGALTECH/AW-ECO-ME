@@ -35,7 +35,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
-  Workflow, History, Check, Loader2, X, Zap, ArrowRight, Layers,
+  Workflow, History, Check, Loader2, X, Zap, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -486,20 +486,13 @@ function Editor({
      planilha é ligada a um número e marcar a base de outro seria marcar algo
      que nunca vai disparar.
 
-     Mas a busca traz TODAS, não só as dele: quando o número escolhido não tem
-     base nenhuma, a tela precisa saber em quais números elas estão para
-     oferecer a troca. Beco sem saída é o pior lugar para deixar alguém. */
+     A busca traz todas e o filtro é aqui: a mesma consulta serve à lista de
+     fluxos, que precisa dos nomes de bases de qualquer número para escrever a
+     frase do gatilho. */
   const { data: todasAsFontes = [] } = useTodasAsFontes();
   const fontes = useMemo(
     () => todasAsFontes.filter((f) => mesmaInstancia(f.instancia, instancia)),
     [todasAsFontes, instancia]);
-  const numerosComBase = useMemo(() => {
-    const vistos = new Set<string>();
-    return todasAsFontes
-      .filter((f) => !mesmaInstancia(f.instancia, instancia))
-      .filter((f) => (vistos.has(f.instancia.toLowerCase()) ? false : (vistos.add(f.instancia.toLowerCase()), true)))
-      .map((f) => f.instancia);
-  }, [todasAsFontes, instancia]);
   const nomeDaBase = useMemo(() => {
     const m = new Map(todasAsFontes.map((f) => [f.id, f.nome]));
     return (id: string) => m.get(id) ?? "base desligada";
@@ -686,7 +679,6 @@ function Editor({
                   <InspetorDoGatilho
                     gatilho={gatilho} cfg={cfg} fontes={fontes} condicoes={condicoes}
                     instancias={instancias} instancia={instancia}
-                    numerosComBase={numerosComBase}
                     apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
                     ativa={!!automacao?.ativa}
                     onTrocarInstancia={(n) => {
@@ -913,14 +905,12 @@ function Titulo({ children }: { children: React.ReactNode }) {
 }
 
 function InspetorDoGatilho({
-  gatilho, cfg, fontes, condicoes, instancias, instancia, numerosComBase,
+  gatilho, cfg, fontes, condicoes, instancias, instancia,
   apelidos, corDe, nomeDe, ativa,
   onTrocarInstancia, onTrocarGatilho, onTrocarCfg, onTrocarCondicoes,
 }: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; fontes: Fonte[]; condicoes: Condicoes;
   instancias: Instancia[]; instancia: string;
-  /** os outros números que TÊM base, para o caso de o escolhido não ter nenhuma */
-  numerosComBase: string[];
   apelidos: Map<string, string>;
   corDe: (nome: string) => { fundo: string; texto: string; anel: string };
   nomeDe: (nome: string) => string;
@@ -1009,9 +999,8 @@ function InspetorDoGatilho({
                       <div className="pl-2 pr-0.5 pt-1.5 pb-1">
                         <ConfigDoGatilho
                           campo={g.campo} cfg={cfg} fontes={fontes}
-                          instancia={instancia} numerosComBase={numerosComBase}
-                          apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
-                          onTrocarCfg={onTrocarCfg} onTrocarInstancia={onTrocarInstancia}
+                          instancia={instancia} nomeDe={nomeDe}
+                          onTrocarCfg={onTrocarCfg}
                         />
                       </div>
                     </motion.div>
@@ -1058,20 +1047,13 @@ function InspetorDoGatilho({
 }
 
 /** A pergunta que o gatilho escolhido faz, aberta logo abaixo dele. */
-function ConfigDoGatilho({
-  campo, cfg, fontes, instancia, numerosComBase, apelidos, corDe, nomeDe,
-  onTrocarCfg, onTrocarInstancia,
-}: {
+function ConfigDoGatilho({ campo, cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
   campo: NonNullable<GatilhoDef["campo"]>;
   cfg: ConfigDoGatilho;
   fontes: Fonte[];
   instancia: string;
-  numerosComBase: string[];
-  apelidos: Map<string, string>;
-  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
   nomeDe: (nome: string) => string;
   onTrocarCfg: (c: ConfigDoGatilho) => void;
-  onTrocarInstancia: (nome: string) => void;
 }) {
   const marcadas = new Set(cfg.fonte_ids ?? []);
   const etapasMarcadas = new Set(cfg.etapas ?? []);
@@ -1081,9 +1063,8 @@ function ConfigDoGatilho({
   if (campo === "bases") {
     return (
       <EscolhaDaBase
-        cfg={cfg} fontes={fontes} instancia={instancia} numerosComBase={numerosComBase}
-        apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
-        onTrocarCfg={onTrocarCfg} onTrocarInstancia={onTrocarInstancia}
+        cfg={cfg} fontes={fontes} instancia={instancia} nomeDe={nomeDe}
+        onTrocarCfg={onTrocarCfg}
       />
     );
   }
@@ -1163,19 +1144,12 @@ function ConfigDoGatilho({
  * objetivo é o fluxo enxergar a base, e a escolha de colunas pertence a onde
  * os cartões de lead são desenhados.
  */
-function EscolhaDaBase({
-  cfg, fontes, instancia, numerosComBase, apelidos, corDe, nomeDe,
-  onTrocarCfg, onTrocarInstancia,
-}: {
+function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
   cfg: ConfigDoGatilho;
   fontes: Fonte[];
   instancia: string;
-  numerosComBase: string[];
-  apelidos: Map<string, string>;
-  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
   nomeDe: (nome: string) => string;
   onTrocarCfg: (c: ConfigDoGatilho) => void;
-  onTrocarInstancia: (nome: string) => void;
 }) {
   const { data: resumoBases = {} } = useResumoBases(true);
   const invalidarLeads = useInvalidarLeads();
@@ -1227,26 +1201,13 @@ function EscolhaDaBase({
       </div>
 
       {fontes.length === 0 ? (
-        /* BECO SEM SAÍDA NÃO, CAMINHO. Dizer só "não tem base aqui" deixa a
-           pessoa parada; as duas saídas reais são ir para o número que tem, ou
-           ligar uma agora. */
+        /* Sem base neste número, a saída é uma só: adicionar. Havia aqui um
+           atalho sugerindo levar o fluxo para o número que tem base, e ele era
+           informação a mais no caminho de quem já sabe o que quer fazer. */
         <div className="space-y-1.5">
           <p className="text-[11px] text-muted-foreground leading-snug">
             {nomeDe(instancia)} ainda não tem planilha ligada.
           </p>
-          {numerosComBase.map((n) => {
-            const cor = corDe(n);
-            return (
-              <button key={n} type="button" onClick={() => onTrocarInstancia(n)}
-                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 ring-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06] transition-colors">
-                <span className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide", cor.fundo, cor.texto)}>
-                  {apelidos.get(n) ?? apelidoDeInstancia(n)}
-                </span>
-                <span className="text-[11px] truncate">tem base: mover o fluxo para lá</span>
-                <ArrowRight className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
-              </button>
-            );
-          })}
           <BotaoAdicionarBase onClick={() => setLigando(true)} />
         </div>
       ) : (
