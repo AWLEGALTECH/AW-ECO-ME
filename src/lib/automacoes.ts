@@ -13,14 +13,17 @@
  *
  * ───────────────────────── por que passos e não grafo ────────────────────────
  *
- * Um fluxo aqui é uma FILA de passos, não um desenho com ramos. Não é limitação
+ * Um fluxo aqui é uma FILA de passos, não um desenho com fios. Não é limitação
  * de desenho: é o formato do trabalho. "Chegou lead novo, manda a mensagem,
- * espera dois dias, se não respondeu manda de novo" é uma linha reta. Ramo de
- * verdade (se A vai por aqui, se B vai por ali) exigiria cada passo saber
- * apontar para dois lugares, e a tela inteira ganharia arrastar, encaixar e
- * desencaixar para servir a um caso que ninguém pediu. Quando a condição
- * importa, ela PARA a fila (`parar_se_respondeu`), que é o ramo que existe na
- * prática.
+ * espera dois dias, se não respondeu manda de novo" é uma linha reta.
+ *
+ * A fila tem UM tipo de bifurcação: o passo "Se", com um lado sim e um lado
+ * não, cada lado sendo uma fila própria. Ele nasceu de um caso concreto: o
+ * lead que responde o formulário e, antes de a automação rodar, já mandou
+ * mensagem no WhatsApp. Responder a esse com a primeira mensagem, como se ele
+ * nunca tivesse escrito, é o que uma fila reta faria. Um nível só de ramo
+ * (sem "Se" dentro de "Se") resolve isso e mantém o fluxo legível de cima para
+ * baixo, no celular. Andar na árvore é trabalho de `fluxoDePassos.ts`.
  *
  * ─────────────────────── o que este arquivo NÃO decide ───────────────────────
  *
@@ -32,6 +35,7 @@
 
 import { ETAPAS_BRADESCO, ETAPAS_PADRAO, type Jornada, etapasDaJornada } from "./jornada";
 import type { Midia } from "./anexos";
+import { todosOsPassos, rotuloDaPosicao, variaveisDoTexto, type PassoComRamos } from "./fluxoDePassos";
 
 /* ══════════════════ gatilhos ══════════════════════════════════════════════ */
 
@@ -136,6 +140,7 @@ export const TIPOS_DE_PASSO = [
   "mensagem",
   "esperar",
   "parar_se_respondeu",
+  "se",
   "mover_etapa",
   "tarefa",
 ] as const;
@@ -147,16 +152,96 @@ export interface PassoDef {
   descricao: string;
   icone: string;
   /** o tom do cartão na tela; cada tipo tem o seu, fixo */
-  tom: "primary" | "amber" | "sky" | "emerald" | "zinc";
+  tom: "primary" | "amber" | "sky" | "violet" | "emerald" | "zinc";
 }
 
 export const PASSOS_DEF: readonly PassoDef[] = [
   { chave: "mensagem",           rotulo: "Enviar mensagem",  descricao: "vai para a fila e sai pelo número da automação", icone: "Send",       tom: "primary" },
   { chave: "esperar",            rotulo: "Esperar",          descricao: "segura o fluxo antes do próximo passo",          icone: "Timer",      tom: "amber" },
   { chave: "parar_se_respondeu", rotulo: "Parar se respondeu", descricao: "quem respondeu não recebe o resto",            icone: "Split",      tom: "sky" },
+  { chave: "se",                 rotulo: "Se… então",        descricao: "segue por um lado ou pelo outro",                icone: "GitFork",    tom: "violet" },
   { chave: "mover_etapa",        rotulo: "Mover de etapa",   descricao: "empurra o lead na jornada",                      icone: "Milestone",  tom: "emerald" },
   { chave: "tarefa",             rotulo: "Criar tarefa",     descricao: "abre um lembrete para alguém da equipe",         icone: "ListTodo",   tom: "zinc" },
 ];
+
+/** Os tipos que cabem DENTRO de um lado do "Se": todos, menos outro "Se". */
+export const TIPOS_DENTRO_DE_RAMO: readonly TipoDePasso[] = TIPOS_DE_PASSO.filter((t) => t !== "se");
+
+/* ══════════════════ a pergunta do "Se" ═════════════════════════════════════ */
+
+export const TIPOS_DE_CONDICAO = ["ja_escreveu", "respondeu", "campo"] as const;
+export type TipoDeCondicao = (typeof TIPOS_DE_CONDICAO)[number];
+
+export const OPERADORES = ["contem", "igual", "vazio", "nao_vazio"] as const;
+export type Operador = (typeof OPERADORES)[number];
+
+export interface Condicao {
+  tipo: TipoDeCondicao;
+  /** campo: qual coluna da base */
+  campo?: string;
+  /** campo: como comparar */
+  op?: Operador;
+  /** campo: com o quê (contem, igual) */
+  valor?: string;
+}
+
+export interface CondicaoDef {
+  chave: TipoDeCondicao;
+  rotulo: string;
+  descricao: string;
+}
+
+export const CONDICOES_DEF: readonly CondicaoDef[] = [
+  {
+    chave: "ja_escreveu",
+    rotulo: "O lead já nos escreveu",
+    descricao: "alguma vez, neste número. É o caso de quem preencheu o formulário e já veio falar no WhatsApp.",
+  },
+  {
+    chave: "respondeu",
+    rotulo: "Respondeu depois que o fluxo começou",
+    descricao: "escreveu qualquer coisa desde o disparo. Só faz sentido depois de uma espera.",
+  },
+  {
+    chave: "campo",
+    rotulo: "Uma coluna da base",
+    descricao: "compara o que o lead preencheu na planilha, na linha dele.",
+  },
+];
+
+export const ROTULO_OPERADOR: Record<Operador, string> = {
+  contem: "contém",
+  igual: "é igual a",
+  vazio: "está vazia",
+  nao_vazio: "está preenchida",
+};
+
+export function operadorPrecisaDeValor(op: Operador | undefined): boolean {
+  return op === undefined || op === "contem" || op === "igual";
+}
+
+export function defDaCondicao(t: TipoDeCondicao): CondicaoDef {
+  return CONDICOES_DEF.find((c) => c.chave === t) ?? CONDICOES_DEF[0];
+}
+
+export function tipoDeCondicaoValido(x: unknown): x is TipoDeCondicao {
+  return typeof x === "string" && (TIPOS_DE_CONDICAO as readonly string[]).includes(x);
+}
+
+export const CONDICAO_PADRAO: Condicao = { tipo: "ja_escreveu" };
+
+/** "se o lead já nos escreveu", "se Funcionários contém “50”". */
+export function fraseDaCondicao(c: Condicao | null | undefined): string {
+  const t = c?.tipo ?? "ja_escreveu";
+  if (t === "ja_escreveu") return "se o lead já nos escreveu";
+  if (t === "respondeu") return "se o lead respondeu depois que o fluxo começou";
+  const campo = (c?.campo || "").trim();
+  if (!campo) return "se uma coluna da base (falta escolher qual)";
+  const op = c?.op ?? "contem";
+  if (!operadorPrecisaDeValor(op)) return `se ${campo} ${ROTULO_OPERADOR[op]}`;
+  const v = (c?.valor || "").trim();
+  return v ? `se ${campo} ${ROTULO_OPERADOR[op]} “${v}”` : `se ${campo} ${ROTULO_OPERADOR[op]} (falta o valor)`;
+}
 
 export function defDoPasso(t: TipoDePasso): PassoDef {
   return PASSOS_DEF.find((p) => p.chave === t) ?? PASSOS_DEF[0];
@@ -166,7 +251,7 @@ export function tipoDePassoValido(x: unknown): x is TipoDePasso {
   return typeof x === "string" && (TIPOS_DE_PASSO as readonly string[]).includes(x);
 }
 
-export interface Passo {
+export interface Passo extends PassoComRamos {
   /** identidade do passo na lista, para a animação saber quem é quem ao reordenar */
   id: string;
   tipo: TipoDePasso;
@@ -181,7 +266,19 @@ export interface Passo {
   titulo?: string;
   /** tarefa: para quando, contado do disparo */
   dias?: number;
+  /** se: a pergunta */
+  condicao?: Condicao;
+  /** se: o lado de quem respondeu sim */
+  entao?: Passo[];
+  /** se: o lado de quem respondeu não */
+  senao?: Passo[];
 }
+
+/**
+ * As variáveis que existem sem base nenhuma: vêm da conversa e do horário do
+ * número. Tudo o mais entre chaves tem que ser coluna de uma base do fluxo.
+ */
+export const VARIAVEIS_FIXAS = ["nome", "horario"] as const;
 
 /* ══════════════════ a automação inteira ═══════════════════════════════════ */
 
@@ -208,8 +305,8 @@ export interface Automacao {
   updated_at?: string | null;
 }
 
-/** Teto de passos. Não é limite técnico: é o ponto em que a fila deixa de caber na tela e de caber na cabeça. */
-export const MAX_PASSOS = 12;
+/** Teto de passos, contando os de dentro dos lados. Não é limite técnico: é o ponto em que a fila deixa de caber na tela e de caber na cabeça. */
+export const MAX_PASSOS = 16;
 /** Teto da espera, em minutos: 30 dias. Mais que isso não é automação, é esquecimento. */
 export const MAX_ESPERA = 60 * 24 * 30;
 
@@ -226,6 +323,7 @@ export function passoNovo(tipo: TipoDePasso): Passo {
   if (tipo === "esperar") return { ...base, minutos: 60 };
   if (tipo === "tarefa") return { ...base, titulo: "", dias: 1 };
   if (tipo === "mover_etapa") return { ...base, etapa: "" };
+  if (tipo === "se") return { ...base, condicao: { ...CONDICAO_PADRAO }, entao: [], senao: [] };
   return base;
 }
 
@@ -239,12 +337,22 @@ export function passoNovo(tipo: TipoDePasso): Passo {
  * mensagem em branco para quem acabou de chegar, e ninguém descobriria pela
  * tela, só pelo lead perguntando o que foi aquilo.
  */
-export function impedimentos(a: Pick<Automacao, "nome" | "gatilho" | "gatilho_config" | "passos" | "condicoes">): string[] {
+export function impedimentos(
+  a: Pick<Automacao, "nome" | "gatilho" | "gatilho_config" | "passos" | "condicoes">,
+  /**
+   * As colunas das bases deste fluxo, quando a tela as conhece. Com elas, uma
+   * variável que não existe em base nenhuma vira impedimento: sem elas (a lista
+   * de fluxos não carrega colunas), essa conferência fica de fora em vez de
+   * acusar tudo por não saber.
+   */
+  colunas?: readonly string[] | null,
+): string[] {
   const erros: string[] = [];
 
   if (!a.nome.trim()) erros.push("Dê um nome à automação.");
-  if (a.passos.length === 0) erros.push("Uma automação sem passos não faz nada.");
-  if (a.passos.length > MAX_PASSOS) erros.push(`No máximo ${MAX_PASSOS} passos.`);
+  const todos = todosOsPassos(a.passos);
+  if (todos.length === 0) erros.push("Uma automação sem passos não faz nada.");
+  if (todos.length > MAX_PASSOS) erros.push(`No máximo ${MAX_PASSOS} passos, contando os de dentro do “Se”.`);
 
   const def = defDoGatilho(a.gatilho);
   if (def.campo === "bases" && !a.gatilho_config.bases_todas && (a.gatilho_config.fonte_ids ?? []).length === 0) {
@@ -255,27 +363,61 @@ export function impedimentos(a: Pick<Automacao, "nome" | "gatilho" | "gatilho_co
     if (!Number.isFinite(d) || d < 1 || d > 365) erros.push("O silêncio do gatilho precisa ser entre 1 e 365 dias.");
   }
 
-  a.passos.forEach((p, i) => {
-    const n = i + 1;
+  const conhecidas = colunas
+    ? new Set<string>([...VARIAVEIS_FIXAS, ...colunas.map((c) => c.trim())])
+    : null;
+
+  for (const p of todos) {
+    /* "O passo 3" ou "O passo 2 · sim 1": o rótulo que a tela mostra, para a
+       pessoa achar o cartão sem contar. */
+    const n = rotuloDaPosicao(a.passos, p.id).replace(/^Passo/, "passo");
     if (p.tipo === "mensagem") {
       const temTexto = !!(p.texto || "").trim();
       const temMidia = (p.midias ?? []).length > 0;
-      if (!temTexto && !temMidia) erros.push(`O passo ${n} é uma mensagem vazia.`);
+      if (!temTexto && !temMidia) erros.push(`O ${n} é uma mensagem vazia.`);
+      if (conhecidas) {
+        const estranhas = variaveisDoTexto(p.texto).filter((v) => !conhecidas.has(v));
+        if (estranhas.length > 0) {
+          erros.push(`O ${n} usa {${estranhas[0]}}, que não é coluna de nenhuma base deste fluxo.`);
+        }
+      }
     }
     if (p.tipo === "esperar") {
       const m = Number(p.minutos ?? 0);
-      if (!Number.isFinite(m) || m < 1) erros.push(`O passo ${n} precisa de uma espera de pelo menos 1 minuto.`);
-      else if (m > MAX_ESPERA) erros.push(`O passo ${n} espera mais de 30 dias.`);
+      if (!Number.isFinite(m) || m < 1) erros.push(`O ${n} precisa de uma espera de pelo menos 1 minuto.`);
+      else if (m > MAX_ESPERA) erros.push(`O ${n} espera mais de 30 dias.`);
     }
-    if (p.tipo === "mover_etapa" && !(p.etapa || "").trim()) erros.push(`O passo ${n} não diz para qual etapa mover.`);
-    if (p.tipo === "tarefa" && !(p.titulo || "").trim()) erros.push(`O passo ${n} é uma tarefa sem título.`);
-  });
+    if (p.tipo === "mover_etapa" && !(p.etapa || "").trim()) erros.push(`O ${n} não diz para qual etapa mover.`);
+    if (p.tipo === "tarefa" && !(p.titulo || "").trim()) erros.push(`O ${n} é uma tarefa sem título.`);
+    if (p.tipo === "se") {
+      const c = p.condicao ?? CONDICAO_PADRAO;
+      if (!tipoDeCondicaoValido(c.tipo)) erros.push(`O ${n} tem uma pergunta que esta versão não conhece.`);
+      if (c.tipo === "campo") {
+        if (!(c.campo || "").trim()) erros.push(`O ${n} compara uma coluna que ainda não foi escolhida.`);
+        else if (conhecidas && !conhecidas.has(c.campo!.trim())) {
+          erros.push(`O ${n} compara a coluna “${c.campo}”, que não existe em nenhuma base deste fluxo.`);
+        }
+        if (operadorPrecisaDeValor(c.op) && !(c.valor || "").trim()) erros.push(`O ${n} compara com um valor vazio.`);
+      }
+      if ((p.entao ?? []).length === 0 && (p.senao ?? []).length === 0) {
+        erros.push(`O ${n} é um “Se” sem nada nos dois lados.`);
+      }
+      if ([...(p.entao ?? []), ...(p.senao ?? [])].some((x) => x.tipo === "se")) {
+        erros.push(`O ${n} tem um “Se” dentro de outro, e isto só vai até um nível.`);
+      }
+    }
+  }
 
   /* PARAR SE RESPONDEU NO PRIMEIRO PASSO NÃO PARA NADA. Ele compara com o
      momento em que a automação começou; no passo 1 esse momento é agora, e a
-     resposta que ele procura ainda não teve tempo de existir. */
-  if (a.passos[0]?.tipo === "parar_se_respondeu") {
+     resposta que ele procura ainda não teve tempo de existir. O "Se respondeu"
+     é a mesma pergunta com dois lados, e vale a mesma regra. */
+  const primeiro = a.passos[0];
+  if (primeiro?.tipo === "parar_se_respondeu") {
     erros.push("“Parar se respondeu” só faz sentido depois de uma espera.");
+  }
+  if (primeiro?.tipo === "se" && (primeiro.condicao?.tipo ?? "ja_escreveu") === "respondeu") {
+    erros.push("“Se respondeu” no primeiro passo é sempre não: ponha uma espera antes.");
   }
 
   const t = Number(a.condicoes.teto_dia ?? 0);
@@ -286,6 +428,42 @@ export function impedimentos(a: Pick<Automacao, "nome" | "gatilho" | "gatilho_co
 
 export function podeLigar(a: Pick<Automacao, "nome" | "gatilho" | "gatilho_config" | "passos" | "condicoes">): boolean {
   return impedimentos(a).length === 0;
+}
+
+/* ══════════════════ as colunas da base, para a bandeja ════════════════════ */
+
+export interface ColunaDaBase {
+  /** o nome exato do cabeçalho: é o que vai entre chaves */
+  coluna: string;
+  /** o valor mais recente que alguém preencheu, para o exemplo da bandeja */
+  exemplo: string | null;
+}
+
+/**
+ * As colunas que aparecem nas linhas brutas de uma base, na ordem do cabeçalho.
+ *
+ * O `bruto` de cada lead é a linha inteira da planilha, com o cabeçalho como
+ * chave. A base não guarda o cabeçalho em lugar nenhum além disso, e olhar
+ * as últimas linhas é o que dá a lista do que existe HOJE (uma coluna nova no
+ * formulário aparece na próxima linha que chegar).
+ *
+ * Fica de fora a coluna do telefone: ninguém escreve o número da pessoa numa
+ * mensagem para ela.
+ */
+export function colunasDosBrutos(brutos: readonly (Record<string, unknown> | null | undefined)[]): ColunaDaBase[] {
+  const ordem: string[] = [];
+  const exemplo = new Map<string, string | null>();
+  for (const b of brutos) {
+    if (!b || typeof b !== "object") continue;
+    for (const [k, v] of Object.entries(b)) {
+      const chave = k.trim();
+      if (!chave || /whats|telefone|celular|fone\b|contato/i.test(chave)) continue;
+      if (!exemplo.has(chave)) { ordem.push(chave); exemplo.set(chave, null); }
+      const s = v == null ? "" : String(v).trim();
+      if (s && exemplo.get(chave) === null) exemplo.set(chave, s);
+    }
+  }
+  return ordem.map((coluna) => ({ coluna, exemplo: exemplo.get(coluna) ?? null }));
 }
 
 /* ══════════════════ como a automação se lê em uma linha ═══════════════════ */
@@ -316,6 +494,12 @@ export function resumoDoPasso(p: Passo): string {
   }
   if (p.tipo === "esperar") return esperaBonita(Number(p.minutos ?? 0));
   if (p.tipo === "parar_se_respondeu") return "quem respondeu sai do fluxo";
+  if (p.tipo === "se") {
+    const s = (p.entao ?? []).length;
+    const n = (p.senao ?? []).length;
+    const conta = (q: number) => `${q} passo${q === 1 ? "" : "s"}`;
+    return `${fraseDaCondicao(p.condicao)} · sim: ${conta(s)} · não: ${conta(n)}`;
+  }
   if (p.tipo === "mover_etapa") return p.etapa ? rotuloDeEtapaQualquer(p.etapa) : "etapa não escolhida";
   if (p.tipo === "tarefa") {
     const q = Number(p.dias ?? 0);
@@ -399,6 +583,14 @@ export function resumoDoFluxo(passos: Passo[]): { mensagens: number; duracaoMin:
   for (const p of passos) {
     if (p.tipo === "mensagem") mensagens += 1;
     if (p.tipo === "esperar") duracaoMin += Math.max(0, Number(p.minutos ?? 0));
+    if (p.tipo === "se") {
+      /* Um lead passa por UM lado. O número que interessa antes de ligar é o
+         pior caso ("até N mensagens"), e não a soma dos dois. */
+      const sim = resumoDoFluxo(p.entao ?? []);
+      const nao = resumoDoFluxo(p.senao ?? []);
+      mensagens += Math.max(sim.mensagens, nao.mensagens);
+      duracaoMin += Math.max(sim.duracaoMin, nao.duracaoMin);
+    }
   }
   return { mensagens, duracaoMin };
 }

@@ -33,10 +33,22 @@
 // mensagem marcada à mão, que é onde alguém vai procurar quando perguntar "por
 // que esse lead recebeu isso?".
 //
+// ─────────────────────────── o "Se" tem dois lados ──────────────────────────
+//
+// O passo "Se" bifurca: um lado sim, um lado não, cada um com passos próprios.
+// O executor não anda numa árvore, anda numa LISTA: a fila principal com cada
+// "Se" seguido dos passos do lado que ele escolheu (`achatar`, em
+// fluxoDePassos.ts, o mesmo arquivo que a tela usa, por link simbólico). Ao
+// chegar num "Se" ainda sem decisão, pergunta ao banco
+// (`fn_wa_automacao_condicao`), GRAVA o lado na execução e achata de novo.
+// Como a decisão entra antes de avançar, nenhum índice anterior muda, e a
+// posição continua sendo um número que sobrevive a uma espera de dois dias.
+//
 // Env (secrets): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, EVOLUTION_URL,
 // EVOLUTION_APIKEY_GLOBAL (ou EVOLUTION_APIKEY).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { achatar, type Decisoes, type Ramo } from "./fluxoDePassos.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -54,15 +66,26 @@ function canonico(raw: string): string {
   return d.length === 11 ? "55" + d : "";
 }
 
+interface Condicao {
+  tipo?: "ja_escreveu" | "respondeu" | "campo";
+  campo?: string;
+  op?: string;
+  valor?: string;
+}
+
 interface Passo {
-  id?: string;
-  tipo: "mensagem" | "esperar" | "parar_se_respondeu" | "mover_etapa" | "tarefa";
+  id: string;
+  tipo: "mensagem" | "esperar" | "parar_se_respondeu" | "se" | "mover_etapa" | "tarefa";
   texto?: string;
   midias?: unknown[];
   minutos?: number;
   etapa?: string;
   titulo?: string;
   dias?: number;
+  /** se */
+  condicao?: Condicao;
+  entao?: Passo[];
+  senao?: Passo[];
 }
 
 interface Execucao {
@@ -74,6 +97,8 @@ interface Execucao {
   passo: number;
   tentativas: number;
   disparada_em: string;
+  /** o lado que cada "Se" já tomou nesta execução */
+  decisoes: Decisoes | null;
   instancia: string;
   nome: string;
   passos: Passo[];
@@ -81,6 +106,15 @@ interface Execucao {
   gatilho: string;
   /** disparada a mão pelo botão Testar agora */
   teste?: boolean;
+}
+
+/** "já nos escreveu: sim", para o histórico dizer por onde o lead foi. */
+function fraseDaDecisao(c: Condicao | undefined, ramo: Ramo): string {
+  const lado = ramo === "entao" ? "sim" : "não";
+  const t = c?.tipo ?? "ja_escreveu";
+  if (t === "ja_escreveu") return `já nos escreveu: ${lado}`;
+  if (t === "respondeu") return `respondeu: ${lado}`;
+  return `${c?.campo ?? "coluna"} ${c?.op ?? "contem"} “${c?.valor ?? ""}”: ${lado}`;
 }
 
 /**
@@ -169,7 +203,12 @@ async function conversaDaExecucao(sb: any, e: Execucao, evo: { base: string; api
 
 /** Uma execução, do passo em que parou até onde der. */
 async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }): Promise<string> {
-  const passos = Array.isArray(e.passos) ? e.passos : [];
+  const arvore = Array.isArray(e.passos) ? e.passos : [];
+  const decisoes: Decisoes = { ...(e.decisoes ?? {}) };
+  /* A lista que roda. Cresce quando um "Se" decide, sempre DEPOIS do índice
+     atual: é isso que deixa `i` continuar valendo. */
+  let passos = achatar(arvore, decisoes);
+  const caminhos: string[] = [];
   /* O TESTE SAI NA HORA. Quem aperta "Testar agora" às nove da noite quer ver
      a mensagem às nove da noite; segurar até a próxima janela de atendimento
      faria o teste parecer que não funcionou, que é justamente o problema que o
@@ -188,6 +227,26 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
 
   while (i < passos.length) {
     const p = passos[i];
+
+    if (p.tipo === "se") {
+      /* Já decidido (retomada depois de uma espera): é só marcador, passa. */
+      if (!decisoes[p.id]) {
+        const { data: sim, error } = await sb.rpc("fn_wa_automacao_condicao", {
+          p_conversa: conversa, p_desde: e.disparada_em, p_cond: p.condicao ?? { tipo: "ja_escreveu" },
+        });
+        if (error) throw new Error(`passo ${i + 1} (se): ${error.message}`);
+        const ramo: Ramo = sim === true ? "entao" : "senao";
+        decisoes[p.id] = ramo;
+        /* GRAVA ANTES DE AVANÇAR. Se o processo cair entre gravar e o próximo
+           passo, a retomada achata igual e cai no mesmo lugar. */
+        const { error: eDec } = await sb.rpc("fn_wa_automacao_decidir", { p_id: e.id, p_passo: p.id, p_ramo: ramo });
+        if (eDec) throw new Error(`passo ${i + 1} (se): ${eDec.message}`);
+        caminhos.push(fraseDaDecisao(p.condicao, ramo));
+        passos = achatar(arvore, decisoes);
+      }
+      i += 1;
+      continue;
+    }
 
     if (p.tipo === "esperar") {
       const min = Math.max(1, Math.min(Number(p.minutos) || 1, 60 * 24 * 30));
@@ -249,9 +308,13 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
     i += 1;
   }
 
+  /* Quantos passos DE VERDADE rodaram: o marcador do "Se" não conta. E por
+     onde foi, para quem abrir o histórico não precisar adivinhar. */
+  const feitos = passos.filter((p) => p.tipo !== "se").length;
+  const porOnde = caminhos.length > 0 ? ` · ${caminhos.join("; ")}` : "";
   await sb.rpc("fn_wa_automacao_desfecho", {
     p_id: e.id, p_status: "concluida", p_passo: i, p_conversa: conversa,
-    p_detalhe: `${passos.length} passo(s) executado(s)${e.teste ? " (teste)" : ""}`,
+    p_detalhe: `${feitos} passo(s) executado(s)${e.teste ? " (teste)" : ""}${porOnde}`,
   });
   return "concluida";
 }

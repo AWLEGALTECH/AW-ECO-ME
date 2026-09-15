@@ -221,3 +221,125 @@ test("as execuções se contam por situação, e situação sem nenhuma dá zero
   expect(c.pendente).toBe(0);
   expect(contarExecucoes([]).concluida).toBe(0);
 });
+
+/* ══════════════════ o passo "Se" ═══════════════════════════════════════════ */
+
+import {
+  fraseDaCondicao, colunasDosBrutos, TIPOS_DENTRO_DE_RAMO, VARIAVEIS_FIXAS,
+  type Condicao,
+} from "./automacoes";
+
+const se = (condicao: Condicao, entao: Passo[], senao: Passo[], id = "s"): Passo =>
+  ({ id, tipo: "se", condicao, entao, senao });
+const msgId = (id: string, texto: string): Passo => ({ id, tipo: "mensagem", texto, midias: [] });
+
+test("passoNovo('se') nasce perguntando se o lead já escreveu, com os dois lados vazios", () => {
+  const p = passoNovo("se");
+  expect(p.tipo).toBe("se");
+  expect(p.condicao?.tipo).toBe("ja_escreveu");
+  expect(p.entao).toEqual([]);
+  expect(p.senao).toEqual([]);
+});
+
+test("dentro de um lado cabe tudo, menos outro Se", () => {
+  expect(TIPOS_DENTRO_DE_RAMO).not.toContain("se");
+  expect(TIPOS_DENTRO_DE_RAMO).toContain("mensagem");
+  expect(TIPOS_DENTRO_DE_RAMO).toContain("esperar");
+});
+
+test("a frase da condição diz a pergunta em português", () => {
+  expect(fraseDaCondicao({ tipo: "ja_escreveu" })).toBe("se o lead já nos escreveu");
+  expect(fraseDaCondicao({ tipo: "respondeu" })).toMatch(/respondeu depois/);
+  expect(fraseDaCondicao({ tipo: "campo", campo: "Funcionários", op: "contem", valor: "50" }))
+    .toBe("se Funcionários contém “50”");
+  expect(fraseDaCondicao({ tipo: "campo", campo: "Cidade", op: "vazio" })).toBe("se Cidade está vazia");
+  expect(fraseDaCondicao({ tipo: "campo", campo: "Cidade", op: "igual", valor: "" })).toMatch(/falta o valor/);
+  expect(fraseDaCondicao({ tipo: "campo" })).toMatch(/falta escolher/);
+  expect(fraseDaCondicao(undefined)).toBe("se o lead já nos escreveu");
+});
+
+test("um Se com os dois lados vazios, ou com coluna sem escolher, não liga", () => {
+  const vazio = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "ja_escreveu" }, [], [])]));
+  expect(vazio.some((e) => /sem nada nos dois lados/.test(e))).toBe(true);
+
+  const semColuna = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "campo", op: "contem", valor: "x" }, [msgId("b", "b")], [])]));
+  expect(semColuna.some((e) => /coluna que ainda não foi escolhida/.test(e))).toBe(true);
+
+  const semValor = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "campo", campo: "Cidade", op: "igual", valor: " " }, [msgId("b", "b")], [])]));
+  expect(semValor.some((e) => /valor vazio/.test(e))).toBe(true);
+
+  // "está vazia" não precisa de valor
+  const vazia = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "campo", campo: "Cidade", op: "vazio" }, [msgId("b", "b")], [])]));
+  expect(vazia).toEqual([]);
+});
+
+test("os passos de dentro do lado são conferidos, com o rótulo de onde estão", () => {
+  const erros = impedimentos(fluxo([
+    msgId("a", "oi"),
+    se({ tipo: "ja_escreveu" }, [msgId("s1", "")], [{ id: "n1", tipo: "esperar", minutos: 0 }]),
+  ]));
+  expect(erros).toContain("O passo 2 · sim 1 é uma mensagem vazia.");
+  expect(erros).toContain("O passo 2 · não 1 precisa de uma espera de pelo menos 1 minuto.");
+});
+
+test("Se dentro de Se é impedimento, e o teto conta os passos de dentro", () => {
+  const aninhado = impedimentos(fluxo([se({ tipo: "ja_escreveu" }, [se({ tipo: "respondeu" }, [], [], "s2")], [msgId("x", "x")])]));
+  expect(aninhado.some((e) => /só vai até um nível/.test(e))).toBe(true);
+
+  const muitos: Passo[] = Array.from({ length: MAX_PASSOS }, (_, i) => msgId(`m${i}`, "x"));
+  const cheio = impedimentos(fluxo([se({ tipo: "ja_escreveu" }, muitos, [])]));
+  expect(cheio.some((e) => /No máximo/.test(e))).toBe(true);
+});
+
+test("'Se respondeu' como primeiro passo é sempre não, e a tela avisa", () => {
+  const erros = impedimentos(fluxo([se({ tipo: "respondeu" }, [msgId("a", "a")], [msgId("b", "b")])]));
+  expect(erros.some((e) => /sempre não/.test(e))).toBe(true);
+  // "já escreveu" no primeiro passo é exatamente o caso de uso: pode
+  expect(impedimentos(fluxo([se({ tipo: "ja_escreveu" }, [msgId("a", "a")], [msgId("b", "b")])]))).toEqual([]);
+});
+
+test("variável que não é coluna de base nenhuma só é impedimento quando as colunas são conhecidas", () => {
+  const passos = [msgId("a", "Olá {nome}, a {Empresa} tem {Funcionários}?")];
+  // sem saber as colunas, não acusa
+  expect(impedimentos(fluxo(passos))).toEqual([]);
+  expect(impedimentos(fluxo(passos), null)).toEqual([]);
+  // sabendo, acusa a primeira desconhecida
+  const erros = impedimentos(fluxo(passos), ["Funcionários", "Nome"]);
+  expect(erros).toEqual(["O passo 1 usa {Empresa}, que não é coluna de nenhuma base deste fluxo."]);
+  // as fixas nunca são estranhas
+  expect(impedimentos(fluxo([msgId("a", "{nome} {horario}")]), [])).toEqual([]);
+  expect([...VARIAVEIS_FIXAS]).toEqual(["nome", "horario"]);
+  // e a coluna comparada no Se também é conferida
+  const seColuna = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "campo", campo: "Porte", op: "contem", valor: "x" }, [msgId("b", "b")], [])]), ["Funcionários"]);
+  expect(seColuna.some((e) => /“Porte”, que não existe/.test(e))).toBe(true);
+});
+
+test("o resumo do fluxo conta o pior lado do Se, e não a soma", () => {
+  const r = resumoDoFluxo([
+    msgId("a", "a"),
+    se({ tipo: "ja_escreveu" },
+      [msgId("s1", "s"), { id: "s2", tipo: "esperar", minutos: 60 }, msgId("s3", "s")],
+      [msgId("n1", "n")]),
+  ]);
+  expect(r.mensagens).toBe(3);
+  expect(r.duracaoMin).toBe(60);
+});
+
+test("o resumo do passo Se diz a pergunta e quantos passos há de cada lado", () => {
+  expect(resumoDoPasso(se({ tipo: "ja_escreveu" }, [msgId("a", "a")], [msgId("b", "b"), msgId("c", "c")])))
+    .toBe("se o lead já nos escreveu · sim: 1 passo · não: 2 passos");
+});
+
+test("colunasDosBrutos lista as colunas na ordem do cabeçalho, com exemplo, sem a do telefone", () => {
+  const cols = colunasDosBrutos([
+    { "Carimbo de data/hora": "15/09/2026 13:19:27", Nome: "Matheus", Whatsapp: "(92)9520-5258", Situação: "", Funcionários: "5 a 20 funcionários" },
+    { "Carimbo de data/hora": "15/09/2026 12:46:41", Nome: "Luan", Whatsapp: "(92)99507-6380", Situação: "Processo", Funcionários: "1 a 4" },
+    null,
+  ]);
+  expect(cols.map((c) => c.coluna)).toEqual(["Carimbo de data/hora", "Nome", "Situação", "Funcionários"]);
+  expect(cols.find((c) => c.coluna === "Nome")?.exemplo).toBe("Matheus");
+  // o exemplo é o primeiro valor NÃO vazio, mesmo que a linha mais nova esteja em branco
+  expect(cols.find((c) => c.coluna === "Situação")?.exemplo).toBe("Processo");
+  expect(colunasDosBrutos([])).toEqual([]);
+  expect(colunasDosBrutos([{ Telefone: "1", Celular: "2", Contato: "3", "E-mail": "a@b" }]).map((c) => c.coluna)).toEqual(["E-mail"]);
+});

@@ -13,7 +13,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   type Automacao, type Execucao, type Gatilho, type Passo, type ConfigDoGatilho,
-  type Condicoes, CONDICOES_PADRAO, gatilhoValido, tipoDePassoValido, novoIdDePasso,
+  type Condicoes, type ColunaDaBase, CONDICOES_PADRAO, colunasDosBrutos,
+  gatilhoValido, tipoDePassoValido, novoIdDePasso,
 } from "@/lib/automacoes";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
@@ -141,6 +142,37 @@ export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
         teste: !!l.teste,
         nome_do_lead: l.conversa_id ? (nomes[l.conversa_id] ?? null) : null,
       }));
+    },
+  });
+}
+
+/**
+ * AS COLUNAS DAS BASES DO FLUXO, para a bandeja de variáveis.
+ *
+ * Não existe tabela de "cabeçalho da planilha": o que existe é o `bruto` de
+ * cada lead, que é a linha inteira com o cabeçalho como chave. Então as colunas
+ * se descobrem OLHANDO AS ÚLTIMAS LINHAS que chegaram, e não uma linha só: a
+ * primeira pode ter vindo antes de uma coluna nova existir, e um campo em
+ * branco nela não daria exemplo nenhum para a bandeja mostrar.
+ *
+ * Doze linhas por base é o suficiente para isso e continua sendo uma consulta
+ * pequena. Com nenhuma base escolhida não há o que buscar, e a bandeja fica
+ * só com `{nome}` e `{horario}`.
+ */
+export function useColunasDasBases(fonteIds: string[]) {
+  const chave = [...fonteIds].sort().join(",");
+  return useQuery({
+    queryKey: ["wa", "automacoes", "colunas", chave],
+    enabled: fonteIds.length > 0,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ColunaDaBase[]> => {
+      const { data, error } = await tabela("leads_brutos")
+        .select("bruto, chegou_em")
+        .in("fonte_id", fonteIds)
+        .order("chegou_em", { ascending: false, nullsFirst: false })
+        .limit(12 * fonteIds.length);
+      if (error) throw error;
+      return colunasDosBrutos(((data ?? []) as { bruto: Record<string, unknown> | null }[]).map((l) => l.bruto));
     },
   });
 }
