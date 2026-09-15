@@ -35,7 +35,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
-  Workflow, History, AlertTriangle, Check, Loader2, X, Zap, Clock,
+  Workflow, History, AlertTriangle, Check, Loader2, X, Zap, Clock, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,15 +51,15 @@ import {
   GATILHOS_DEF, PASSOS_DEF, defDoGatilho, defDoPasso, passoNovo, novoIdDePasso,
   impedimentos, podeLigar, esperaBonita, resumoDoPasso, fraseDoGatilho,
   etapasOferecidas, resumoDoFluxo, CONDICOES_PADRAO, MAX_PASSOS, ROTULO_STATUS,
-  type Automacao, type Gatilho, type Passo, type TipoDePasso, type ConfigDoGatilho,
-  type Condicoes,
+  type Automacao, type Gatilho, type GatilhoDef, type Passo, type TipoDePasso,
+  type ConfigDoGatilho, type Condicoes,
 } from "@/lib/automacoes";
 import {
   useAutomacoes, useResumoAutomacoes, useExecucoes,
   criarAutomacao, salvarAutomacao, alternarAutomacao, apagarAutomacao, duplicarAutomacao,
   type Rascunho,
 } from "@/hooks/useAutomacoes";
-import { useFontes, type Fonte } from "@/hooks/useLeadsBrutos";
+import { useTodasAsFontes, type Fonte } from "@/hooks/useLeadsBrutos";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
 import type { Instancia } from "@/lib/atendimentoMock";
 
@@ -109,14 +109,14 @@ export default function Automacoes({
      número. */
   const [filtro, setFiltro] = useState<string | null>(null);
 
-  /* As bases de TODOS os números, só para escrever a frase do gatilho na
-     lista. O editor busca as do número escolhido, que é o que importa na hora
-     de marcar; aqui o que importa é não mostrar um id cru no cartão. */
-  const { data: fontesDoPadrao = [] } = useFontes(instanciaPadrao, { incluirInativas: true });
+  /* As bases de TODOS os números: a lista mostra fluxos de qualquer número, e
+     buscar só as do número aberto faria o cartão de um fluxo vizinho escrever
+     "outra base" no lugar do nome que ele tem. */
+  const { data: todasAsFontes = [] } = useTodasAsFontes();
   const nomeDaBase = useMemo(() => {
-    const m = new Map(fontesDoPadrao.map((f) => [f.id, f.nome]));
-    return (id: string) => m.get(id) ?? "outra base";
-  }, [fontesDoPadrao]);
+    const m = new Map(todasAsFontes.map((f) => [f.id, f.nome]));
+    return (id: string) => m.get(id) ?? "base desligada";
+  }, [todasAsFontes]);
 
   /* Abrir a aba pelo botão de uma base já começa um fluxo daquela base: quem
      clicou ali não quer a lista, quer automatizar aquela planilha. */
@@ -476,12 +476,26 @@ function Editor({
   const [instancia, setInstancia] = useState(automacao?.instancia ?? instanciaPadrao);
   /* As bases são DO NÚMERO ESCOLHIDO. Trocar o número troca a lista, porque
      planilha é ligada a um número e marcar a base de outro seria marcar algo
-     que nunca vai disparar. */
-  const { data: fontes = [] } = useFontes(instancia, { incluirInativas: false });
+     que nunca vai disparar.
+
+     Mas a busca traz TODAS, não só as dele: quando o número escolhido não tem
+     base nenhuma, a tela precisa saber em quais números elas estão para
+     oferecer a troca. Beco sem saída é o pior lugar para deixar alguém. */
+  const { data: todasAsFontes = [] } = useTodasAsFontes();
+  const fontes = useMemo(
+    () => todasAsFontes.filter((f) => mesmaInstancia(f.instancia, instancia)),
+    [todasAsFontes, instancia]);
+  const numerosComBase = useMemo(() => {
+    const vistos = new Set<string>();
+    return todasAsFontes
+      .filter((f) => !mesmaInstancia(f.instancia, instancia))
+      .filter((f) => (vistos.has(f.instancia.toLowerCase()) ? false : (vistos.add(f.instancia.toLowerCase()), true)))
+      .map((f) => f.instancia);
+  }, [todasAsFontes, instancia]);
   const nomeDaBase = useMemo(() => {
-    const m = new Map(fontes.map((f) => [f.id, f.nome]));
-    return (id: string) => m.get(id) ?? "base de outro número";
-  }, [fontes]);
+    const m = new Map(todasAsFontes.map((f) => [f.id, f.nome]));
+    return (id: string) => m.get(id) ?? "base desligada";
+  }, [todasAsFontes]);
   const [gatilho, setGatilho] = useState<Gatilho>(automacao?.gatilho ?? "lead_novo_na_base");
   const [cfg, setCfg] = useState<ConfigDoGatilho>(
     automacao?.gatilho_config ?? (fonteInicial ? { fonte_ids: [fonteInicial] } : {}),
@@ -664,6 +678,7 @@ function Editor({
                   <InspetorDoGatilho
                     gatilho={gatilho} cfg={cfg} fontes={fontes} condicoes={condicoes}
                     instancias={instancias} instancia={instancia}
+                    numerosComBase={numerosComBase}
                     apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
                     ativa={!!automacao?.ativa}
                     onTrocarInstancia={(n) => {
@@ -869,11 +884,14 @@ function Titulo({ children }: { children: React.ReactNode }) {
 }
 
 function InspetorDoGatilho({
-  gatilho, cfg, fontes, condicoes, instancias, instancia, apelidos, corDe, nomeDe, ativa,
+  gatilho, cfg, fontes, condicoes, instancias, instancia, numerosComBase,
+  apelidos, corDe, nomeDe, ativa,
   onTrocarInstancia, onTrocarGatilho, onTrocarCfg, onTrocarCondicoes,
 }: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; fontes: Fonte[]; condicoes: Condicoes;
   instancias: Instancia[]; instancia: string;
+  /** os outros números que TÊM base, para o caso de o escolhido não ter nenhuma */
+  numerosComBase: string[];
   apelidos: Map<string, string>;
   corDe: (nome: string) => { fundo: string; texto: string; anel: string };
   nomeDe: (nome: string) => string;
@@ -883,12 +901,6 @@ function InspetorDoGatilho({
   onTrocarCfg: (c: ConfigDoGatilho) => void;
   onTrocarCondicoes: (c: Condicoes) => void;
 }) {
-  const def = defDoGatilho(gatilho);
-  const marcadas = new Set(cfg.fonte_ids ?? []);
-  const etapasMarcadas = new Set(cfg.etapas ?? []);
-  const todasAsBases = !!cfg.bases_todas && marcadas.size === 0;
-  const semResposta = !cfg.bases_todas && marcadas.size === 0;
-
   return (
     <div className="space-y-4">
       {/* ── EM QUAL NÚMERO ──
@@ -926,171 +938,61 @@ function InspetorDoGatilho({
         )}
       </div>
 
+      {/* ── O QUE DISPARA, e logo abaixo A PERGUNTA QUE ELE FAZ ──
+          A configuração de cada gatilho abre DENTRO da lista, colada no item
+          escolhido. Ela ficava no fim do painel, depois dos cinco gatilhos, e
+          isso a jogava para fora da tela: o cartão dizia "escolha em qual base"
+          e o toque não revelava nada, porque a resposta estava abaixo da
+          dobra. */}
       <div className="pt-1 border-t border-white/[0.06]">
         <Titulo>O que dispara</Titulo>
         <div className="grid gap-1">
           {GATILHOS_DEF.map((g, i) => {
             const Ico = ICONE_DO_GATILHO[g.icone] ?? Zap;
             const eu = g.chave === gatilho;
+            /* A entrada escalonada é do BLOCO, e não do botão: o botão é um
+               elemento comum, e `transition` nele só viraria aviso no console.
+               O bloco é quem anima, e é ele que muda de altura quando a
+               pergunta do gatilho abre embaixo. */
             return (
-              <motion.button
-                key={g.chave} type="button" onClick={() => onTrocarGatilho(g.chave)}
+              <motion.div key={g.chave} layout
                 initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: CURVA, delay: i * 0.04 }}
-                className={cn("flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
-                  eu ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
-                <Ico className={cn("h-3.5 w-3.5 shrink-0", eu ? "text-primary" : "text-muted-foreground")} />
-                <span className="min-w-0">
-                  <span className="block text-[11.5px] font-medium">{g.rotulo}</span>
-                  <span className="block text-[10px] text-muted-foreground leading-snug">{g.descricao}</span>
-                </span>
-              </motion.button>
+                transition={{ ...MOLA, delay: i * 0.04 }}>
+                <button
+                  type="button" onClick={() => onTrocarGatilho(g.chave)}
+                  className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                    eu ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+                  <Ico className={cn("h-3.5 w-3.5 shrink-0", eu ? "text-primary" : "text-muted-foreground")} />
+                  <span className="min-w-0">
+                    <span className="block text-[11.5px] font-medium">{g.rotulo}</span>
+                    <span className="block text-[10px] text-muted-foreground leading-snug">{g.descricao}</span>
+                  </span>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {eu && g.campo && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={MOLA}
+                      className="overflow-hidden">
+                      <div className="pl-2 pr-0.5 pt-1.5 pb-1">
+                        <ConfigDoGatilho
+                          campo={g.campo} cfg={cfg} fontes={fontes}
+                          instancia={instancia} numerosComBase={numerosComBase}
+                          apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
+                          onTrocarCfg={onTrocarCfg} onTrocarInstancia={onTrocarInstancia}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             );
           })}
         </div>
       </div>
-
-      {/* ── QUAL BASE ──
-          É uma PERGUNTA, e não uma lista com padrão escondido. "Nenhuma marcada
-          quer dizer todas" parece prático e é uma armadilha: quem escolheu o
-          gatilho e não mexeu aqui ligaria um fluxo escutando TODAS as planilhas
-          do número sem nunca ter dito isso. As duas respostas são explícitas, e
-          enquanto nenhuma for dada o fluxo não liga. */}
-      {def.campo === "bases" && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22, ease: CURVA }}
-          className={cn("rounded-lg px-2.5 py-2 -mx-0.5 ring-1 transition-colors",
-            semResposta ? "ring-amber-400/30 bg-amber-400/[0.05]" : "ring-white/[0.07] bg-white/[0.02]")}>
-          <Titulo>Em qual base</Titulo>
-
-          {fontes.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Nenhuma base ligada em {nomeDe(instancia)}. Ligue uma planilha na caixa Base,
-              ou escolha outro número aqui em cima.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              <button type="button"
-                onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
-                className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
-                  todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
-                <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
-                  todasAsBases ? "ring-primary bg-primary/20" : "ring-white/25")}>
-                  {todasAsBases && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[11.5px]">Qualquer base deste número</span>
-                  <span className="block text-[10px] text-muted-foreground leading-snug">
-                    inclusive as que forem ligadas depois
-                  </span>
-                </span>
-              </button>
-
-              <button type="button"
-                onClick={() => onTrocarCfg({
-                  ...cfg, bases_todas: false,
-                  fonte_ids: marcadas.size > 0 ? [...marcadas] : [fontes[0].id],
-                })}
-                className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
-                  marcadas.size > 0 ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
-                <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
-                  marcadas.size > 0 ? "ring-primary bg-primary/20" : "ring-white/25")}>
-                  {marcadas.size > 0 && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                </span>
-                <span className="text-[11.5px]">Só a base que eu escolher</span>
-              </button>
-
-              <AnimatePresence initial={false}>
-                {marcadas.size > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={MOLA}
-                    className="overflow-hidden pl-5">
-                    {fontes.map((f) => (
-                      <label key={f.id}
-                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] cursor-pointer transition-colors">
-                        <input
-                          type="checkbox" checked={marcadas.has(f.id)}
-                          onChange={(e) => {
-                            const nova = new Set(marcadas);
-                            if (e.target.checked) nova.add(f.id); else nova.delete(f.id);
-                            onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
-                          }}
-                          className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-primary"
-                        />
-                        <span className="text-[11.5px] truncate">{f.nome}</span>
-                      </label>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {semResposta && (
-                <p className="text-[10px] text-amber-400/90 leading-snug px-2 pt-1">
-                  Escolha uma das duas para poder ligar o fluxo.
-                </p>
-              )}
-            </div>
-          )}
-        </motion.div>
-      )}
-
-      {def.campo === "etapas" && (
-        <div>
-          <Titulo>Ao entrar em</Titulo>
-          <div className="flex flex-wrap gap-1">
-            {etapasOferecidas().map((e) => {
-              const marcada = etapasMarcadas.has(e.chave);
-              return (
-                <button key={e.chave} type="button"
-                  onClick={() => {
-                    const nova = new Set(etapasMarcadas);
-                    if (marcada) nova.delete(e.chave); else nova.add(e.chave);
-                    onTrocarCfg({ ...cfg, etapas: [...nova] });
-                  }}
-                  className={cn("rounded-full px-2 py-1 text-[10.5px] ring-1 transition-colors",
-                    marcada ? "bg-primary/[0.14] text-primary ring-primary/30"
-                            : "bg-white/[0.04] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.07]")}>
-                  {e.rotulo}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1.5">
-            Sem nenhuma marcada, vale para qualquer mudança de etapa.
-          </p>
-        </div>
-      )}
-
-      {def.campo === "texto" && (
-        <div>
-          <Titulo>Só quando a mensagem contiver</Titulo>
-          <Input
-            value={cfg.contendo ?? ""}
-            onChange={(e) => onTrocarCfg({ ...cfg, contendo: e.target.value })}
-            placeholder="deixe vazio para qualquer mensagem"
-            className="h-8 text-[12px] bg-transparent border-white/[0.08]"
-          />
-        </div>
-      )}
-
-      {def.campo === "dias" && (
-        <div>
-          <Titulo>Dias de silêncio</Titulo>
-          <Input
-            type="number" min={1} max={365}
-            value={cfg.dias ?? 3}
-            onChange={(e) => onTrocarCfg({ ...cfg, dias: Number(e.target.value) })}
-            className="h-8 text-[12px] bg-transparent border-white/[0.08] w-24 tabular-nums"
-          />
-          <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1.5">
-            Conta a partir da nossa última mensagem. Quem respondeu não entra.
-          </p>
-        </div>
-      )}
 
       <div className="pt-1 border-t border-white/[0.06]">
         <Titulo>Travas</Titulo>
@@ -1122,6 +1024,199 @@ function InspetorDoGatilho({
           resto fica para amanhã.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** A pergunta que o gatilho escolhido faz, aberta logo abaixo dele. */
+function ConfigDoGatilho({
+  campo, cfg, fontes, instancia, numerosComBase, apelidos, corDe, nomeDe,
+  onTrocarCfg, onTrocarInstancia,
+}: {
+  campo: NonNullable<GatilhoDef["campo"]>;
+  cfg: ConfigDoGatilho;
+  fontes: Fonte[];
+  instancia: string;
+  numerosComBase: string[];
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
+  onTrocarCfg: (c: ConfigDoGatilho) => void;
+  onTrocarInstancia: (nome: string) => void;
+}) {
+  const marcadas = new Set(cfg.fonte_ids ?? []);
+  const etapasMarcadas = new Set(cfg.etapas ?? []);
+  const todasAsBases = !!cfg.bases_todas && marcadas.size === 0;
+  const semResposta = !cfg.bases_todas && marcadas.size === 0;
+
+  if (campo === "bases") {
+    return (
+      <div className={cn("rounded-lg px-2.5 py-2 ring-1 transition-colors",
+        semResposta ? "ring-amber-400/30 bg-amber-400/[0.05]" : "ring-white/[0.07] bg-white/[0.02]")}>
+        <Titulo>Em qual base</Titulo>
+
+        {fontes.length === 0 ? (
+          /* BECO SEM SAÍDA NÃO, CAMINHO. "Nenhuma base aqui" deixa a pessoa
+             parada; dizer ONDE elas estão, com um toque para ir, responde a
+             pergunta que ela ia ter em seguida. */
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-amber-400/90 leading-snug">
+              {nomeDe(instancia)} não tem nenhuma planilha ligada.
+            </p>
+            {numerosComBase.length > 0 ? (
+              <>
+                <p className="text-[10.5px] text-muted-foreground leading-snug">
+                  As bases estão {numerosComBase.length === 1 ? "no número" : "nos números"} abaixo.
+                  Toque para mudar este fluxo para lá.
+                </p>
+                {numerosComBase.map((n) => {
+                  const cor = corDe(n);
+                  return (
+                    <button key={n} type="button" onClick={() => onTrocarInstancia(n)}
+                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 ring-primary/25 bg-primary/[0.06] hover:bg-primary/[0.12] transition-colors">
+                      <span className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide", cor.fundo, cor.texto)}>
+                        {apelidos.get(n) ?? apelidoDeInstancia(n)}
+                      </span>
+                      <span className="text-[11.5px] truncate">{nomeDe(n)}</span>
+                      <ArrowRight className="h-3 w-3 ml-auto shrink-0 text-primary" />
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
+              <p className="text-[10.5px] text-muted-foreground leading-snug">
+                Nenhum número tem planilha ligada ainda. Ligue uma na caixa Base, pelo botão
+                “Ligar planilha”, e volte aqui.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <button type="button"
+              onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
+              className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+              <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
+                todasAsBases ? "ring-primary bg-primary/20" : "ring-white/25")}>
+                {todasAsBases && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[11.5px]">Qualquer base deste número</span>
+                <span className="block text-[10px] text-muted-foreground leading-snug">
+                  inclusive as que forem ligadas depois
+                </span>
+              </span>
+            </button>
+
+            <button type="button"
+              onClick={() => onTrocarCfg({
+                ...cfg, bases_todas: false,
+                fonte_ids: marcadas.size > 0 ? [...marcadas] : [fontes[0].id],
+              })}
+              className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                marcadas.size > 0 ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+              <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
+                marcadas.size > 0 ? "ring-primary bg-primary/20" : "ring-white/25")}>
+                {marcadas.size > 0 && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              </span>
+              <span className="text-[11.5px]">
+                {fontes.length === 1 ? `Só a base ${fontes[0].nome}` : "Só a base que eu escolher"}
+              </span>
+            </button>
+
+            <AnimatePresence initial={false}>
+              {marcadas.size > 0 && fontes.length > 1 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={MOLA}
+                  className="overflow-hidden pl-5">
+                  {fontes.map((f) => (
+                    <label key={f.id}
+                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] cursor-pointer transition-colors">
+                      <input
+                        type="checkbox" checked={marcadas.has(f.id)}
+                        onChange={(e) => {
+                          const nova = new Set(marcadas);
+                          if (e.target.checked) nova.add(f.id); else nova.delete(f.id);
+                          onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
+                        }}
+                        className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-primary"
+                      />
+                      <span className="text-[11.5px] truncate">{f.nome}</span>
+                    </label>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {semResposta && (
+              <p className="text-[10px] text-amber-400/90 leading-snug px-2 pt-1">
+                Escolha uma das duas para poder ligar o fluxo.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (campo === "etapas") {
+    return (
+      <div className="rounded-lg px-2.5 py-2 ring-1 ring-white/[0.07] bg-white/[0.02]">
+        <Titulo>Ao entrar em</Titulo>
+        <div className="flex flex-wrap gap-1">
+          {etapasOferecidas().map((e) => {
+            const marcada = etapasMarcadas.has(e.chave);
+            return (
+              <button key={e.chave} type="button"
+                onClick={() => {
+                  const nova = new Set(etapasMarcadas);
+                  if (marcada) nova.delete(e.chave); else nova.add(e.chave);
+                  onTrocarCfg({ ...cfg, etapas: [...nova] });
+                }}
+                className={cn("rounded-full px-2 py-1 text-[10.5px] ring-1 transition-colors",
+                  marcada ? "bg-primary/[0.14] text-primary ring-primary/30"
+                          : "bg-white/[0.04] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.07]")}>
+                {e.rotulo}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1.5">
+          Sem nenhuma marcada, vale para qualquer mudança de etapa.
+        </p>
+      </div>
+    );
+  }
+
+  if (campo === "texto") {
+    return (
+      <div className="rounded-lg px-2.5 py-2 ring-1 ring-white/[0.07] bg-white/[0.02]">
+        <Titulo>Só quando a mensagem contiver</Titulo>
+        <Input
+          value={cfg.contendo ?? ""}
+          onChange={(e) => onTrocarCfg({ ...cfg, contendo: e.target.value })}
+          placeholder="deixe vazio para qualquer mensagem"
+          className="h-8 text-[12px] bg-transparent border-white/[0.08]"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg px-2.5 py-2 ring-1 ring-white/[0.07] bg-white/[0.02]">
+      <Titulo>Dias de silêncio</Titulo>
+      <Input
+        type="number" min={1} max={365}
+        value={cfg.dias ?? 3}
+        onChange={(e) => onTrocarCfg({ ...cfg, dias: Number(e.target.value) })}
+        className="h-8 text-[12px] bg-transparent border-white/[0.08] w-24 tabular-nums"
+      />
+      <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1.5">
+        Conta a partir da nossa última mensagem. Quem respondeu não entra.
+      </p>
     </div>
   );
 }

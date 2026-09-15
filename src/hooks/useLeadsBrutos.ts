@@ -119,6 +119,29 @@ export function useNomesDasBases() {
   });
 }
 
+/**
+ * As bases de TODOS os números, com o número de cada uma.
+ *
+ * `useFontes` responde "o que este número trabalha"; esta responde "onde
+ * existem bases". São perguntas diferentes e a segunda só apareceu com as
+ * automações: montar um fluxo de base num número sem base nenhuma é um beco
+ * sem saída, e a única saída útil é dizer em quais números elas estão.
+ */
+export function useTodasAsFontes() {
+  return useQuery({
+    queryKey: ["leads", "fontes", "todas"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<Fonte[]> => {
+      const { data, error } = await tabela("leads_fontes")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas")
+        .eq("ativa", true)
+        .order("instancia").order("nome");
+      if (error) throw error;
+      return (data || []) as Fonte[];
+    },
+  });
+}
+
 export function useLeadsBrutos(fonteIds: string[]) {
   const chave = [...fonteIds].sort().join(",");
   return useQuery({
