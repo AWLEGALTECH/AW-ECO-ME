@@ -36,7 +36,7 @@ import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
   Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw, Play,
-  GitFork, Braces,
+  GitFork, Braces, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -553,6 +553,17 @@ function Editor({
   }, [gatilho, cfg.fonte_ids, cfg.bases_todas, fontes]);
   const { data: colunas = [], isLoading: carregandoColunas } = useColunasDasBases(idsDasBases);
 
+  /* De qual base as colunas vieram, para a bandeja dizer no título. Com muitas
+     bases o nome vira contagem: cinco nomes emendados não cabem na coluna e
+     empurram o resto para fora. */
+  const nomeDasBases = useMemo(() => {
+    const nomes = idsDasBases.map((id) => nomeDaBase(id)).filter(Boolean);
+    if (nomes.length === 0) return null;
+    if (nomes.length === 1) return `“${nomes[0]}”`;
+    if (nomes.length === 2) return `“${nomes[0]}” e “${nomes[1]}”`;
+    return `de ${nomes.length} bases`;
+  }, [idsDasBases, nomeDaBase]);
+
   const rascunho: Rascunho = { nome, instancia, gatilho, gatilho_config: cfg, condicoes, passos };
   /* Enquanto as colunas não chegaram, a conferência de variável fica de fora:
      acusar `{Funcionários}` de não existir por meio segundo faria a lista do
@@ -786,6 +797,7 @@ function Editor({
                     colunas={colunas}
                     carregandoColunas={carregandoColunas}
                     temBase={idsDasBases.length > 0}
+                    nomeDasBases={nomeDasBases}
                     onTrocar={(m) => trocarPasso(passoAberto.id, m)}
                     onRemover={() => removerPasso(passoAberto.id)}
                   />
@@ -1655,83 +1667,168 @@ const VARIAVEIS_DA_CONVERSA = [
 ];
 
 /**
- * A BANDEJA DE VARIÁVEIS: as duas de sempre, e as colunas da base do fluxo.
+ * UMA ETIQUETA DE VARIÁVEL, com a marca e o que ela vira.
  *
- * As duas primeiras vêm da conversa e existem sempre. As outras são o
- * cabeçalho da planilha, lido das últimas linhas que chegaram, com o valor de
- * um lead de verdade no `title`: "Funcionários" não diz nada, "5 a 20
- * funcionários" diz tudo sobre o que vai sair na mensagem.
- *
- * Arrastar e clicar fazem a mesma coisa. Clicar existe porque no celular não
- * se arrasta, e foi assim que a bandeja nasceu.
+ * As duas linhas são o ponto. Só o rótulo ("Nome") não diz que aquilo é uma
+ * variável nem o que vai sair no lugar; a marca com as chaves diz a primeira
+ * coisa, e o exemplo de um lead de verdade diz a segunda. "Funcionários" não
+ * informa nada, "5 a 20 funcionários" informa tudo.
  */
-function BandejaDeVariaveis({ colunas, carregando, temBase, onInserir }: {
-  colunas: ColunaDaBase[]; carregando: boolean; temBase: boolean;
+function EtiquetaDeVariavel({ marca, exemplo, daPlanilha, atraso, onInserir }: {
+  marca: string; exemplo: string; daPlanilha: boolean; atraso: number;
   onInserir: (marca: string) => void;
 }) {
-  const marcas = [
-    ...VARIAVEIS_DA_CONVERSA,
-    ...colunas.map((c) => ({ marca: `{${c.coluna}}`, rotulo: c.coluna, exemplo: c.exemplo ?? "" })),
-  ];
   return (
-    <div className="space-y-1.5">
+    /* Quem anima é a div; o botão por dentro é comum, porque `onDragStart` de
+       HTML e o do framer-motion são coisas diferentes com o mesmo nome, e num
+       `motion.button` ganha o do framer, que não tem `dataTransfer`. */
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.92, y: 4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.92 }}
+      transition={{ ...MOLA, delay: atraso }}
+      className="min-w-0">
+      <button
+        type="button" draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", marca);
+          e.dataTransfer.effectAllowed = "copy";
+        }}
+        onClick={() => onInserir(marca)}
+        title={exemplo ? `Na mensagem vira “${exemplo}”` : "Está em branco nos últimos leads"}
+        className={cn(
+          "w-full cursor-grab active:cursor-grabbing rounded-lg ring-1 px-2.5 py-1.5 text-left transition-colors",
+          daPlanilha
+            ? "bg-white/[0.04] ring-white/[0.12] hover:bg-white/[0.09] hover:ring-white/20"
+            : "bg-primary/[0.10] ring-primary/25 hover:bg-primary/[0.18]")}>
+        <span className={cn("block text-[11.5px] font-medium truncate",
+          daPlanilha ? "text-foreground/85" : "text-primary")}>
+          {marca}
+        </span>
+        <span className="block text-[9.5px] text-muted-foreground/70 truncate">
+          {exemplo || "em branco"}
+        </span>
+      </button>
+    </motion.div>
+  );
+}
+
+/**
+ * A BANDEJA DE VARIÁVEIS, em dois grupos com nome.
+ *
+ * ELES PRECISAM ESTAR SEPARADOS, e a razão apareceu no uso: numa fileira só,
+ * `{nome}` e `{Nome}` ficam lado a lado diferindo por uma letra maiúscula, e
+ * são coisas distintas — um é o primeiro nome de quem está na conversa, o
+ * outro é a coluna da planilha. O primeiro texto escrito com a bandeja saiu
+ * com "{Nome}Olá, {nome}" no começo, que é exatamente esse tropeço.
+ *
+ * Então: grupo "Do contato" e grupo "Da planilha", cada um com o seu ícone e o
+ * seu título, e a planilha dizendo de qual base as colunas vieram.
+ *
+ * Arrastar e tocar fazem a mesma coisa. Tocar existe porque no celular não se
+ * arrasta, e é assim que a bandeja é usada na maior parte do tempo.
+ */
+function BandejaDeVariaveis({ colunas, carregando, temBase, nomeDasBases, soColunas, onInserir }: {
+  colunas: ColunaDaBase[]; carregando: boolean; temBase: boolean;
+  /** de qual base vieram as colunas, para o título do grupo */
+  nomeDasBases?: string | null;
+  /** na pergunta do "Se" só cabe coluna: {nome} e {horario} não são da planilha */
+  soColunas?: boolean;
+  onInserir: (marca: string) => void;
+}) {
+  const grupos = [
+    ...(soColunas ? [] : [{
+      chave: "contato",
+      icone: User,
+      titulo: "Do contato",
+      abaixo: "valem sempre, venham de onde vier o lead",
+      daPlanilha: false,
+      itens: VARIAVEIS_DA_CONVERSA.map((v) => ({ marca: v.marca, exemplo: v.exemplo })),
+    }]),
+    {
+      chave: "planilha",
+      icone: Database,
+      titulo: nomeDasBases ? `Da planilha ${nomeDasBases}` : "Da planilha",
+      abaixo: "as colunas, escritas como estão no cabeçalho",
+      daPlanilha: true,
+      itens: colunas.map((c) => ({ marca: `{${c.coluna}}`, exemplo: c.exemplo ?? "" })),
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Braces className="h-3 w-3 shrink-0 text-muted-foreground/60" />
         <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
-          Arraste ou toque para inserir
+          Variáveis · arraste ou toque para inserir
         </span>
         {carregando && <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground/60" />}
       </div>
-      <div className="flex flex-wrap gap-1">
-        <AnimatePresence initial={false}>
-          {marcas.map((v, i) => {
-            const daBase = i >= VARIAVEIS_DA_CONVERSA.length;
+
+      <LayoutGroup id="bandeja-variaveis">
+        {grupos.map((g, gi) => {
+          const Ico = g.icone;
+          const vazio = g.itens.length === 0;
+          if (vazio && g.daPlanilha && !temBase) {
             return (
-              /* Quem anima é a div; o botão por dentro é comum, porque
-                 `onDragStart` de HTML e o do framer-motion são coisas
-                 diferentes com o mesmo nome, e num `motion.button` ganha o do
-                 framer, que não tem `dataTransfer`. */
-              <motion.div
-                key={v.marca} layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ ...MOLA, delay: Math.min(i * 0.02, 0.15) }}
-                className="min-w-0 max-w-full">
-                <button
-                  type="button" draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/plain", v.marca);
-                    e.dataTransfer.effectAllowed = "copy";
-                  }}
-                  onClick={() => onInserir(v.marca)}
-                  title={v.exemplo ? `Na mensagem vira “${v.exemplo}”` : "Esta coluna está em branco nos últimos leads"}
-                  className={cn(
-                    "cursor-grab active:cursor-grabbing rounded-md ring-1 px-2 py-1 text-[10.5px] font-medium transition-colors max-w-full truncate",
-                    daBase
-                      ? "bg-white/[0.05] text-foreground/80 ring-white/[0.12] hover:bg-white/[0.09]"
-                      : "bg-primary/[0.10] text-primary ring-primary/25 hover:bg-primary/[0.18]")}>
-                  {v.rotulo}
-                </button>
-              </motion.div>
+              <motion.p key={g.chave} layout transition={MOLA}
+                className="text-[10.5px] text-muted-foreground/70 leading-snug flex items-start gap-1.5">
+                <Pendente className="mt-[5px]" />
+                Escolha a base no gatilho para as colunas dela aparecerem aqui.
+              </motion.p>
             );
-          })}
-        </AnimatePresence>
-      </div>
-      <p className="text-[10px] text-muted-foreground/70 leading-snug">
-        {!temBase
-          ? "Escolha a base no gatilho para as colunas dela aparecerem aqui."
-          : colunas.length === 0 && !carregando
-            ? "Esta base ainda não tem nenhuma linha, então as colunas dela não dão para saber."
-            : "Coluna em branco some da frase, junto com a vírgula antes dela. Nunca sai um buraco."}
-      </p>
+          }
+          if (vazio && g.daPlanilha) {
+            return (
+              <motion.p key={g.chave} layout transition={MOLA}
+                className="text-[10.5px] text-muted-foreground/70 leading-snug">
+                {carregando ? "Procurando as colunas desta base…"
+                  : "Esta base ainda não tem nenhuma linha, então não dá para saber as colunas dela."}
+              </motion.p>
+            );
+          }
+          return (
+            <motion.div key={g.chave} layout transition={MOLA} className="space-y-1">
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <Ico className="h-3 w-3 shrink-0 text-muted-foreground/50 self-center" />
+                <span className="text-[10.5px] font-medium text-foreground/70 truncate">{g.titulo}</span>
+                <span className="text-[9.5px] text-muted-foreground/50 truncate hidden sm:inline">
+                  {g.abaixo}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <AnimatePresence initial={false}>
+                  {g.itens.map((v, i) => (
+                    <EtiquetaDeVariavel
+                      key={v.marca}
+                      marca={v.marca}
+                      exemplo={v.exemplo}
+                      daPlanilha={g.daPlanilha}
+                      atraso={Math.min((gi * 2 + i) * 0.025, 0.2)}
+                      onInserir={onInserir}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          );
+        })}
+      </LayoutGroup>
+
+      {!soColunas && colunas.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/60 leading-snug">
+          Coluna em branco some da frase, junto com a vírgula antes dela. Nunca sai um buraco.
+        </p>
+      )}
     </div>
   );
 }
 
-function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, onTrocar, onRemover }: {
+function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, nomeDasBases, onTrocar, onRemover }: {
   passo: Passo; rotulo: string;
   colunas: ColunaDaBase[]; carregandoColunas: boolean; temBase: boolean;
+  nomeDasBases?: string | null;
   onTrocar: (m: Partial<Passo>) => void; onRemover: () => void;
 }) {
   const def = defDoPasso(passo.tipo);
@@ -1778,6 +1875,7 @@ function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, o
           />
           <BandejaDeVariaveis
             colunas={colunas} carregando={carregandoColunas} temBase={temBase}
+            nomeDasBases={nomeDasBases}
             onInserir={inserirVariavel}
           />
         </div>
@@ -1787,6 +1885,7 @@ function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, o
         <EditorDaCondicao
           condicao={passo.condicao ?? CONDICAO_PADRAO}
           colunas={colunas} carregando={carregandoColunas} temBase={temBase}
+          nomeDasBases={nomeDasBases}
           onTrocar={(c) => onTrocar({ condicao: c })}
         />
       )}
@@ -1890,8 +1989,9 @@ function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, o
  * base escolhida no gatilho, com o valor de um lead real no título. Digitar o
  * nome da coluna à mão também funciona, para quem sabe o que quer.
  */
-function EditorDaCondicao({ condicao, colunas, carregando, temBase, onTrocar }: {
+function EditorDaCondicao({ condicao, colunas, carregando, temBase, nomeDasBases, onTrocar }: {
   condicao: Condicao; colunas: ColunaDaBase[]; carregando: boolean; temBase: boolean;
+  nomeDasBases?: string | null;
   onTrocar: (c: Condicao) => void;
 }) {
   const tipo = condicao.tipo ?? "ja_escreveu";
@@ -1943,8 +2043,13 @@ function EditorDaCondicao({ condicao, colunas, carregando, temBase, onTrocar }: 
                   className="h-8 text-[12px] bg-transparent border-white/[0.08]"
                 />
                 <div className="pt-1.5">
+                  {/* SÓ AS COLUNAS AQUI. `{nome}` e `{horário}` não existem na
+                      planilha, e compará-los não daria em nada: a pergunta
+                      deste passo é sobre a linha do lead. */}
                   <BandejaDeVariaveis
+                    soColunas
                     colunas={colunas} carregando={carregando} temBase={temBase}
+                    nomeDasBases={nomeDasBases}
                     onInserir={(marca) => onTrocar({
                       ...condicao, tipo: "campo", campo: marca.replace(/^\{|\}$/g, ""),
                     })}
