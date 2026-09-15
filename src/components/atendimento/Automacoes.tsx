@@ -66,6 +66,8 @@ import {
   useTodasAsFontes, useResumoBases, useInvalidarLeads, criarFonte, type Fonte,
 } from "@/hooks/useLeadsBrutos";
 import { idDaPlanilha } from "@/lib/planilhaLeads";
+import { saudeDaBase } from "@/lib/bases";
+import { horaDaLista } from "@/lib/wa";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
 import type { Instancia } from "@/lib/atendimentoMock";
 
@@ -1245,58 +1247,46 @@ function EscolhaDaBase({
               </button>
             );
           })}
-          <BotaoLigarPlanilha onClick={() => setLigando(true)} />
+          <BotaoAdicionarBase onClick={() => setLigando(true)} />
         </div>
       ) : (
-        <div className="space-y-1">
-          {/* qualquer base */}
-          <button type="button"
+        <div className="-mx-2.5 divide-y divide-white/[0.06] border-y border-white/[0.06]">
+          {/* QUALQUER BASE é a primeira linha, com o mesmo formato das outras:
+              ela é uma escolha do mesmo tipo, e num formato diferente pareceria
+              um botão de outra coisa. */}
+          <LinhaDaBase
+            icone={Layers}
+            nome="Qualquer base deste número"
+            abaixo={`${fontes.length} ligada${fontes.length === 1 ? "" : "s"} hoje, e as que vierem depois`}
+            marcada={todasAsBases}
             onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
-            className={cn("w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left ring-1 transition-colors",
-              todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]")}>
-            <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1",
-              todasAsBases ? "bg-primary/15 text-primary ring-primary/25" : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-              <Layers className="h-3 w-3" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[11.5px] font-medium">Qualquer base deste número</span>
-              <span className="block text-[10px] text-muted-foreground leading-snug">
-                inclusive as que forem ligadas depois
-              </span>
-            </span>
-            {todasAsBases && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-          </button>
+          />
 
-          {/* cada base, com o mesmo desenho da caixa Base */}
           {fontes.map((f) => {
-            const marcada = marcadas.has(f.id);
             const r = resumoBases[f.id];
+            const saude = saudeDaBase(f, horaDaLista);
             return (
-              <button key={f.id} type="button"
+              <LinhaDaBase
+                key={f.id}
+                icone={Database}
+                nome={f.nome}
+                novos={r?.novos ?? 0}
+                total={r?.total ?? 0}
+                saude={saude}
+                quando={f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
+                marcada={marcadas.has(f.id)}
                 onClick={() => {
                   const nova = new Set(marcadas);
-                  if (marcada) nova.delete(f.id); else nova.add(f.id);
+                  if (marcadas.has(f.id)) nova.delete(f.id); else nova.add(f.id);
                   onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
                 }}
-                className={cn("w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left ring-1 transition-colors",
-                  marcada ? "ring-primary/35 bg-primary/[0.08]" : "ring-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]")}>
-                <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1",
-                  marcada ? "bg-primary/15 text-primary ring-primary/25" : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-                  <Database className="h-3 w-3" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[11.5px] font-medium truncate" title={f.nome}>{f.nome}</span>
-                  <span className="block text-[10px] text-muted-foreground/70 leading-snug tabular-nums">
-                    {r?.total ?? 0} na base
-                    {(r?.novos ?? 0) > 0 ? ` · ${r!.novos} novo${r!.novos === 1 ? "" : "s"}` : ""}
-                  </span>
-                </span>
-                {marcada && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-              </button>
+              />
             );
           })}
 
-          <BotaoLigarPlanilha onClick={() => setLigando(true)} />
+          <div className="px-2.5 py-1.5">
+            <BotaoAdicionarBase onClick={() => setLigando(true)} />
+          </div>
         </div>
       )}
 
@@ -1356,14 +1346,81 @@ function EscolhaDaBase({
   );
 }
 
-function BotaoLigarPlanilha({ onClick }: { onClick: () => void }) {
+/**
+ * UMA BASE, DESENHADA COMO ELA JÁ É NA CAIXA.
+ *
+ * Mesma caixinha de 24px com o ícone, mesmo nome em 12.5px truncado, mesmo
+ * selo de "N novos" e mesma linha de "N na base" embaixo, mesmo pingo de saúde
+ * e mesma hora do último puxão à direita. O que muda é só o gesto: ali o clique
+ * abre a fila, aqui o clique escolhe.
+ */
+function LinhaDaBase({ icone: Ico, nome, abaixo, novos, total, saude, quando, marcada, onClick }: {
+  icone: React.ComponentType<{ className?: string }>;
+  nome: string;
+  /** frase no lugar dos números, para a linha que não é uma planilha de verdade */
+  abaixo?: string;
+  novos?: number;
+  total?: number;
+  saude?: { cor: string; titulo: string };
+  quando?: string;
+  marcada: boolean;
+  onClick: () => void;
+}) {
   return (
     <button type="button" onClick={onClick}
-      className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left border border-dashed
-                 border-white/[0.12] text-muted-foreground hover:text-foreground hover:border-white/25
-                 hover:bg-white/[0.03] transition-colors">
+      className={cn("w-full px-2.5 py-2.5 text-left transition-colors",
+        marcada ? "bg-primary/[0.07]" : "bg-transparent hover:bg-white/[0.03]")}>
+      <div className="flex items-start gap-2">
+        <span className={cn("h-6 w-6 mt-[1px] shrink-0 rounded-md grid place-items-center ring-1 transition-colors",
+          marcada ? "bg-primary/15 text-primary ring-primary/25"
+                  : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+          <Ico className="h-3.5 w-3.5" />
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12.5px] font-medium truncate" title={nome}>{nome}</span>
+          {abaixo ? (
+            <span className="block text-[10px] text-muted-foreground/70 leading-snug mt-0.5">{abaixo}</span>
+          ) : (
+            <span className="flex flex-col items-start gap-1 mt-1">
+              <span className={cn(
+                "rounded px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ring-1 whitespace-nowrap",
+                (novos ?? 0) > 0
+                  ? "bg-primary/15 text-primary ring-primary/25"
+                  : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
+                {novos ?? 0} novo{(novos ?? 0) === 1 ? "" : "s"}
+              </span>
+              <span className="text-[10px] tabular-nums text-muted-foreground/70 whitespace-nowrap">
+                {total ?? 0} na base
+              </span>
+            </span>
+          )}
+        </span>
+
+        <span className="flex flex-col items-end gap-1 shrink-0">
+          <span className="flex items-center gap-1.5 h-4">
+            {saude && (
+              <span title={saude.titulo} className={cn("h-1.5 w-1.5 rounded-full shrink-0", saude.cor)} />
+            )}
+            {marcada && <Check className="h-3.5 w-3.5 text-primary" />}
+          </span>
+          {quando && (
+            <span className="text-[9px] text-muted-foreground/60 whitespace-nowrap">{quando}</span>
+          )}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/** O mesmo "+ Adicionar base" que fecha a lista na caixa Base. */
+function BotaoAdicionarBase({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5
+                 text-muted-foreground hover:text-foreground hover:bg-white/[0.04] transition-colors">
       <Plus className="h-3 w-3 shrink-0" />
-      <span className="text-[11px]">Ligar outra planilha</span>
+      <span className="text-[11px]">Adicionar base</span>
     </button>
   );
 }

@@ -71,6 +71,7 @@ import {
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
+import { saudeDaBase } from "@/lib/bases";
 import {
   TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso, INTENCAO,
   CADENCIA as CADENCIA_PADRAO, type Regua,
@@ -2311,11 +2312,9 @@ export default function AtendimentoPage() {
   const copiarEmail = (e: string) => copiarTexto(e, "E-mail copiado — compartilhe a planilha com ele.");
 
   /** Como está a leitura dessa base — o pingo ao lado do nome. */
-  const saudeDaFonte = (f: Fonte): { cor: string; titulo: string } => {
-    if (!f.ultimo_sync) return { cor: "bg-muted-foreground/40", titulo: "Nunca puxou desta planilha" };
-    if (f.ultimo_erro) return { cor: "bg-amber-400", titulo: f.ultimo_erro };
-    return { cor: "bg-emerald-400", titulo: `Leitura ok — último puxão ${horaDaLista(f.ultimo_sync)}` };
-  };
+  /* A regra mora em src/lib/bases.ts: a aba Automações desenha a mesma base e
+     precisa do mesmo pingo. */
+  const saudeDaFonte = (f: Fonte) => saudeDaBase(f, horaDaLista);
 
   /* DESLIGAR PASSA A PERGUNTAR ANTES.
      O X ficava do mesmo tamanho do botão de atualizar, a um pixel dele, e
