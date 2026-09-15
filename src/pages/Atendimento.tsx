@@ -2915,8 +2915,11 @@ export default function AtendimentoPage() {
         />
       ) : aba === "automacoes" ? (
         <Automacoes
-          instancia={instancia.nome}
-          fontes={fontes}
+          instancias={instancias}
+          instanciaPadrao={instancia.nome}
+          apelidos={apelidos}
+          corDe={corDe}
+          nomeDe={nomeDe}
           userId={user?.id ?? null}
           aoVivo={aoVivo}
           fonteInicial={automacaoDaBase}

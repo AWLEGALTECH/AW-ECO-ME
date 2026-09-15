@@ -7,10 +7,13 @@ import {
   type Passo, type Execucao,
 } from "./automacoes";
 
+/* O fluxo de referência já responde a pergunta da base (`bases_todas`), porque
+   quase todo teste aqui é sobre OUTRA coisa. A pergunta em si tem testes
+   próprios logo abaixo. */
 const fluxo = (passos: Passo[], extra: Partial<Parameters<typeof impedimentos>[0]> = {}) => ({
   nome: "Boas-vindas da base",
   gatilho: "lead_novo_na_base" as const,
-  gatilho_config: {},
+  gatilho_config: { bases_todas: true },
   condicoes: CONDICOES_PADRAO,
   passos,
   ...extra,
@@ -101,6 +104,29 @@ test("parar se respondeu no primeiro passo não para nada", () => {
   ]))).toEqual([]);
 });
 
+test("o gatilho da base não liga enquanto ninguém disser QUAL base", () => {
+  /* "Lista vazia quer dizer todas" parecia prático e era uma armadilha: quem
+     escolhia o gatilho e não mexia na lista ligava um fluxo escutando TODAS as
+     planilhas do número sem nunca ter dito isso. */
+  const semResposta = fluxo([msg("oi")], { gatilho_config: {} });
+  expect(impedimentos(semResposta).some((e) => e.includes("qual base"))).toBe(true);
+  expect(podeLigar(semResposta)).toBe(false);
+
+  // as duas respostas explícitas valem
+  expect(impedimentos(fluxo([msg("oi")], { gatilho_config: { bases_todas: true } }))).toEqual([]);
+  expect(impedimentos(fluxo([msg("oi")], { gatilho_config: { fonte_ids: ["f1"] } }))).toEqual([]);
+
+  // e a frase do cartão distingue "quero todas" de "ainda não respondi"
+  expect(fraseDoGatilho("lead_novo_na_base", {})).toBe("falta escolher em qual base");
+  expect(fraseDoGatilho("lead_novo_na_base", { bases_todas: true })).toContain("qualquer base");
+});
+
+test("os outros gatilhos não exigem base nenhuma", () => {
+  for (const g of ["etapa_mudou", "mensagem_recebida", "virou_cliente"] as const) {
+    expect(impedimentos(fluxo([msg("oi")], { gatilho: g, gatilho_config: {} }))).toEqual([]);
+  }
+});
+
 test("o gatilho de silêncio exige um número de dias plausível", () => {
   const semDias = fluxo([msg("oi")], { gatilho: "sem_resposta" as const, gatilho_config: {} });
   expect(impedimentos(semDias)[0]).toContain("1 e 365");
@@ -150,7 +176,7 @@ test("o resumo do passo cabe no cartão e nunca sai vazio", () => {
 
 test("a frase do gatilho diz o que foi configurado, e não o nome do campo", () => {
   const nome = (id: string) => ({ f1: "LP Bradesco", f2: "LP Empresarial" }[id] ?? "base");
-  expect(fraseDoGatilho("lead_novo_na_base", {}, nome)).toContain("qualquer base");
+  expect(fraseDoGatilho("lead_novo_na_base", { bases_todas: true }, nome)).toContain("qualquer base");
   expect(fraseDoGatilho("lead_novo_na_base", { fonte_ids: ["f1", "f2"] }, nome))
     .toBe("quando chega lead novo em LP Bradesco, LP Empresarial");
   expect(fraseDoGatilho("etapa_mudou", { etapas: ["triagem"] })).toContain("Triagem");

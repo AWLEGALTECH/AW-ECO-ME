@@ -112,6 +112,16 @@ export function gatilhoValido(x: unknown): x is Gatilho {
 export interface ConfigDoGatilho {
   /** lead_novo_na_base: quais bases. Lista vazia = todas as bases do número. */
   fonte_ids?: string[];
+  /**
+   * lead_novo_na_base: a pessoa escolheu "qualquer base" de propósito.
+   *
+   * Existe para separar duas coisas que o banco não distingue e que são muito
+   * diferentes na tela: "eu quero todas as bases" e "eu ainda não respondi qual
+   * base". As duas gravam lista vazia, e sem esta marca a segunda passava por
+   * escolha feita — o fluxo ligava escutando TODAS as planilhas do número
+   * porque ninguém tinha dito nada.
+   */
+  bases_todas?: boolean;
   /** etapa_mudou: quais etapas. Lista vazia = qualquer uma. */
   etapas?: string[];
   /** mensagem_recebida: só quando a mensagem contém isto. Vazio = qualquer mensagem. */
@@ -235,6 +245,9 @@ export function impedimentos(a: Pick<Automacao, "nome" | "gatilho" | "gatilho_co
   if (a.passos.length > MAX_PASSOS) erros.push(`No máximo ${MAX_PASSOS} passos.`);
 
   const def = defDoGatilho(a.gatilho);
+  if (def.campo === "bases" && !a.gatilho_config.bases_todas && (a.gatilho_config.fonte_ids ?? []).length === 0) {
+    erros.push("Escolha em qual base este fluxo escuta.");
+  }
   if (def.campo === "dias") {
     const d = Number(a.gatilho_config.dias ?? 0);
     if (!Number.isFinite(d) || d < 1 || d > 365) erros.push("O silêncio do gatilho precisa ser entre 1 e 365 dias.");
@@ -347,7 +360,11 @@ export function fraseDoGatilho(
 ): string {
   if (gatilho === "lead_novo_na_base") {
     const ids = cfg.fonte_ids ?? [];
-    if (ids.length === 0) return "quando chega lead novo em qualquer base deste número";
+    if (ids.length === 0) {
+      return cfg.bases_todas
+        ? "quando chega lead novo em qualquer base deste número"
+        : "falta escolher em qual base";
+    }
     const nomes = ids.map((id) => nomeDaBase?.(id) ?? "base").filter(Boolean);
     return `quando chega lead novo em ${nomes.join(", ")}`;
   }

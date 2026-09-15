@@ -59,7 +59,9 @@ import {
   criarAutomacao, salvarAutomacao, alternarAutomacao, apagarAutomacao, duplicarAutomacao,
   type Rascunho,
 } from "@/hooks/useAutomacoes";
-import type { Fonte } from "@/hooks/useLeadsBrutos";
+import { useFontes, type Fonte } from "@/hooks/useLeadsBrutos";
+import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
+import type { Instancia } from "@/lib/atendimentoMock";
 
 /* A MOLA É A MESMA EM TUDO QUE MUDA DE TAMANHO. Com duração fixa, o cartão
    chega ao fim e para seco; o que tem peso desacelera. */
@@ -83,23 +85,38 @@ const TOM: Record<string, string> = {
 
 /* ══════════════════ a aba inteira ═════════════════════════════════════════ */
 
-export default function Automacoes({ instancia, fontes, userId, aoVivo, fonteInicial }: {
-  instancia: string;
-  fontes: Fonte[];
+export default function Automacoes({
+  instancias, instanciaPadrao, apelidos, corDe, nomeDe, userId, aoVivo, fonteInicial,
+}: {
+  /** todos os números do escritório: um fluxo pode viver em qualquer um deles */
+  instancias: Instancia[];
+  /** o número aberto na aba, que é o palpite inicial de um fluxo novo */
+  instanciaPadrao: string;
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
   userId?: string | null;
   aoVivo: boolean;
   /** quando a aba é aberta pelo botão de uma base, o fluxo novo já nasce nela */
   fonteInicial?: string | null;
 }) {
-  const { data: automacoes = [], refetch } = useAutomacoes(instancia);
-  const { data: resumo = {} } = useResumoAutomacoes(instancia, aoVivo);
+  const { data: automacoes = [], refetch } = useAutomacoes();
+  const { data: resumo = {} } = useResumoAutomacoes(aoVivo);
   const [abertaId, setAbertaId] = useState<string | null>(null);
   const [criando, setCriando] = useState(false);
+  /* Filtro da lista, não do fluxo. Nulo é "todos", que é o padrão: a lista
+     existe justamente para ninguém perder de vista um fluxo ligado em outro
+     número. */
+  const [filtro, setFiltro] = useState<string | null>(null);
 
+  /* As bases de TODOS os números, só para escrever a frase do gatilho na
+     lista. O editor busca as do número escolhido, que é o que importa na hora
+     de marcar; aqui o que importa é não mostrar um id cru no cartão. */
+  const { data: fontesDoPadrao = [] } = useFontes(instanciaPadrao, { incluirInativas: true });
   const nomeDaBase = useMemo(() => {
-    const m = new Map(fontes.map((f) => [f.id, f.nome]));
-    return (id: string) => m.get(id) ?? "base desligada";
-  }, [fontes]);
+    const m = new Map(fontesDoPadrao.map((f) => [f.id, f.nome]));
+    return (id: string) => m.get(id) ?? "outra base";
+  }, [fontesDoPadrao]);
 
   /* Abrir a aba pelo botão de uma base já começa um fluxo daquela base: quem
      clicou ali não quer a lista, quer automatizar aquela planilha. */
@@ -115,18 +132,22 @@ export default function Automacoes({ instancia, fontes, userId, aoVivo, fonteIni
   if (criando || aberta) {
     return (
       <Editor
-        instancia={instancia}
-        fontes={fontes}
+        instancias={instancias}
+        instanciaPadrao={instanciaPadrao}
+        apelidos={apelidos}
+        corDe={corDe}
+        nomeDe={nomeDe}
         userId={userId}
         aoVivo={aoVivo}
         automacao={aberta}
         fonteInicial={criando ? fonteInicial ?? null : null}
-        nomeDaBase={nomeDaBase}
         onVoltar={() => { setCriando(false); setAbertaId(null); refetch(); }}
         onCriada={(id) => { setCriando(false); setAbertaId(id); refetch(); }}
       />
     );
   }
+
+  const visiveis = filtro ? automacoes.filter((a) => mesmaInstancia(a.instancia, filtro)) : automacoes;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
@@ -142,7 +163,40 @@ export default function Automacoes({ instancia, fontes, userId, aoVivo, fonteIni
         </Button>
       </div>
 
-      {automacoes.length === 0 ? (
+      {/* ── DE QUAL NÚMERO ──
+          Só aparece com mais de um número. Com um só, a pergunta não existe e a
+          barra seria enfeite ocupando altura. */}
+      {instancias.length > 1 && automacoes.length > 0 && (
+        <div className="px-3 py-2 flex items-center gap-1.5 flex-wrap border-b border-white/[0.06]">
+          <button type="button" onClick={() => setFiltro(null)}
+            className={cn("rounded-full px-2 py-1 text-[10.5px] ring-1 transition-colors",
+              filtro === null ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
+                              : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
+            Todos ({automacoes.length})
+          </button>
+          {instancias.map((i) => {
+            const n = automacoes.filter((a) => mesmaInstancia(a.instancia, i.nome)).length;
+            const cor = corDe(i.nome);
+            const ativo = mesmaInstancia(filtro, i.nome);
+            return (
+              <button key={i.id} type="button" onClick={() => setFiltro(ativo ? null : i.nome)}
+                title={nomeDe(i.nome)}
+                className={cn("flex items-center gap-1.5 rounded-full px-2 py-1 text-[10.5px] ring-1 transition-colors",
+                  ativo ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
+                        : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
+                <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide",
+                  ativo ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
+                  {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                </span>
+                <span className="truncate max-w-[8rem]">{nomeDe(i.nome)}</span>
+                <span className="tabular-nums opacity-60">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {visiveis.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, ease: CURVA }}
@@ -151,26 +205,32 @@ export default function Automacoes({ instancia, fontes, userId, aoVivo, fonteIni
             <Workflow className="h-5 w-5" />
           </span>
           <div className="max-w-sm">
-            <p className="text-[13px] font-medium">Nenhuma automação ainda</p>
+            <p className="text-[13px] font-medium">
+              {filtro ? `Nenhuma automação em ${nomeDe(filtro)}` : "Nenhuma automação ainda"}
+            </p>
             <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-1">
               Um exemplo: toda vez que a base de leads empresariais receber uma linha nova,
               a pessoa recebe a primeira mensagem sozinha, dentro do horário de atendimento.
             </p>
           </div>
           <Button size="sm" variant="outline" className="h-8 text-[12px]" onClick={() => setCriando(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Criar a primeira
+            <Plus className="h-3.5 w-3.5 mr-1" /> Criar {filtro ? "uma aqui" : "a primeira"}
           </Button>
         </motion.div>
       ) : (
         <div className="p-2.5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           <AnimatePresence mode="popLayout">
-            {automacoes.map((a, i) => (
+            {visiveis.map((a, i) => (
               <CartaoDeFluxo
                 key={a.id}
                 automacao={a}
                 ordem={i}
                 resumo={resumo[a.id]}
                 nomeDaBase={nomeDaBase}
+                apelido={apelidos.get(a.instancia) ?? apelidoDeInstancia(a.instancia)}
+                cor={corDe(a.instancia)}
+                nomeDoNumero={nomeDe(a.instancia)}
+                mostrarNumero={instancias.length > 1}
                 onAbrir={() => setAbertaId(a.id)}
                 onRecarregar={refetch}
                 userId={userId}
@@ -185,11 +245,19 @@ export default function Automacoes({ instancia, fontes, userId, aoVivo, fonteIni
 
 /* ══════════════════ o cartão na lista ═════════════════════════════════════ */
 
-function CartaoDeFluxo({ automacao: a, ordem, resumo, nomeDaBase, onAbrir, onRecarregar, userId }: {
+function CartaoDeFluxo({
+  automacao: a, ordem, resumo, nomeDaBase, apelido, cor, nomeDoNumero, mostrarNumero,
+  onAbrir, onRecarregar, userId,
+}: {
   automacao: Automacao;
   ordem: number;
   resumo?: { total: number; hoje: number; falhas: number; ultima: string | null };
   nomeDaBase: (id: string) => string;
+  apelido: string;
+  cor: { fundo: string; texto: string; anel: string };
+  nomeDoNumero: string;
+  /** com um número só, dizer de quem é o fluxo é ruído: não há outro de quem ser */
+  mostrarNumero: boolean;
   onAbrir: () => void;
   onRecarregar: () => void;
   userId?: string | null;
@@ -232,7 +300,15 @@ function CartaoDeFluxo({ automacao: a, ordem, resumo, nomeDaBase, onAbrir, onRec
               <Ico className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-medium truncate">{a.nome}</p>
+              <span className="flex items-center gap-1.5 min-w-0">
+                <p className="text-[12.5px] font-medium truncate">{a.nome}</p>
+                {mostrarNumero && (
+                  <span title={`Roda no número ${nomeDoNumero}`}
+                    className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide", cor.fundo, cor.texto)}>
+                    {apelido}
+                  </span>
+                )}
+              </span>
               <p className="text-[10.5px] text-muted-foreground leading-snug line-clamp-2 mt-0.5">
                 {fraseDoGatilho(a.gatilho, a.gatilho_config, nomeDaBase)}
               </p>
@@ -378,18 +454,34 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
 
 /* ══════════════════ o editor: canvas + inspetor ═══════════════════════════ */
 
-function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, nomeDaBase, onVoltar, onCriada }: {
-  instancia: string;
-  fontes: Fonte[];
+function Editor({
+  instancias, instanciaPadrao, apelidos, corDe, nomeDe, userId, aoVivo, automacao,
+  fonteInicial, onVoltar, onCriada,
+}: {
+  instancias: Instancia[];
+  instanciaPadrao: string;
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
   userId?: string | null;
   aoVivo: boolean;
   automacao: Automacao | null;
   fonteInicial: string | null;
-  nomeDaBase: (id: string) => string;
   onVoltar: () => void;
   onCriada: (id: string) => void;
 }) {
   const [nome, setNome] = useState(automacao?.nome ?? "");
+  /* O NÚMERO É ESCOLHA, E NÃO HERANÇA. Antes ele vinha calado da aba aberta:
+     dava para acertar por acaso e para errar sem aviso nenhum. */
+  const [instancia, setInstancia] = useState(automacao?.instancia ?? instanciaPadrao);
+  /* As bases são DO NÚMERO ESCOLHIDO. Trocar o número troca a lista, porque
+     planilha é ligada a um número e marcar a base de outro seria marcar algo
+     que nunca vai disparar. */
+  const { data: fontes = [] } = useFontes(instancia, { incluirInativas: false });
+  const nomeDaBase = useMemo(() => {
+    const m = new Map(fontes.map((f) => [f.id, f.nome]));
+    return (id: string) => m.get(id) ?? "base de outro número";
+  }, [fontes]);
   const [gatilho, setGatilho] = useState<Gatilho>(automacao?.gatilho ?? "lead_novo_na_base");
   const [cfg, setCfg] = useState<ConfigDoGatilho>(
     automacao?.gatilho_config ?? (fonteInicial ? { fonte_ids: [fonteInicial] } : {}),
@@ -406,15 +498,16 @@ function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, no
      o objeto inteiro é mais honesto que um `sujo = true` espalhado por dez
      handlers, que sempre esquece um. */
   const guardado = useRef(JSON.stringify({
-    nome: automacao?.nome ?? "", gatilho: automacao?.gatilho ?? "lead_novo_na_base",
+    nome: automacao?.nome ?? "", instancia: automacao?.instancia ?? instanciaPadrao,
+    gatilho: automacao?.gatilho ?? "lead_novo_na_base",
     cfg: automacao?.gatilho_config ?? (fonteInicial ? { fonte_ids: [fonteInicial] } : {}),
     condicoes: automacao?.condicoes ?? CONDICOES_PADRAO,
     passos: automacao?.passos ?? [{ ...passoNovo("mensagem"), texto: "" }],
   }));
-  const agora = JSON.stringify({ nome, gatilho, cfg, condicoes, passos });
+  const agora = JSON.stringify({ nome, instancia, gatilho, cfg, condicoes, passos });
   const mudou = agora !== guardado.current || !automacao;
 
-  const rascunho: Rascunho = { nome, gatilho, gatilho_config: cfg, condicoes, passos };
+  const rascunho: Rascunho = { nome, instancia, gatilho, gatilho_config: cfg, condicoes, passos };
   const travas = impedimentos(rascunho);
 
   const salvar = async () => {
@@ -424,10 +517,12 @@ function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, no
       if (automacao) {
         await salvarAutomacao(automacao.id, rascunho);
         guardado.current = agora;
-        toast.success("Fluxo salvo.");
+        toast.success("Fluxo salvo.", { description: `Roda em ${nomeDe(instancia)}.` });
       } else {
-        const id = await criarAutomacao(instancia, rascunho, userId);
-        toast.success("Fluxo criado. Ligue quando estiver pronto.");
+        const id = await criarAutomacao(rascunho, userId);
+        toast.success("Fluxo criado. Ligue quando estiver pronto.", {
+          description: `Vai rodar em ${nomeDe(instancia)}.`,
+        });
         onCriada(id);
       }
     } catch (e) {
@@ -519,6 +614,7 @@ function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, no
                 gatilho={gatilho}
                 cfg={cfg}
                 nomeDaBase={nomeDaBase}
+                nomeDoNumero={nomeDe(instancia)}
                 aberto={selecionado === "gatilho"}
                 onAbrir={() => setSelecionado("gatilho")}
               />
@@ -567,6 +663,16 @@ function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, no
                 {selecionado === "gatilho" ? (
                   <InspetorDoGatilho
                     gatilho={gatilho} cfg={cfg} fontes={fontes} condicoes={condicoes}
+                    instancias={instancias} instancia={instancia}
+                    apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
+                    ativa={!!automacao?.ativa}
+                    onTrocarInstancia={(n) => {
+                      setInstancia(n);
+                      /* As bases marcadas eram do número anterior e nunca
+                         disparariam aqui. Limpar é mais honesto que deixar uma
+                         marcação que não vale mais. */
+                      if (cfg.fonte_ids?.length) setCfg({ ...cfg, fonte_ids: [] });
+                    }}
                     onTrocarGatilho={(g) => { setGatilho(g); setCfg({}); }}
                     onTrocarCfg={setCfg}
                     onTrocarCondicoes={setCondicoes}
@@ -603,28 +709,38 @@ function Editor({ instancia, fontes, userId, aoVivo, automacao, fonteInicial, no
 
 /* ══════════════════ os nós do canvas ══════════════════════════════════════ */
 
-function NoDoGatilho({ gatilho, cfg, nomeDaBase, aberto, onAbrir }: {
+function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; nomeDaBase: (id: string) => string;
-  aberto: boolean; onAbrir: () => void;
+  nomeDoNumero: string; aberto: boolean; onAbrir: () => void;
 }) {
   const def = defDoGatilho(gatilho);
   const Ico = ICONE_DO_GATILHO[def.icone] ?? Zap;
+  /* A pergunta da base sem resposta aparece NO CARTÃO, e não só no inspetor:
+     o inspetor fica ao lado no computador e embaixo no celular, e é justamente
+     no celular que ela passaria batida. */
+  const faltaBase = def.campo === "bases" && !cfg.bases_todas && (cfg.fonte_ids ?? []).length === 0;
   return (
     <motion.button
       type="button" layout onClick={onAbrir} transition={MOLA}
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       className={cn(
         "text-left rounded-xl border px-3 py-2.5 transition-colors",
-        aberto ? "border-primary/40 bg-primary/[0.06]" : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+        faltaBase ? "border-amber-400/40 bg-amber-400/[0.05]"
+          : aberto ? "border-primary/40 bg-primary/[0.06]"
+          : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
       <div className="flex items-start gap-2.5">
-        <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1", TOM.primary)}>
+        <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1",
+          faltaBase ? TOM.amber : TOM.primary)}>
           <Ico className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">Quando</p>
+          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
+            Quando · em {nomeDoNumero}
+          </p>
           <p className="text-[12.5px] font-medium">{def.rotulo}</p>
-          <p className="text-[10.5px] text-muted-foreground leading-snug mt-0.5">
-            {fraseDoGatilho(gatilho, cfg, nomeDaBase)}
+          <p className={cn("text-[10.5px] leading-snug mt-0.5",
+            faltaBase ? "text-amber-400" : "text-muted-foreground")}>
+            {faltaBase ? "Toque aqui e escolha em qual base" : fraseDoGatilho(gatilho, cfg, nomeDaBase)}
           </p>
         </div>
       </div>
@@ -752,8 +868,17 @@ function Titulo({ children }: { children: React.ReactNode }) {
   return <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1.5">{children}</p>;
 }
 
-function InspetorDoGatilho({ gatilho, cfg, fontes, condicoes, onTrocarGatilho, onTrocarCfg, onTrocarCondicoes }: {
+function InspetorDoGatilho({
+  gatilho, cfg, fontes, condicoes, instancias, instancia, apelidos, corDe, nomeDe, ativa,
+  onTrocarInstancia, onTrocarGatilho, onTrocarCfg, onTrocarCondicoes,
+}: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; fontes: Fonte[]; condicoes: Condicoes;
+  instancias: Instancia[]; instancia: string;
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
+  ativa: boolean;
+  onTrocarInstancia: (nome: string) => void;
   onTrocarGatilho: (g: Gatilho) => void;
   onTrocarCfg: (c: ConfigDoGatilho) => void;
   onTrocarCondicoes: (c: Condicoes) => void;
@@ -761,10 +886,47 @@ function InspetorDoGatilho({ gatilho, cfg, fontes, condicoes, onTrocarGatilho, o
   const def = defDoGatilho(gatilho);
   const marcadas = new Set(cfg.fonte_ids ?? []);
   const etapasMarcadas = new Set(cfg.etapas ?? []);
+  const todasAsBases = !!cfg.bases_todas && marcadas.size === 0;
+  const semResposta = !cfg.bases_todas && marcadas.size === 0;
 
   return (
     <div className="space-y-4">
+      {/* ── EM QUAL NÚMERO ──
+          Primeiro de tudo, porque é a pergunta ANTERIOR às outras: as bases
+          oferecidas abaixo são as deste número, e a mensagem vai sair por ele. */}
       <div>
+        <Titulo>Roda no número</Titulo>
+        {instancias.length <= 1 ? (
+          <p className="text-[11.5px] font-medium">{nomeDe(instancia)}</p>
+        ) : (
+          <div className="grid gap-1">
+            {instancias.map((i) => {
+              const cor = corDe(i.nome);
+              const eu = mesmaInstancia(i.nome, instancia);
+              return (
+                <button key={i.id} type="button" onClick={() => onTrocarInstancia(i.nome)}
+                  className={cn("flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                    eu ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+                  <span className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide",
+                    eu ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
+                    {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                  </span>
+                  <span className="text-[11.5px] truncate">{nomeDe(i.nome)}</span>
+                  {eu && <Check className="h-3 w-3 ml-auto shrink-0 text-primary" />}
+                </button>
+              );
+            })}
+            {ativa && (
+              <p className="text-[10px] text-amber-400/80 leading-snug px-2 pt-1">
+                Este fluxo está ligado. Trocar o número muda de quem ele passa a escutar,
+                a partir de agora.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="pt-1 border-t border-white/[0.06]">
         <Titulo>O que dispara</Titulo>
         <div className="grid gap-1">
           {GATILHOS_DEF.map((g, i) => {
@@ -788,36 +950,92 @@ function InspetorDoGatilho({ gatilho, cfg, fontes, condicoes, onTrocarGatilho, o
         </div>
       </div>
 
+      {/* ── QUAL BASE ──
+          É uma PERGUNTA, e não uma lista com padrão escondido. "Nenhuma marcada
+          quer dizer todas" parece prático e é uma armadilha: quem escolheu o
+          gatilho e não mexeu aqui ligaria um fluxo escutando TODAS as planilhas
+          do número sem nunca ter dito isso. As duas respostas são explícitas, e
+          enquanto nenhuma for dada o fluxo não liga. */}
       {def.campo === "bases" && (
-        <div>
-          <Titulo>Em quais bases</Titulo>
+        <motion.div
+          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: CURVA }}
+          className={cn("rounded-lg px-2.5 py-2 -mx-0.5 ring-1 transition-colors",
+            semResposta ? "ring-amber-400/30 bg-amber-400/[0.05]" : "ring-white/[0.07] bg-white/[0.02]")}>
+          <Titulo>Em qual base</Titulo>
+
           {fontes.length === 0 ? (
             <p className="text-[11px] text-muted-foreground leading-snug">
-              Nenhuma base ligada neste número. Ligue uma planilha na caixa Base.
+              Nenhuma base ligada em {nomeDe(instancia)}. Ligue uma planilha na caixa Base,
+              ou escolha outro número aqui em cima.
             </p>
           ) : (
             <div className="space-y-1">
-              {fontes.map((f) => (
-                <label key={f.id}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] cursor-pointer transition-colors">
-                  <input
-                    type="checkbox" checked={marcadas.has(f.id)}
-                    onChange={(e) => {
-                      const nova = new Set(marcadas);
-                      if (e.target.checked) nova.add(f.id); else nova.delete(f.id);
-                      onTrocarCfg({ ...cfg, fonte_ids: [...nova] });
-                    }}
-                    className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-primary"
-                  />
-                  <span className="text-[11.5px] truncate">{f.nome}</span>
-                </label>
-              ))}
-              <p className="text-[10px] text-muted-foreground/70 leading-snug px-2 pt-1">
-                Sem nenhuma marcada, vale para qualquer base deste número.
-              </p>
+              <button type="button"
+                onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
+                className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                  todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+                <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
+                  todasAsBases ? "ring-primary bg-primary/20" : "ring-white/25")}>
+                  {todasAsBases && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[11.5px]">Qualquer base deste número</span>
+                  <span className="block text-[10px] text-muted-foreground leading-snug">
+                    inclusive as que forem ligadas depois
+                  </span>
+                </span>
+              </button>
+
+              <button type="button"
+                onClick={() => onTrocarCfg({
+                  ...cfg, bases_todas: false,
+                  fonte_ids: marcadas.size > 0 ? [...marcadas] : [fontes[0].id],
+                })}
+                className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                  marcadas.size > 0 ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+                <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
+                  marcadas.size > 0 ? "ring-primary bg-primary/20" : "ring-white/25")}>
+                  {marcadas.size > 0 && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                </span>
+                <span className="text-[11.5px]">Só a base que eu escolher</span>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {marcadas.size > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={MOLA}
+                    className="overflow-hidden pl-5">
+                    {fontes.map((f) => (
+                      <label key={f.id}
+                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] cursor-pointer transition-colors">
+                        <input
+                          type="checkbox" checked={marcadas.has(f.id)}
+                          onChange={(e) => {
+                            const nova = new Set(marcadas);
+                            if (e.target.checked) nova.add(f.id); else nova.delete(f.id);
+                            onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
+                          }}
+                          className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-primary"
+                        />
+                        <span className="text-[11.5px] truncate">{f.nome}</span>
+                      </label>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {semResposta && (
+                <p className="text-[10px] text-amber-400/90 leading-snug px-2 pt-1">
+                  Escolha uma das duas para poder ligar o fluxo.
+                </p>
+              )}
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
       {def.campo === "etapas" && (

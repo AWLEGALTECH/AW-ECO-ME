@@ -61,29 +61,33 @@ function daLinha(l: Record<string, unknown>): Automacao | null {
 
 const COLUNAS = "id, nome, instancia, ativa, gatilho, gatilho_config, condicoes, passos, updated_at";
 
-export function useAutomacoes(instancia: string | null) {
+/**
+ * TODAS as automações do escritório, e não as do número aberto.
+ *
+ * Filtrar pelo número que está na tela escondia fluxo salvo em outro número:
+ * ele sumia da lista sem dizer que existia, e quem tem dois números acabaria
+ * criando o mesmo fluxo duas vezes. Agora cada cartão diz de quem ele é, e o
+ * filtro (quando há mais de um número) é uma escolha visível na tela.
+ */
+export function useAutomacoes() {
   return useQuery({
-    queryKey: ["wa", "automacoes", instancia],
-    enabled: !!instancia,
+    queryKey: ["wa", "automacoes", "todas"],
     staleTime: 15_000,
     queryFn: async (): Promise<Automacao[]> => {
       const { data, error } = await tabela("wa_automacoes")
-        .select(COLUNAS).ilike("instancia", instancia!).order("created_at");
+        .select(COLUNAS).order("instancia").order("created_at");
       if (error) throw error;
       return ((data ?? []) as Record<string, unknown>[]).map(daLinha).filter(Boolean) as Automacao[];
     },
   });
 }
 
-export function useResumoAutomacoes(instancia: string | null, aoVivo: boolean) {
+export function useResumoAutomacoes(aoVivo: boolean) {
   return useQuery({
-    queryKey: ["wa", "automacoes", "resumo", instancia],
-    enabled: !!instancia,
+    queryKey: ["wa", "automacoes", "resumo"],
     refetchInterval: aoVivo ? 30_000 : false,
     queryFn: async (): Promise<Record<string, ResumoAutomacao>> => {
-      const { data, error } = await (supabase.rpc as never as any)("fn_wa_automacoes_resumo", {
-        p_instancia: instancia,
-      });
+      const { data, error } = await (supabase.rpc as never as any)("fn_wa_automacoes_resumo");
       if (error) throw error;
       const mapa: Record<string, ResumoAutomacao> = {};
       for (const r of (data ?? []) as ResumoAutomacao[]) {
@@ -142,15 +146,20 @@ export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
 
 export interface Rascunho {
   nome: string;
+  /* O NÚMERO É PARTE DO FLUXO, e não o contexto em que ele foi criado. Era
+     herdado em silêncio da aba aberta, o que dava para acertar por acaso e para
+     errar sem aviso: o fluxo ficava salvo num número e a pessoa jurava tê-lo
+     feito no outro. */
+  instancia: string;
   gatilho: Gatilho;
   gatilho_config: ConfigDoGatilho;
   condicoes: Condicoes;
   passos: Passo[];
 }
 
-export async function criarAutomacao(instancia: string, r: Rascunho, criadaPor?: string | null) {
+export async function criarAutomacao(r: Rascunho, criadaPor?: string | null) {
   const { data, error } = await tabela("wa_automacoes").insert({
-    instancia,
+    instancia: r.instancia,
     nome: r.nome.trim(),
     gatilho: r.gatilho,
     gatilho_config: r.gatilho_config,
@@ -168,6 +177,7 @@ export async function criarAutomacao(instancia: string, r: Rascunho, criadaPor?:
 export async function salvarAutomacao(id: string, r: Rascunho) {
   const { error } = await tabela("wa_automacoes").update({
     nome: r.nome.trim(),
+    instancia: r.instancia,
     gatilho: r.gatilho,
     gatilho_config: r.gatilho_config,
     condicoes: r.condicoes,
@@ -195,7 +205,8 @@ export async function apagarAutomacao(id: string) {
 
 /** Duplicar é como se cria a segunda versão de um fluxo que já funciona. */
 export async function duplicarAutomacao(a: Automacao, criadaPor?: string | null) {
-  return criarAutomacao(a.instancia, {
+  return criarAutomacao({
+    instancia: a.instancia,
     nome: `${a.nome} (cópia)`.slice(0, 80),
     gatilho: a.gatilho,
     gatilho_config: a.gatilho_config,
