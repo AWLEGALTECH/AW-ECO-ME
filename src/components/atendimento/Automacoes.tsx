@@ -35,7 +35,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
-  Workflow, History, Check, Loader2, X, Zap, Layers,
+  Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,10 +63,15 @@ import {
   type Rascunho,
 } from "@/hooks/useAutomacoes";
 import {
-  useTodasAsFontes, useResumoBases, useInvalidarLeads, criarFonte, type Fonte,
+  useTodasAsFontes, useResumoBases, useInvalidarLeads, criarFonte, testarPlanilha, type Fonte,
 } from "@/hooks/useLeadsBrutos";
 import { idDaPlanilha } from "@/lib/planilhaLeads";
 import { saudeDaBase } from "@/lib/bases";
+import { GuiaDaPlanilha } from "@/components/GuiaDaPlanilha";
+import {
+  diagnosticarPlanilha, linhasLidas,
+  type DiagnosticoDaPlanilha, type RespostaDaLeitura,
+} from "@/lib/diagnosticoPlanilha";
 import { horaDaLista } from "@/lib/wa";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
 import type { Instancia } from "@/lib/atendimentoMock";
@@ -1158,19 +1163,42 @@ function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
   const [apelidoDaBase, setApelidoDaBase] = useState("");
   const [aba, setAba] = useState("");
   const [salvando, setSalvando] = useState(false);
+  /* O que a leitura de teste disse. Nulo enquanto ninguém tentou. */
+  const [diag, setDiag] = useState<DiagnosticoDaPlanilha | null>(null);
 
   const marcadas = new Set(cfg.fonte_ids ?? []);
   const todasAsBases = !!cfg.bases_todas && marcadas.size === 0;
   const semResposta = !cfg.bases_todas && marcadas.size === 0;
 
+  /**
+   * TESTA, E SÓ DEPOIS LIGA.
+   *
+   * O erro mais comum de todos é a planilha não estar compartilhada com a conta
+   * de serviço, e antes disso ele só aparecia DEPOIS: a base entrava na lista, a
+   * fila vinha vazia, e o motivo ficava numa frase do Google no cabeçalho da
+   * fonte, que quem estava ligando já não estava olhando.
+   *
+   * Agora a leitura acontece no clique. Se ela não abre, nada é criado e a tela
+   * mostra o que copiar e onde colar. Se abre mas está vazia, liga do mesmo
+   * jeito: quem liga a base antes do primeiro lead está fazendo a coisa certa.
+   */
   const ligarPlanilha = async () => {
     const planilhaId = idDaPlanilha(link);
     if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
     setSalvando(true);
+    setDiag(null);
     try {
+      const resposta = await testarPlanilha(planilhaId, aba);
+      const d = diagnosticarPlanilha(resposta as RespostaDaLeitura);
+      if (d.impede) { setDiag(d); return; }
+
       const id = await criarFonte({
         nome: apelidoDaBase.trim() || "Leads da landing",
-        planilhaId, aba, instancia,
+        planilhaId,
+        // A aba lida DE VERDADE, e não a digitada: se o nome não existia, a
+        // função leu outra e é essa que vale daqui em diante.
+        aba: (resposta.aba as string) || aba,
+        instancia,
       });
       invalidarLeads();
       /* A base recém-ligada já entra ESCOLHIDA: quem a ligou daqui a ligou
@@ -1178,9 +1206,13 @@ function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
          resposta duas vezes. */
       onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...marcadas, id] });
       setLigando(false);
-      setLink(""); setApelidoDaBase(""); setAba("");
+      setLink(""); setApelidoDaBase(""); setAba(""); setDiag(null);
+
+      const n = linhasLidas(resposta as RespostaDaLeitura);
       toast.success("Planilha ligada.", {
-        description: "Os leads dela aparecem na caixa Base e já valem para este fluxo.",
+        description: n > 0
+          ? `Li ${n} linha(s). Os leads entram na caixa Base e já valem para este fluxo.`
+          : "Ela ainda não tem linhas. Assim que a landing gravar a primeira, ela aparece.",
       });
     } catch (e) {
       toast.error((e as Error).message);
@@ -1267,7 +1299,7 @@ function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
               <span className="text-[11px] text-muted-foreground">Link da planilha</span>
-              <Input value={link} onChange={(e) => setLink(e.target.value)}
+              <Input value={link} onChange={(e) => { setLink(e.target.value); setDiag(null); }}
                 placeholder="https://docs.google.com/spreadsheets/d/…"
                 className="h-9 text-[12px]" />
             </label>
@@ -1281,14 +1313,28 @@ function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
                 <span className="text-[11px] text-muted-foreground">
                   Aba <span className="opacity-60">(opcional)</span>
                 </span>
-                <Input value={aba} onChange={(e) => setAba(e.target.value)}
+                <Input value={aba} onChange={(e) => { setAba(e.target.value); setDiag(null); }}
                   placeholder="Leads" className="h-9 text-[13px]" />
               </label>
             </div>
-            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
-              A planilha precisa estar compartilhada com a conta de serviço do sistema. As colunas
-              que aparecem no cartão do lead se escolhem na caixa Base.
-            </p>
+            <AnimatePresence initial={false} mode="wait">
+              {diag ? (
+                <motion.div
+                  key={diag.tipo}
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                  transition={MOLA}>
+                  <GuiaDaPlanilha diagnostico={diag} />
+                </motion.div>
+              ) : (
+                <motion.p
+                  key="dica"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="text-[10.5px] text-muted-foreground/70 leading-snug">
+                  Eu testo a leitura antes de ligar. Se a planilha não estiver compartilhada com o
+                  sistema, eu digo aqui o que copiar e onde colar.
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
 
           <DialogFooter>
@@ -1297,8 +1343,9 @@ function EscolhaDaBase({ cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
             </Button>
             <Button size="sm" onClick={ligarPlanilha} disabled={salvando || !link.trim()}>
               {salvando
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Ligando…</>
-                : <>Ligar planilha</>}
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Testando…</>
+                : diag ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Testar de novo</>
+                       : <>Testar e ligar</>}
             </Button>
           </DialogFooter>
         </DialogContent>

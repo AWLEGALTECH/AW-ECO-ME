@@ -186,6 +186,26 @@ export async function lerColunas(planilhaId: string, aba?: string | null): Promi
   return colunasEscolhiveis(cabecalho);
 }
 
+/**
+ * A planilha abre? Pergunta feita ANTES de ligar a base.
+ *
+ * Ligar primeiro e descobrir depois é o que acontecia: a base entrava na lista,
+ * a fila vinha vazia, e o motivo ficava numa frase do Google escondida no
+ * cabeçalho da fonte. Quem estava ligando já tinha ido embora da tela.
+ *
+ * Devolve a resposta crua da leitura; quem traduz é `diagnosticarPlanilha`.
+ */
+export async function testarPlanilha(planilhaId: string, aba?: string | null) {
+  const { data, error } = await supabase.functions.invoke("leads-planilha", {
+    body: { planilha_id: planilhaId, aba: aba || null },
+  });
+  /* Erro de INVOCAÇÃO (rede, função fora do ar) não é erro de planilha, e não
+     pode ser traduzido como "compartilhe com a conta de serviço": mandaria
+     consertar o que não está quebrado. */
+  if (error) throw new Error(error.message);
+  return (data ?? { ok: false, error: "A leitura não respondeu." }) as Record<string, unknown>;
+}
+
 export async function salvarColunas(fonteId: string, colunas: string[]) {
   const { error } = await tabela("leads_fontes")
     .update({ colunas_exibidas: colunas.length > 0 ? colunas : null })

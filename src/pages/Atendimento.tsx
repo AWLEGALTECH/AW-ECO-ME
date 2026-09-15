@@ -73,6 +73,11 @@ import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
 import { saudeDaBase } from "@/lib/bases";
 import {
+  diagnosticarPlanilha, linhasLidas,
+  type DiagnosticoDaPlanilha, type RespostaDaLeitura,
+} from "@/lib/diagnosticoPlanilha";
+import { GuiaDaPlanilha } from "@/components/GuiaDaPlanilha";
+import {
   TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso, INTENCAO,
   CADENCIA as CADENCIA_PADRAO, type Regua,
 } from "@/lib/followUp";
@@ -142,7 +147,7 @@ import {
   type Pendente,
 } from "@/lib/envioOtimista";
 import {
-  useFontes, useNomesDasBases, useLeadsBrutos, useResumoBases, criarFonte, sincronizarFonte, marcarAbordado,
+  useFontes, useNomesDasBases, useLeadsBrutos, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
@@ -524,6 +529,9 @@ export default function AtendimentoPage() {
   const [lendoColunas, setLendoColunas] = useState(false);
   const [colunasDe, setColunasDe] = useState<Fonte | null>(null);
   const [fonteAberta, setFonteAberta] = useState(false);
+  /* O que a leitura de teste disse sobre a planilha que está sendo ligada.
+     Nulo enquanto ninguém tentou. */
+  const [diagFonte, setDiagFonte] = useState<DiagnosticoDaPlanilha | null>(null);
   const [novaFonteNome, setNovaFonteNome] = useState("");
   const [novaFonteLink, setNovaFonteLink] = useState("");
   const [novaFonteAba, setNovaFonteAba] = useState("");
@@ -2253,15 +2261,30 @@ export default function AtendimentoPage() {
     }
   };
 
+  /* TESTA, E SÓ DEPOIS LIGA.
+     O erro mais comum de ligar planilha é ela não estar compartilhada com a
+     conta de serviço, e ele só aparecia DEPOIS: a base entrava na lista, a fila
+     vinha vazia, e o motivo ficava numa frase do Google no cabeçalho da fonte,
+     que quem estava ligando já não estava olhando. Agora a leitura acontece no
+     clique, e o que não abre não vira base: vira instrução do que copiar e onde
+     colar. Planilha que abre vazia liga do mesmo jeito, porque ligar a base
+     antes do primeiro lead é o certo a fazer. */
   const salvarFonte = async () => {
     const planilhaId = idDaPlanilha(novaFonteLink);
     if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
     setSalvandoFonte(true);
+    setDiagFonte(null);
     try {
+      const resposta = await testarPlanilha(planilhaId, novaFonteAba);
+      const d = diagnosticarPlanilha(resposta as RespostaDaLeitura);
+      if (d.impede) { setDiagFonte(d); return; }
+
       await criarFonte({
         nome: novaFonteNome.trim() || "Leads da landing",
         planilhaId,
-        aba: novaFonteAba,
+        // A aba lida DE VERDADE: se o nome digitado não existia, a função leu
+        // outra, e é essa que vale daqui em diante.
+        aba: (resposta.aba as string) || novaFonteAba,
         instancia: instancia.nome,
         colunas: colunasEscolhidas,
       });
@@ -2269,7 +2292,13 @@ export default function AtendimentoPage() {
       setFonteAberta(false);
       setNovaFonteNome(""); setNovaFonteLink(""); setNovaFonteAba("");
       setColunasDisponiveis(null); setColunasEscolhidas([]);
-      toast.success("Planilha ligada. Puxe os leads no ícone de atualizar.");
+      setDiagFonte(null);
+      const n = linhasLidas(resposta as RespostaDaLeitura);
+      toast.success("Planilha ligada.", {
+        description: n > 0
+          ? `Li ${n} linha(s). Puxe os leads no ícone de atualizar.`
+          : "Ela ainda não tem linhas. Assim que a landing gravar a primeira, ela aparece.",
+      });
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -5329,7 +5358,7 @@ export default function AtendimentoPage() {
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
               <span className="text-[11px] text-muted-foreground">Link da planilha</span>
-              <Input value={novaFonteLink} onChange={(e) => setNovaFonteLink(e.target.value)}
+              <Input value={novaFonteLink} onChange={(e) => { setNovaFonteLink(e.target.value); setDiagFonte(null); }}
                 placeholder="https://docs.google.com/spreadsheets/d/…"
                 className="h-9 text-[12px]" />
             </label>
@@ -5341,7 +5370,7 @@ export default function AtendimentoPage() {
               </label>
               <label className="flex flex-col gap-1.5">
                 <span className="text-[11px] text-muted-foreground">Aba <span className="opacity-60">(opcional)</span></span>
-                <Input value={novaFonteAba} onChange={(e) => setNovaFonteAba(e.target.value)}
+                <Input value={novaFonteAba} onChange={(e) => { setNovaFonteAba(e.target.value); setDiagFonte(null); }}
                   placeholder="Leads" className="h-9 text-[13px]" />
               </label>
             </div>
@@ -5365,10 +5394,22 @@ export default function AtendimentoPage() {
               />
             )}
 
-            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
-              A planilha precisa estar compartilhada com a conta de serviço do sistema (a mesma do
-              Drive). Se não estiver, o erro ao puxar diz o e-mail exato pra compartilhar.
-            </p>
+            <AnimatePresence initial={false} mode="wait">
+              {diagFonte ? (
+                <motion.div key={diagFonte.tipo}
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                  transition={{ type: "spring", stiffness: 380, damping: 34 }}>
+                  <GuiaDaPlanilha diagnostico={diagFonte} />
+                </motion.div>
+              ) : (
+                <motion.p key="dica"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="text-[10.5px] text-muted-foreground/70 leading-snug">
+                  Eu testo a leitura antes de ligar. Se a planilha não estiver compartilhada com o
+                  sistema, eu digo aqui o que copiar e onde colar.
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
 
           <DialogFooter>
@@ -5377,8 +5418,10 @@ export default function AtendimentoPage() {
             </Button>
             <Button size="sm" onClick={salvarFonte} disabled={salvandoFonte || !novaFonteLink.trim()}>
               {salvandoFonte
-                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Ligando…</>
-                : <>Ligar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Testando…</>
+                : diagFonte
+                  ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Testar de novo</>
+                  : <>Testar e ligar <Check className="h-3.5 w-3.5 ml-1.5" /></>}
             </Button>
           </DialogFooter>
         </DialogContent>
