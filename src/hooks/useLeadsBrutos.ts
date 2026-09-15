@@ -4,15 +4,27 @@
 // justamente essa metade que faltava: sem ela, ou a atendente marca à mão na
 // planilha (e esquece), ou a lista repete todo dia quem já foi chamado ontem.
 //
-// A SINCRONIZAÇÃO É UM BOTÃO, NÃO UM ROBÔ. Por enquanto: a edge function lê a
-// planilha, o navegador interpreta (src/lib/planilhaLeads.ts, testado) e grava.
-// Um cron faria o mesmo sem alguém clicar, mas exigiria uma segunda cópia do
-// interpretador dentro do Deno — e duas cópias da mesma regra é o jeito
-// conhecido de elas discordarem seis meses depois, uma corrigida e a outra não.
+// A SINCRONIZAÇÃO VIROU ROBÔ, E CONTINUOU TENDO UM BOTÃO.
+//
+// Por muito tempo ela foi só botão, e a razão estava escrita aqui: um cron
+// faria o mesmo sem ninguém clicar, mas exigiria uma segunda cópia do
+// interpretador (src/lib/planilhaLeads.ts) dentro do Deno — e duas cópias da
+// mesma regra é o jeito conhecido de elas discordarem seis meses depois, uma
+// corrigida e a outra não.
+//
+// A saída não foi copiar: foi LIGAR. A edge function `leads-sync` lê
+// `planilhaLeads.ts`, `csv.ts` e `phone.ts` por link simbólico, os mesmos
+// arquivos desta pasta, com os mesmos testes. E o botão daqui passou a chamar
+// ESSA função em vez de fazer o trabalho por conta própria: um robô e um botão
+// que gravam cada um do seu jeito divergem no campo que um dos dois esquecer.
+//
+// Isso é o que faz o gatilho "chegou lead novo na base" existir: a linha nova
+// só vira INSERT no banco quando alguém sincroniza, e agora isso acontece de
+// cinco em cinco minutos sozinho.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { lerPlanilha, colunasEscolhiveis } from "@/lib/planilhaLeads";
+import { colunasEscolhiveis } from "@/lib/planilhaLeads";
 import { csvParaPlanilha } from "@/lib/csv";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
@@ -260,100 +272,38 @@ export interface ResultadoSync {
 }
 
 /**
- * Puxa a planilha e atualiza o espelho.
+ * Puxa a planilha agora, sem esperar os cinco minutos do robô.
  *
- * O upsert NÃO toca em `situacao` nem em `conversa_id`: a planilha não sabe
- * quem já foi abordado, e deixá-la sobrescrever isso faria a fila ressuscitar
- * todo mundo a cada sincronização — que é exatamente o problema que esta tela
- * existe pra resolver.
+ * O trabalho inteiro (ler, interpretar, espelhar, gravar o aviso) acontece na
+ * edge function `leads-sync` — a MESMA que o cron chama. Aqui só se pede e se
+ * traduz a resposta para o que a tela mostra.
+ *
+ * O botão continua existindo porque esperar até cinco minutos para ver se a
+ * planilha respondeu é insuportável quando se acabou de ligar uma base, e
+ * porque é ele que mostra o erro na cara de quem pode consertá-lo.
  */
 export async function sincronizarFonte(fonte: Fonte): Promise<ResultadoSync> {
-  const { data, error } = await supabase.functions.invoke("leads-planilha", {
-    body: { planilha_id: fonte.planilha_id, aba: fonte.aba },
+  const { data, error } = await supabase.functions.invoke("leads-sync", {
+    body: { fonte_id: fonte.id },
   });
   if (error) throw new Error(error.message);
-  if (!data || data.ok === false) {
-    await tabela("leads_fontes").update({ ultimo_erro: String(data?.error || "falhou") }).eq("id", fonte.id);
-    throw new Error(String(data?.error || "Não consegui ler a planilha"));
-  }
+  if (!data || data.ok === false) throw new Error(String(data?.error || "Não consegui ler a planilha"));
 
-  /* A função lê por dois caminhos: pela API do Sheets (que devolve as células
-     já separadas) ou, quando ela está desligada no projeto, pelo export do
-     Drive (que devolve CSV). O CSV é convertido AQUI, com o mesmo leitor
-     testado — a alternativa seria um segundo interpretador dentro do Deno, e
-     duas cópias da mesma regra é o jeito conhecido de elas discordarem. */
-  const planilha = data.csv
-    ? csvParaPlanilha(String(data.csv))
-    : { cabecalho: (data.cabecalho ?? []) as string[], linhas: (data.linhas ?? []) as { linha: number; celulas: string[] }[] };
+  const r = (data.resultados ?? [])[0] as
+    { lidos?: number; novos?: number; aviso?: string | null; erro?: string | null } | undefined;
 
-  const { leads, ignoradas } = lerPlanilha(planilha.cabecalho, planilha.linhas);
+  // A função grava o erro na fonte antes de devolver; aqui ele vira exceção
+  // para o toast aparecer, como acontecia antes.
+  if (r?.erro) throw new Error(r.erro);
 
-  /* O QUE ATRAPALHOU FICA GRAVADO, NÃO SÓ NO TOAST.
-     Fila vazia é indistinguível de "não tem ninguém aqui" — foi exatamente
-     isso que aconteceu com a planilha do Bradesco. Cada motivo de a fila sair
-     vazia (ou menor do que a planilha) vira uma frase que sobrevive ao
-     recarregar, no cabeçalho da fonte. */
-  const avisos: string[] = [];
-  if (data.aviso) avisos.push(String(data.aviso));
-
-  /* ZERO LINHA TAMBÉM PRECISA DE FRASE.
-     Este era o buraco que sobrou: eu avisava quando havia linhas e nenhuma
-     servia, mas quando a aba lida não tinha NENHUMA linha de dados a fila
-     ficava vazia calada — de novo indistinguível de "não tem ninguém aqui".
-     Foi o que aconteceu ao ler a primeira aba de uma planilha cujos leads
-     estão em outra. */
-  if (planilha.linhas.length === 0) {
-    avisos.push(
-      planilha.cabecalho.length > 0
-        ? `A aba lida ("${data.aba ?? "primeira"}") só tem o cabeçalho (${planilha.cabecalho.join(", ")}) e nenhuma linha de dados.`
-        : `A aba lida ("${data.aba ?? "primeira"}") está vazia.`,
-    );
-  } else if (leads.length === 0 && planilha.linhas.length > 0) {
-    avisos.push(
-      `Li ${planilha.linhas.length} linha(s) da aba "${data.aba ?? "primeira"}", mas nenhuma tinha`
-      + ` telefone reconhecível. Colunas encontradas: ${planilha.cabecalho.join(", ") || "(nenhuma)"}.`,
-    );
-  } else if (ignoradas > 0) {
-    avisos.push(`${ignoradas} linha(s) sem telefone válido ficaram de fora.`);
-  }
-  const aviso = avisos.length > 0 ? avisos.join(" ") : null;
-
-  let novos = 0;
-  if (leads.length > 0) {
-    const { data: jaTem } = await tabela("leads_brutos")
-      .select("telefone").eq("fonte_id", fonte.id);
-    const conhecidos = new Set(((jaTem || []) as { telefone: string }[]).map((l) => l.telefone));
-    novos = leads.filter((l) => !conhecidos.has(l.telefone)).length;
-
-    const { error: eUp } = await tabela("leads_brutos").upsert(
-      leads.map((l) => ({
-        fonte_id: fonte.id,
-        telefone: l.telefone,
-        nome: l.nome,
-        cidade: l.cidade,
-        respostas: l.respostas,
-        origem_texto: l.origemTexto,
-        chegou_em: l.chegouEm,
-        linha: l.linha,
-        bruto: l.bruto,
-      })),
-      { onConflict: "fonte_id,telefone" },
-    );
-    if (eUp) throw new Error(eUp.message);
-  }
-
-  await tabela("leads_fontes")
-    .update({
-      ultimo_sync: new Date().toISOString(),
-      ultimo_erro: aviso,
-      // A aba que foi lida DE VERDADE volta pra fonte. Se o nome digitado não
-      // existia, a próxima leitura já vai direto na certa em vez de repetir o
-      // mesmo engano toda vez.
-      ...(data.aba ? { aba: data.aba } : {}),
-    })
-    .eq("id", fonte.id);
-
-  return { lidos: leads.length, novos, ignoradas, aviso };
+  return {
+    lidos: Number(r?.lidos ?? 0),
+    novos: Number(r?.novos ?? 0),
+    // `ignoradas` deixou de vir separado: a frase do aviso já diz quantas
+    // linhas ficaram de fora, e era só para isso que este número servia.
+    ignoradas: 0,
+    aviso: r?.aviso ?? null,
+  };
 }
 
 /** O lead saiu da fila bruta: virou conversa. */

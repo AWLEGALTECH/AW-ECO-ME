@@ -15,7 +15,10 @@
 // 9 dígitos). É isso que faz a mesma pessoa, vinda da planilha e vinda do
 // WhatsApp, ser uma pessoa só.
 
-import { canonicalizarTelefone } from "./phone";
+// A extensão explícita é para o Deno: este arquivo é lido também pela edge
+// function `leads-sync`, por link simbólico, e lá import sem extensão não
+// resolve. O Vite aceita os dois (allowImportingTsExtensions no tsconfig).
+import { canonicalizarTelefone } from "./phone.ts";
 
 /** minúsculo, sem acento, sem pontuação — pra comparar nome de coluna. */
 export function chaveDeColuna(texto: string): string {

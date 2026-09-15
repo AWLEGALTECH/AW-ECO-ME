@@ -45,9 +45,10 @@ import {
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
-  Scale, ExternalLink, ListChecks,
+  Scale, ExternalLink, ListChecks, Workflow,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import Automacoes from "@/components/atendimento/Automacoes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LEADS, LEMBRETES, ESTAGIOS, ORIGENS,
@@ -258,7 +259,11 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "config">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "automacoes" | "config">("atendimento");
+  /* A base que pediu a aba de automações. Vem do botão de cada planilha na
+     caixa Base: quem clica ali quer automatizar AQUELA base, e cair numa lista
+     vazia o obrigaria a escolher de novo o que ele já tinha escolhido. */
+  const [automacaoDaBase, setAutomacaoDaBase] = useState<string | null>(null);
   /* QUAL NÚMERO ABRE. Guardado no navegador e não na conta: quem senta nesta
      mesa atende por um número, quem senta na outra atende por outro, e a mesma
      conta é usada pelos dois. Sem isto a aba abria sempre no primeiro da lista,
@@ -2850,8 +2855,8 @@ export default function AtendimentoPage() {
              em vez de encolher até não se ler. */
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5
                           shrink-0 max-w-full overflow-x-auto scrollbar-thin">
-            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
-              <button key={k} onClick={() => { setAba(k); if (ehMobile) setTelaMobile("caixa"); }}
+            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["automacoes", "Automações", Workflow], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
+              <button key={k} onClick={() => { setAba(k); setAutomacaoDaBase(null); if (ehMobile) setTelaMobile("caixa"); }}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
                 <Ico className="h-3.5 w-3.5" /> {rot}
@@ -2907,6 +2912,14 @@ export default function AtendimentoPage() {
           userId={user?.id ?? null}
           onCancelar={cancelarProgramada}
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
+        />
+      ) : aba === "automacoes" ? (
+        <Automacoes
+          instancia={instancia.nome}
+          fontes={fontes}
+          userId={user?.id ?? null}
+          aoVivo={aoVivo}
+          fonteInicial={automacaoDaBase}
         />
       ) : aba === "config" ? (
         <PainelAjustes
@@ -3300,6 +3313,18 @@ export default function AtendimentoPage() {
                                       disabled={sincronizando === f.id}
                                       className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
                                       <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
+                                    </button>
+                                    {/* O CAMINHO CURTO ATÉ A AUTOMAÇÃO DESTA
+                                        BASE. A aba existe no topo, mas quem
+                                        está olhando uma planilha e pensa "toda
+                                        vez que entrar gente aqui, manda tal
+                                        mensagem" está pensando nESTA base — e
+                                        chegar numa lista vazia o obrigaria a
+                                        escolher de novo o que já escolheu. */}
+                                    <button type="button" title="Automações desta base"
+                                      onClick={() => { setAutomacaoDaBase(f.id); setAba("automacoes"); }}
+                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-primary hover:bg-white/[0.10] transition-colors">
+                                      <Workflow className="h-3 w-3" />
                                     </button>
                                     {/* Separado do atualizar e apagado até o
                                         mouse chegar. A confirmação evita o
