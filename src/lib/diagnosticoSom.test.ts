@@ -225,3 +225,79 @@ test("o resumo funciona com só uma das partes, e nunca sai vazio", () => {
   expect(resumoParaColar(achados(), "ua", null, null)).toContain("O QUE O NAVEGADOR RESPONDEU");
   expect(resumoParaColar(null, "ua/1.0", null, null)).toContain("ua/1.0");
 });
+
+/* ── quem está mexendo no tocador ─────────────────────────────────────────── */
+
+import { eNativa, lerInterferencia, type Interferencia } from "./diagnosticoSom";
+
+const interf = (o: Partial<Interferencia> = {}): Interferencia =>
+  ({ trocadas: [], volumeDepois: 1, mudoDepois: false, ...o });
+
+test("eNativa reconhece função do navegador e função trocada", () => {
+  expect(eNativa(Math.max)).toBe(true);
+  expect(eNativa(function espia() { return 1; })).toBe(false);
+  // o que não é função não acusa ninguém
+  expect(eNativa(undefined)).toBe(true);
+  expect(eNativa(null)).toBe(true);
+  expect(eNativa(42)).toBe(true);
+});
+
+test("eNativa erra para o lado de não acusar quando toString mente", () => {
+  const mentiroso = function () { return 1; };
+  mentiroso.toString = () => { throw new Error("nada disso"); };
+  // Function.prototype.toString ignora o toString próprio, então isto segue
+  // sendo detectável; o que não pode é explodir
+  expect(() => eNativa(mentiroso)).not.toThrow();
+});
+
+test("sem sinal nenhum, não inventa culpado", () => {
+  expect(lerInterferencia(interf())).toBeNull();
+});
+
+test("volume derrubado depois do play é o achado forte, e vira erro", () => {
+  const v = lerInterferencia(interf({ volumeDepois: 0 }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.titulo).toContain("baixando o volume");
+  expect(v.detalhe).toContain("0%");
+  expect(v.passos[0]).toContain("anônima");
+});
+
+test("mudo ligado por fora conta igual, mesmo com volume cheio", () => {
+  const v = lerInterferencia(interf({ mudoDepois: true }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.detalhe).toContain("no mudo");
+});
+
+test("volume quase cheio não é acusação: arredondamento não é extensão", () => {
+  expect(lerInterferencia(interf({ volumeDepois: 0.999 }))).toBeNull();
+  expect(lerInterferencia(interf({ volumeDepois: 1 }))).toBeNull();
+});
+
+test("função de mídia trocada é aviso, e diz qual foi", () => {
+  const v = lerInterferencia(interf({ trocadas: ["play", "volume"] }))!;
+  expect(v.gravidade).toBe("aviso");
+  expect(v.titulo).toContain("extensão");
+  expect(v.detalhe).toContain("play, volume");
+});
+
+test("com os dois sinais, o volume manda, porque é o que a pessoa sente", () => {
+  const v = lerInterferencia(interf({ trocadas: ["play"], volumeDepois: 0.2 }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.titulo).toContain("baixando o volume");
+});
+
+test("o resumo carrega o que foi MEDIDO sobre o tocador", () => {
+  const txt = resumoParaColar(null, "ua", null, null,
+    { trocadas: ["play", "volume"], volumeDepois: 0, mudoDepois: true });
+  expect(txt).toContain("QUEM MEXEU NO TOCADOR");
+  expect(txt).toContain("0%");
+  expect(txt).toContain("(MUDO)");
+  expect(txt).toContain("play, volume");
+});
+
+test("sem interferência, o resumo diz 'nenhuma' em vez de omitir", () => {
+  const txt = resumoParaColar(null, "ua", null, null,
+    { trocadas: [], volumeDepois: 1, mudoDepois: false });
+  expect(txt).toContain("Funções de mídia trocadas: nenhuma");
+  expect(txt).toContain("100%");
+});

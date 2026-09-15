@@ -357,6 +357,84 @@ export function ondeParou(o: OQueOuviu): Veredito | null {
   return null;
 }
 
+/* ══════════════════ QUEM ESTÁ MEXENDO NO TOCADOR ═══════════════════════════
+ *
+ * Chegou o conjunto de fatos que fecha o cerco: o YouTube toca com som no
+ * mesmo Chrome, o 4G não mudou nada, o som do site está ligado e o aviso do
+ * sistema sai. Ou seja: o caminho de mídia do Chrome funciona, não é rede, não
+ * é a aba muda e não é a placa.
+ *
+ * O que sobra é algo que age SÓ nos elementos de mídia e SÓ em alguns sites.
+ * Extensão do Chrome faz exatamente isso: controlador de velocidade,
+ * turbinador de volume e bloqueador injetam script na página, pegam cada
+ * <video>/<audio> e muitos desviam o som para o Web Audio
+ * (`createMediaElementSource`). Se o desvio quebra ou não é ligado à saída, a
+ * mídia roda MUDA enquanto o resto da página continua normal — inclusive o
+ * aviso sintetizado, que não passa por elemento nenhum.
+ *
+ * Dá para flagrar sem adivinhação, de dois jeitos:
+ *
+ *   1. as funções nativas de mídia deixaram de ser nativas. Quem troca
+ *      `play` ou o ajuste de `volume` por função própria deixa rastro:
+ *      `toString()` para de dizer "[native code]".
+ *   2. pedimos volume 1 e o elemento devolveu outro valor. Elemento nenhum
+ *      faz isso sozinho; alguém mexeu depois de nós.
+ */
+
+export interface Interferencia {
+  /** funções nativas de mídia que foram trocadas por outra coisa */
+  trocadas: string[];
+  /** pedimos 1 e o elemento ficou com quanto, logo depois de tocar */
+  volumeDepois: number;
+  mudoDepois: boolean;
+}
+
+/**
+ * Uma função ainda é a do navegador?
+ *
+ * Só vale como PISTA: há como reescrever `toString` para mentir, e há
+ * navegador que formata diferente. Erra para o lado de não acusar, porque
+ * acusar uma extensão que não existe manda a pessoa caçar fantasma.
+ */
+export function eNativa(fn: unknown): boolean {
+  if (typeof fn !== "function") return true;
+  try {
+    return /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(fn));
+  } catch {
+    return true;
+  }
+}
+
+export function lerInterferencia(i: Interferencia): Veredito | null {
+  const mexeram = i.trocadas.length > 0;
+  const volumeCaiu = i.mudoDepois || i.volumeDepois < 0.99;
+
+  if (!mexeram && !volumeCaiu) return null;
+
+  const passos = [
+    "Abrir o sistema numa janela anônima (Ctrl+Shift+N) e tocar um áudio: sem extensão, ele deve sair",
+    "Se sair na anônima, ir em chrome://extensions e desligar todas",
+    "Ligar de novo uma a uma, testando o áudio a cada uma, até a culpada aparecer",
+    "As suspeitas de sempre: controlador de velocidade de vídeo, turbinador de volume, bloqueador de anúncio, leitor de tela",
+  ];
+
+  if (volumeCaiu) {
+    return {
+      gravidade: "erro",
+      titulo: "Alguma coisa está baixando o volume do tocador depois de nós",
+      detalhe: `Este sistema pede volume 100% toda vez que toca. Logo depois, o tocador estava em ${Math.round(i.volumeDepois * 100)}%${i.mudoDepois ? " e no mudo" : ""}. Elemento de áudio não faz isso sozinho: alguém mexeu, e quase sempre é extensão do navegador.`,
+      passos,
+    };
+  }
+
+  return {
+    gravidade: "aviso",
+    titulo: "Uma extensão está trocando as funções de mídia do navegador",
+    detalhe: `Isto deixou de ser do navegador nesta máquina: ${i.trocadas.join(", ")}. É como extensão de vídeo funciona, e é a explicação que sobra quando o YouTube toca e a mídia daqui não.`,
+    passos,
+  };
+}
+
 /** O que dá para saber da máquina sem pedir permissão nenhuma. */
 export interface Ambiente {
   navegador: string;
@@ -383,6 +461,7 @@ export function resumoParaColar(
   navegador: string,
   o?: OQueOuviu | null,
   amb?: Ambiente | null,
+  i?: Interferencia | null,
 ): string {
   const sn = (v: Ouviu) => (v === null ? "não respondeu" : v ? "OUVIU" : "NÃO ouviu");
   const partes: (string | null)[] = [];
@@ -414,6 +493,17 @@ export function resumoParaColar(
     );
   } else if (navegador) {
     partes.push("A MÁQUINA", `  Navegador: ${navegador}`, "");
+  }
+
+  /* MEDIDO, E NÃO OPINADO. É a parte que não depende de ouvido nem de a
+     pessoa saber descrever, e por isso vem antes do resto da medição. */
+  if (i) {
+    partes.push(
+      "QUEM MEXEU NO TOCADOR",
+      `  Volume meio segundo depois do play: ${Math.round(i.volumeDepois * 100)}%${i.mudoDepois ? " (MUDO)" : ""}`,
+      `  Funções de mídia trocadas: ${i.trocadas.length > 0 ? i.trocadas.join(", ") : "nenhuma"}`,
+      "",
+    );
   }
 
   if (a) {

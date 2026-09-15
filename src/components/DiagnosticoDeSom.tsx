@@ -8,7 +8,9 @@ import {
 } from "lucide-react";
 import {
   FORMATOS, suporteDe, lerAchados, resumoParaColar, bipeWav, ondeParou,
+  eNativa, lerInterferencia,
   type Achados, type Suporte, type OQueOuviu, type Veredito, type Ambiente,
+  type Interferencia,
 } from "@/lib/diagnosticoSom";
 import { tocarSomNotificacao } from "@/lib/som";
 
@@ -72,7 +74,10 @@ function CartaoDoVeredito({ v, atraso = 0 }: { v: Veredito; atraso?: number }) {
  * A ordem importa e é crescente: cada som acrescenta UM pedaço de caminho ao
  * anterior. O primeiro que não sair aponta o pedaço que quebrou.
  */
-function OsTresSons({ aoMudar }: { aoMudar?: (o: OQueOuviu) => void }) {
+function OsTresSons({ aoMudar, aoMedirInterferencia }: {
+  aoMudar?: (o: OQueOuviu) => void;
+  aoMedirInterferencia?: (i: Interferencia) => void;
+}) {
   const [ouviu, setOuviu] = useState<OQueOuviu>({ bling: null, bipe: null, voz: null, video: null });
   const [tocandoQual, setTocandoQual] = useState<string | null>(null);
   const [urlDaVoz, setUrlDaVoz] = useState<string | null>(null);
@@ -122,6 +127,19 @@ function OsTresSons({ aoMudar }: { aoMudar?: (o: OQueOuviu) => void }) {
     a.volume = 1;
     a.muted = false;
     el.current = a;
+    /* QUEM MEXEU DEPOIS DE NÓS. Pedimos 1 aqui em cima; meio segundo depois,
+       com o som já rodando, olhamos de novo. Elemento de áudio não muda o
+       próprio volume, então qualquer diferença tem dono, e o dono costuma ser
+       extensão do navegador. Meio segundo porque a injeção da extensão
+       acontece no play, e não antes dele. */
+    setTimeout(() => {
+      aoMedirInterferencia?.({
+        trocadas: funcoesTrocadas(),
+        volumeDepois: a.volume,
+        mudoDepois: a.muted,
+      });
+    }, 500);
+
     a.onended = () => setTocandoQual(null);
     a.onerror = () => {
       setTocandoQual(null);
@@ -289,6 +307,32 @@ function LayoutGroupless({ children }: { children: React.ReactNode }) {
   return <motion.div layout transition={MOLA}>{children}</motion.div>;
 }
 
+/**
+ * As funções de mídia ainda são as do navegador?
+ *
+ * Extensão que mexe em vídeo troca `play` ou o ajuste de `volume` por função
+ * própria, e isso deixa rastro: `toString()` para de dizer "[native code]".
+ * `createMediaElementSource` entra na lista porque é por ele que uma extensão
+ * DESVIA o som do elemento para o Web Audio — e um desvio que não chega à
+ * saída toca mudo, que é exatamente o sintoma.
+ */
+function funcoesTrocadas(): string[] {
+  const fora: string[] = [];
+  try {
+    const p = HTMLMediaElement.prototype;
+    if (!eNativa(p.play)) fora.push("play");
+    if (!eNativa(p.pause)) fora.push("pause");
+    if (!eNativa(p.load)) fora.push("load");
+    const vol = Object.getOwnPropertyDescriptor(p, "volume");
+    if (vol?.set && !eNativa(vol.set)) fora.push("volume");
+    const mudo = Object.getOwnPropertyDescriptor(p, "muted");
+    if (mudo?.set && !eNativa(mudo.set)) fora.push("muted");
+    const AC = window.AudioContext;
+    if (AC && !eNativa(AC.prototype.createMediaElementSource)) fora.push("createMediaElementSource");
+  } catch { /* navegador que não deixa olhar: não acusa ninguém */ }
+  return fora;
+}
+
 /** O que dá para saber da máquina sem pedir permissão nenhuma. */
 async function lerAmbiente(): Promise<Ambiente> {
   let webAudio = "não subiu";
@@ -327,6 +371,7 @@ export function DiagnosticoDeSom() {
   const [rodando, setRodando] = useState(false);
   const [achados, setAchados] = useState<Achados | null>(null);
   const [ouviu, setOuviu] = useState<OQueOuviu | null>(null);
+  const [interferencia, setInterferencia] = useState<Interferencia | null>(null);
 
   const rodar = async () => {
     setRodando(true);
@@ -410,13 +455,14 @@ export function DiagnosticoDeSom() {
      ou a conversa vira mais uma rodada de perguntas. */
   const copiar = async () => {
     const amb = await lerAmbiente();
-    const txt = resumoParaColar(achados, navigator.userAgent, ouviu, amb);
+    const txt = resumoParaColar(achados, navigator.userAgent, ouviu, amb, interferencia);
     navigator.clipboard.writeText(txt)
       .then(() => toast.success("Resumo copiado. É só colar na conversa."))
       .catch(() => toast.error("Não consegui copiar. Dá pra tirar um print."));
   };
 
   const vereditos = achados ? lerAchados(achados) : [];
+  const vereditoDaInterferencia = interferencia ? lerInterferencia(interferencia) : null;
 
   return (
     <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
@@ -437,7 +483,17 @@ export function DiagnosticoDeSom() {
       {/* PRIMEIRO O OUVIDO, DEPOIS A MÁQUINA. O teste automático diz o que o
           navegador RESPONDE; só quem está na frente do computador sabe o que
           saiu na caixa de som, e é essa resposta que aponta o trecho quebrado. */}
-      <OsTresSons aoMudar={setOuviu} />
+      <OsTresSons aoMudar={setOuviu} aoMedirInterferencia={setInterferencia} />
+
+      {/* O ACHADO QUE NÃO DEPENDE DE OUVIDO. Enquanto ela responde os sons,
+          isto já mediu sozinho se alguém está mexendo no tocador. Aparece
+          assim que houver o que dizer, porque é a conclusão mais forte que
+          esta tela consegue produzir. */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {vereditoDaInterferencia && (
+          <CartaoDoVeredito key={vereditoDaInterferencia.titulo} v={vereditoDaInterferencia} />
+        )}
+      </AnimatePresence>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={rodar} disabled={rodando} className="shrink-0 h-7 text-[11px]">
