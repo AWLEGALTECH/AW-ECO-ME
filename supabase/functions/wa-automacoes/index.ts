@@ -280,10 +280,14 @@ Deno.serve(async (req: Request) => {
 
     const execucoes = (fila || []) as Execucao[];
     const contagem: Record<string, number> = {};
+    /* Alguma execução chegou a pôr mensagem na fila de envio? Se sim, vale
+       acordar o despachante em vez de esperar o minuto dele. */
+    let temMensagem = false;
 
     for (const e of execucoes) {
       try {
         const fim = await rodar(sb, e, evo);
+        if (fim === "concluida" || fim === "esperando") temMensagem = true;
         contagem[fim] = (contagem[fim] ?? 0) + 1;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -300,6 +304,20 @@ Deno.serve(async (req: Request) => {
         });
         contagem[desiste ? "falhou" : "retentar"] = (contagem[desiste ? "falhou" : "retentar"] ?? 0) + 1;
       }
+    }
+
+    /* ACORDA O DESPACHANTE EM VEZ DE ESPERAR O MINUTO DELE.
+       Medido: a mensagem ficava 62 segundos parada em `wa_agendadas` esperando
+       o próximo tique do cron, depois de tudo o mais já estar pronto. Ele só
+       toma o que está vencido (`quando <= now()`), então uma chamada a mais não
+       antecipa nada que devesse esperar: a mensagem marcada para daqui a dois
+       dias continua lá. Sem `await`: o envio não segura esta resposta. */
+    if (temMensagem) {
+      fetch(`${URL_SB}/functions/v1/wa-despachar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+        body: "{}",
+      }).catch((err) => console.error("[wa-automacoes] acordar despachante:", err));
     }
 
     return json({ ok: true, varridas: varridas ?? 0, tomadas: execucoes.length, contagem });
