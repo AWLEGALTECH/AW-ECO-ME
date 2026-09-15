@@ -260,6 +260,10 @@ test("volume derrubado depois do play é o achado forte, e vira erro", () => {
   expect(v.titulo).toContain("baixando o volume");
   expect(v.detalhe).toContain("0%");
   expect(v.passos[0]).toContain("anônima");
+  /* A CAÇA É POR METADE. Uma a uma, com vinte extensões, são vinte rodadas
+     de desligar, recarregar e ouvir: é onde a pessoa desiste no meio. */
+  expect(v.passos.join(" ")).toContain("METADE");
+  expect(v.passos.join(" ")).not.toContain("uma a uma");
 });
 
 test("mudo ligado por fora conta igual, mesmo com volume cheio", () => {

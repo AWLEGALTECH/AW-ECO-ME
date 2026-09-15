@@ -411,11 +411,16 @@ export function lerInterferencia(i: Interferencia): Veredito | null {
 
   if (!mexeram && !volumeCaiu) return null;
 
+  /* A CAÇA É POR METADE, E NÃO UMA A UMA. Com vinte extensões, uma a uma são
+     vinte rodadas de desligar, recarregar e ouvir; por metade são cinco. A
+     diferença entre alguém fazer e alguém desistir no meio. */
   const passos = [
     "Abrir o sistema numa janela anônima (Ctrl+Shift+N) e tocar um áudio: sem extensão, ele deve sair",
-    "Se sair na anônima, ir em chrome://extensions e desligar todas",
-    "Ligar de novo uma a uma, testando o áudio a cada uma, até a culpada aparecer",
-    "As suspeitas de sempre: controlador de velocidade de vídeo, turbinador de volume, bloqueador de anúncio, leitor de tela",
+    "Se sair na anônima, ir em chrome://extensions e desligar TODAS",
+    "Conferir que o som voltou na janela normal",
+    "Religar METADE delas e testar: se o som sumiu, a culpada está nessa metade; se não, está na outra",
+    "Repetir partindo ao meio a metade suspeita, até sobrar uma",
+    "As suspeitas de sempre: controlador de velocidade de vídeo, turbinador de volume, bloqueador de anúncio, leitor de tela, gravador de reunião",
   ];
 
   if (volumeCaiu) {
