@@ -20,6 +20,22 @@
 // resolve. O Vite aceita os dois (allowImportingTsExtensions no tsconfig).
 import { canonicalizarTelefone } from "./phone.ts";
 
+/**
+ * O id da planilha, a partir do link inteiro.
+ *
+ * O link inteiro serve como entrada porque ninguém decora que o id é o pedaço
+ * entre /d/ e /edit, e pedir "cole o id" é pedir que a pessoa faça à mão o
+ * recorte que o código faz sem errar. O que já for um id passa intacto.
+ *
+ * Mora aqui, e não na tela, porque duas telas ligam planilha agora: a caixa
+ * Base e a aba Automações.
+ */
+export function idDaPlanilha(linkOuId: string): string {
+  const t = String(linkOuId || "").trim();
+  const m = t.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : t;
+}
+
 /** minúsculo, sem acento, sem pontuação — pra comparar nome de coluna. */
 export function chaveDeColuna(texto: string): string {
   return String(texto || "")

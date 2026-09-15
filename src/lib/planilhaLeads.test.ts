@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   chaveDeColuna, mapearColunas, dataDaPlanilha, leadDaLinha, lerPlanilha, resumoDasRespostas,
-  dossieExtra, resumoDoDossie, colunasEscolhiveis,
+  dossieExtra, resumoDoDossie, colunasEscolhiveis, idDaPlanilha,
 } from "./planilhaLeads";
 
 /* O cabeçalho real da planilha da LP (LEADS BANCARIOS): */
@@ -232,4 +232,12 @@ describe("escolher quais colunas aparecem", () => {
   it("coluna sem nome não entra na lista de escolha", () => {
     expect(colunasEscolhiveis(["DESCONTOS", "  ", ""])).toEqual(["DESCONTOS"]);
   });
+});
+
+it("o link inteiro da planilha vira id, e id já pronto passa intacto", () => {
+  // ninguém decora que o id é o pedaço entre /d/ e /edit
+  expect(idDaPlanilha("https://docs.google.com/spreadsheets/d/1AbC-dEf_9/edit#gid=0")).toBe("1AbC-dEf_9");
+  expect(idDaPlanilha("https://docs.google.com/spreadsheets/d/1AbC-dEf_9")).toBe("1AbC-dEf_9");
+  expect(idDaPlanilha("  1AbC-dEf_9  ")).toBe("1AbC-dEf_9");
+  expect(idDaPlanilha("")).toBe("");
 });

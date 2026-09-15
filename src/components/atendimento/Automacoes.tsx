@@ -35,7 +35,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
-  Workflow, History, AlertTriangle, Check, Loader2, X, Zap, Clock, ArrowRight,
+  Workflow, History, Check, Loader2, X, Zap, ArrowRight, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -59,7 +62,10 @@ import {
   criarAutomacao, salvarAutomacao, alternarAutomacao, apagarAutomacao, duplicarAutomacao,
   type Rascunho,
 } from "@/hooks/useAutomacoes";
-import { useTodasAsFontes, type Fonte } from "@/hooks/useLeadsBrutos";
+import {
+  useTodasAsFontes, useResumoBases, useInvalidarLeads, criarFonte, type Fonte,
+} from "@/hooks/useLeadsBrutos";
+import { idDaPlanilha } from "@/lib/planilhaLeads";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
 import type { Instancia } from "@/lib/atendimentoMock";
 
@@ -702,13 +708,16 @@ function Editor({
                 ) : null}
 
                 {travas.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-2.5 py-2">
-                    <p className="text-[10.5px] font-medium text-amber-400 flex items-center gap-1.5">
-                      <AlertTriangle className="h-3 w-3" /> Falta para poder ligar
+                  <div className="mt-3 pt-2.5 border-t border-white/[0.06]">
+                    <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
+                      Falta para poder ligar
                     </p>
-                    <ul className="mt-1 space-y-0.5">
+                    <ul className="mt-1 space-y-1">
                       {travas.map((t) => (
-                        <li key={t} className="text-[10.5px] text-amber-400/80 leading-snug">{t}</li>
+                        <li key={t} className="text-[10.5px] text-muted-foreground leading-snug flex items-start gap-1.5">
+                          <Pendente className="mt-[5px]" />
+                          <span>{t}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -740,12 +749,10 @@ function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       className={cn(
         "text-left rounded-xl border px-3 py-2.5 transition-colors",
-        faltaBase ? "border-amber-400/40 bg-amber-400/[0.05]"
-          : aberto ? "border-primary/40 bg-primary/[0.06]"
-          : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+        aberto ? "border-primary/40 bg-primary/[0.06]"
+               : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
       <div className="flex items-start gap-2.5">
-        <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1",
-          faltaBase ? TOM.amber : TOM.primary)}>
+        <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1", TOM.primary)}>
           <Ico className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -753,9 +760,14 @@ function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }
             Quando · em {nomeDoNumero}
           </p>
           <p className="text-[12.5px] font-medium">{def.rotulo}</p>
-          <p className={cn("text-[10.5px] leading-snug mt-0.5",
-            faltaBase ? "text-amber-400" : "text-muted-foreground")}>
-            {faltaBase ? "Toque aqui e escolha em qual base" : fraseDoGatilho(gatilho, cfg, nomeDaBase)}
+          {/* O QUE FALTA SE DIZ NUMA LINHA, NÃO NUM BLOCO PINTADO. O cartão
+              inteiro de âmbar gritava a mesma coisa que este ponto diz: falta
+              responder. Um sinal discreto no lugar certo é lido; um aviso
+              grande e colorido passa a ser mobília em dois dias. */}
+          <p className={cn("text-[10.5px] leading-snug mt-0.5 flex items-center gap-1",
+            faltaBase ? "text-amber-400/90" : "text-muted-foreground")}>
+            {faltaBase && <Pendente />}
+            {faltaBase ? "Escolha em qual base" : fraseDoGatilho(gatilho, cfg, nomeDaBase)}
           </p>
         </div>
       </div>
@@ -878,6 +890,21 @@ function Conector({ onInserir, podeInserir, fim }: {
 }
 
 /* ══════════════════ inspetores ════════════════════════════════════════════ */
+
+/**
+ * O sinal de "falta responder isto".
+ *
+ * Um ponto de 5px, e não um triângulo com fundo pintado. A tela tem três
+ * lugares que apontam a mesma pendência (o cartão do gatilho, a pergunta e a
+ * lista do que falta); com bloco colorido em cada um, o editor ficava amarelo
+ * inteiro e o aviso deixava de ser aviso.
+ */
+function Pendente({ className }: { className?: string }) {
+  return (
+    <span className={cn("h-[5px] w-[5px] shrink-0 rounded-full bg-amber-400/80", className)}
+      aria-hidden />
+  );
+}
 
 function Titulo({ children }: { children: React.ReactNode }) {
   return <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1.5">{children}</p>;
@@ -1051,114 +1078,11 @@ function ConfigDoGatilho({
 
   if (campo === "bases") {
     return (
-      <div className={cn("rounded-lg px-2.5 py-2 ring-1 transition-colors",
-        semResposta ? "ring-amber-400/30 bg-amber-400/[0.05]" : "ring-white/[0.07] bg-white/[0.02]")}>
-        <Titulo>Em qual base</Titulo>
-
-        {fontes.length === 0 ? (
-          /* BECO SEM SAÍDA NÃO, CAMINHO. "Nenhuma base aqui" deixa a pessoa
-             parada; dizer ONDE elas estão, com um toque para ir, responde a
-             pergunta que ela ia ter em seguida. */
-          <div className="space-y-1.5">
-            <p className="text-[11px] text-amber-400/90 leading-snug">
-              {nomeDe(instancia)} não tem nenhuma planilha ligada.
-            </p>
-            {numerosComBase.length > 0 ? (
-              <>
-                <p className="text-[10.5px] text-muted-foreground leading-snug">
-                  As bases estão {numerosComBase.length === 1 ? "no número" : "nos números"} abaixo.
-                  Toque para mudar este fluxo para lá.
-                </p>
-                {numerosComBase.map((n) => {
-                  const cor = corDe(n);
-                  return (
-                    <button key={n} type="button" onClick={() => onTrocarInstancia(n)}
-                      className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 ring-primary/25 bg-primary/[0.06] hover:bg-primary/[0.12] transition-colors">
-                      <span className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide", cor.fundo, cor.texto)}>
-                        {apelidos.get(n) ?? apelidoDeInstancia(n)}
-                      </span>
-                      <span className="text-[11.5px] truncate">{nomeDe(n)}</span>
-                      <ArrowRight className="h-3 w-3 ml-auto shrink-0 text-primary" />
-                    </button>
-                  );
-                })}
-              </>
-            ) : (
-              <p className="text-[10.5px] text-muted-foreground leading-snug">
-                Nenhum número tem planilha ligada ainda. Ligue uma na caixa Base, pelo botão
-                “Ligar planilha”, e volte aqui.
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <button type="button"
-              onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
-              className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
-                todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
-              <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
-                todasAsBases ? "ring-primary bg-primary/20" : "ring-white/25")}>
-                {todasAsBases && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[11.5px]">Qualquer base deste número</span>
-                <span className="block text-[10px] text-muted-foreground leading-snug">
-                  inclusive as que forem ligadas depois
-                </span>
-              </span>
-            </button>
-
-            <button type="button"
-              onClick={() => onTrocarCfg({
-                ...cfg, bases_todas: false,
-                fonte_ids: marcadas.size > 0 ? [...marcadas] : [fontes[0].id],
-              })}
-              className={cn("w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
-                marcadas.size > 0 ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
-              <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full ring-1 grid place-items-center",
-                marcadas.size > 0 ? "ring-primary bg-primary/20" : "ring-white/25")}>
-                {marcadas.size > 0 && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-              </span>
-              <span className="text-[11.5px]">
-                {fontes.length === 1 ? `Só a base ${fontes[0].nome}` : "Só a base que eu escolher"}
-              </span>
-            </button>
-
-            <AnimatePresence initial={false}>
-              {marcadas.size > 0 && fontes.length > 1 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={MOLA}
-                  className="overflow-hidden pl-5">
-                  {fontes.map((f) => (
-                    <label key={f.id}
-                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] cursor-pointer transition-colors">
-                      <input
-                        type="checkbox" checked={marcadas.has(f.id)}
-                        onChange={(e) => {
-                          const nova = new Set(marcadas);
-                          if (e.target.checked) nova.add(f.id); else nova.delete(f.id);
-                          onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
-                        }}
-                        className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-primary"
-                      />
-                      <span className="text-[11.5px] truncate">{f.nome}</span>
-                    </label>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {semResposta && (
-              <p className="text-[10px] text-amber-400/90 leading-snug px-2 pt-1">
-                Escolha uma das duas para poder ligar o fluxo.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+      <EscolhaDaBase
+        cfg={cfg} fontes={fontes} instancia={instancia} numerosComBase={numerosComBase}
+        apelidos={apelidos} corDe={corDe} nomeDe={nomeDe}
+        onTrocarCfg={onTrocarCfg} onTrocarInstancia={onTrocarInstancia}
+      />
     );
   }
 
@@ -1218,6 +1142,229 @@ function ConfigDoGatilho({
         Conta a partir da nossa última mensagem. Quem respondeu não entra.
       </p>
     </div>
+  );
+}
+
+/**
+ * EM QUAL BASE, com as bases desenhadas como elas já são na caixa Base.
+ *
+ * Mesmo ícone de banco de dados, mesmo jeito de contar ("N na base", "N
+ * novos"). Não é enfeite: a pessoa acabou de ver essa mesma planilha na outra
+ * aba, e um segundo desenho para a mesma coisa faria duvidar se é a mesma
+ * coisa.
+ *
+ * E LIGAR PLANILHA MORA AQUI TAMBÉM. Quem está montando um fluxo de base e
+ * descobre que a planilha ainda não está ligada não deveria ter que sair da
+ * aba, achar a caixa Base, ligar, e voltar para retomar o que estava fazendo.
+ * A regra é a mesma da outra tela (`criarFonte` e `idDaPlanilha`, os dois
+ * compartilhados); o formulário é mais curto de propósito, porque aqui o
+ * objetivo é o fluxo enxergar a base, e a escolha de colunas pertence a onde
+ * os cartões de lead são desenhados.
+ */
+function EscolhaDaBase({
+  cfg, fontes, instancia, numerosComBase, apelidos, corDe, nomeDe,
+  onTrocarCfg, onTrocarInstancia,
+}: {
+  cfg: ConfigDoGatilho;
+  fontes: Fonte[];
+  instancia: string;
+  numerosComBase: string[];
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
+  onTrocarCfg: (c: ConfigDoGatilho) => void;
+  onTrocarInstancia: (nome: string) => void;
+}) {
+  const { data: resumoBases = {} } = useResumoBases(true);
+  const invalidarLeads = useInvalidarLeads();
+  const [ligando, setLigando] = useState(false);
+  const [link, setLink] = useState("");
+  const [apelidoDaBase, setApelidoDaBase] = useState("");
+  const [aba, setAba] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const marcadas = new Set(cfg.fonte_ids ?? []);
+  const todasAsBases = !!cfg.bases_todas && marcadas.size === 0;
+  const semResposta = !cfg.bases_todas && marcadas.size === 0;
+
+  const ligarPlanilha = async () => {
+    const planilhaId = idDaPlanilha(link);
+    if (!planilhaId) { toast.error("Cole o link da planilha."); return; }
+    setSalvando(true);
+    try {
+      const id = await criarFonte({
+        nome: apelidoDaBase.trim() || "Leads da landing",
+        planilhaId, aba, instancia,
+      });
+      invalidarLeads();
+      /* A base recém-ligada já entra ESCOLHIDA: quem a ligou daqui a ligou
+         para este fluxo, e obrigar a marcá-la em seguida seria pedir a mesma
+         resposta duas vezes. */
+      onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...marcadas, id] });
+      setLigando(false);
+      setLink(""); setApelidoDaBase(""); setAba("");
+      toast.success("Planilha ligada.", {
+        description: "Os leads dela aparecem na caixa Base e já valem para este fluxo.",
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg px-2.5 py-2 ring-1 ring-white/[0.07] bg-white/[0.02]">
+      <div className="flex items-center justify-between gap-2">
+        <Titulo>Em qual base</Titulo>
+        {semResposta && fontes.length > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-amber-400/90 -mt-1">
+            <Pendente /> falta escolher
+          </span>
+        )}
+      </div>
+
+      {fontes.length === 0 ? (
+        /* BECO SEM SAÍDA NÃO, CAMINHO. Dizer só "não tem base aqui" deixa a
+           pessoa parada; as duas saídas reais são ir para o número que tem, ou
+           ligar uma agora. */
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            {nomeDe(instancia)} ainda não tem planilha ligada.
+          </p>
+          {numerosComBase.map((n) => {
+            const cor = corDe(n);
+            return (
+              <button key={n} type="button" onClick={() => onTrocarInstancia(n)}
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left ring-1 ring-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06] transition-colors">
+                <span className={cn("shrink-0 rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide", cor.fundo, cor.texto)}>
+                  {apelidos.get(n) ?? apelidoDeInstancia(n)}
+                </span>
+                <span className="text-[11px] truncate">tem base: mover o fluxo para lá</span>
+                <ArrowRight className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+          <BotaoLigarPlanilha onClick={() => setLigando(true)} />
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {/* qualquer base */}
+          <button type="button"
+            onClick={() => onTrocarCfg({ ...cfg, bases_todas: true, fonte_ids: [] })}
+            className={cn("w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left ring-1 transition-colors",
+              todasAsBases ? "ring-primary/35 bg-primary/[0.08]" : "ring-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]")}>
+            <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1",
+              todasAsBases ? "bg-primary/15 text-primary ring-primary/25" : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+              <Layers className="h-3 w-3" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11.5px] font-medium">Qualquer base deste número</span>
+              <span className="block text-[10px] text-muted-foreground leading-snug">
+                inclusive as que forem ligadas depois
+              </span>
+            </span>
+            {todasAsBases && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+          </button>
+
+          {/* cada base, com o mesmo desenho da caixa Base */}
+          {fontes.map((f) => {
+            const marcada = marcadas.has(f.id);
+            const r = resumoBases[f.id];
+            return (
+              <button key={f.id} type="button"
+                onClick={() => {
+                  const nova = new Set(marcadas);
+                  if (marcada) nova.delete(f.id); else nova.add(f.id);
+                  onTrocarCfg({ ...cfg, bases_todas: false, fonte_ids: [...nova] });
+                }}
+                className={cn("w-full flex items-center gap-2.5 rounded-lg px-2 py-2 text-left ring-1 transition-colors",
+                  marcada ? "ring-primary/35 bg-primary/[0.08]" : "ring-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]")}>
+                <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1",
+                  marcada ? "bg-primary/15 text-primary ring-primary/25" : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
+                  <Database className="h-3 w-3" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11.5px] font-medium truncate" title={f.nome}>{f.nome}</span>
+                  <span className="block text-[10px] text-muted-foreground/70 leading-snug tabular-nums">
+                    {r?.total ?? 0} na base
+                    {(r?.novos ?? 0) > 0 ? ` · ${r!.novos} novo${r!.novos === 1 ? "" : "s"}` : ""}
+                  </span>
+                </span>
+                {marcada && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+              </button>
+            );
+          })}
+
+          <BotaoLigarPlanilha onClick={() => setLigando(true)} />
+        </div>
+      )}
+
+      <Dialog open={ligando} onOpenChange={(a) => { if (!salvando) setLigando(a); }}>
+        <DialogContent className="max-w-md [&>*]:min-w-0">
+          <DialogHeader>
+            <DialogTitle className="text-[15px] flex items-center gap-2">
+              <Database className="h-4 w-4" /> Ligar planilha
+            </DialogTitle>
+            <DialogDescription className="text-[12px] leading-relaxed">
+              Os leads dela entram na caixa <span className="text-foreground/80">Base</span> de{" "}
+              <span className="text-foreground/80">{nomeDe(instancia)}</span> e passam a valer para
+              este fluxo. A planilha continua sendo a dona dos dados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Link da planilha</span>
+              <Input value={link} onChange={(e) => setLink(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/…"
+                className="h-9 text-[12px]" />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Apelido</span>
+                <Input value={apelidoDaBase} onChange={(e) => setApelidoDaBase(e.target.value)}
+                  placeholder="Leads empresariais" className="h-9 text-[13px]" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">
+                  Aba <span className="opacity-60">(opcional)</span>
+                </span>
+                <Input value={aba} onChange={(e) => setAba(e.target.value)}
+                  placeholder="Leads" className="h-9 text-[13px]" />
+              </label>
+            </div>
+            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+              A planilha precisa estar compartilhada com a conta de serviço do sistema. As colunas
+              que aparecem no cartão do lead se escolhem na caixa Base.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setLigando(false)} disabled={salvando}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={ligarPlanilha} disabled={salvando || !link.trim()}>
+              {salvando
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Ligando…</>
+                : <>Ligar planilha</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function BotaoLigarPlanilha({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left border border-dashed
+                 border-white/[0.12] text-muted-foreground hover:text-foreground hover:border-white/25
+                 hover:bg-white/[0.03] transition-colors">
+      <Plus className="h-3 w-3 shrink-0" />
+      <span className="text-[11px]">Ligar outra planilha</span>
+    </button>
   );
 }
 

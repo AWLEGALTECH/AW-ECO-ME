@@ -132,7 +132,7 @@ import {
 import {
   useMarcasDeInstancia, useInvalidarMarcas, marcaDe, nomeNaTela, salvarMarcaDeInstancia,
 } from "@/hooks/useMarcaInstancia";
-import { resumoDasRespostas, resumoDoDossie, dossieExtra } from "@/lib/planilhaLeads";
+import { resumoDasRespostas, resumoDoDossie, dossieExtra, idDaPlanilha } from "@/lib/planilhaLeads";
 import {
   situacaoDoContato, estaOnline, estaDigitando, vistoDaMensagem, rotuloDoStatus, marcaDeEnvio,
 } from "@/lib/presencaWa";
@@ -2196,16 +2196,6 @@ export default function AtendimentoPage() {
     }, 3_000);
     return () => { vivo = false; clearInterval(id); };
   }, [passoConexao, instConectando, invalidarWa]);
-
-  /* ── A PLANILHA DA LANDING ──
-     O link inteiro serve como entrada: ninguém decora que o id da planilha é o
-     pedaço entre /d/ e /edit, e pedir "cole o id" é pedir que a pessoa faça
-     manualmente o recorte que o código faz sem errar. */
-  const idDaPlanilha = (linkOuId: string): string => {
-    const t = linkOuId.trim();
-    const m = t.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    return m ? m[1] : t;
-  };
 
   /* LER O CABEÇALHO ANTES DE SALVAR.
      A escolha de colunas só existe se a pessoa souber quais são — e quem sabe
