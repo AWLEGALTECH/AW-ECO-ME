@@ -35,7 +35,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
-  Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw,
+  Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw, Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,7 @@ import {
 import {
   useAutomacoes, useResumoAutomacoes, useExecucoes,
   criarAutomacao, salvarAutomacao, alternarAutomacao, apagarAutomacao, duplicarAutomacao,
+  testarAutomacao,
   type Rascunho,
 } from "@/hooks/useAutomacoes";
 import {
@@ -513,6 +514,9 @@ function Editor({
   const [selecionado, setSelecionado] = useState<string>("gatilho");
   const [subAba, setSubAba] = useState<"fluxo" | "execucoes">("fluxo");
   const [salvando, setSalvando] = useState(false);
+  const [testando, setTestando] = useState(false);
+  const [telefoneDoTeste, setTelefoneDoTeste] = useState("");
+  const [disparando, setDisparando] = useState(false);
 
   /* O que está salvo, para o botão só aparecer quando há o que salvar. Comparar
      o objeto inteiro é mais honesto que um `sujo = true` espalhado por dez
@@ -552,6 +556,23 @@ function Editor({
     }
   };
 
+  const dispararTeste = async () => {
+    if (!automacao) return;
+    setDisparando(true);
+    try {
+      await testarAutomacao(automacao.id, telefoneDoTeste);
+      setTestando(false);
+      setSubAba("execucoes");
+      toast.success("Teste na fila.", {
+        description: "A mensagem sai no próximo minuto. Acompanhe em Execuções.",
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDisparando(false);
+    }
+  };
+
   const trocarPasso = (id: string, mudanca: Partial<Passo>) =>
     setPassos((ps) => ps.map((p) => (p.id === id ? { ...p, ...mudanca } : p)));
 
@@ -583,6 +604,15 @@ function Editor({
           placeholder="Nome do fluxo (ex.: Primeiro contato dos leads empresariais)"
           className="h-8 text-[12.5px] bg-transparent border-white/[0.08] flex-1 min-w-0"
         />
+        {/* TESTAR SÓ DEPOIS DE SALVO, e só com passo escrito: testar um
+            rascunho mandaria para o WhatsApp de alguém uma coisa que ainda não
+            existe. Só aparece quando não há nada pendente de salvar. */}
+        {automacao && !mudou && passos.length > 0 && (
+          <Button size="sm" variant="outline" className="h-8 text-[12px] shrink-0"
+            onClick={() => setTestando(true)}>
+            <Play className="h-3.5 w-3.5 mr-1" /> Testar agora
+          </Button>
+        )}
         <AnimatePresence>
           {mudou && (
             <motion.div
@@ -623,8 +653,17 @@ function Editor({
         </LayoutGroup>
       )}
 
+      <DialogDoTeste
+        aberto={testando} onOpenChange={setTestando}
+        nome={nome} nomeDoNumero={nomeDe(instancia)}
+        telefone={telefoneDoTeste} onTrocarTelefone={setTelefoneDoTeste}
+        mensagens={resumoDoFluxo(passos).mensagens}
+        ocupado={disparando} onDisparar={dispararTeste}
+      />
+
       {subAba === "execucoes" && automacao ? (
-        <Execucoes automacaoId={automacao.id} aoVivo={aoVivo} />
+        <Execucoes automacaoId={automacao.id} aoVivo={aoVivo}
+          ligadaEm={automacao.ativa ? (automacao.ligada_em ?? null) : null} />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* ── canvas ── */}
@@ -1592,6 +1631,84 @@ function InspetorDoPasso({ passo, numero, onTrocar, onRemover }: {
   );
 }
 
+/**
+ * TESTAR AGORA: o fluxo inteiro, num número que você escolhe.
+ *
+ * Existe por causa de um silêncio. O primeiro teste de uma automação foi assim:
+ * o lead entrou na planilha às 16:19:41, a automação foi ligada às 16:20:21, e
+ * nada aconteceu — a trava de "só vale daqui pra frente" barrou por quarenta
+ * segundos de diferença. A trava está certa (ligar um fluxo na base do Bradesco
+ * dispararia 692 mensagens), mas ela não tem como saber que aquilo era um teste.
+ *
+ * O aviso de que a mensagem SAI DE VERDADE está em letra grande de propósito:
+ * "testar" em quase todo sistema quer dizer simular, e aqui não quer.
+ */
+function DialogDoTeste({
+  aberto, onOpenChange, nome, nomeDoNumero, telefone, onTrocarTelefone,
+  mensagens, ocupado, onDisparar,
+}: {
+  aberto: boolean;
+  onOpenChange: (v: boolean) => void;
+  nome: string;
+  nomeDoNumero: string;
+  telefone: string;
+  onTrocarTelefone: (v: string) => void;
+  mensagens: number;
+  ocupado: boolean;
+  onDisparar: () => void;
+}) {
+  return (
+    <Dialog open={aberto} onOpenChange={(a) => { if (!ocupado) onOpenChange(a); }}>
+      <DialogContent className="max-w-md [&>*]:min-w-0">
+        <DialogHeader>
+          <DialogTitle className="text-[15px] flex items-center gap-2">
+            <Play className="h-4 w-4" /> Testar “{nome}”
+          </DialogTitle>
+          <DialogDescription className="text-[12px] leading-relaxed">
+            O fluxo roda inteiro no número que você digitar, agora, saindo por{" "}
+            <span className="text-foreground/80">{nomeDoNumero}</span>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] text-muted-foreground">WhatsApp de destino</span>
+          <Input
+            value={telefone}
+            onChange={(e) => onTrocarTelefone(e.target.value)}
+            placeholder="92 99999 9999"
+            inputMode="tel"
+            className="h-9 text-[13px] tabular-nums"
+          />
+        </label>
+
+        <div className="rounded-lg ring-1 ring-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-[12px] font-medium flex items-center gap-1.5">
+            <Pendente /> A mensagem sai de verdade
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-1">
+            {mensagens === 1
+              ? "Uma mensagem vai chegar nesse WhatsApp"
+              : `${mensagens} mensagens vão chegar nesse WhatsApp`}
+            , como o lead receberia. O teste não espera o horário de atendimento e
+            não precisa que o fluxo esteja ligado.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={ocupado}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={onDisparar} disabled={ocupado || telefone.replace(/\D/g, "").length < 10}>
+            {ocupado
+              ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Disparando…</>
+              : <><Play className="h-3.5 w-3.5 mr-1.5" /> Rodar o fluxo</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ══════════════════ execuções ═════════════════════════════════════════════ */
 
 const TOM_DO_STATUS: Record<string, string> = {
@@ -1602,7 +1719,12 @@ const TOM_DO_STATUS: Record<string, string> = {
   rodando:   "text-primary ring-primary/25 bg-primary/[0.10]",
 };
 
-function Execucoes({ automacaoId, aoVivo }: { automacaoId: string; aoVivo: boolean }) {
+function Execucoes({ automacaoId, aoVivo, ligadaEm }: {
+  automacaoId: string;
+  aoVivo: boolean;
+  /** quando o fluxo foi ligado; nulo quando está desligado */
+  ligadaEm: string | null;
+}) {
   const { data: execs = [], isLoading } = useExecucoes(automacaoId, aoVivo);
 
   if (isLoading) {
@@ -1614,11 +1736,28 @@ function Execucoes({ automacaoId, aoVivo }: { automacaoId: string; aoVivo: boole
   }
 
   if (execs.length === 0) {
+    /* VAZIO PRECISA DIZER POR QUÊ. Lista vazia é indistinguível de coisa
+       quebrada, e neste caso o motivo quase sempre é a trava do "só vale daqui
+       pra frente": quem ligou o fluxo depois de o lead entrar fica olhando uma
+       tela em branco sem nenhuma pista. */
     return (
-      <div className="flex-1 px-4 py-10 text-center">
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Ninguém passou por este fluxo ainda.
-        </p>
+      <div className="flex-1 px-5 py-10 text-center">
+        <p className="text-[12.5px] font-medium">Ninguém passou por este fluxo ainda.</p>
+        {ligadaEm ? (
+          <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-2 max-w-sm mx-auto">
+            Ele vale para o que acontecer depois de{" "}
+            <span className="text-foreground/80">
+              {new Date(ligadaEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            </span>
+            , quando foi ligado. Quem já estava na base antes disso não entra, de propósito.
+            Para ver o fluxo funcionando agora, use o botão Testar agora.
+          </p>
+        ) : (
+          <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-2 max-w-sm mx-auto">
+            Este fluxo está desligado, então nada dispara sozinho. O botão Testar agora roda
+            ele mesmo assim, num número que você escolher.
+          </p>
+        )}
       </div>
     );
   }
@@ -1636,8 +1775,15 @@ function Execucoes({ automacaoId, aoVivo }: { automacaoId: string; aoVivo: boole
               <span className="text-[11.5px] font-medium truncate min-w-0">
                 {e.nome_do_lead || e.telefone || "lead sem nome"}
               </span>
-              <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 shrink-0", TOM_DO_STATUS[e.status])}>
-                {ROTULO_STATUS[e.status]}
+              <span className="flex items-center gap-1 shrink-0">
+                {e.teste && (
+                  <span className="rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 ring-white/[0.12] bg-white/[0.05] text-muted-foreground">
+                    teste
+                  </span>
+                )}
+                <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1", TOM_DO_STATUS[e.status])}>
+                  {ROTULO_STATUS[e.status]}
+                </span>
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-snug mt-0.5">

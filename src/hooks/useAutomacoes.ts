@@ -48,6 +48,7 @@ function daLinha(l: Record<string, unknown>): Automacao | null {
     nome: String(l.nome ?? ""),
     instancia: String(l.instancia ?? ""),
     ativa: !!l.ativa,
+    ligada_em: (l.ligada_em as string) ?? null,
     gatilho: g as Gatilho,
     gatilho_config: (l.gatilho_config ?? {}) as ConfigDoGatilho,
     condicoes: {
@@ -59,7 +60,7 @@ function daLinha(l: Record<string, unknown>): Automacao | null {
   };
 }
 
-const COLUNAS = "id, nome, instancia, ativa, gatilho, gatilho_config, condicoes, passos, updated_at";
+const COLUNAS = "id, nome, instancia, ativa, ligada_em, gatilho, gatilho_config, condicoes, passos, updated_at";
 
 /**
  * TODAS as automações do escritório, e não as do número aberto.
@@ -109,6 +110,7 @@ export function useResumoAutomacoes(aoVivo: boolean) {
  */
 export interface ExecucaoComNome extends Execucao {
   nome_do_lead: string | null;
+  teste: boolean;
 }
 
 export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
@@ -118,13 +120,13 @@ export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
     refetchInterval: aoVivo ? 20_000 : false,
     queryFn: async (): Promise<ExecucaoComNome[]> => {
       const { data, error } = await tabela("wa_automacao_execucoes")
-        .select("id, automacao_id, conversa_id, telefone, status, passo, detalhe, erro, disparada_em, rodar_em, terminada_em")
+        .select("id, automacao_id, conversa_id, telefone, status, passo, detalhe, erro, disparada_em, rodar_em, terminada_em, teste")
         .eq("automacao_id", automacaoId)
         .order("disparada_em", { ascending: false })
         .limit(60);
       if (error) throw error;
 
-      const linhas = (data ?? []) as Execucao[];
+      const linhas = (data ?? []) as (Execucao & { teste?: boolean })[];
       const ids = [...new Set(linhas.map((l) => l.conversa_id).filter(Boolean))] as string[];
       const nomes: Record<string, string> = {};
       if (ids.length > 0) {
@@ -136,6 +138,7 @@ export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
       }
       return linhas.map((l) => ({
         ...l,
+        teste: !!l.teste,
         nome_do_lead: l.conversa_id ? (nomes[l.conversa_id] ?? null) : null,
       }));
     },
@@ -184,6 +187,26 @@ export async function salvarAutomacao(id: string, r: Rascunho) {
     passos: r.passos,
   }).eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Põe um telefone no fluxo AGORA, para ver acontecer.
+ *
+ * Existe porque o primeiro teste de uma automação falha em silêncio: a trava
+ * de "só vale daqui pra frente" não sabe distinguir "ligar um fluxo novo" de
+ * "ligar um fluxo na base que já tem 692 leads", então ela barra os dois. Quem
+ * aperta este botão está dizendo o que ela não adivinha.
+ *
+ * MANDA DE VERDADE. Não é simulação: a mensagem sai pelo número do fluxo, na
+ * hora, mesmo fora do horário de atendimento.
+ */
+export async function testarAutomacao(id: string, telefone: string) {
+  const { data, error } = await (supabase.rpc as never as any)("fn_wa_automacao_testar", {
+    p_automacao: id, p_telefone: telefone,
+  });
+  if (error) throw new Error(error.message);
+  const r = (Array.isArray(data) ? data[0] : data) as { ok?: boolean; erro?: string | null } | null;
+  if (!r?.ok) throw new Error(r?.erro || "Não consegui disparar o teste.");
 }
 
 /**

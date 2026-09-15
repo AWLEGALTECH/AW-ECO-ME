@@ -79,6 +79,8 @@ interface Execucao {
   passos: Passo[];
   condicoes: { so_horario_comercial?: boolean; teto_dia?: number } | null;
   gatilho: string;
+  /** disparada a mão pelo botão Testar agora */
+  teste?: boolean;
 }
 
 /**
@@ -168,7 +170,11 @@ async function conversaDaExecucao(sb: any, e: Execucao, evo: { base: string; api
 /** Uma execução, do passo em que parou até onde der. */
 async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }): Promise<string> {
   const passos = Array.isArray(e.passos) ? e.passos : [];
-  const soComercial = e.condicoes?.so_horario_comercial !== false;
+  /* O TESTE SAI NA HORA. Quem aperta "Testar agora" às nove da noite quer ver
+     a mensagem às nove da noite; segurar até a próxima janela de atendimento
+     faria o teste parecer que não funcionou, que é justamente o problema que o
+     botão existe para resolver. */
+  const soComercial = e.condicoes?.so_horario_comercial !== false && e.teste !== true;
 
   const { id: conversa, erro } = await conversaDaExecucao(sb, e, evo);
   if (!conversa) {
@@ -245,7 +251,7 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
 
   await sb.rpc("fn_wa_automacao_desfecho", {
     p_id: e.id, p_status: "concluida", p_passo: i, p_conversa: conversa,
-    p_detalhe: `${passos.length} passo(s) executado(s)`,
+    p_detalhe: `${passos.length} passo(s) executado(s)${e.teste ? " (teste)" : ""}`,
   });
   return "concluida";
 }

@@ -199,6 +199,8 @@ export interface Automacao {
   nome: string;
   instancia: string;
   ativa: boolean;
+  /** quando o interruptor foi ligado; evento anterior a isso não dispara */
+  ligada_em?: string | null;
   gatilho: Gatilho;
   gatilho_config: ConfigDoGatilho;
   condicoes: Condicoes;
