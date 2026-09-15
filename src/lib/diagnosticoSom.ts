@@ -240,7 +240,7 @@ export function bipeWav(segundos = 0.6, hz = 440, taxa = 8000): string {
   return `data:audio/wav;base64,${b64}`;
 }
 
-/** O que a pessoa ouviu em cada um dos três caminhos. */
+/** O que a pessoa ouviu em cada um dos caminhos. */
 export type Ouviu = boolean | null;
 export interface OQueOuviu {
   /** o bling sintetizado (Web Audio) */
@@ -249,6 +249,16 @@ export interface OQueOuviu {
   bipe: Ouviu;
   /** um áudio de cliente de verdade, em Opus, por um <audio> */
   voz: Ouviu;
+  /**
+   * um vídeo de verdade, por um <video> com os controles do navegador.
+   *
+   * Entrou depois, quando o relato ficou mais preciso: o vídeo também está
+   * mudo. Isso é informação grande, porque vídeo é MP4/AAC e áudio é
+   * Ogg/Opus — duas famílias sem nada em comum. Máquina nenhuma perde os dois
+   * decodificadores e continua tocando o resto do navegador. O que os dois
+   * compartilham é serem elemento de mídia, e é isso que passou a ser testado.
+   */
+  video: Ouviu;
 }
 
 /**
@@ -291,13 +301,29 @@ export function ondeParou(o: OQueOuviu): Veredito | null {
     };
   }
 
-  if (o.voz === null) return null;
+  if (o.voz === null || o.video === null) return null;
 
-  if (o.bipe && !o.voz) {
+  /* VOZ E VÍDEO MUDOS JUNTOS NÃO É FORMATO. Opus e AAC não têm nada em comum
+     além de virem de arquivo pela rede; perder os dois e manter o bipe é
+     assinatura de arquivo que não chega, e não de decodificador que falta. */
+  if (o.bipe && !o.voz && !o.video) {
+    return {
+      gravidade: "erro",
+      titulo: "O que é gerado aqui toca; o que vem do servidor, não",
+      detalhe: "O bipe está dentro da própria página e sai. A voz e o vídeo vêm do servidor de arquivos, e nenhum dos dois sai. São formatos sem parentesco, então o que falha é a chegada do arquivo, não o formato.",
+      passos: [
+        "Repetir nesta máquina usando o 4G do celular, por ponto de acesso",
+        "Conferir se o antivírus ou o firewall inspeciona HTTPS e bloqueia o domínio do Supabase",
+        "Abrir o mesmo sistema numa janela anônima, com as extensões desligadas",
+      ],
+    };
+  }
+
+  if (o.bipe && !o.voz && o.video) {
     return {
       gravidade: "erro",
       titulo: "É o Opus: o navegador não decodifica o áudio do WhatsApp",
-      detalhe: "O arquivo comum toca e o do cliente não. A diferença entre os dois é só o formato, então o que falta é o decodificador de Opus.",
+      detalhe: "O vídeo toca com som e o áudio do cliente não. A diferença entre os dois é o formato, então o que falta é o decodificador de Opus.",
       passos: [
         "Abrir o sistema no Google Chrome, que traz o Opus embutido",
         "Se já for o Chrome, atualizar em Menu, Ajuda, Sobre o Google Chrome, e reiniciar",
@@ -306,11 +332,23 @@ export function ondeParou(o: OQueOuviu): Veredito | null {
     };
   }
 
-  if (o.bling && o.bipe && o.voz) {
+  if (o.bipe && o.voz && !o.video) {
+    return {
+      gravidade: "aviso",
+      titulo: "Só o vídeo está mudo",
+      detalhe: "O áudio do cliente sai e o vídeo não. O tocador de vídeo é o do próprio navegador, e ele guarda o volume que a pessoa deixou da última vez.",
+      passos: [
+        "Passar o mouse sobre o vídeo, achar o ícone de som nos controles e subir a barrinha",
+        "Se o ícone estiver com um risco, clicar nele uma vez",
+      ],
+    };
+  }
+
+  if (o.bling && o.bipe && o.voz && o.video) {
     return {
       gravidade: "ok",
-      titulo: "Os três sons saíram",
-      detalhe: "O caminho inteiro está de pé nesta máquina, inclusive o do áudio do cliente. Se uma bolha específica não toca, o problema é daquele arquivo, e não da máquina.",
+      titulo: "Todos os sons saíram",
+      detalhe: "O caminho inteiro está de pé nesta máquina, inclusive o do áudio do cliente e o do vídeo. Se uma bolha específica não toca, o problema é daquele arquivo, e não da máquina.",
       passos: ["Abrir a conversa que não tocava e tentar de novo",
                "Se continuar só nela, me mandar o nome da conversa e a hora do áudio"],
     };
@@ -319,17 +357,77 @@ export function ondeParou(o: OQueOuviu): Veredito | null {
   return null;
 }
 
-/** O resumo em texto, para colar numa mensagem sem precisar de print. */
-export function resumoParaColar(a: Achados, navegador: string): string {
-  const linhas = [
-    `Navegador: ${navegador}`,
-    `Web Audio (avisos do sistema): ${a.webAudio}`,
-    ...FORMATOS.map((f) => `${f.rotulo} (${f.mime}): ${a.suporte[f.mime] ?? "?"}`),
-    `Carregou o arquivo de teste: ${a.carregou === null ? "não testado" : a.carregou ? "sim" : "não"}`,
-    a.erroCodigo ? `Erro de mídia: ${a.erroCodigo} (${NOME_ERRO[a.erroCodigo] ?? "desconhecido"})` : null,
-    `Tempo andou ao tocar: ${a.andou === null ? "não testado" : a.andou ? "sim" : "não"}`,
-    `Volume do tocador: ${Math.round(a.volume * 100)}%${a.mudo ? " (mudo)" : ""}`,
-    a.saidas != null ? `Saídas de áudio no sistema: ${a.saidas}` : null,
-  ].filter(Boolean);
-  return linhas.join("\n");
+/** O que dá para saber da máquina sem pedir permissão nenhuma. */
+export interface Ambiente {
+  navegador: string;
+  plataforma: string | null;
+  /** o AudioContext subiu, e em que taxa */
+  webAudio: string;
+  /** quantas saídas de áudio, e os nomes quando o navegador conta */
+  saidas: string;
+  /** o tocador da tela, do jeito que ele está agora */
+  tocador: string;
+}
+
+/**
+ * O resumo em texto, para colar numa mensagem sem precisar de print.
+ *
+ * É a única coisa que atravessa a distância: quem está do outro lado não vê a
+ * tela dela e não pode perguntar de um em um. Por isso ele junta as três
+ * camadas — o que ela OUVIU, o que o navegador RESPONDEU e como a máquina
+ * ESTÁ — e não só a última, que era o que ele trazia antes e que sozinha não
+ * decide nada.
+ */
+export function resumoParaColar(
+  a: Achados | null,
+  navegador: string,
+  o?: OQueOuviu | null,
+  amb?: Ambiente | null,
+): string {
+  const sn = (v: Ouviu) => (v === null ? "não respondeu" : v ? "OUVIU" : "NÃO ouviu");
+  const partes: (string | null)[] = [];
+
+  if (o) {
+    partes.push(
+      "O QUE ELA OUVIU",
+      `  1 aviso do sistema (sintetizado aqui): ${sn(o.bling)}`,
+      `  2 bipe em WAV (arquivo, sem rede):     ${sn(o.bipe)}`,
+      `  3 áudio do cliente (Opus, do servidor): ${sn(o.voz)}`,
+      `  4 vídeo (MP4, do servidor):            ${sn(o.video)}`,
+      "",
+    );
+  }
+
+  /* O NAVEGADOR SAI SEMPRE, com ou sem o resto do ambiente. Ele é o primeiro
+     dado de qualquer diagnóstico à distância, e uma versão dele já muda a
+     conclusão; deixá-lo cair junto com o bloco opcional foi um buraco que o
+     teste antigo pegou. */
+  if (amb) {
+    partes.push(
+      "A MÁQUINA",
+      `  Navegador: ${amb.navegador}`,
+      amb.plataforma ? `  Sistema: ${amb.plataforma}` : null,
+      `  Web Audio: ${amb.webAudio}`,
+      `  Saídas de áudio: ${amb.saidas}`,
+      `  Tocador da tela: ${amb.tocador}`,
+      "",
+    );
+  } else if (navegador) {
+    partes.push("A MÁQUINA", `  Navegador: ${navegador}`, "");
+  }
+
+  if (a) {
+    partes.push(
+      "O QUE O NAVEGADOR RESPONDEU",
+      ...FORMATOS.map((f) => `  ${f.rotulo} (${f.mime}): ${a.suporte[f.mime] ?? "?"}`),
+      `  Baixou e decodificou um áudio real: ${a.carregou === null ? "não testado" : a.carregou ? "sim" : "não"}`,
+      a.erroCodigo ? `  Erro de mídia: ${a.erroCodigo} (${NOME_ERRO[a.erroCodigo] ?? "desconhecido"})` : null,
+      `  Tempo andou ao tocar: ${a.andou === null ? "não testado" : a.andou ? "sim" : "não"}`,
+      `  Volume do tocador: ${Math.round(a.volume * 100)}%${a.mudo ? " (mudo)" : ""}`,
+      a.saidas != null ? `  Saídas de áudio: ${a.saidas}` : null,
+    );
+  }
+
+  if (partes.length === 0) partes.push(`Navegador: ${navegador}`);
+  return partes.filter((l) => l !== null).join("\n").trimEnd();
 }

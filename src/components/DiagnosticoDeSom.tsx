@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   FORMATOS, suporteDe, lerAchados, resumoParaColar, bipeWav, ondeParou,
-  type Achados, type Suporte, type OQueOuviu, type Veredito,
+  type Achados, type Suporte, type OQueOuviu, type Veredito, type Ambiente,
 } from "@/lib/diagnosticoSom";
 import { tocarSomNotificacao } from "@/lib/som";
 
@@ -72,34 +72,43 @@ function CartaoDoVeredito({ v, atraso = 0 }: { v: Veredito; atraso?: number }) {
  * A ordem importa e é crescente: cada som acrescenta UM pedaço de caminho ao
  * anterior. O primeiro que não sair aponta o pedaço que quebrou.
  */
-function OsTresSons() {
-  const [ouviu, setOuviu] = useState<OQueOuviu>({ bling: null, bipe: null, voz: null });
+function OsTresSons({ aoMudar }: { aoMudar?: (o: OQueOuviu) => void }) {
+  const [ouviu, setOuviu] = useState<OQueOuviu>({ bling: null, bipe: null, voz: null, video: null });
   const [tocandoQual, setTocandoQual] = useState<string | null>(null);
   const [urlDaVoz, setUrlDaVoz] = useState<string | null>(null);
+  const [urlDoVideo, setUrlDoVideo] = useState<string | null>(null);
   const [semVoz, setSemVoz] = useState(false);
+  const [semVideo, setSemVideo] = useState(false);
   const el = useRef<HTMLAudioElement | null>(null);
 
   const bipe = useMemo(() => bipeWav(), []);
 
   useEffect(() => () => { el.current?.pause(); }, []);
+  useEffect(() => { aoMudar?.(ouviu); }, [ouviu, aoMudar]);
 
-  /* O áudio de cliente mais recente, assinado na hora. Um arquivo de exemplo
+  /* A mídia mais recente de cada tipo, assinada na hora. Arquivo de exemplo
      não serviria: o que se testa é ESTE formato vindo DESTE servidor. */
-  const pegarVoz = useCallback(async (): Promise<string | null> => {
-    if (urlDaVoz) return urlDaVoz;
+  const pegarMidia = useCallback(async (tipo: "audio" | "video"): Promise<string | null> => {
+    const guardada = tipo === "audio" ? urlDaVoz : urlDoVideo;
+    if (guardada) return guardada;
+    const avisarFalta = tipo === "audio" ? setSemVoz : setSemVideo;
+
     const { data: linha } = await (supabase.from("wa_mensagens" as never) as never as {
       select: (c: string) => any;
     }).select("midia_path")
-      .eq("tipo", "audio").not("midia_path", "is", null)
+      .eq("tipo", tipo).not("midia_path", "is", null)
       .order("criada_em", { ascending: false }).limit(1).maybeSingle();
     const caminho = (linha as { midia_path?: string } | null)?.midia_path;
-    if (!caminho) { setSemVoz(true); return null; }
+    if (!caminho) { avisarFalta(true); return null; }
+
     const { data } = await supabase.storage.from("wa-midia").createSignedUrl(caminho, 300);
     const u = data?.signedUrl ?? null;
-    if (!u) { setSemVoz(true); return null; }
-    setUrlDaVoz(u);
+    if (!u) { avisarFalta(true); return null; }
+    (tipo === "audio" ? setUrlDaVoz : setUrlDoVideo)(u);
     return u;
-  }, [urlDaVoz]);
+  }, [urlDaVoz, urlDoVideo]);
+
+  const pegarVoz = useCallback(() => pegarMidia("audio"), [pegarMidia]);
 
   const tocarArquivo = useCallback(async (qual: "bipe" | "voz") => {
     setTocandoQual(qual);
@@ -142,14 +151,28 @@ function OsTresSons() {
     {
       chave: "voz" as const,
       titulo: "3. Um áudio de cliente de verdade",
-      abaixo: "Arquivo e o formato do WhatsApp, os dois juntos.",
+      abaixo: "Vem do servidor, no formato do WhatsApp (Opus).",
       tocar: () => tocarArquivo("voz"),
+    },
+    {
+      chave: "video" as const,
+      titulo: "4. Um vídeo de verdade",
+      abaixo: "Também do servidor, mas em MP4, que é outra família de formato.",
+      /* O vídeo abre embaixo com os controles do navegador, e não num
+         elemento invisível: metade do que pode estar errado com vídeo é o
+         volume DO PRÓPRIO tocador, e isso só se vê olhando para ele. */
+      tocar: async () => {
+        setTocandoQual("video");
+        const u = await pegarMidia("video");
+        setTocandoQual(null);
+        if (!u) return;
+      },
     },
   ];
 
-  /* A terceira pergunta só aparece quando as duas primeiras já responderam:
-     se o bipe não saiu, a voz não vai sair e perguntar não acrescenta nada. */
-  const mostrarVoz = ouviu.bling !== null && ouviu.bipe === true;
+  /* As perguntas de arquivo do servidor só aparecem quando o bipe saiu: com o
+     bipe mudo, a conclusão já está dada e perguntar mais não acrescenta nada. */
+  const mostrarDoServidor = ouviu.bling !== null && ouviu.bipe === true;
   const veredito = ondeParou(ouviu);
 
   return (
@@ -166,7 +189,7 @@ function OsTresSons() {
 
       <LayoutGroupless>
         {linhas.map((l, i) => {
-          const visivel = l.chave !== "voz" || mostrarVoz;
+          const visivel = (l.chave !== "voz" && l.chave !== "video") || mostrarDoServidor;
           if (!visivel) return null;
           const resposta = ouviu[l.chave];
           return (
@@ -208,9 +231,49 @@ function OsTresSons() {
         })}
       </LayoutGroupless>
 
+      {/* O VÍDEO APARECE DE VERDADE, com os controles do navegador. O tocador
+          de vídeo é do Chrome, não nosso, e ele guarda o volume que a pessoa
+          deixou da última vez: se a barrinha estiver no chão, é isso, e não
+          há como saber sem olhar. */}
+      <AnimatePresence initial={false}>
+        {urlDoVideo && (
+          <motion.div
+            key="video" layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={MOLA}
+            className="overflow-hidden">
+            <video
+              src={urlDoVideo}
+              controls
+              autoPlay
+              onPlay={(e) => {
+                /* Volume aberto por nossa conta ao dar play: o tocador do
+                   navegador herda o volume da última vez, e se ele veio em
+                   zero o teste responderia "não ouvi" por um motivo que não é
+                   o que estamos investigando. */
+                const v = e.currentTarget;
+                v.volume = 1;
+                v.muted = false;
+              }}
+              className="w-full max-h-[200px] rounded-lg ring-1 ring-white/10 bg-black"
+            />
+            <p className="text-[10px] text-muted-foreground/70 leading-snug mt-1">
+              Confira também a barrinha de som dentro do próprio vídeo, no canto do tocador.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {semVoz && (
         <p className="text-[10.5px] text-amber-300/90 leading-snug">
           Não há nenhum áudio de cliente guardado para testar. Peça um áudio a alguém pelo WhatsApp e volte aqui.
+        </p>
+      )}
+      {semVideo && (
+        <p className="text-[10.5px] text-amber-300/90 leading-snug">
+          Não há nenhum vídeo guardado para testar. Peça um vídeo curto a alguém pelo WhatsApp e volte aqui.
         </p>
       )}
 
@@ -226,9 +289,44 @@ function LayoutGroupless({ children }: { children: React.ReactNode }) {
   return <motion.div layout transition={MOLA}>{children}</motion.div>;
 }
 
+/** O que dá para saber da máquina sem pedir permissão nenhuma. */
+async function lerAmbiente(): Promise<Ambiente> {
+  let webAudio = "não subiu";
+  try {
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ac = new AC();
+    webAudio = `${ac.state}, ${ac.sampleRate} Hz, ${ac.destination.maxChannelCount} canais`;
+    ac.close().catch(() => {});
+  } catch { /* fica "não subiu" */ }
+
+  let saidas = "não deu para contar";
+  try {
+    const ds = await navigator.mediaDevices?.enumerateDevices();
+    const out = (ds ?? []).filter((d) => d.kind === "audiooutput");
+    /* O NOME só vem depois de a pessoa ter dado permissão de microfone alguma
+       vez. Sem ele, o número já diz bastante, e pedir microfone para um teste
+       de som seria um pedido estranho de se fazer. */
+    const nomes = out.map((d) => d.label).filter(Boolean);
+    saidas = nomes.length > 0 ? `${out.length} (${nomes.join("; ")})` : String(out.length);
+  } catch { /* fica o texto padrão */ }
+
+  const t = document.querySelector("audio");
+  const tocador = t
+    ? `volume ${Math.round(t.volume * 100)}%${t.muted ? ", MUDO" : ", não mudo"}, taxa ${t.playbackRate}x`
+    : "não havia tocador na tela";
+
+  const uad = (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData;
+  return {
+    navegador: navigator.userAgent,
+    plataforma: uad?.platform ?? null,
+    webAudio, saidas, tocador,
+  };
+}
+
 export function DiagnosticoDeSom() {
   const [rodando, setRodando] = useState(false);
   const [achados, setAchados] = useState<Achados | null>(null);
+  const [ouviu, setOuviu] = useState<OQueOuviu | null>(null);
 
   const rodar = async () => {
     setRodando(true);
@@ -306,9 +404,13 @@ export function DiagnosticoDeSom() {
     setRodando(false);
   };
 
-  const copiar = () => {
-    if (!achados) return;
-    const txt = resumoParaColar(achados, `${navigator.userAgent}`);
+  /* O RESUMO JUNTA AS TRÊS CAMADAS, e não só a medição. Quem vai ler está
+     longe da máquina e não pode perguntar de um em um: o que ela ouviu, como
+     a máquina está e o que o navegador respondeu precisam vir no mesmo texto,
+     ou a conversa vira mais uma rodada de perguntas. */
+  const copiar = async () => {
+    const amb = await lerAmbiente();
+    const txt = resumoParaColar(achados, navigator.userAgent, ouviu, amb);
     navigator.clipboard.writeText(txt)
       .then(() => toast.success("Resumo copiado. É só colar na conversa."))
       .catch(() => toast.error("Não consegui copiar. Dá pra tirar um print."));
@@ -335,15 +437,23 @@ export function DiagnosticoDeSom() {
       {/* PRIMEIRO O OUVIDO, DEPOIS A MÁQUINA. O teste automático diz o que o
           navegador RESPONDE; só quem está na frente do computador sabe o que
           saiu na caixa de som, e é essa resposta que aponta o trecho quebrado. */}
-      <OsTresSons />
+      <OsTresSons aoMudar={setOuviu} />
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={rodar} disabled={rodando} className="shrink-0 h-7 text-[11px]">
           {rodando ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Testando…</>
                    : "Conferir também o que a máquina responde"}
         </Button>
+        {/* COPIAR SAI DA GAVETA. Antes ele só existia depois do teste
+            automático, e o dado que mais importa agora é o que ela ouviu:
+            exigir o teste automático para poder mandar o resultado escondia
+            a resposta atrás de um botão que ninguém sabia que precisava
+            apertar. */}
+        <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={copiar}>
+          <ClipboardCopy className="h-3.5 w-3.5 mr-1.5" /> Copiar tudo para me mandar
+        </Button>
         <span className="text-[10.5px] text-muted-foreground/70">
-          Opcional, e não faz barulho.
+          O teste acima não faz barulho.
         </span>
       </div>
 
@@ -392,14 +502,9 @@ export function DiagnosticoDeSom() {
                 </div>
               </dl>
 
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={copiar}>
-                  <ClipboardCopy className="h-3.5 w-3.5 mr-1.5" /> Copiar resumo
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => tocarSomNotificacao()}>
-                  Tocar o bling do sistema
-                </Button>
-              </div>
+              {/* Sem botão de copiar aqui: ele subiu para junto do teste dos
+                  sons, e dois botões iguais em lugares diferentes só fazem
+                  duvidar de qual dos dois manda o resultado certo. */}
             </div>
           </motion.div>
         )}

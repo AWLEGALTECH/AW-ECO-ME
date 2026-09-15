@@ -97,7 +97,7 @@ test("o resumo cabe numa mensagem", () => {
 import { bipeWav, ondeParou, type OQueOuviu } from "./diagnosticoSom";
 
 const ouviu = (o: Partial<OQueOuviu> = {}): OQueOuviu =>
-  ({ bling: null, bipe: null, voz: null, ...o });
+  ({ bling: null, bipe: null, voz: null, video: null, ...o });
 
 test("o bipe é um WAV válido, com cabeçalho RIFF e o tamanho declarado certo", () => {
   const uri = bipeWav(0.5, 440, 8000);
@@ -146,7 +146,7 @@ test("bling sai e bipe não: é o Windows abafando a mídia, e não o formato", 
 });
 
 test("bipe sai e voz não: aí sim é o Opus", () => {
-  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: false }))!;
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: false, video: true }))!;
   expect(v.titulo).toContain("Opus");
   expect(v.passos.join(" ")).toContain("Chrome");
 });
@@ -158,7 +158,70 @@ test("nada sai: o navegador inteiro está mudo, e o caminho é o mixer", () => {
 });
 
 test("os três saem: está de pé, e a suspeita passa a ser daquele áudio", () => {
-  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: true }))!;
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: true, video: true }))!;
   expect(v.gravidade).toBe("ok");
-  expect(v.titulo).toContain("três sons");
+  expect(v.titulo).toContain("Todos os sons");
+});
+
+/* ── o vídeo entra na conta ────────────────────────────────────────────────
+ *
+ * Relato novo e mais preciso: o vídeo também está mudo. Vídeo é MP4/AAC e
+ * áudio do WhatsApp é Ogg/Opus; máquina nenhuma perde as duas famílias e
+ * segue tocando o resto do navegador. Os dois juntos apontam para o arquivo
+ * não chegar, e não para decodificador faltando. */
+
+test("sem a resposta do vídeo ainda não há conclusão", () => {
+  expect(ondeParou(ouviu({ bling: true, bipe: true, voz: true }))).toBeNull();
+  expect(ondeParou(ouviu({ bling: true, bipe: true, voz: false }))).toBeNull();
+});
+
+test("voz e vídeo mudos juntos é o arquivo não chegando, e não o formato", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: false, video: false }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.titulo).toContain("vem do servidor");
+  expect(v.passos.join(" ")).toMatch(/4G|firewall|anônima/);
+  // não pode culpar o Opus: o vídeo nem é Opus
+  expect(v.detalhe).not.toContain("Opus");
+});
+
+test("vídeo toca e voz não: aí o Opus é o único suspeito", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: false, video: true }))!;
+  expect(v.titulo).toContain("Opus");
+});
+
+test("só o vídeo mudo é o volume do tocador do próprio navegador", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: true, video: false }))!;
+  expect(v.gravidade).toBe("aviso");
+  expect(v.titulo).toContain("Só o vídeo");
+  expect(v.passos.join(" ")).toContain("barrinha");
+});
+
+test("o bipe mudo decide antes de o vídeo ser perguntado", () => {
+  // com o bipe mudo, o vídeo não acrescenta nada: a conclusão já saiu
+  const v = ondeParou(ouviu({ bling: true, bipe: false }))!;
+  expect(v.titulo).toContain("não é problema de formato");
+});
+
+test("o resumo junta o que ouviu, a máquina e o que o navegador respondeu", () => {
+  const txt = resumoParaColar(
+    achados(),
+    "ua",
+    { bling: true, bipe: false, voz: null, video: null },
+    { navegador: "Chrome 141", plataforma: "Windows 11", webAudio: "ok, 48000 Hz",
+      saidas: "2", tocador: "volume 100%, não mudo" },
+  );
+  expect(txt).toContain("O QUE ELA OUVIU");
+  expect(txt).toContain("OUVIU");
+  expect(txt).toContain("NÃO ouviu");
+  expect(txt).toContain("não respondeu");
+  expect(txt).toContain("A MÁQUINA");
+  expect(txt).toContain("Chrome 141");
+  expect(txt).toContain("O QUE O NAVEGADOR RESPONDEU");
+});
+
+test("o resumo funciona com só uma das partes, e nunca sai vazio", () => {
+  expect(resumoParaColar(null, "ua", { bling: true, bipe: true, voz: true, video: true }, null))
+    .toContain("O QUE ELA OUVIU");
+  expect(resumoParaColar(achados(), "ua", null, null)).toContain("O QUE O NAVEGADOR RESPONDEU");
+  expect(resumoParaColar(null, "ua/1.0", null, null)).toContain("ua/1.0");
 });
