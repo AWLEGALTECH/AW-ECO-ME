@@ -1,0 +1,1 @@
+../../../src/lib/previaOpenGraph.ts

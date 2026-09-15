@@ -77,6 +77,7 @@ import {
   type DiagnosticoDaPlanilha, type RespostaDaLeitura,
 } from "@/lib/diagnosticoPlanilha";
 import { GuiaDaPlanilha } from "@/components/GuiaDaPlanilha";
+import { TextoComLinks, PreviaDoLink } from "@/components/TextoComLinks";
 import {
   TOTAL_RODADAS, rotuloDaRodada, rotuloDoDegrau, diasDaRodada, diasDeAtraso, INTENCAO,
   CADENCIA as CADENCIA_PADRAO, type Regua,
@@ -4100,9 +4101,23 @@ export default function AtendimentoPage() {
                         />
                       )}
                       {/* Legenda de foto é onde mora metade do que o cliente
-                          diz — some só quando realmente não veio nada. */}
+                          diz — some só quando realmente não veio nada.
+
+                          O LINK É CLICÁVEL, como no WhatsApp: antes, abrir um
+                          endereço que o lead mandou exigia selecionar com o
+                          mouse dentro de uma bolha de três linhas e copiar. E o
+                          cartão de prévia entra embaixo quando o site responde,
+                          sem segurar a bolha esperando por ele. */}
                       {msg.texto && (
-                        <span className={cn("block", msg.midiaPath && "mt-1.5 px-2")}>{msg.texto}</span>
+                        <span className={cn("block", msg.midiaPath && "mt-1.5 px-2")}>
+                          <TextoComLinks texto={msg.texto} nossa={msg.de === "nos"} />
+                          {/* Sem cartão embaixo de foto: a mídia já é a imagem
+                              da bolha, e um segundo retângulo com outra imagem
+                              faz a mensagem parecer duas. */}
+                          {!msg.midiaPath && (
+                            <PreviaDoLink texto={msg.texto} nossa={msg.de === "nos"} aoVivo={aoVivo} />
+                          )}
+                        </span>
                       )}
                       <span className={cn("flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground/70 mt-1 tabular-nums",
                         msg.midiaPath && "px-2 pb-0.5")}>
