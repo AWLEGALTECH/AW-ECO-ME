@@ -125,20 +125,23 @@ export function lerAchados(a: Achados): Veredito[] {
   }
 
   /* O ACHADO QUE ENCERRA A DISCUSSÃO. Formato suportado, arquivo carregado,
-     relógio andando, volume aberto: o navegador está tocando. O som existe e
-     está saindo em outro lugar. */
+     relógio andando, volume aberto: o navegador está tocando.
+
+     ATENÇÃO AO QUE ESTE AVISO NÃO PODE DIZER. A primeira versão dele mandava
+     direto para o mixer do Windows, e isso estava errado de raciocínio: o
+     bling e o áudio do cliente saem do MESMO navegador para a MESMA saída, e
+     um mixer que abafasse um abafaria o outro. Mixer explica "nenhum som", não
+     "só este som". Mandar mexer lá gastou uma rodada inteira de tentativa.
+     O que decide é o teste dos três sons, e é para lá que este aviso aponta. */
   if (!semNenhum && !semOpus && a.carregou && a.andou && !a.mudo && a.volume > 0) {
     out.push({
       gravidade: "aviso",
-      titulo: "O navegador está tocando, mas o som sai em outro lugar",
-      detalhe: "O arquivo foi decodificado e o tempo está correndo. O problema está entre o navegador e a caixa de som, e não no sistema."
-        + (a.saidas && a.saidas > 1 ? ` Esta máquina tem ${a.saidas} saídas de áudio, o que torna isso mais provável.` : ""),
+      titulo: "O navegador está tocando; falta saber se o som chega à caixa",
+      detalhe: "O arquivo foi decodificado e o tempo está correndo, então o navegador fez a parte dele. Daqui em diante só o ouvido responde: use os três sons acima, que dizem em qual trecho ele some."
+        + (a.saidas && a.saidas > 1 ? ` Esta máquina tem ${a.saidas} saídas de áudio, o que dá mais de um lugar para o som se perder.` : ""),
       passos: [
-        "No Windows: botão direito no ícone de som, Mixer de volume, conferir se o navegador não está mudo ou em 0",
-        "No mesmo mixer, conferir se o navegador não está mandando o som para outro dispositivo",
-        "No Chrome: clicar no cadeado ao lado do endereço e conferir se Som está como Permitir",
-        "Clicar com o botão direito na aba: se aparecer Reativar som do site, é isso",
-        "Desligar os efeitos de áudio do fabricante (Dolby, Samsung), que costumam tomar a placa para si",
+        "Tocar os três sons aqui de cima e responder o que ouviu em cada um",
+        "Se o bipe do teste 2 não sair, é o Windows abafando mídia, e não o formato",
       ],
     });
   }
@@ -171,6 +174,149 @@ export function lerAchados(a: Achados): Veredito[] {
     });
   }
   return out;
+}
+
+/* ══════════════════ OS TRÊS SONS ═══════════════════════════════════════════
+ *
+ * O teste de cima mede o que a máquina RESPONDE. Isto aqui é o que ela FAZ, e
+ * foi o que faltou: os dois testes anteriores nunca pediram para a pessoa
+ * OUVIR pelo caminho do áudio do cliente. O arquivo real era tocado no mudo
+ * (para não gritar na sala), então "o navegador está tocando" nunca foi
+ * confirmado por ouvido nenhum.
+ *
+ * O ERRO DE RACIOCÍNIO QUE ISTO CORRIGE. A conclusão anterior mandava mexer no
+ * mixer do Windows quando tudo o mais dava certo. Mas o bling e o áudio do
+ * cliente saem do MESMO navegador para a MESMA saída: se fosse o mixer, o
+ * bling sumiria junto. O mixer explica "nenhum som", não "só este som".
+ *
+ * O que separa os dois é o CAMINHO, e ele tem dois trechos:
+ *
+ *   bling  →  sintetizado no Web Audio. Sem arquivo, sem decodificador.
+ *   bipe   →  arquivo WAV num <audio>. Tem o trecho de mídia, mas o WAV é
+ *             PCM cru: nenhum navegador do mundo precisa de decodificador
+ *             especial para ele.
+ *   voz    →  arquivo Opus num <audio>. Tem o trecho de mídia E o Opus.
+ *
+ * O bipe é a peça que faltava, e é ela que decide:
+ *
+ *   ouve bling, não ouve bipe  →  o caminho de MÍDIA do navegador está mudo.
+ *                                 Não é codec: é volume por aplicativo, o
+ *                                 abafamento de comunicação do Windows, ou
+ *                                 efeito do fabricante.
+ *   ouve bipe, não ouve voz    →  aí sim é o Opus, e só ele.
+ */
+
+/** Um bipe curto de 440 Hz em WAV, como data URI. PCM cru: toca em tudo. */
+export function bipeWav(segundos = 0.6, hz = 440, taxa = 8000): string {
+  const n = Math.max(1, Math.round(segundos * taxa));
+  const bytes = new Uint8Array(44 + n);
+  const dv = new DataView(bytes.buffer);
+  const txt = (pos: number, s: string) => {
+    for (let i = 0; i < s.length; i += 1) bytes[pos + i] = s.charCodeAt(i);
+  };
+  txt(0, "RIFF"); dv.setUint32(4, 36 + n, true); txt(8, "WAVE");
+  txt(12, "fmt "); dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);      // PCM
+  dv.setUint16(22, 1, true);      // mono
+  dv.setUint32(24, taxa, true);
+  dv.setUint32(28, taxa, true);   // byte rate = taxa * canais * bytes por amostra
+  dv.setUint16(32, 1, true);      // alinhamento do bloco
+  dv.setUint16(34, 8, true);      // 8 bits
+  txt(36, "data"); dv.setUint32(40, n, true);
+
+  /* Com abertura e fechamento suaves: onda que começa e para seco estala, e um
+     estalo é exatamente o que confunde quem está tentando ouvir se saiu som. */
+  const rampa = Math.min(Math.floor(n / 8), Math.round(taxa * 0.02));
+  for (let i = 0; i < n; i += 1) {
+    const env = rampa > 0 ? Math.min(1, Math.min(i, n - 1 - i) / rampa) : 1;
+    bytes[44 + i] = Math.round(128 + 110 * env * Math.sin((2 * Math.PI * hz * i) / taxa));
+  }
+
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+  const b64 = typeof btoa === "function"
+    ? btoa(bin)
+    : Buffer.from(bytes).toString("base64");
+  return `data:audio/wav;base64,${b64}`;
+}
+
+/** O que a pessoa ouviu em cada um dos três caminhos. */
+export type Ouviu = boolean | null;
+export interface OQueOuviu {
+  /** o bling sintetizado (Web Audio) */
+  bling: Ouviu;
+  /** o bipe em WAV, por um <audio> */
+  bipe: Ouviu;
+  /** um áudio de cliente de verdade, em Opus, por um <audio> */
+  voz: Ouviu;
+}
+
+/**
+ * Onde o som morre, dado o que ela ouviu.
+ *
+ * `null` é "ainda não respondeu", e é diferente de "não ouviu": enquanto falta
+ * resposta, não há conclusão nenhuma a dar.
+ */
+export function ondeParou(o: OQueOuviu): Veredito | null {
+  if (o.bling === null || o.bipe === null) return null;
+
+  if (!o.bling && !o.bipe) {
+    return {
+      gravidade: "erro",
+      titulo: "Nenhum som do navegador sai nesta máquina",
+      detalhe: "Nem o sintetizado, nem o arquivo. Como outros programas tocam, o problema é do navegador para baixo, e não da placa.",
+      passos: [
+        "Clicar com o botão direito no ícone de som, ao lado do relógio, e abrir o Mixer de volume",
+        "Achar o navegador na lista e conferir se ele não está em 0 ou no mudo",
+        "Conferir se, na mesma linha, a saída dele não é outro aparelho",
+      ],
+    };
+  }
+
+  if (o.bling && !o.bipe) {
+    /* O ACHADO QUE O TESTE ANTERIOR NÃO CONSEGUIA FAZER. Som sintetizado sai,
+       arquivo não sai, e o arquivo é um WAV cru: não há decodificador nenhum
+       para culpar. O que sobra é o Windows tratando mídia diferente de aviso. */
+    return {
+      gravidade: "erro",
+      titulo: "O som de arquivo está abafado, e não é problema de formato",
+      detalhe: "O bipe é um WAV cru, que toca em qualquer navegador sem decodificador nenhum. Se ele não sai e o bling sai, alguma coisa no Windows está abafando só a mídia. O abafamento de chamadas é a causa mais comum, e ele fica ligado sozinho.",
+      passos: [
+        "Abrir o Painel de Controle, Som, aba Comunicações",
+        "Marcar “Não fazer nada” e aplicar (se estiver em “Silenciar” ou “Reduzir”, é isto)",
+        "Fechar o que usa microfone (Teams, Meet, WhatsApp do computador) e tocar o bipe de novo",
+        "Na aba Reprodução, abrir as propriedades do alto-falante e desligar os efeitos (Dolby, Samsung, Realtek)",
+        "No Mixer de volume, conferir o volume do navegador separadamente",
+      ],
+    };
+  }
+
+  if (o.voz === null) return null;
+
+  if (o.bipe && !o.voz) {
+    return {
+      gravidade: "erro",
+      titulo: "É o Opus: o navegador não decodifica o áudio do WhatsApp",
+      detalhe: "O arquivo comum toca e o do cliente não. A diferença entre os dois é só o formato, então o que falta é o decodificador de Opus.",
+      passos: [
+        "Abrir o sistema no Google Chrome, que traz o Opus embutido",
+        "Se já for o Chrome, atualizar em Menu, Ajuda, Sobre o Google Chrome, e reiniciar",
+        "Se for Windows edição N, instalar o Media Feature Pack pela Microsoft",
+      ],
+    };
+  }
+
+  if (o.bling && o.bipe && o.voz) {
+    return {
+      gravidade: "ok",
+      titulo: "Os três sons saíram",
+      detalhe: "O caminho inteiro está de pé nesta máquina, inclusive o do áudio do cliente. Se uma bolha específica não toca, o problema é daquele arquivo, e não da máquina.",
+      passos: ["Abrir a conversa que não tocava e tentar de novo",
+               "Se continuar só nela, me mandar o nome da conversa e a hora do áudio"],
+    };
+  }
+
+  return null;
 }
 
 /** O resumo em texto, para colar numa mensagem sem precisar de print. */

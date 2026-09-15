@@ -36,13 +36,16 @@ test("faltando só o Opus, o vídeo toca e o áudio do cliente não", () => {
 
 /* O ACHADO QUE ENCERRA A DISCUSSÃO: tudo certo do lado do navegador quer dizer
    que o som existe e está saindo em outro lugar. */
-test("tocando com tudo aberto aponta para fora do navegador", () => {
+test("tocando com tudo aberto manda para o ouvido, e não para o mixer", () => {
   const v = lerAchados(achados());
   expect(v).toHaveLength(1);
   expect(v[0].gravidade).toBe("aviso");
-  expect(v[0].titulo).toContain("sai em outro lugar");
+  expect(v[0].titulo).toContain("falta saber se o som chega");
   expect(v[0].detalhe).toContain("2 saídas");
-  expect(v[0].passos.length).toBeGreaterThan(2);
+  /* O MIXER NÃO PODE SER O CONSELHO AQUI. Ele abafaria o bling junto, e o
+     bling toca: mandar mexer lá já custou uma rodada inteira de tentativa. */
+  expect(v[0].passos.join(" ")).not.toContain("Mixer");
+  expect(v[0].passos.join(" ")).toContain("três sons");
 });
 
 test("com uma saída só, não inventa que há várias", () => {
@@ -87,4 +90,75 @@ test("o resumo cabe numa mensagem", () => {
   expect(txt).toContain("Volume do tocador: 100%");
   expect(txt).not.toContain("Erro de mídia");
   expect(resumoParaColar(achados({ erroCodigo: 3 }), "x")).toContain("não deu para decodificar");
+});
+
+/* ══════════════════ os três sons ═══════════════════════════════════════════ */
+
+import { bipeWav, ondeParou, type OQueOuviu } from "./diagnosticoSom";
+
+const ouviu = (o: Partial<OQueOuviu> = {}): OQueOuviu =>
+  ({ bling: null, bipe: null, voz: null, ...o });
+
+test("o bipe é um WAV válido, com cabeçalho RIFF e o tamanho declarado certo", () => {
+  const uri = bipeWav(0.5, 440, 8000);
+  expect(uri.startsWith("data:audio/wav;base64,")).toBe(true);
+
+  const bytes = Buffer.from(uri.split(",")[1], "base64");
+  const n = 0.5 * 8000;
+  expect(bytes.length).toBe(44 + n);
+  expect(bytes.subarray(0, 4).toString()).toBe("RIFF");
+  expect(bytes.subarray(8, 12).toString()).toBe("WAVE");
+  expect(bytes.subarray(36, 40).toString()).toBe("data");
+  // os dois tamanhos do cabeçalho têm que bater com o arquivo de verdade
+  expect(bytes.readUInt32LE(4)).toBe(36 + n);
+  expect(bytes.readUInt32LE(40)).toBe(n);
+  // PCM, mono, 8 bits, na taxa pedida
+  expect(bytes.readUInt16LE(20)).toBe(1);
+  expect(bytes.readUInt16LE(22)).toBe(1);
+  expect(bytes.readUInt32LE(24)).toBe(8000);
+  expect(bytes.readUInt16LE(34)).toBe(8);
+});
+
+test("o bipe abre e fecha em silêncio, e no meio tem onda de verdade", () => {
+  const bytes = Buffer.from(bipeWav(0.5).split(",")[1], "base64");
+  const dados = bytes.subarray(44);
+  // 128 é o silêncio no PCM de 8 bits sem sinal
+  expect(dados[0]).toBe(128);
+  expect(dados[dados.length - 1]).toBe(128);
+  const pico = Math.max(...dados.map((v) => Math.abs(v - 128)));
+  expect(pico).toBeGreaterThan(80);
+});
+
+test("sem as respostas ainda não há conclusão", () => {
+  expect(ondeParou(ouviu())).toBeNull();
+  expect(ondeParou(ouviu({ bling: true }))).toBeNull();
+  // com bipe ouvido, a voz ainda é necessária
+  expect(ondeParou(ouviu({ bling: true, bipe: true }))).toBeNull();
+});
+
+test("bling sai e bipe não: é o Windows abafando a mídia, e não o formato", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: false }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.titulo).toContain("não é problema de formato");
+  expect(v.passos.join(" ")).toContain("Comunicações");
+  // não pode mandar trocar de navegador: o formato não é o problema aqui
+  expect(v.passos.join(" ")).not.toContain("Chrome");
+});
+
+test("bipe sai e voz não: aí sim é o Opus", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: false }))!;
+  expect(v.titulo).toContain("Opus");
+  expect(v.passos.join(" ")).toContain("Chrome");
+});
+
+test("nada sai: o navegador inteiro está mudo, e o caminho é o mixer", () => {
+  const v = ondeParou(ouviu({ bling: false, bipe: false }))!;
+  expect(v.gravidade).toBe("erro");
+  expect(v.passos.join(" ")).toContain("Mixer");
+});
+
+test("os três saem: está de pé, e a suspeita passa a ser daquele áudio", () => {
+  const v = ondeParou(ouviu({ bling: true, bipe: true, voz: true }))!;
+  expect(v.gravidade).toBe("ok");
+  expect(v.titulo).toContain("três sons");
 });
