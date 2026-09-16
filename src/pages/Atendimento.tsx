@@ -148,7 +148,7 @@ import {
   type Pendente,
 } from "@/lib/envioOtimista";
 import {
-  useFontes, useNomesDasBases, useLeadsBrutos, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado,
+  useFontes, useTodasAsFontes, useNomesDasBases, useLeadsBrutos, useBaseCompleta, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
@@ -515,7 +515,14 @@ export default function AtendimentoPage() {
   /* A escolha dos anexos que vão para o Finder. */
   const [finderAberto, setFinderAberto] = useState(false);
   const [docsEscolhidos, setDocsEscolhidos] = useState<string[]>([]);
-  const [caixa, setCaixa] = useState<"inbound" | "base">("inbound");
+  const [caixa, setCaixa] = useState<"conversas" | "bases">("conversas");
+  /* Qual número filtra a LISTA DE BASES. Nulo é todas, que é o padrão: a lista
+     existe justamente para ninguém perder de vista uma base de outro número. */
+  const [filtroDeBase, setFiltroDeBase] = useState<string | null>(null);
+  /* Dentro da base aberta: todo mundo, só quem já escreveu, ou só quem nunca. */
+  const [filtroDoLead, setFiltroDoLead] = useState<"todos" | "escreveram" | "nunca">("todos");
+  /* Por qual número a primeira mensagem vai sair. Escolhido na ficha do lead. */
+  const [porQualNumero, setPorQualNumero] = useState<string>("");
   /* Qual base está expandida. UMA de cada vez: a coluna tem 15,5rem e a fila
      de uma base já ocupa a altura inteira — duas abertas juntas viram rolagem
      sem fim, e a pessoa perde de vista em qual base estava trabalhando. */
@@ -708,6 +715,21 @@ export default function AtendimentoPage() {
      perguntas diferentes: esta é sobre o que este número faz hoje, a outra é
      sobre de onde a pessoa veio um dia. */
   const { data: fontes = [] } = useFontes(instancia.nome);
+  /* TODAS as bases, de todos os números. A caixa mostrava só as do número
+     aberto, e isso escondia base sem dizer que existia. */
+  const { data: todasAsFontes = [] } = useTodasAsFontes();
+  const basesVisiveis = useMemo(
+    () => (filtroDeBase ? todasAsFontes.filter((f) => mesmaInstancia(f.instancia, filtroDeBase)) : todasAsFontes),
+    [todasAsFontes, filtroDeBase]);
+  /* A base aberta, inteira. Só busca com uma aberta: são centenas de linhas, e
+     não faz sentido tê-las na memória enquanto se responde gente do outro lado
+     da tela. */
+  const { data: baseCompleta = [], isLoading: carregandoBaseCompleta } = useBaseCompleta(baseAberta);
+  const contagemDaBase = useMemo(() => ({
+    total: baseCompleta.length,
+    escreveram: baseCompleta.filter((b) => b.escreveu).length,
+    nunca: baseCompleta.filter((b) => !b.escreveu).length,
+  }), [baseCompleta]);
 
   /* QUAL CONVERSA ESTÁ ABERTA, DE VERDADE.
      `selecionadoId` nasce com o id da MAQUETE ("l1"), porque na primeira
@@ -2395,6 +2417,11 @@ export default function AtendimentoPage() {
   const abrirAbordagem = (b: LeadBruto) => {
     setAbordar(b);
     setMsgAbordagem("");
+    /* O NÚMERO JÁ VEM ESCOLHIDO, e escolhido no lugar certo: se o lead já fala
+       com a gente em algum número, é por lá que se continua. Só quando ele não
+       fala em nenhum é que vale o número aberto na tela. */
+    const ondeJaFala = (b as { conversa_instancia?: string | null }).conversa_instancia;
+    setPorQualNumero(ondeJaFala || instancia.nome);
   };
 
   /* Abrir a conversa e (se houver texto) já mandar a primeira mensagem — que é
@@ -2405,8 +2432,12 @@ export default function AtendimentoPage() {
     if (!b) return;
     setAbordando(true);
     try {
+      /* POR QUAL NÚMERO. Era sempre o aberto na tela; agora é escolha, e ela
+         vem pré-marcada no número em que o lead já fala com a gente, quando
+         fala. Mandar por um número novo para quem já tem conversa em outro é
+         começar do zero uma conversa que já existe. */
       const r = await criarConversa({
-        instancia: instancia.nome,
+        instancia: porQualNumero || instancia.nome,
         telefone: b.telefone,
         nome: b.nome ?? null,
       });
@@ -2420,7 +2451,7 @@ export default function AtendimentoPage() {
       setMsgAbordagem("");
       // Vai junto pra conversa: quem abordou quer ver a resposta chegar, não
       // voltar pra fila e procurar a pessoa de novo.
-      setCaixa("inbound");
+      setCaixa("conversas");
       setSelecionadoId(r.conversa_id);
       if (r.aviso) toast.warning(r.aviso);
     } catch (e) {
@@ -3037,7 +3068,7 @@ export default function AtendimentoPage() {
                  três colunas, com largura própria. */
               "w-full md:shrink-0",
               ehMobile && telaMobile !== "caixa" && "hidden",
-              caixa === "base" && baseAberta ? "md:w-[21rem] 2xl:md:w-[24rem]" : "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
+              caixa === "bases" && baseAberta ? "md:w-[21rem] 2xl:md:w-[24rem]" : "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -3045,14 +3076,14 @@ export default function AtendimentoPage() {
                   </h2>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10.5px] text-muted-foreground tabular-nums">
-                      {caixa === "inbound" ? lista.length : brutosNovos.length}
+                      {caixa === "conversas" ? lista.length : brutosNovos.length}
                     </span>
                     {/* O "+" fica no cabeçalho da caixa, e não perto do campo
                         de digitar, porque o gesto é "arrumar mais um na lista"
                         — não "responder alguém". */}
                     <button type="button"
-                      title={caixa === "inbound" ? "Nova conversa" : "Ligar uma planilha"}
-                      onClick={() => (caixa === "inbound" ? setNovaAberta(true) : setFonteAberta(true))}
+                      title={caixa === "conversas" ? "Nova conversa" : "Ligar uma planilha"}
+                      onClick={() => (caixa === "conversas" ? setNovaAberta(true) : setFonteAberta(true))}
                       className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
                       <Plus className="h-3.5 w-3.5" />
                     </button>
@@ -3060,16 +3091,27 @@ export default function AtendimentoPage() {
                 </div>
 
                 {/* DUAS CAIXAS, UM CARTÃO SÓ.
-                    Inbound é quem escreveu; base é quem deixou o número na
-                    landing e nunca chamou. São dois trabalhos diferentes —
+                    Conversas é quem falou com a gente; bases é quem deixou o
+                    número na landing. São dois trabalhos diferentes —
                     responder e prospectar — mas a mesma fila de pessoas: quem
-                    sai da base entra no inbound assim que recebe a primeira
+                    sai da base entra nas conversas assim que troca a primeira
                     mensagem. Separar em duas telas faria a atendente perder de
-                    vista metade do funil enquanto trabalha a outra. */}
+                    vista metade do funil enquanto trabalha a outra.
+
+                    "INBOUND" SAIU DO VOCABULÁRIO. Era jargão nosso na tela de
+                    quem atende: ninguém que abre esta caixa pensa "vou ver o
+                    inbound", pensa "vou ver quem me chamou". E ao lado de
+                    "Base" a dupla não dizia o que separava as duas, porque
+                    misturava o caminho (inbound) com a origem (base).
+
+                    BASES VEM PRIMEIRO porque é de lá que sai o trabalho do dia
+                    nesta operação: a conversa é a consequência, a base é a
+                    causa. O padrão continua sendo Conversas, que é o que se
+                    olha ao abrir a tela de manhã. */}
                 <div className="flex rounded-lg bg-white/[0.03] ring-1 ring-white/[0.06] p-[2px]">
                   {([
-                    { chave: "inbound" as const, rotulo: "Inbound", n: leadsBase.length },
-                    { chave: "base" as const, rotulo: "Base", n: brutosNovos.length },
+                    { chave: "bases" as const, rotulo: "Bases", n: brutosNovos.length },
+                    { chave: "conversas" as const, rotulo: "Conversas", n: leadsBase.length },
                   ]).map((t) => (
                     <button key={t.chave} onClick={() => setCaixa(t.chave)}
                       className={cn("flex-1 rounded-md px-2 py-1 text-[10.5px] transition-colors flex items-center justify-center gap-1.5",
@@ -3091,7 +3133,7 @@ export default function AtendimentoPage() {
                     O botão CONTA quantos filtros estão ligados e fica aceso
                     quando há algum. Filtro ligado e invisível é a forma mais
                     rápida de alguém concluir que "sumiram conversas". */}
-                {caixa === "inbound" && (
+                {caixa === "conversas" && (
                   <div className="flex items-center gap-1.5">
                     <Popover>
                       <PopoverTrigger asChild>
@@ -3272,7 +3314,7 @@ export default function AtendimentoPage() {
                 </div>
               </div>
 
-              {caixa === "base" ? (
+              {caixa === "bases" ? (
                 /* AS BASES VÊM ANTES DOS CONTATOS.
                    Cada landing é uma base — LP Bradesco, LP concessionárias — e
                    elas não se misturam: a abordagem de quem veio de uma é
@@ -3280,11 +3322,49 @@ export default function AtendimentoPage() {
                    dentro de uma delas. Então a aba abre com a LISTA DE BASES, e
                    uma se expande por vez. */
                 <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-                  {fontes.length === 0 ? (
+                  {/* ── AS BASES DE TODOS OS NÚMEROS ──
+                      Elas eram filtradas pelo número aberto na tela, e isso
+                      escondia base sem dizer que existia: quem estava no
+                      OUTBOUND não via a base do INBOUND e concluía que ela
+                      tinha sumido. Agora aparecem todas, com o número dito em
+                      cada uma, e o filtro é uma escolha visível. */}
+                  {instancias.length > 1 && todasAsFontes.length > 0 && (
+                    <div className="px-2.5 py-2 flex items-center gap-1 flex-wrap border-b border-white/[0.06]">
+                      <button type="button" onClick={() => setFiltroDeBase(null)}
+                        className={cn("rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors",
+                          filtroDeBase === null ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
+                                                : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
+                        Todas ({todasAsFontes.length})
+                      </button>
+                      {instancias.map((i) => {
+                        const n = todasAsFontes.filter((f) => mesmaInstancia(f.instancia, i.nome)).length;
+                        if (n === 0) return null;
+                        const cor = corDe(i.nome);
+                        const ativo = mesmaInstancia(filtroDeBase, i.nome);
+                        return (
+                          <button key={i.id} type="button" onClick={() => setFiltroDeBase(ativo ? null : i.nome)}
+                            title={nomeDe(i.nome)}
+                            className={cn("flex items-center gap-1 rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors",
+                              ativo ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
+                                    : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
+                            <span className={cn("rounded px-1 py-[1px] text-[8px] font-bold tracking-wide",
+                              ativo ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
+                              {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                            </span>
+                            <span className="tabular-nums opacity-70">{n}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {basesVisiveis.length === 0 ? (
                     <div className="px-3 py-8 text-center flex flex-col items-center gap-2">
                       <Table2 className="h-5 w-5 text-muted-foreground/50" />
                       <p className="text-[11.5px] text-muted-foreground leading-snug">
-                        Nenhuma base ligada ainda.
+                        {todasAsFontes.length === 0
+                          ? "Nenhuma base ligada ainda."
+                          : "Nenhuma base neste número."}
                       </p>
                       <Button size="sm" variant="outline" className="h-7 text-[11px]"
                         onClick={() => setFonteAberta(true)}>
@@ -3293,12 +3373,25 @@ export default function AtendimentoPage() {
                     </div>
                   ) : (
                     <>
-                      {fontes.map((f) => {
+                      {basesVisiveis.map((f) => {
                         const aberta = baseAberta === f.id;
                         const r = resumoBases[f.id];
-                        const mostrandoAntigos = !!verAntigos[f.id];
-                        const daBase = brutosVisiveis.filter(
-                          (b) => b.fonte_id === f.id && (mostrandoAntigos || contaComoNovo(b)));
+                        /* ── A BASE ABERTA VEM INTEIRA ──
+                           Fechada, a linha usa o resumo. Aberta, ela busca a
+                           base completa: todo mundo que está lá dentro, com
+                           quem já escreveu marcado — e escrever conta em
+                           QUALQUER número do escritório, porque o lead não sabe
+                           que temos dois. */
+                        const daBase = aberta
+                          ? baseCompleta
+                              .filter((b) => filtroDoLead === "todos"
+                                || (filtroDoLead === "escreveram" ? b.escreveu : !b.escreveu))
+                              .filter((b) => {
+                                const t = busca.trim().toLowerCase();
+                                if (!t) return true;
+                                return (b.nome ?? "").toLowerCase().includes(t) || b.telefone.includes(t);
+                              })
+                          : [];
                         return (
                           <div key={f.id} className="border-b border-white/[0.06]">
                             {/* O NOME É O BOTÃO, e o sinal à esquerda diz o que
@@ -3428,9 +3521,49 @@ export default function AtendimentoPage() {
                               </div>
                             )}
 
-                            {aberta && (daBase.length === 0 ? (
+                            {/* ── QUEM JÁ FALOU E QUEM NUNCA FALOU ──
+                                As duas etiquetas dizem o número ANTES de
+                                filtrar, e é aí que está o valor: "escreveram
+                                71" ao lado de "nunca 637" é a leitura da base
+                                num relance, e some assim que o filtro é
+                                aplicado. Escrever conta em qualquer número do
+                                escritório. */}
+                            {aberta && (
+                              <div className="px-2.5 py-2 flex items-center gap-1 flex-wrap border-t border-white/[0.04] bg-black/20">
+                                {([
+                                  ["todos", "Todos", contagemDaBase.total],
+                                  ["escreveram", "Já escreveram", contagemDaBase.escreveram],
+                                  ["nunca", "Nunca escreveram", contagemDaBase.nunca],
+                                ] as const).map(([k, rot, n]) => (
+                                  <button key={k} type="button" onClick={() => setFiltroDoLead(k)}
+                                    className={cn("rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors flex items-center gap-1",
+                                      filtroDoLead === k
+                                        ? k === "escreveram"
+                                          ? "bg-emerald-400/[0.14] text-emerald-300 ring-emerald-400/30"
+                                          : k === "nunca"
+                                            ? "bg-primary/[0.14] text-primary ring-primary/30"
+                                            : "bg-white/[0.09] text-foreground ring-white/[0.14]"
+                                        : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
+                                    {rot}
+                                    <span className="tabular-nums opacity-70">{n}</span>
+                                  </button>
+                                ))}
+                                {carregandoBaseCompleta && (
+                                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60" />
+                                )}
+                              </div>
+                            )}
+
+                            {aberta && (carregandoBaseCompleta && daBase.length === 0 ? (
+                              <div className="py-6 grid place-items-center">
+                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
+                              </div>
+                            ) : daBase.length === 0 ? (
                               <p className="text-[11.5px] text-muted-foreground/70 text-center py-6">
-                                {busca.trim() ? "Ninguém com esse nome aqui." : "Ninguém esperando nessa base."}
+                                {busca.trim() ? "Ninguém com esse nome aqui."
+                                  : filtroDoLead === "escreveram" ? "Ninguém desta base escreveu ainda."
+                                  : filtroDoLead === "nunca" ? "Todo mundo desta base já escreveu."
+                                  : "Esta base está vazia."}
                               </p>
                             ) : daBase.map((b) => (
                               <Popover key={b.id}
@@ -3484,10 +3617,34 @@ export default function AtendimentoPage() {
                                           </span>
                                         );
                                       })()}
+                                      {/* A ETIQUETA ERA FIXA NO CÓDIGO, e podia
+                                          ser: a lista só trazia quem nunca
+                                          tinha sido abordado, então todos eram
+                                          "nunca escreveu". Com a base inteira
+                                          na tela virou pergunta de verdade, e a
+                                          resposta vem do banco — contando
+                                          QUALQUER número do escritório, porque
+                                          o lead não sabe que temos dois. */}
                                       <span className="flex items-center gap-1 mt-1">
-                                        <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
-                                          Nunca escreveu
-                                        </span>
+                                        {b.escreveu ? (
+                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-emerald-400/10 text-emerald-300/90 ring-1 ring-emerald-400/25"
+                                            title={b.conversa_instancia ? `Escreveu para ${nomeDe(b.conversa_instancia)}` : undefined}>
+                                            Já escreveu
+                                          </span>
+                                        ) : (
+                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
+                                            Nunca escreveu
+                                          </span>
+                                        )}
+                                        {/* De qual número, quando não é o da
+                                            base: é a informação que mais muda o
+                                            gesto seguinte, e a que estava
+                                            faltando. */}
+                                        {b.conversa_instancia && !mesmaInstancia(b.conversa_instancia, f.instancia) && (
+                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.06] text-muted-foreground ring-1 ring-white/[0.10] truncate">
+                                            {apelidos.get(b.conversa_instancia) ?? apelidoDeInstancia(b.conversa_instancia)}
+                                          </span>
+                                        )}
                                         {b.cidade && (
                                           <span className="text-[9px] text-muted-foreground/70 truncate">{b.cidade}</span>
                                         )}
@@ -3508,6 +3665,12 @@ export default function AtendimentoPage() {
                                     mensagem={msgAbordagem}
                                     onMensagem={setMsgAbordagem}
                                     ocupado={abordando}
+                                    instancias={instancias}
+                                    porQual={porQualNumero || instancia.nome}
+                                    onTrocarPorQual={setPorQualNumero}
+                                    apelidos={apelidos}
+                                    corDe={corDe}
+                                    nomeDe={nomeDe}
                                     onCopiar={() => copiarTexto(telefoneBonito(b.telefone), "Número copiado")}
                                     onEnviar={() => abordarLead(true)}
                                     onSoAbrir={() => abordarLead(false)}
@@ -3521,20 +3684,14 @@ export default function AtendimentoPage() {
                               </Popover>
                             )))}
 
-                            {/* OS ANTERIORES AO CORTE CONTINUAM ALCANÇÁVEIS.
-                                Eles não contam como fila porque já foram
-                                trabalhados, mas some-los sem dizer nada seria
-                                esconder 612 pessoas — e esta tela já teve esse
-                                defeito três vezes. */}
-                            {aberta && (r?.antigos ?? 0) > 0 && (
-                              <button type="button"
-                                onClick={() => setVerAntigos((p) => ({ ...p, [f.id]: !mostrandoAntigos }))}
-                                className="w-full px-2.5 py-2 border-t border-white/[0.04] text-[10.5px] text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.03] transition-colors text-center">
-                                {mostrandoAntigos
-                                  ? "esconder os anteriores"
-                                  : `mostrar ${r!.antigos} anteriores ao corte (base já trabalhada)`}
-                              </button>
-                            )}
+                            {/* O BOTÃO "MOSTRAR OS ANTERIORES AO CORTE" SAIU.
+                                Ele existia porque a lista escondia quem já
+                                tinha sido trabalhado, e esconder 612 pessoas
+                                sem dizer nada já tinha sido defeito desta tela
+                                três vezes. Agora a base abre INTEIRA, então não
+                                há nada escondido para revelar: o que separa as
+                                pessoas são as etiquetas lá em cima, e elas
+                                dizem o número dos dois lados antes de filtrar. */}
                           </div>
                         );
                       })}
@@ -6866,8 +7023,11 @@ function SeletorDeColunas({ disponiveis, escolhidas, onAlternar }: {
    As respostas ficam VISÍVEIS enquanto se escreve: é a diferença entre "Olá,
    tudo bem?" e uma primeira mensagem que já cita o desconto que a pessoa
    marcou. */
-function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, onEnviar, onSoAbrir, onDescartar }: {
-  lead: LeadBruto;
+function FichaDoLead({
+  lead, colunas, mensagem, onMensagem, ocupado, onCopiar, onEnviar, onSoAbrir, onDescartar,
+  instancias, porQual, onTrocarPorQual, apelidos, corDe, nomeDe,
+}: {
+  lead: LeadBruto & { escreveu?: boolean; conversa_instancia?: string | null };
   /** as colunas escolhidas na base; nulo = todas */
   colunas: string[] | null;
   mensagem: string;
@@ -6877,6 +7037,13 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
   onEnviar: () => void;
   onSoAbrir: () => void;
   onDescartar: () => void;
+  /** por qual número mandar. Com um só, a pergunta não existe. */
+  instancias: Instancia[];
+  porQual: string;
+  onTrocarPorQual: (nome: string) => void;
+  apelidos: Map<string, string>;
+  corDe: (nome: string) => { fundo: string; texto: string; anel: string };
+  nomeDe: (nome: string) => string;
 }) {
   const nome = lead.nome?.trim() || telefoneBonito(lead.telefone);
   const extras = dossieExtra(lead.bruto, colunas);
@@ -6938,6 +7105,48 @@ function FichaDoLead({ lead, colunas, mensagem, onMensagem, ocupado, onCopiar, o
         )}
 
         <label className="flex flex-col gap-1.5">
+          {/* ── POR QUAL NÚMERO ──
+              A mensagem saía sempre pelo número aberto na tela, e isso dava
+              para acertar por acaso e para errar sem aviso: a base do Bradesco
+              está ligada no OUTBOUND, mas 60 dos leads dela já conversam com a
+              gente no INBOUND, e responder a essas pessoas por um número novo
+              é começar do zero uma conversa que já existe.
+
+              Com um número só a pergunta não existe e a linha some. */}
+          {instancias.length > 1 && (
+            <div className="mb-2">
+              <span className="block text-[10px] uppercase tracking-[0.12em] text-muted-foreground/60 mb-1">
+                Mandar por qual número
+              </span>
+              <div className="flex items-center gap-1 flex-wrap">
+                {instancias.map((i) => {
+                  const cor = corDe(i.nome);
+                  const eu = mesmaInstancia(i.nome, porQual);
+                  /* Se o lead já fala com a gente num número, ele vem marcado:
+                     é quase sempre o certo, e deixar a escolha em outro faria a
+                     conversa nascer partida em duas. */
+                  const ondeJaFala = lead.conversa_instancia
+                    && mesmaInstancia(i.nome, lead.conversa_instancia);
+                  return (
+                    <button key={i.id} type="button" onClick={() => onTrocarPorQual(i.nome)}
+                      title={nomeDe(i.nome)}
+                      className={cn("flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] ring-1 transition-colors",
+                        eu ? "ring-primary/35 bg-primary/[0.08] text-foreground"
+                           : "ring-white/[0.08] bg-white/[0.03] text-muted-foreground hover:bg-white/[0.06]")}>
+                      <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide",
+                        eu ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
+                        {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
+                      </span>
+                      <span className="truncate max-w-[9rem]">{nomeDe(i.nome)}</span>
+                      {ondeJaFala && (
+                        <span className="text-[9px] text-emerald-300/90 whitespace-nowrap">já fala aqui</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <span className="text-[11px] text-muted-foreground">Primeira mensagem</span>
           <Textarea value={mensagem} onChange={(e) => onMensagem(e.target.value)}
             rows={5} placeholder="Olá! Aqui é a Adria, do Portal Direito Aberto…"

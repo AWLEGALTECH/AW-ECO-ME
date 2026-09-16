@@ -168,6 +168,48 @@ export function useLeadsBrutos(fonteIds: string[]) {
 }
 
 /**
+ * A BASE INTEIRA, com o estado real de cada lead.
+ *
+ * `useLeadsBrutos` acima traz a FILA: só quem ainda não foi abordado. Como fila
+ * está certa, e é o que a caixa usava. Só que a pergunta que se faz abrindo uma
+ * base não é só "quem falta abordar": é "quem está aqui dentro, e em que pé
+ * está cada um". Com metade escondida, 708 linhas viravam 78 na tela, e as
+ * outras 630 não existiam em lugar nenhum.
+ *
+ * QUEM RESPONDE "JÁ ESCREVEU?" É O BANCO, e tem que ser: a resposta não está em
+ * `leads_brutos`, está em haver conversa com mensagem de ENTRADA — e em
+ * QUALQUER número do escritório, não só naquele em que a base está ligada. O
+ * lead não sabe que temos dois números. Fazer essa conta no navegador exigiria
+ * baixar as conversas todas para cruzar telefone a telefone.
+ *
+ * Só busca com uma base aberta: são centenas de linhas, e não faz sentido tê-las
+ * na memória enquanto a pessoa está do outro lado da tela respondendo gente.
+ */
+export interface LeadDaBase extends LeadBruto {
+  /** já mandou mensagem para algum número do escritório */
+  escreveu: boolean;
+  /** já existe conversa aberta com ele, tenha escrito ou não */
+  tem_conversa: boolean;
+  /** em qual número essa conversa está */
+  conversa_instancia: string | null;
+  /** o id dela, para o clique levar direto ao lugar certo */
+  conversa_achada: string | null;
+}
+
+export function useBaseCompleta(fonteId: string | null) {
+  return useQuery({
+    queryKey: ["leads", "base-completa", fonteId],
+    enabled: !!fonteId,
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<LeadDaBase[]> => {
+      const { data, error } = await (supabase.rpc as never as any)("fn_leads_da_base", { p_fonte: fonteId });
+      if (error) throw error;
+      return (data ?? []) as LeadDaBase[];
+    },
+  });
+}
+
+/**
  * Só o cabeçalho da planilha, pra montar a lista de colunas na hora de ligar.
  *
  * Usa a mesma função de leitura — se ela consegue ler os leads, consegue ler o
