@@ -151,3 +151,29 @@ export function derivarVitorias(processos: ProcRow[]): Vitoria[] {
   }
   return out.sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
 }
+
+/**
+ * O DINHEIRO DESTA VITÓRIA JÁ ENTROU?
+ *
+ * O Tracker responde "quanto ainda vai entrar", e não "quanto já entrou". São
+ * perguntas opostas, e somar as duas num número só é o erro que deixava o
+ * painel cobrar dinheiro que já está na conta: uma sentença paga em março
+ * continuava engordando o "total ganho" em setembro, e a previsão do mês virava
+ * um número que ninguém conseguia bater porque metade dele já tinha sido
+ * recebida.
+ *
+ * DUAS PORTAS DE SAÍDA, e as duas contam. Um processo sai pela BAIXA (o alvará
+ * caiu, ele foi para o Wallet) ou pelo ACORDO PAGO. Olhar só uma deixava os
+ * acordos quitados dentro da previsão.
+ *
+ * Quem saiu não some da tela: vai para o bloco de recebidos, que é o que mostra
+ * o giro. Some é das somas que projetam o futuro.
+ */
+export function jaRecebido(v: Pick<Vitoria, "baixado" | "acordo">): boolean {
+  return v.baixado || !!v.acordo?.pago;
+}
+
+/** O que ainda está de pé para receber. É a base de tudo que o Tracker soma. */
+export function emAberto(vs: Vitoria[]): Vitoria[] {
+  return vs.filter((v) => !jaRecebido(v));
+}

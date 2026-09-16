@@ -200,7 +200,7 @@ export function DialogBaixaTracker({ alvo, onFechar, onBaixado }: {
                 </div>
 
                 <Passo n={1} icone={<ArrowRight className="h-3.5 w-3.5" />}>
-                  O processo <span className="text-foreground">sai do Tracker</span> — ele deixa de
+                  O processo <span className="text-foreground">sai do Tracker</span>: ele deixa de
                   ser dinheiro previsto.
                 </Passo>
                 <Passo n={2} icone={<Landmark className="h-3.5 w-3.5" />}>

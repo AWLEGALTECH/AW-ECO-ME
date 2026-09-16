@@ -20,7 +20,7 @@ import {
    A conta de quanto cada processo vale vive em @/lib/tracker, testada à parte. */
 import {
   derivarVitorias, ETAPA_SENTENCA, ETAPA_JULGAMENTO, ETAPA_CUMPRIMENTO, ETAPA_ACORDO,
-  ACORDO_TRATATIVA,
+  ACORDO_TRATATIVA, jaRecebido, emAberto,
   type ProcRow, type Vitoria,
 } from "@/lib/tracker";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
@@ -142,26 +142,38 @@ export default function Tracker() {
     // julgamento e conta TODA sentença procedente, inclusive as que depois
     // viraram acordo; "fechado em acordo" conta o que foi negociado. Somar as
     // duas não faz sentido, e é por isso que cada uma tem seu próprio card.
-    const comSentenca = vBase.filter((v) => v.valorSentenca > 0);
+    /* O TRACKER SOMA O QUE AINDA VAI ENTRAR. Tudo que já foi recebido sai das
+       contas — por baixa (o alvará caiu) ou por acordo pago. Antes, uma
+       condenação recebida em março continuava engordando o "total ganho" em
+       setembro, e a previsão do mês virava um alvo que ninguém batia porque
+       metade dele já estava na conta. Quem saiu não some da tela: vai para o
+       bloco de recebidos, que é o que mostra o giro. */
+    const abertos = emAberto(vBase);
+
+    const comSentenca = abertos.filter((v) => v.valorSentenca > 0);
     const totalGanho = comSentenca.reduce((a, v) => a + v.valorSentenca, 0);
-    const comAcordo = vBase.filter((v) => v.acordo);
+    const comAcordo = abertos.filter((v) => v.acordo);
     const totalAcordo = comAcordo.reduce((a, v) => a + (v.acordo?.valor ?? 0), 0);
     // ROTATIVIDADE: quem já recebeu saiu do Tracker. Ele não desaparece — vai
     // pro bloco de baixados, que é o que mostra o giro do mês. Mas some de
     // tudo que responde "quanto ainda vai entrar", senão o Tracker cobraria
     // dinheiro que já está na conta.
-    const baixados = vBase.filter((v) => v.baixado);
-    const emCumprimento = vBase.filter((v) => v.emCumprimento && !v.baixado);
+    const baixados = vBase.filter((v) => jaRecebido(v));
+    const emCumprimento = abertos.filter((v) => v.emCumprimento);
     const valorCumprimento = emCumprimento.reduce((a, v) => a + v.valorCumprimento, 0);
-    const ticket = vBase.length ? vBase.reduce((a, v) => a + v.valor, 0) / vBase.length : 0;
+    /* O ticket também é dos abertos: ele responde "quanto vale a próxima
+       vitória a receber", e não "quanto valeu a média histórica". */
+    const ticket = abertos.length ? abertos.reduce((a, v) => a + v.valor, 0) / abertos.length : 0;
     const porFase: Record<string, { n: number; valor: number }> = {};
     for (const f of FASES_POS) porFase[f.key] = { n: 0, valor: 0 };
-    for (const v of vBase) { const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
+    for (const v of abertos) { const b = porFase[v.faseAtual] || (porFase[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
     // Dentro dos acordos, o que separa é se o dinheiro entrou. "Em tratativa"
     // e "aguardando pagamento" são os dois lados de uma promessa que ainda não
     // virou dinheiro; arquivado é a que virou.
-    const aReceber = comAcordo.filter((v) => !v.acordo?.pago && !v.baixado);
-    const recebidos = comAcordo.filter((v) => v.acordo?.pago);
+    const aReceber = comAcordo;
+    /* Os recebidos saem de `vBase`, e não de `comAcordo`: `comAcordo` já é
+       só o que está em aberto, então procurar pagos ali daria sempre zero. */
+    const recebidos = vBase.filter((v) => v.acordo?.pago);
     const emTratativa = aReceber.filter((v) => v.acordo?.status === ACORDO_TRATATIVA).length;
 
     return {
@@ -188,11 +200,14 @@ export default function Tracker() {
   const porFaseCard = useMemo(() => {
     const acc: Record<string, { n: number; valor: number }> = {};
     for (const f of FASES_POS) acc[f.key] = { n: 0, valor: 0 };
-    for (const v of vFase) { const b = acc[v.faseAtual] || (acc[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
+    for (const v of emAberto(vFase)) { const b = acc[v.faseAtual] || (acc[v.faseAtual] = { n: 0, valor: 0 }); b.n += 1; b.valor += v.valor; }
     return acc;
   }, [vFase]);
 
-  /* ── agregações pros gráficos (cada um exclui a própria dimensão) ── */
+  /* ── agregações pros gráficos (cada um exclui a própria dimensão) ──
+       Os gráficos leem os MESMOS abertos que os KPIs. Se eles contassem os
+       recebidos, clicar numa fatia levaria a uma lista menor que a fatia, e o
+       Tracker passaria a ter dois totais diferentes pro mesmo mês. */
   const analytics = useMemo(() => {
     const acc = (arr: Vitoria[], pick: (v: Vitoria) => string | null | undefined) => {
       const map = new Map<string, { n: number; valor: number }>();
@@ -204,17 +219,21 @@ export default function Tracker() {
       }
       return [...map.entries()].map(([name, val]) => ({ name, ...val }));
     };
-    const materias = acc(vMat, (v) => v.materia).sort((a, b) => b.n - a.n);
-    const comarcas = acc(vCom, (v) => v.comarca_uf).sort((a, b) => b.n - a.n);
+    const aMat = emAberto(vMat);
+    const materias = acc(aMat, (v) => v.materia).sort((a, b) => b.n - a.n);
+    const comarcas = acc(emAberto(vCom), (v) => v.comarca_uf).sort((a, b) => b.n - a.n);
     const mesMap = new Map<string, number>();
-    for (const v of vMes) { const mes = (v.data || "").slice(0, 7); if (!mes) continue; mesMap.set(mes, (mesMap.get(mes) || 0) + v.valor); }
+    for (const v of emAberto(vMes)) { const mes = (v.data || "").slice(0, 7); if (!mes) continue; mesMap.set(mes, (mesMap.get(mes) || 0) + v.valor); }
     const meses = [...mesMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, valor]) => ({ mes, valor }));
-    const materiasValor = acc(vMat, (v) => v.materia).sort((a, b) => b.valor - a.valor).slice(0, 8);
+    const materiasValor = acc(aMat, (v) => v.materia).sort((a, b) => b.valor - a.valor).slice(0, 8);
     return { materias, comarcas, meses, materiasValor };
   }, [vMat, vCom, vMes]);
 
-  /* ── lista (reflete busca + filtro) ── */
-  const lista = vBase;
+  /* ── lista (reflete busca + filtro) ──
+       Só o que ainda vai entrar. O que já foi pago tem o bloco "Já recebido"
+       logo acima, com o total do giro; repeti-lo aqui faria a contagem do
+       cabeçalho brigar com todos os KPIs da mesma tela. */
+  const lista = useMemo(() => emAberto(vBase), [vBase]);
 
   return (
     <div className="space-y-6">
@@ -229,7 +248,7 @@ export default function Tracker() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-3xl font-medium tracking-tight">Tracker</h2>
-          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que já foi ganho — em sentença ou em acordo — e o valor quase certo em cumprimento.</p>
+          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que ainda vai entrar (em sentença, em acordo ou em cumprimento). O que já foi pago sai da conta.</p>
         </div>
       </div>
 
@@ -260,8 +279,8 @@ export default function Tracker() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Grupo
               icone={Hammer} titulo="Sentenças" anel="ring-primary/25" tom="text-primary"
-              rotulo="Total ganho em 1º grau" valor={m.totalGanho}
-              sub={`${m.nSentencas} ${m.nSentencas === 1 ? "sentença procedente" : "sentenças procedentes"}`}
+              rotulo="A receber em 1º grau" valor={m.totalGanho}
+              sub={`${m.nSentencas} ${m.nSentencas === 1 ? "sentença procedente ainda não paga" : "sentenças procedentes ainda não pagas"}`}
               detalhes={[
                 { icone: Trophy, rotulo: "Em cumprimento voluntário", valor: m.valorCumprimento, tom: "text-emerald-400",
                   sub: `${m.nCumprimento} ${m.nCumprimento === 1 ? "processo" : "processos"} · valor quase certo` },
@@ -271,8 +290,8 @@ export default function Tracker() {
             />
             <Grupo
               icone={Handshake} titulo="Acordos" anel="ring-primary/25" tom="text-primary"
-              rotulo="Total fechado em acordo" valor={m.totalAcordo}
-              sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado" : "acordos fechados"}`}
+              rotulo="A receber em acordo" valor={m.totalAcordo}
+              sub={`${m.nAcordos} ${m.nAcordos === 1 ? "acordo fechado ainda não pago" : "acordos fechados ainda não pagos"}`}
               detalhes={[
                 { icone: CalendarClock, rotulo: "Aguardando pagamento", valor: m.aReceberValor, tom: "text-foreground",
                   sub: m.emTratativa > 0
@@ -290,7 +309,7 @@ export default function Tracker() {
             <Coins className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Ticket médio</span>
             <span className="text-lg font-semibold font-display tabular-nums">{brl(m.ticket)}</span>
-            <span className="text-[11px] text-muted-foreground ml-auto">por vitória registrada, venha de sentença ou de acordo</span>
+            <span className="text-[11px] text-muted-foreground ml-auto">por vitória ainda a receber, venha de sentença ou de acordo</span>
           </div>
 
           {/* ── Cumprimento voluntário em destaque (valor quase certo) ── */}
@@ -328,7 +347,7 @@ export default function Tracker() {
                           clienteNome: v.cliente_nome, via: "alvara",
                           valorPrevisto: v.valorCumprimento,
                         })}
-                        title="Alvará pago — dar baixa e lançar no Wallet"
+                        title="Alvará pago: dar baixa e lançar no Wallet"
                         className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-medium text-emerald-300/80 ring-1 ring-emerald-400/25 bg-emerald-400/[0.06] hover:bg-emerald-400/15 hover:text-emerald-200 transition-colors"
                       >
                         Alvará pago
@@ -394,7 +413,7 @@ export default function Tracker() {
             <Card className="ring-1 ring-white/[0.06]">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
-                  <Landmark className="h-4 w-4" /> Já recebido — saiu do Tracker
+                  <Landmark className="h-4 w-4" /> Já recebido (saiu do Tracker)
                   <span className="ml-auto text-sm font-semibold tabular-nums text-emerald-400/80">{brl(m.baixadoValor)}</span>
                 </CardTitle>
               </CardHeader>
@@ -433,14 +452,14 @@ export default function Tracker() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" /> Ganhos por matéria
+                  <Layers className="h-4 w-4 text-primary" /> A receber por matéria
                   <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <DonutChart
                   data={topSlices(analytics.materias.map((x) => ({ name: x.name, value: x.n })), 6)}
-                  emptyMessage="Sem vitórias ainda"
+                  emptyMessage="Nada a receber ainda"
                   onSliceClick={(name) => toggleFiltro("materia", name)}
                 />
               </CardContent>
@@ -449,14 +468,14 @@ export default function Tracker() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-primary" /> Ganhos por comarca
+                  <MapPin className="h-4 w-4 text-primary" /> A receber por comarca
                   <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <DonutChart
                   data={topSlices(analytics.comarcas.map((x) => ({ name: x.name, value: x.n })), 6)}
-                  emptyMessage="Sem vitórias ainda"
+                  emptyMessage="Nada a receber ainda"
                   onSliceClick={(name) => toggleFiltro("comarca", name)}
                 />
               </CardContent>
@@ -465,7 +484,7 @@ export default function Tracker() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <CalendarRange className="h-4 w-4 text-primary" /> Valor ganho por mês
+                  <CalendarRange className="h-4 w-4 text-primary" /> Valor a receber por mês
                   <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
                 </CardTitle>
               </CardHeader>
@@ -495,7 +514,7 @@ export default function Tracker() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Milestone className="h-4 w-4 text-primary" /> Onde estão as vitórias hoje
+                <Milestone className="h-4 w-4 text-primary" /> Onde está o que ainda vai entrar
                 <span className="ml-auto text-xs font-normal text-muted-foreground">clique pra filtrar</span>
               </CardTitle>
             </CardHeader>
@@ -528,7 +547,7 @@ export default function Tracker() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary" />
-                {filtro ? `Vitórias · ${filtro.campo === "fase" ? faseInfo(filtro.valor).label : filtro.valor}` : "Todas as vitórias"}
+                {filtro ? `A receber · ${filtro.campo === "fase" ? faseInfo(filtro.valor).label : filtro.valor}` : "Tudo que ainda vai entrar"}
                 <span className="ml-auto text-xs font-normal text-muted-foreground">{lista.length}</span>
               </CardTitle>
               <div className="relative mt-2">
@@ -546,7 +565,7 @@ export default function Tracker() {
                 <p className="text-sm text-muted-foreground text-center py-8">
                   {vitorias.length === 0
                     ? <>Nenhuma vitória ainda. Registre a sentença ou o acordo dentro do processo, no System.</>
-                    : "Nenhuma vitória com esse filtro."}
+                    : "Nada a receber com esse filtro."}
                 </p>
               ) : (
                 <div className="divide-y divide-border/40">
