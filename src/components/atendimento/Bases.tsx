@@ -30,7 +30,7 @@ import { ptBR } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 import {
   Database, Plus, Search, RefreshCw, ChevronLeft, Loader2, Columns3, Power,
-  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X, Bell,
+  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X, Bell, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -291,8 +291,23 @@ function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, pu
       </div>
 
       <div className="px-3 pb-2.5 flex items-center justify-between gap-2 border-t border-white/[0.05] pt-2">
-        <span className="text-[9.5px] text-muted-foreground/50 truncate">
-          {f.ultimo_sync ? `lida ${horaDaLista(f.ultimo_sync)}` : "nunca lida"}
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-[9.5px] text-muted-foreground/50 truncate">
+            {f.ultimo_sync ? `lida ${horaDaLista(f.ultimo_sync)}` : "nunca lida"}
+          </span>
+          {/* A ORIGEM, e não só o destino. A base guardava a planilha (onde o
+              lead cai) e não a página (de onde ele veio) — e quem trabalha a
+              base abre a landing o tempo todo: para conferir o que foi
+              perguntado, para mandar o link a alguém, para ver se o
+              formulário ainda está de pé depois de uma campanha. */}
+          {f.pagina && (
+            <a href={f.pagina} target="_blank" rel="noreferrer noopener"
+              onClick={(e) => e.stopPropagation()}
+              title={f.pagina}
+              className="flex items-center gap-1 text-[9.5px] text-muted-foreground/60 hover:text-primary transition-colors shrink-0">
+              <ExternalLink className="h-2.5 w-2.5" /> landing
+            </a>
+          )}
         </span>
         <button type="button" onClick={onPuxar} disabled={puxando} title="Ler a planilha agora"
           className="h-6 w-6 shrink-0 grid place-items-center rounded-md text-muted-foreground/60
@@ -406,6 +421,13 @@ function BaseAberta({
           <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={onPuxar} disabled={puxando}>
             <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", puxando && "animate-spin")} /> Ler agora
           </Button>
+          {f.pagina && (
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <a href={f.pagina} target="_blank" rel="noreferrer noopener" title={f.pagina}>
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Abrir a landing
+              </a>
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={onColunas}>
             <Columns3 className="h-3.5 w-3.5 mr-1.5" /> Colunas
           </Button>

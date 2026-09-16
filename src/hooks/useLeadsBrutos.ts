@@ -46,6 +46,8 @@ export interface Fonte {
   notificar: boolean;
   /** quando o aviso foi ligado; lead anterior a isso não avisa */
   notificar_desde: string | null;
+  /** a landing que alimenta esta base. A planilha é o destino; esta é a origem. */
+  pagina: string | null;
 }
 
 export interface LeadBruto {
@@ -82,7 +84,7 @@ export function useFontes(instancia: string | null, opcoes?: { incluirInativas?:
     enabled: !!instancia,
     queryFn: async (): Promise<Fonte[]> => {
       let q = tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde, pagina")
         .ilike("instancia", instancia!);
       if (!todas) q = q.eq("ativa", true);
       const { data, error } = await q.order("nome");
@@ -137,7 +139,7 @@ export function useTodasAsFontes() {
     staleTime: 60_000,
     queryFn: async (): Promise<Fonte[]> => {
       const { data, error } = await tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde, pagina")
         .eq("ativa", true)
         .order("instancia").order("nome");
       if (error) throw error;
