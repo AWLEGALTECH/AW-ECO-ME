@@ -45,7 +45,7 @@ import { dossieExtra } from "@/lib/planilhaLeads";
 import { telefoneBonito, horaDaLista } from "@/lib/wa";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
 import {
-  ATALHOS, periodoDoAtalho, rotuloDoPeriodo, dentroDoPeriodo, type Atalho,
+  ATALHOS, periodoDoAtalho, rotuloDoPeriodo, dentroDoPeriodo, inicioDaSemana, type Atalho,
 } from "@/lib/periodoDaBase";
 import type { Instancia } from "@/lib/atendimentoMock";
 
@@ -76,7 +76,11 @@ export default function Bases({
   onAlternarAviso: (f: Fonte, ligado: boolean) => void;
 }) {
   const { data: fontes = [] } = useTodasAsFontes();
-  const { data: resumos = {} } = useResumoBases(fontes.length > 0);
+  /* A semana é calculada AQUI, no navegador, porque é ele que sabe o fuso de
+     quem está olhando. Memoizada para a chave da consulta não mudar a cada
+     render e refazer a busca sozinha. */
+  const semana = useMemo(() => inicioDaSemana(), []);
+  const { data: resumos = {} } = useResumoBases(fontes.length > 0, semana);
   const [filtroDeNumero, setFiltroDeNumero] = useState<string | null>(null);
   const [abertaId, setAbertaId] = useState<string | null>(null);
 
@@ -199,7 +203,7 @@ export default function Bases({
 
 function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, puxando, onAbrir, onPuxar, onAlternarAviso }: {
   fonte: Fonte;
-  resumo?: { novos: number; total: number; antigos: number };
+  resumo?: { novos: number; total: number; antigos: number; no_periodo: number };
   atraso: number;
   apelido: string;
   cor: { fundo: string; texto: string; anel: string };
@@ -236,13 +240,18 @@ function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, pu
         {/* OS DOIS NÚMEROS QUE IMPORTAM, e não um só. "78 novos" sozinho
             esconde o tamanho da base; "708 na base" sozinho esconde o
             trabalho que espera. */}
+        {/* "78 NOVOS" NÃO DIZIA NOVOS EM RELAÇÃO A QUÊ. O número somava duas
+            regras que nada na tela separava — ainda-não-abordado E
+            chegou-depois-de-um-corte que alguém mexeu há semanas. "Esta
+            semana" é uma pergunta só, e qualquer um sabe o que ela quer
+            dizer. */}
         <span className="flex items-baseline gap-3 mt-2.5">
           <span className="flex items-baseline gap-1">
             <span className={cn("text-[19px] font-semibold tabular-nums leading-none",
-              (resumo?.novos ?? 0) > 0 ? "text-primary" : "text-muted-foreground/60")}>
-              {resumo?.novos ?? 0}
+              (resumo?.no_periodo ?? 0) > 0 ? "text-primary" : "text-muted-foreground/60")}>
+              {resumo?.no_periodo ?? 0}
             </span>
-            <span className="text-[10px] text-muted-foreground/70">novos</span>
+            <span className="text-[10px] text-muted-foreground/70">esta semana</span>
           </span>
           <span className="text-[10.5px] tabular-nums text-muted-foreground/60">
             {resumo?.total ?? 0} na base

@@ -92,3 +92,31 @@ test("sem recorte, todo mundo passa, inclusive quem não tem data", () => {
   expect(dentroDoPeriodo(null, null)).toBe(true);
   expect(dentroDoPeriodo(new Date().toISOString(), null)).toBe(true);
 });
+
+/* ── a semana do cartão da base ───────────────────────────────────────────── */
+
+import { inicioDaSemana } from "./periodoDaBase";
+
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${d.getHours()}h`;
+
+test("a semana começa na segunda, à meia-noite", () => {
+  // quarta, 16/09/2026
+  expect(ymd(inicioDaSemana(new Date(2026, 8, 16, 15, 30)))).toBe("2026-09-14 0h");
+  // a própria segunda devolve ela mesma
+  expect(ymd(inicioDaSemana(new Date(2026, 8, 14, 8, 0)))).toBe("2026-09-14 0h");
+  // sábado ainda é a mesma semana
+  expect(ymd(inicioDaSemana(new Date(2026, 8, 19, 23, 59)))).toBe("2026-09-14 0h");
+});
+
+test("domingo pertence à semana que termina nele, e não à seguinte", () => {
+  /* Sem isto a contagem zerava todo domingo: o dia mais movimentado de uma
+     landing passaria a mostrar "0 esta semana" para quem abrisse a tela. */
+  expect(ymd(inicioDaSemana(new Date(2026, 8, 20, 10, 0)))).toBe("2026-09-14 0h");
+  // e a segunda seguinte já é outra semana
+  expect(ymd(inicioDaSemana(new Date(2026, 8, 21, 0, 1)))).toBe("2026-09-21 0h");
+});
+
+test("a semana atravessa a virada do mês sem se perder", () => {
+  // quinta, 01/10/2026 -> a semana começou na segunda, 28/09
+  expect(ymd(inicioDaSemana(new Date(2026, 9, 1, 9, 0)))).toBe("2026-09-28 0h");
+});

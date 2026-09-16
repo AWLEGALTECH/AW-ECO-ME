@@ -103,3 +103,23 @@ export function dentroDoPeriodo(chegouEm: string | null, periodo: { de: Date; at
   if (!Number.isFinite(t)) return false;
   return t >= periodo.de.getTime() && t <= periodo.ate.getTime();
 }
+
+/**
+ * A meia-noite de segunda-feira da semana de uma data.
+ *
+ * "ESTA SEMANA" É SEMANA DE CALENDÁRIO, e não os últimos sete dias. As duas
+ * respondem perguntas diferentes: "quanto a landing rendeu desde segunda" é
+ * comparável com a semana passada; "nos últimos sete dias" é uma janela que
+ * escorrega e nunca fecha. Quem olha o cartão está fazendo a primeira.
+ *
+ * Segunda e não domingo porque é a semana de trabalho: o que chega no fim de
+ * semana conta para a semana que está terminando, e não para a que vem.
+ */
+export function inicioDaSemana(agora = new Date()): Date {
+  const d = inicioDoDia(agora);
+  /* getDay(): 0 é domingo. Domingo pertence à semana que termina nele, então
+     ele recua 6 dias, e não 0 — sem isto, todo domingo a contagem zerava. */
+  const diasDesdeSegunda = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - diasDesdeSegunda);
+  return d;
+}

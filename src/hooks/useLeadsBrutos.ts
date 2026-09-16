@@ -274,8 +274,11 @@ export async function salvarColunas(fonteId: string, colunas: string[]) {
 export interface ResumoBase {
   fonte_id: string;
   total: number;
+  /** a fila: ainda não abordado e depois do corte. Continua servindo a outras telas. */
   novos: number;
   antigos: number;
+  /** quantos CHEGARAM no período pedido; 0 quando não se pediu período */
+  no_periodo: number;
 }
 
 /**
@@ -285,13 +288,23 @@ export interface ResumoBase {
  * navegador só recebe a fila (os que esperam) — contar "total da base" com ela
  * daria o número dos que sobraram, não o da base.
  */
-export function useResumoBases(ligado: boolean) {
+/**
+ * Os números de cada base.
+ *
+ * `desde` é opcional e vem do NAVEGADOR, não do banco: o servidor roda em UTC e
+ * não sabe o fuso de quem está olhando. Segunda à meia-noite em Manaus não é
+ * segunda à meia-noite em UTC, e as quatro horas de diferença jogariam os leads
+ * da madrugada de segunda para a semana anterior.
+ */
+export function useResumoBases(ligado: boolean, desde?: Date | null) {
+  const chave = desde ? desde.toISOString() : null;
   return useQuery({
-    queryKey: ["leads", "resumo"],
+    queryKey: ["leads", "resumo", chave],
     enabled: ligado,
     refetchInterval: 60_000,
     queryFn: async (): Promise<Record<string, ResumoBase>> => {
-      const { data, error } = await (supabase.rpc as never as any)("fn_leads_resumo");
+      const { data, error } = await (supabase.rpc as never as any)("fn_leads_resumo",
+        chave ? { p_desde: chave } : {});
       if (error) throw error;
       const mapa: Record<string, ResumoBase> = {};
       for (const r of (data || []) as ResumoBase[]) {
