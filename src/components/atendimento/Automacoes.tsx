@@ -36,7 +36,7 @@ import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
   Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw, Play,
-  GitFork, Braces, User,
+  GitFork, Braces, User, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -750,7 +750,12 @@ function Editor({
                       animate={{ opacity: 1, x: 0, scale: 1 }}
                       exit={{ opacity: 0, x: 10, scale: 0.97 }}
                       transition={MOLA}
-                      className="flex items-center shrink-0">
+                      className="flex items-center shrink-0 gap-2">
+                      {/* O SINAL DE SEQUÊNCIA, e não uma linha. Ele diz "e
+                          depois" entre um cartão e o seguinte sem desenhar fio
+                          nenhum, que é o que ficava pesado e o que a peça
+                          recortada tentou resolver quebrando tudo. */}
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/25" />
                       <BlocoDoPasso
                         passo={p}
                         numero={`Passo ${i + 1}`}
@@ -882,59 +887,25 @@ function Editor({
    cortar no meio da frase, que era o defeito das versões apertadas. Num
    telefone de 390px aparecem uma inteira e boa parte da seguinte, o que basta
    para não se perder na faixa. */
-const LARGURA = "w-[248px]";
-const LARGURA_MIUDA = "w-[212px]";
+/* Largura do cartão. Fixa de propósito: fila com cartões de tamanhos diferentes
+   vira serra. Num telefone de 390px aparece um inteiro e boa parte do seguinte,
+   que é o que basta para não se perder na faixa. */
+const LARGURA = "w-[236px]";
+const LARGURA_MIUDA = "w-[204px]";
 
-/** Largura do pino, em pixels. É também a margem negativa que encaixa os blocos. */
-const PINO = 18;
-/** Metade da altura do pino. */
-const MEIO_PINO = 16;
+/* O CARTÃO É O MESMO DO RESTO DO SISTEMA, e isto foi uma volta atrás.
+   Eu tinha recortado os blocos com `clip-path` para eles se encaixarem como
+   peça de quebra-cabeça, com margem negativa para o pino de um entrar no furo
+   do outro. Na tela deu errado de um jeito que não dava para defender: a margem
+   negativa fez cada bloco entrar por cima do conteúdo do anterior, o texto de
+   um atravessou o outro, e a borda não seguia o recorte, então sobrava um
+   contorno reto cruzando o pino. Invenção de forma nova custou legibilidade, e
+   legibilidade é o que esta tela vende.
+   Voltou a ser o cartão da casa: mesma borda, mesmo fundo, mesmo realce de
+   selecionado que a caixa, a lista de bases e os ajustes usam. */
+const CARTAO = "rounded-xl border border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]";
+const CARTAO_ABERTO = "rounded-xl border border-primary/40 bg-primary/[0.06]";
 
-/**
- * O recorte da peça.
- *
- * `comFuro` é falso só no primeiro bloco da fila: nada vem antes do gatilho, e
- * uma peça com furo à esquerda sem nada para encaixar parece peça faltando.
- */
-function formaDaPeca(comFuro: boolean): React.CSSProperties {
-  const d = `${PINO}px`;
-  const cima = `calc(50% - ${MEIO_PINO}px)`;
-  const baixo = `calc(50% + ${MEIO_PINO}px)`;
-  const pontos = [
-    "0 0",
-    `calc(100% - ${d}) 0`,
-    `calc(100% - ${d}) ${cima}`,
-    `100% ${cima}`,
-    `100% ${baixo}`,
-    `calc(100% - ${d}) ${baixo}`,
-    `calc(100% - ${d}) 100%`,
-    "0 100%",
-    ...(comFuro ? [`0 ${baixo}`, `${d} ${baixo}`, `${d} ${cima}`, `0 ${cima}`] : []),
-  ];
-  return { clipPath: `polygon(${pontos.join(", ")})` };
-}
-
-/** As cores da faixa da ação, que é o que substituiu a borda colorida. */
-const FAIXA: Record<string, string> = {
-  primary: "bg-primary",
-  amber: "bg-amber-400",
-  sky: "bg-sky-400",
-  violet: "bg-violet-400",
-  emerald: "bg-emerald-400",
-  zinc: "bg-white/40",
-};
-
-/**
- * O "+" que insere um passo DEPOIS deste bloco.
- *
- * Sem as linhas, o sinal de mais perdeu o lugar onde morava. Ele passou para
- * dentro do próprio bloco, no alto, e isso saiu melhor do que era: cada bloco
- * diz "põe um passo depois de mim", o que é mais direto do que um sinal
- * solto no meio do caminho que não deixava claro de qual lado ele entrava.
- *
- * Fica visível de leve o tempo todo, e não só no hover: hover não existe no
- * celular, que é onde esta faixa nasceu para ser usada.
- */
 function BotaoMais({ tipos, onInserir, titulo }: {
   tipos: readonly TipoDePasso[];
   onInserir: (t: TipoDePasso) => void;
@@ -981,12 +952,8 @@ function BlocoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, cabeMa
     <motion.div
       layout transition={MOLA}
       initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-      style={formaDaPeca(false)}
-      className={cn(
-        "relative shrink-0 min-h-[136px] pl-3 pr-8 py-3 transition-colors", LARGURA,
-        aberto ? "bg-[#1b2434]" : "bg-[#14161a] hover:bg-[#191c22]")}>
-      <span className={cn("absolute left-0 top-0 bottom-0 w-[3px]", FAIXA.primary)} aria-hidden />
-
+      className={cn("relative shrink-0 min-h-[128px] px-3 py-3 transition-colors",
+        LARGURA, aberto ? CARTAO_ABERTO : CARTAO)}>
       <div className="flex items-center gap-2">
         <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1", TOM.primary)}>
           <Ico className="h-4 w-4" />
@@ -1030,17 +997,11 @@ function BlocoDoPasso({
   return (
     <motion.div
       layout transition={MOLA}
-      style={{ ...formaDaPeca(true), marginLeft: -PINO }}
       className={cn(
         "group relative shrink-0 transition-colors",
-        miudo ? cn(LARGURA_MIUDA, "min-h-[116px] pl-3 pr-8 py-2.5")
-              : cn(LARGURA, "min-h-[136px] pl-4 pr-8 py-3"),
-        aberto ? "bg-[#1b2434]" : "bg-[#14161a] hover:bg-[#191c22]")}>
-      {/* A faixa da ação começa depois do furo, senão ela ficaria cortada no
-          meio pelo recorte e pareceria um defeito de desenho. */}
-      <span className={cn("absolute top-0 bottom-0 w-[3px]", FAIXA[def.tom])}
-        style={{ left: PINO }} aria-hidden />
-
+        miudo ? cn(LARGURA_MIUDA, "min-h-[110px] px-2.5 py-2.5")
+              : cn(LARGURA, "min-h-[128px] px-3 py-3"),
+        aberto ? CARTAO_ABERTO : CARTAO)}>
       <div className="flex items-center gap-2">
         <span className={cn("shrink-0 rounded-lg grid place-items-center ring-1",
           miudo ? "h-7 w-7" : "h-8 w-8", TOM[def.tom])}>
@@ -1119,7 +1080,7 @@ function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRem
                     animate={{ opacity: 1, x: 0, scale: 1 }}
                     exit={{ opacity: 0, x: 8, scale: 0.97 }}
                     transition={MOLA}
-                    className="flex items-center shrink-0">
+                    className="flex items-center shrink-0 gap-2">
                     <BlocoDoPasso
                       passo={p} miudo
                       numero={`${numeroDoPai}·${l.rotulo} ${i + 1}`}

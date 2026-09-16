@@ -266,7 +266,11 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "followup" | "programadas" | "automacoes" | "config">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "programadas" | "automacoes" | "config">("atendimento");
+  /* Qual das três coisas que rodam sozinhas está aberta. Os fluxos são o
+     padrão porque são o que se monta; a régua e o primeiro atendimento se
+     configuram uma vez e ficam. */
+  const [secaoAutomacao, setSecaoAutomacao] = useState<"fluxos" | "followup" | "primeiro">("fluxos");
   /* A base que pediu a aba de automações. Vem do botão de cada planilha na
      caixa Base: quem clica ali quer automatizar AQUELA base, e cair numa lista
      vazia o obrigaria a escolher de novo o que ele já tinha escolhido. */
@@ -2874,7 +2878,13 @@ export default function AtendimentoPage() {
              em vez de encolher até não se ler. */
           <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5
                           shrink-0 max-w-full overflow-x-auto scrollbar-thin">
-            {([["atendimento", "Atendimento", Inbox], ["followup", "Follow-up", Repeat], ["programadas", "Programadas", Clock], ["automacoes", "Automações", Workflow], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
+            {/* FOLLOW-UP SAIU DAQUI. Ele era uma aba de primeiro nível ao lado
+                de Programadas, e isso espalhava o que o robô faz sozinho por
+                três lugares: a régua numa aba, o primeiro atendimento escondido
+                numa sub-aba de Programadas, e os fluxos numa terceira. Agora
+                tudo que acontece sem alguém apertar enviar mora em Automações,
+                e Programadas voltou a ser só a fila do que vai sair. */}
+            {([["atendimento", "Atendimento", Inbox], ["programadas", "Programadas", Clock], ["automacoes", "Automações", Workflow], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => { setAba(k); setAutomacaoDaBase(null); if (ehMobile) setTelaMobile("caixa"); }}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -2886,43 +2896,7 @@ export default function AtendimentoPage() {
       />
       )}
 
-      {aba === "followup" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2">
-          {/* ── DE QUAL NÚMERO É A RÉGUA QUE ESTOU EDITANDO ──
-              A régua deixou de ser do escritório e passou a ser de cada número,
-              então "salvar a régua" virou frase incompleta: a régua de quem?
-              Com um número escolhido não há dúvida e a barra some. Com dois, ela
-              aparece e OBRIGA a escolher, porque a alternativa é escrever no
-              escuro com metade de chance de acertar. */}
-          <BarraDaReguaDoNumero
-            numeros={instanciasDaSelecao}
-            escolhido={numeroDaRegua}
-            apelidos={apelidos}
-            corDe={corDe}
-            nomeDe={nomeDe}
-            padraoAtivo={padraoDaRegua}
-            onEscolher={setReguaDe}
-            onMudarPadrao={mudarPadraoDaRegua} />
-          <ModelosDaRegua
-            modelos={modelosRegua}
-            regua={regua}
-            onMudarDia={mudarDegrau}
-            onEditar={abrirModelo}
-            onAlternar={(r, ativo) => {
-              alternarModeloAtivo(numeroDaRegua ?? "", r, ativo)
-                .then(invalidarModelos)
-                .catch((e) => toast.error((e as Error).message));
-            }} />
-          <CentralFollowUp
-          tasks={lembretes}
-          leads={leadsBase}
-          hoje={HOJE}
-          cadencias={cadencias}
-          onConcluir={concluir}
-          onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
-          />
-        </div>
-      ) : aba === "programadas" ? (
+      {aba === "programadas" ? (
         <CentralProgramadas
           agendadas={agendadas}
           leads={leadsBase}
@@ -2933,16 +2907,83 @@ export default function AtendimentoPage() {
           onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
         />
       ) : aba === "automacoes" ? (
-        <Automacoes
-          instancias={instancias}
-          instanciaPadrao={instancia.nome}
-          apelidos={apelidos}
-          corDe={corDe}
-          nomeDe={nomeDe}
-          userId={user?.id ?? null}
-          aoVivo={aoVivo}
-          fonteInicial={automacaoDaBase}
-        />
+        /* TRÊS COISAS RODAM SOZINHAS, E AGORA ELAS MORAM JUNTAS.
+           Os fluxos, a régua de follow-up e o primeiro atendimento faziam a
+           mesma promessa — "isto acontece sem ninguém apertar enviar" — e
+           estavam em três lugares diferentes da tela. Quem desconfiava de uma
+           mensagem que saiu tinha três lugares para procurar. */
+        <div className="flex-1 min-h-0 flex flex-col gap-3">
+          <CartoesDeAutomacao
+            secao={secaoAutomacao}
+            onEscolher={(s) => { setSecaoAutomacao(s); setAutomacaoDaBase(null); }}
+            cobrancas={lembretes.length}
+            regua={regua}
+          />
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={secaoAutomacao}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 min-h-0 flex flex-col">
+              {secaoAutomacao === "followup" ? (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2">
+                  {/* ── DE QUAL NÚMERO É A RÉGUA QUE ESTOU EDITANDO ──
+                      A régua deixou de ser do escritório e passou a ser de cada
+                      número, então "salvar a régua" virou frase incompleta: a
+                      régua de quem? Com um número escolhido não há dúvida e a
+                      barra some. Com dois, ela aparece e OBRIGA a escolher,
+                      porque a alternativa é escrever no escuro com metade de
+                      chance de acertar. */}
+                  <BarraDaReguaDoNumero
+                    numeros={instanciasDaSelecao}
+                    escolhido={numeroDaRegua}
+                    apelidos={apelidos}
+                    corDe={corDe}
+                    nomeDe={nomeDe}
+                    padraoAtivo={padraoDaRegua}
+                    onEscolher={setReguaDe}
+                    onMudarPadrao={mudarPadraoDaRegua} />
+                  <ModelosDaRegua
+                    modelos={modelosRegua}
+                    regua={regua}
+                    onMudarDia={mudarDegrau}
+                    onEditar={abrirModelo}
+                    onAlternar={(r, ativo) => {
+                      alternarModeloAtivo(numeroDaRegua ?? "", r, ativo)
+                        .then(invalidarModelos)
+                        .catch((e) => toast.error((e as Error).message));
+                    }} />
+                  <CentralFollowUp
+                    tasks={lembretes}
+                    leads={leadsBase}
+                    hoje={HOJE}
+                    cadencias={cadencias}
+                    onConcluir={concluir}
+                    onAbrirConversa={(id) => { setSelecionadoId(id); setAba("atendimento"); if (ehMobile) setTelaMobile("conversa"); }}
+                  />
+                </div>
+              ) : secaoAutomacao === "primeiro" ? (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+                  <PrimeiroAtendimento instancia={instancia.nome} aoVivo={aoVivo} userId={user?.id ?? null} />
+                </div>
+              ) : (
+                <Automacoes
+                  instancias={instancias}
+                  instanciaPadrao={instancia.nome}
+                  apelidos={apelidos}
+                  corDe={corDe}
+                  nomeDe={nomeDe}
+                  userId={user?.id ?? null}
+                  aoVivo={aoVivo}
+                  fonteInicial={automacaoDaBase}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       ) : aba === "config" ? (
         <PainelAjustes
           instancias={instancias}
@@ -2956,7 +2997,7 @@ export default function AtendimentoPage() {
           regua={regua}
           agendadas={agendadas}
           aoVivo={aoVivo}
-          onAbrirRegua={() => setAba("followup")}
+          onAbrirRegua={() => { setAba("automacoes"); setSecaoAutomacao("followup"); }}
           onAbrirProgramadas={() => setAba("programadas")}
           onReaplicarEventos={reconfigurarEventos}
           onDiagnosticar={rodarDiagnostico}
@@ -9987,6 +10028,86 @@ function PaletaDeVariaveis({ onEscolher }: { onEscolher: (marca: string) => void
   );
 }
 
+/**
+ * OS TRÊS CARTÕES DE AUTOMAÇÃO.
+ *
+ * Fluxos, régua de follow-up e primeiro atendimento fazem a mesma promessa —
+ * "isto acontece sem ninguém apertar enviar" — e estavam em três lugares da
+ * tela. Quem desconfiava de uma mensagem que saiu tinha três lugares para
+ * procurar, e nenhum deles dizia que os outros dois existiam.
+ *
+ * O cartão é o mesmo do resto do sistema, e cada um diz em número o que está
+ * acontecendo ali dentro: cartão de navegação que não informa nada é só um
+ * botão grande ocupando espaço.
+ */
+function CartoesDeAutomacao({ secao, onEscolher, cobrancas, regua }: {
+  secao: "fluxos" | "followup" | "primeiro";
+  onEscolher: (s: "fluxos" | "followup" | "primeiro") => void;
+  cobrancas: number;
+  regua: readonly number[];
+}) {
+  const degraus = (regua ?? []).length;
+  const cartoes = [
+    {
+      chave: "fluxos" as const,
+      icone: Workflow,
+      titulo: "Fluxos",
+      abaixo: "Quando chega lead novo na base, faça isto e depois aquilo.",
+      nota: "monte o que quiser",
+    },
+    {
+      chave: "followup" as const,
+      icone: Repeat,
+      titulo: "Follow-up",
+      abaixo: "A régua que cobra quem não respondeu, degrau por degrau.",
+      nota: degraus > 0
+        ? `${degraus} degrau${degraus === 1 ? "" : "s"}${cobrancas > 0 ? ` · ${cobrancas} em aberto` : ""}`
+        : "sem régua neste número",
+    },
+    {
+      chave: "primeiro" as const,
+      icone: Inbox,
+      titulo: "Primeiro atendimento",
+      abaixo: "A resposta automática de quem escreve pela primeira vez.",
+      nota: "por faixa de horário",
+    },
+  ];
+
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 shrink-0">
+      {cartoes.map((c, i) => {
+        const Ico = c.icone;
+        const eu = secao === c.chave;
+        return (
+          <motion.button
+            key={c.chave} type="button" layout
+            onClick={() => onEscolher(c.chave)}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 380, damping: 34, delay: i * 0.05 }}
+            className={cn("text-left rounded-xl border px-3 py-2.5 transition-colors",
+              eu ? "border-primary/40 bg-primary/[0.06]"
+                 : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+            <span className="flex items-center gap-2">
+              <span className={cn("h-7 w-7 shrink-0 rounded-lg grid place-items-center ring-1",
+                eu ? "bg-primary/[0.12] text-primary ring-primary/25"
+                   : "bg-white/[0.06] text-muted-foreground ring-white/[0.10]")}>
+                <Ico className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-medium truncate">{c.titulo}</span>
+                <span className="block text-[10px] text-muted-foreground/70 truncate">{c.nota}</span>
+              </span>
+            </span>
+            <span className="block text-[11px] text-muted-foreground leading-snug mt-1.5">
+              {c.abaixo}
+            </span>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa, instancia, aoVivo, userId }: {
   agendadas: AgendadaRow[];
   leads: Lead[];
@@ -9996,10 +10117,11 @@ function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa, ins
   aoVivo: boolean;
   userId?: string | null;
 }) {
-  /* Duas coisas moram aqui e são vizinhas de propósito: a FILA é o que já está
-     marcado para sair, e o PRIMEIRO ATENDIMENTO é a regra que enche essa fila
-     sozinha. Quem desconfia de uma mensagem que saiu procura nos dois lugares. */
-  const [subAba, setSubAba] = useState<"fila" | "primeiro">("fila");
+  /* O PRIMEIRO ATENDIMENTO SAIU DAQUI. Ele era uma sub-aba desta tela porque é
+     a regra que enche esta fila sozinha, e a vizinhança fazia sentido. Só que
+     ele também é uma das três coisas que rodam sem ninguém apertar enviar, e
+     ficava escondido num segundo nível que ninguém abria. Foi para Automações,
+     junto com os fluxos e a régua, e aqui ficou só a fila: o que vai sair. */
   const porLead = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
   const nomeDe = (id: string) => porLead.get(id)?.nome ?? "conversa arquivada";
 
@@ -10035,54 +10157,19 @@ function CentralProgramadas({ agendadas, leads, onCancelar, onAbrirConversa, ins
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-3">
-      {/* O indicador DESLIZA de uma aba para a outra, como na barra do
-          dashboard: um fundo que acende e apaga em cada botão não diz que são
-          dois lados da mesma coisa. */}
-      <div className="flex items-center gap-1 shrink-0">
-        {([["fila", "Fila"], ["primeiro", "Primeiro atendimento"]] as const).map(([chave, rotulo]) => (
-          <button key={chave} onClick={() => setSubAba(chave)}
-            className={cn("relative rounded-lg px-3 py-1.5 text-[12px] transition-colors",
-              subAba === chave ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
-            {subAba === chave && (
-              <motion.span
-                layoutId="sub-aba-programadas"
-                className="absolute inset-0 rounded-lg bg-primary/[0.12] ring-1 ring-primary/25"
-                transition={{ type: "spring", stiffness: 420, damping: 34 }} />
-            )}
-            <span className="relative">{rotulo}</span>
-            {chave === "fila" && agendadas.length > 0 && (
-              <span className="relative ml-1.5 text-[10px] tabular-nums opacity-60">{agendadas.length}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={subAba}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}>
-          {subAba === "primeiro" ? (
-            <PrimeiroAtendimento instancia={instancia} aoVivo={aoVivo} userId={userId} />
-          ) : (
-            <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
-              {agendadas.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
-                  Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
-                </p>
-              ) : (
-                <>
-                  <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
-                  <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
-                  <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
-                </>
-              )}
-            </SpotlightCard>
-          )}
-        </motion.div>
-      </AnimatePresence>
+      <SpotlightCard sutil className="rounded-xl p-4 flex flex-col gap-4">
+        {agendadas.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground/70 py-6 text-center">
+            Nada programado. Toda mensagem que sair daqui vai sair porque alguém apertou enviar.
+          </p>
+        ) : (
+          <>
+            <Grupo titulo="Não saíram" itens={falhas} tom="text-red-300" />
+            <Grupo titulo="Ainda hoje" itens={hoje} tom="text-foreground/80" />
+            <Grupo titulo="Próximos dias" itens={depois} tom="text-muted-foreground/70" />
+          </>
+        )}
+      </SpotlightCard>
     </div>
   );
 }
