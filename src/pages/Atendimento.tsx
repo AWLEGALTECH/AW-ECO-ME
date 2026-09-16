@@ -4071,7 +4071,10 @@ export default function AtendimentoPage() {
                         : "border-primary/30 bg-primary/[0.05]")}>
                     <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide mb-1 text-muted-foreground/80">
                       {a.status === "falhou"
-                        ? <><AlertTriangle className="h-3 w-3 text-red-400" /> Não saiu</>
+                        /* COM A DATA. Sem ela, a falha de anteontem parece a
+                           falha de agora, e a pessoa vai procurar um defeito
+                           num fluxo que nem está ligado. */
+                        ? <><AlertTriangle className="h-3 w-3 text-red-400" /> Não saiu · {quandoBonito(a.quando)}</>
                         : a.status === "enviando"
                           ? <><Loader2 className="h-3 w-3 animate-spin text-primary" /> Enviando</>
                           : <><Clock className="h-3 w-3 text-primary" /> {quandoBonito(a.quando)} · {faltaPara(a.quando)}</>}
@@ -4098,6 +4101,19 @@ export default function AtendimentoPage() {
                         className="mt-1.5 text-[10.5px] text-muted-foreground/70 hover:text-red-300
                                    underline underline-offset-2 transition-colors">
                         Cancelar envio
+                      </button>
+                    )}
+                    {/* A QUE FALHOU PRECISA DE UMA SAÍDA. O despachante já
+                        desistiu dela (três tentativas), então ela não vai sair
+                        sozinha nem sumir sozinha: ficava presa no fim da
+                        conversa para sempre, vermelha, como se fosse de agora.
+                        Descartar é dizer "já vi, não quero mais essa". */}
+                    {a.status === "falhou" && (
+                      <button
+                        onClick={() => cancelarProgramada(a.id)}
+                        className="mt-1.5 text-[10.5px] text-muted-foreground/70 hover:text-foreground
+                                   underline underline-offset-2 transition-colors">
+                        Descartar
                       </button>
                     )}
                   </div>

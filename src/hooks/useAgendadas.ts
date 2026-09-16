@@ -162,10 +162,12 @@ export async function editarAgendada(id: string, campos: { texto?: string | null
 export async function cancelarAgendada(id: string) {
   const { data, error } = await tabela("wa_agendadas")
     .update({ status: "cancelada" })
-    .eq("id", id).eq("status", "pendente")
+    /* Pendente ainda não saiu; falhou já desistiu de sair. As duas podem ser
+       canceladas. Só a que está saindo ou já saiu é intocável. */
+    .eq("id", id).in("status", ["pendente", "falhou"])
     .select("id");
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) {
-    throw new Error("Essa mensagem já saiu — não dá mais pra cancelar.");
+    throw new Error("Essa mensagem já saiu, não dá mais pra cancelar.");
   }
 }

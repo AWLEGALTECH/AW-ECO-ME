@@ -364,7 +364,7 @@ export function fraseDoCaso(campo: string | null | undefined, c: Caso): string {
  * As variáveis que existem sem base nenhuma: vêm da conversa e do horário do
  * número. Tudo o mais entre chaves tem que ser coluna de uma base do fluxo.
  */
-export const VARIAVEIS_FIXAS = ["nome", "horario"] as const;
+export const VARIAVEIS_FIXAS = ["nome", "horario", "saudacao"] as const;
 
 /* ══════════════════ a automação inteira ═══════════════════════════════════ */
 

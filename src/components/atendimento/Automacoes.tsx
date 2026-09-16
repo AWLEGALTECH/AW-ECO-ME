@@ -826,6 +826,7 @@ function Editor({
                           selecionado={selecionado}
                           cabeMais={cabeMais}
                           trilhaDoPai={`Passo ${i + 1}`}
+                          largo
                           onAbrir={setSelecionado}
                           onRemover={removerPasso}
                           onInserir={(tipo, paiId, ramo, indice) => inserirPasso(tipo, indice, { id: paiId, ramo })}
@@ -957,10 +958,12 @@ function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }
   );
 }
 
-function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
+function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo, semNumero }: {
   passo: Passo; numero: string; aberto: boolean; onAbrir: () => void; onRemover: () => void;
-  /** dentro de um lado do "Se": cabe menos, então o cartão encolhe */
+  /** numa coluna estreita (os dois lados do "Se" lado a lado): o cartão encolhe */
   miudo?: boolean;
+  /** dentro de um ramo: o cabeçalho do ramo já diz onde ele está */
+  semNumero?: boolean;
 }) {
   const def = defDoPasso(passo.tipo);
   const Ico = ICONE_DO_PASSO[def.icone] ?? Send;
@@ -981,12 +984,16 @@ function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
             <Ico className={miudo ? "h-3 w-3" : "h-4 w-4"} />
           </span>
           <div className="min-w-0 flex-1">
-            {!miudo && (
+            {!miudo && !semNumero && (
               <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">{numero}</p>
             )}
             <p className={cn("font-medium", miudo ? "text-[11px]" : "text-[12.5px]")}>{def.rotulo}</p>
-            <p className={cn("text-muted-foreground leading-snug mt-0.5 line-clamp-2",
-              miudo ? "text-[10px]" : "text-[10.5px]")}>
+            {/* Três linhas no cartão largo: as mensagens de recepção abrem todas
+                com a mesma frase ("vi no formulário que você marcou…"), e em
+                duas linhas os cartões ficavam idênticos. A terceira é a que
+                chega ao que muda de um para o outro. */}
+            <p className={cn("text-muted-foreground leading-snug mt-0.5",
+              miudo ? "text-[10px] line-clamp-2" : "text-[10.5px] line-clamp-3")}>
               {resumoDoPasso(passo)}
             </p>
           </div>
@@ -1028,31 +1035,48 @@ function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
  * caminhos que ela abre, que é justamente o fluxo que este passo existe para
  * tornar visível.
  */
-function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover, onInserir }: {
+function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, largo, onAbrir, onRemover, onInserir }: {
   passo: Passo;
   selecionado: string;
   cabeMais: boolean;
   /** "Passo 2", ou "Passo 2 · sim 1" quando este é um ramo de dentro */
   trilhaDoPai: string;
+  /** este desenho tem a largura inteira do fluxo (e não meia coluna) */
+  largo: boolean;
   onAbrir: (id: string) => void;
   onRemover: (id: string) => void;
   onInserir: (tipo: TipoDePasso, paiId: string, ramo: Ramo, indice: number) => void;
 }) {
   const escolha = passo.tipo === "escolha";
+  /* O "SE" SÓ DIVIDE EM DUAS COLUNAS QUANDO OS DOIS LADOS SÃO CURTOS.
+     Com uma Escolha dentro de um lado, meia coluna vira 190px e nada legível
+     cabe: os casos viravam cartões de duas linhas iguais. Nesse caso os lados
+     empilham, cada um com a largura inteira, e os cartões de dentro ficam do
+     mesmo tamanho dos de cima. Nó é nó, do mesmo tamanho, onde quer que
+     esteja: é isso que faz um desenho de fluxo parecer um desenho e não uma
+     caixa de gavetas. */
+  const empilha = !escolha && ramosDoPasso(passo).some((r) => (r.lista as Passo[]).some((p) => p.tipo === "escolha"));
+  const cheio = escolha ? largo : (empilha || false);
+
   const ramos = ramosDoPasso(passo).map((r) => {
     if (!escolha) {
       const sim = r.chave === RAMO_ENTAO;
-      return { ...r, rotulo: sim ? "sim" : "não", cor: sim ? "text-emerald-400/90" : "text-rose-400/90" };
+      return {
+        ...r,
+        rotulo: sim ? "sim" : "não",
+        detalhe: empilha ? ladoDaCondicao(passo.condicao, sim) : null,
+        cor: sim ? "text-emerald-400/90" : "text-rose-400/90",
+      };
     }
-    if (r.chave === RAMO_SENAO) return { ...r, rotulo: "os demais", cor: "text-muted-foreground/80" };
+    if (r.chave === RAMO_SENAO) return { ...r, rotulo: "os demais", detalhe: null, cor: "text-muted-foreground/80" };
     const c = (passo.casos ?? []).find((x) => x.id === r.chave);
-    return { ...r, rotulo: c ? rotuloDoCaso(c) : "caso", cor: "text-violet-300" };
+    return { ...r, rotulo: c ? rotuloDoCaso(c) : "caso", detalhe: null, cor: "text-violet-300" };
   });
 
   return (
     <motion.div layout transition={MOLA} className="relative flex flex-col items-center">
       <span className="h-3 w-px bg-violet-400/30" />
-      <div className={cn("w-full", escolha ? "flex flex-col gap-2.5" : "grid gap-2 sm:grid-cols-2")}>
+      <div className={cn("w-full", escolha || empilha ? "flex flex-col gap-2.5" : "grid gap-2 sm:grid-cols-2")}>
         {ramos.map((l, k) => (
           <motion.div
             key={l.chave} layout
@@ -1060,24 +1084,21 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
             transition={{ ...MOLA, delay: k * 0.05 }}
             /* O CASO NÃO GANHA CAIXA. Ele já mora dentro do lado do "Se", que já
                mora dentro do fluxo: uma terceira moldura fazia a tela virar
-               caixas dentro de caixas e o olho perdia o que era o quê. Um caso é
-               um rótulo e uma fila curta, separado do vizinho por um fio à
-               esquerda, que é o que sobra quando se tira a moldura e ainda dá
-               pra ver onde um termina e o outro começa. */
+               caixas dentro de caixas. Um caso é um rótulo e uma fila curta,
+               separado do vizinho por um fio à esquerda. */
             className={cn(
-              "group/caso",
               escolha
-                ? "border-l-2 border-violet-400/25 pl-2"
-                : "rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-1.5",
+                ? "border-l-2 border-violet-400/25 pl-2.5"
+                : "rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-2",
             )}>
-            <p
-              title={l.rotulo}
-              className={cn(
-                "px-1 pb-1 truncate",
-                escolha ? "text-[10.5px] font-medium" : "text-[9.5px] uppercase tracking-[0.12em]",
-                l.cor,
-              )}>
-              {l.rotulo}
+            <p title={l.rotulo} className="flex items-baseline gap-1.5 px-1 pb-1.5 min-w-0">
+              <span className={cn("shrink-0", l.cor,
+                escolha ? "text-[11px] font-medium" : "text-[9.5px] uppercase tracking-[0.12em]")}>
+                {l.rotulo}
+              </span>
+              {l.detalhe && (
+                <span className="text-[10.5px] text-muted-foreground/70 truncate">· {l.detalhe}</span>
+              )}
             </p>
             <LayoutGroup id={`ramo-${passo.id}-${l.chave}`}>
               <AnimatePresence initial={false} mode="popLayout">
@@ -1086,7 +1107,7 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
                   return (
                     <React.Fragment key={p.id}>
                       <NoDoPasso
-                        passo={p} miudo
+                        passo={p} miudo={!cheio} semNumero
                         numero={trilha}
                         aberto={selecionado === p.id}
                         onAbrir={() => onAbrir(p.id)}
@@ -1098,6 +1119,7 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
                           selecionado={selecionado}
                           cabeMais={cabeMais}
                           trilhaDoPai={trilha}
+                          largo={cheio}
                           onAbrir={onAbrir}
                           onRemover={onRemover}
                           onInserir={onInserir}
@@ -1106,6 +1128,7 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
                       <ConectorDoRamo
                         podeInserir={cabeMais}
                         dentroDeEscolha={escolha}
+                        fim={i === l.lista.length - 1}
                         onInserir={(t) => onInserir(t, passo.id, l.chave, i + 1)}
                       />
                     </React.Fragment>
@@ -1130,6 +1153,19 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
 }
 
 /**
+ * O que cada lado do "Se" quer dizer, em palavras, para o cabeçalho do lado
+ * quando os lados estão empilhados e há espaço para dizê-lo. "sim" sozinho
+ * obriga a pessoa a subir até o cartão do "Se" para lembrar sim DO QUÊ.
+ */
+function ladoDaCondicao(c: Condicao | undefined, sim: boolean): string {
+  const t = c?.tipo ?? "ja_escreveu";
+  if (t === "ja_escreveu") return sim ? "o lead já nos escreveu" : "o lead nunca nos escreveu";
+  if (t === "respondeu") return sim ? "o lead respondeu" : "o lead não respondeu";
+  const frase = fraseDaCondicao(c).replace(/^se /, "");
+  return sim ? frase : `não: ${frase}`;
+}
+
+/**
  * O "+" de dentro de um ramo.
  *
  * Nunca oferece "Se", e dentro de uma "Escolha" também não oferece outra: a
@@ -1137,8 +1173,10 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
  * porque a alternativa é deixar clicar e recusar depois. A lista curta aqui
  * também é um favor ao olho, porque este menu abre numa coluna estreita.
  */
-function ConectorDoRamo({ onInserir, podeInserir, vazio, dentroDeEscolha }: {
+function ConectorDoRamo({ onInserir, podeInserir, vazio, dentroDeEscolha, fim }: {
   onInserir: (t: TipoDePasso) => void; podeInserir: boolean; vazio?: string; dentroDeEscolha?: boolean;
+  /** o fim da cadeia deste ramo: aqui o "+" fica à vista, é onde se continua */
+  fim?: boolean;
 }) {
   const oferecidos = dentroDeEscolha ? TIPOS_DENTRO_DE_CASO : TIPOS_DENTRO_DE_RAMO;
   const [aberto, setAberto] = useState(false);
@@ -1182,12 +1220,19 @@ function ConectorDoRamo({ onInserir, podeInserir, vazio, dentroDeEscolha }: {
             className={cn("flex justify-center", vazio && "w-full")}>
             <button
               type="button" onClick={() => setAberto(true)}
+              /* UM "+" POR CADEIA, NO FIM, SEMPRE À VISTA. É onde a pessoa vai
+                 quando quer acrescentar um passo, e é o único que precisa ser
+                 encontrado sem procurar. Os do meio existem para inserir entre
+                 dois cartões, um gesto raro: aparecem quando o mouse passa na
+                 própria linha, e só nela. */
               className={cn(
-                "flex items-center justify-center gap-1 rounded-md py-1 text-muted-foreground/70",
-                "hover:text-foreground hover:bg-white/[0.05] transition-all",
+                "flex items-center justify-center gap-1 text-muted-foreground/70 transition-all",
+                "hover:text-foreground",
                 vazio
-                  ? "w-full"
-                  : "h-4 w-4 opacity-0 group-hover/caso:opacity-100 group-hover/ramo:opacity-100 focus:opacity-100")}>
+                  ? "w-full rounded-md py-1 hover:bg-white/[0.05]"
+                  : fim
+                    ? "h-5 w-5 rounded-full ring-1 ring-white/[0.10] bg-white/[0.02] opacity-60 hover:opacity-100 hover:ring-primary/40 hover:text-primary"
+                    : "h-4 w-4 rounded-md opacity-0 group-hover/ramo:opacity-100 focus:opacity-100 hover:bg-white/[0.05]")}>
               <Plus className="h-2.5 w-2.5 shrink-0" />
               {vazio && <span className="text-[10px]">{vazio}</span>}
             </button>
@@ -1914,6 +1959,10 @@ function BotaoAdicionarBase({ onClick }: { onClick: () => void }) {
 }
 
 const VARIAVEIS_DA_CONVERSA = [
+  /* A saudação é calculada na hora em que a mensagem SAI, no fuso do número:
+     4h às 12h dia, 12h às 18h tarde, o resto noite. Lead que chega às 3h e
+     recebe às 8h ganha "Bom dia". */
+  { marca: "{saudacao}", rotulo: "saudação", exemplo: "Bom dia" },
   { marca: "{nome}", rotulo: "nome", exemplo: "Maria" },
   { marca: "{horario}", rotulo: "horário", exemplo: "08:00" },
 ];
@@ -1985,7 +2034,7 @@ function BandejaDeVariaveis({ colunas, carregando, temBase, nomeDasBases, soColu
   colunas: ColunaDaBase[]; carregando: boolean; temBase: boolean;
   /** de qual base vieram as colunas, para o título do grupo */
   nomeDasBases?: string | null;
-  /** na pergunta do "Se" só cabe coluna: {nome} e {horario} não são da planilha */
+  /** na pergunta do "Se" só cabe coluna: {saudacao}, {nome} e {horario} não são da planilha */
   soColunas?: boolean;
   onInserir: (marca: string) => void;
 }) {
