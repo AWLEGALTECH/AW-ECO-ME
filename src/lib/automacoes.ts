@@ -17,13 +17,25 @@
  * de desenho: é o formato do trabalho. "Chegou lead novo, manda a mensagem,
  * espera dois dias, se não respondeu manda de novo" é uma linha reta.
  *
- * A fila tem UM tipo de bifurcação: o passo "Se", com um lado sim e um lado
- * não, cada lado sendo uma fila própria. Ele nasceu de um caso concreto: o
- * lead que responde o formulário e, antes de a automação rodar, já mandou
- * mensagem no WhatsApp. Responder a esse com a primeira mensagem, como se ele
- * nunca tivesse escrito, é o que uma fila reta faria. Um nível só de ramo
- * (sem "Se" dentro de "Se") resolve isso e mantém o fluxo legível de cima para
- * baixo, no celular. Andar na árvore é trabalho de `fluxoDePassos.ts`.
+ * A fila tem DOIS tipos de bifurcação, e eles nasceram de duas perguntas
+ * diferentes que a recepção de um lead faz.
+ *
+ * O "Se" é a primeira: o lead que responde o formulário e, antes de a automação
+ * rodar, já mandou mensagem no WhatsApp. Responder a esse com a primeira
+ * mensagem, como se ele nunca tivesse escrito, é o que uma fila reta faria. É
+ * uma pergunta de sim ou não, sobre COMPORTAMENTO, e decide a postura.
+ *
+ * A "Escolha" é a segunda: o que a pessoa respondeu no formulário. "Estou
+ * respondendo a um processo agora" e "quero me proteger antes" são o mesmo lead
+ * para uma fila reta, e são conversas completamente diferentes. É uma pergunta
+ * de N respostas, sobre CONTEÚDO, e decide o assunto.
+ *
+ * As duas juntas, uma dentro da outra, são a recepção personalizada inteira num
+ * fluxo só. Por isso a "Escolha" cabe dentro de um lado do "Se", e por isso a
+ * árvore para em dois níveis: não existe "Se" dentro de "Se" nem "Escolha"
+ * dentro de "Escolha", porque o terceiro nível deixa de caber na tela de um
+ * celular e na cabeça de quem confere o fluxo antes de ligar. Andar na árvore é
+ * trabalho de `fluxoDePassos.ts`.
  *
  * ─────────────────────── o que este arquivo NÃO decide ───────────────────────
  *
@@ -36,7 +48,10 @@
 import { ROTULO_FAIXA, type Faixa } from "./horarioAtendimento";
 import { ETAPAS_BRADESCO, ETAPAS_PADRAO, type Jornada, etapasDaJornada } from "./jornada";
 import type { Midia } from "./anexos";
-import { todosOsPassos, rotuloDaPosicao, variaveisDoTexto, type PassoComRamos } from "./fluxoDePassos";
+import {
+  todosOsPassos, rotuloDaPosicao, variaveisDoTexto, ramosDoPasso,
+  type PassoComRamos,
+} from "./fluxoDePassos";
 
 /* ══════════════════ gatilhos ══════════════════════════════════════════════ */
 
@@ -142,6 +157,7 @@ export const TIPOS_DE_PASSO = [
   "esperar",
   "parar_se_respondeu",
   "se",
+  "escolha",
   "mover_etapa",
   "tarefa",
 ] as const;
@@ -161,12 +177,25 @@ export const PASSOS_DEF: readonly PassoDef[] = [
   { chave: "esperar",            rotulo: "Esperar",          descricao: "segura o fluxo antes do próximo passo",          icone: "Timer",      tom: "amber" },
   { chave: "parar_se_respondeu", rotulo: "Parar se respondeu", descricao: "quem respondeu não recebe o resto",            icone: "Split",      tom: "sky" },
   { chave: "se",                 rotulo: "Se… então",        descricao: "segue por um lado ou pelo outro",                icone: "GitFork",    tom: "violet" },
+  { chave: "escolha",            rotulo: "Escolha por resposta", descricao: "uma saída para cada resposta do formulário", icone: "Rows3",      tom: "violet" },
   { chave: "mover_etapa",        rotulo: "Mover de etapa",   descricao: "empurra o lead na jornada",                      icone: "Milestone",  tom: "emerald" },
   { chave: "tarefa",             rotulo: "Criar tarefa",     descricao: "abre um lembrete para alguém da equipe",         icone: "ListTodo",   tom: "zinc" },
 ];
 
-/** Os tipos que cabem DENTRO de um lado do "Se": todos, menos outro "Se". */
+/**
+ * Os tipos que cabem DENTRO de um lado do "Se".
+ *
+ * Fica de fora outro "Se" (dois booleanos encadeados são uma "Escolha" escrita
+ * de um jeito pior) mas entra a "Escolha", e é ela que faz a árvore valer dois
+ * níveis. É esse par que resolve o caso real: "o lead já escreveu?" é a
+ * postura, "o que ele respondeu no formulário?" é o assunto, e são perguntas
+ * de naturezas diferentes, uma dentro da outra.
+ */
 export const TIPOS_DENTRO_DE_RAMO: readonly TipoDePasso[] = TIPOS_DE_PASSO.filter((t) => t !== "se");
+
+/** Os tipos que cabem dentro de um CASO da "Escolha": nada que abra ramo. */
+export const TIPOS_DENTRO_DE_CASO: readonly TipoDePasso[] =
+  TIPOS_DE_PASSO.filter((t) => t !== "se" && t !== "escolha");
 
 /* ══════════════════ a pergunta do "Se" ═════════════════════════════════════ */
 
@@ -252,6 +281,22 @@ export function tipoDePassoValido(x: unknown): x is TipoDePasso {
   return typeof x === "string" && (TIPOS_DE_PASSO as readonly string[]).includes(x);
 }
 
+/**
+ * Um caso da "Escolha": um valor possível da coluna, e o que fazer com ele.
+ *
+ * A coluna mora no passo, e não aqui, porque uma "Escolha" é sobre UMA
+ * pergunta. Espalhar a coluna pelos casos deixaria montar um switch que
+ * compara três colunas diferentes, que é um "Se" encadeado disfarçado e volta
+ * a ser ilegível.
+ */
+export interface Caso {
+  id: string;
+  /** como comparar a coluna do passo com `valor` */
+  op: Operador;
+  valor: string;
+  passos: Passo[];
+}
+
 export interface Passo extends PassoComRamos {
   /** identidade do passo na lista, para a animação saber quem é quem ao reordenar */
   id: string;
@@ -269,10 +314,35 @@ export interface Passo extends PassoComRamos {
   dias?: number;
   /** se: a pergunta */
   condicao?: Condicao;
+  /** escolha: qual coluna da base está sendo perguntada */
+  campo?: string;
+  /** escolha: os valores previstos, conferidos NA ORDEM (o primeiro que casar leva) */
+  casos?: Caso[];
   /** se: o lado de quem respondeu sim */
   entao?: Passo[];
-  /** se: o lado de quem respondeu não */
+  /** se: o lado de quem respondeu não; escolha: quem não casou com caso nenhum */
   senao?: Passo[];
+}
+
+/** Teto de casos numa "Escolha". Acima disso não é recepção, é URA de telefone. */
+export const MAX_CASOS = 6;
+
+let contadorDeCaso = 0;
+export function novoIdDeCaso(): string {
+  contadorDeCaso += 1;
+  return `c${Date.now().toString(36)}${contadorDeCaso.toString(36)}`;
+}
+
+export function casoNovo(valor = ""): Caso {
+  return { id: novoIdDeCaso(), op: "contem", valor, passos: [] };
+}
+
+/** "quando Situação contém “processo”" — o cabeçalho do caso, na tela. */
+export function fraseDoCaso(campo: string | null | undefined, c: Caso): string {
+  const col = (campo || "").trim() || "a coluna";
+  if (!operadorPrecisaDeValor(c.op)) return `quando ${col} ${ROTULO_OPERADOR[c.op]}`;
+  const v = (c.valor || "").trim();
+  return v ? `quando ${col} ${ROTULO_OPERADOR[c.op]} “${v}”` : `quando ${col} ${ROTULO_OPERADOR[c.op]} (falta o valor)`;
 }
 
 /**
@@ -380,8 +450,16 @@ export interface Automacao {
   updated_at?: string | null;
 }
 
-/** Teto de passos, contando os de dentro dos lados. Não é limite técnico: é o ponto em que a fila deixa de caber na tela e de caber na cabeça. */
-export const MAX_PASSOS = 16;
+/**
+ * Teto de passos, contando os de dentro dos ramos.
+ *
+ * Não é limite técnico: é o ponto em que a fila deixa de caber na tela e de
+ * caber na cabeça. Subiu de 16 para 28 quando a "Escolha" entrou, porque o
+ * número antigo media uma fila com no máximo uma bifurcação de dois lados. Uma
+ * recepção com três respostas previstas gasta cinco passos só para existir, e
+ * no teto antigo não sobrava fluxo para escrever depois dela.
+ */
+export const MAX_PASSOS = 28;
 /** Teto da espera, em minutos: 30 dias. Mais que isso não é automação, é esquecimento. */
 export const MAX_ESPERA = 60 * 24 * 30;
 
@@ -399,6 +477,9 @@ export function passoNovo(tipo: TipoDePasso): Passo {
   if (tipo === "tarefa") return { ...base, titulo: "", dias: 1 };
   if (tipo === "mover_etapa") return { ...base, etapa: "" };
   if (tipo === "se") return { ...base, condicao: { ...CONDICAO_PADRAO }, entao: [], senao: [] };
+  /* Nasce com dois casos porque uma "Escolha" de um caso é um "Se" pior
+     escrito, e a tela que abre já mostrando o formato certo ensina o formato. */
+  if (tipo === "escolha") return { ...base, campo: "", casos: [casoNovo(), casoNovo()], senao: [] };
   return base;
 }
 
@@ -439,7 +520,7 @@ export function impedimentos(
   if (!a.nome.trim()) erros.push("Dê um nome à automação.");
   const todos = todosOsPassos(a.passos);
   if (todos.length === 0) erros.push("Uma automação sem passos não faz nada.");
-  if (todos.length > MAX_PASSOS) erros.push(`No máximo ${MAX_PASSOS} passos, contando os de dentro do “Se”.`);
+  if (todos.length > MAX_PASSOS) erros.push(`No máximo ${MAX_PASSOS} passos, contando os de dentro dos ramos.`);
 
   const def = defDoGatilho(a.gatilho);
   if (def.campo === "bases" && !a.gatilho_config.bases_todas && (a.gatilho_config.fonte_ids ?? []).length === 0) {
@@ -493,6 +574,37 @@ export function impedimentos(
         erros.push(`O ${n} tem um “Se” dentro de outro, e isto só vai até um nível.`);
       }
     }
+    if (p.tipo === "escolha") {
+      const campo = (p.campo || "").trim();
+      const casos = p.casos ?? [];
+      if (!campo) erros.push(`A ${n} não diz qual coluna da base está perguntando.`);
+      else if (conhecidas && !conhecidas.has(campo)) {
+        erros.push(`A ${n} pergunta a coluna “${campo}”, que não existe em nenhuma base deste fluxo.`);
+      }
+      if (casos.length === 0) erros.push(`A ${n} não tem nenhum caso.`);
+      if (casos.length > MAX_CASOS) erros.push(`A ${n} tem mais de ${MAX_CASOS} casos.`);
+      casos.forEach((c, i) => {
+        if (operadorPrecisaDeValor(c.op) && !(c.valor || "").trim()) {
+          erros.push(`O caso ${i + 1} da ${n} compara com um valor vazio.`);
+        }
+        if ((c.passos ?? []).some((x) => x.tipo === "se" || x.tipo === "escolha")) {
+          erros.push(`O caso ${i + 1} da ${n} abre outro ramo, e a árvore só vai até dois níveis.`);
+        }
+      });
+      /* DOIS CASOS COM A MESMA PERGUNTA: o segundo é código morto, porque quem
+         decide é o primeiro que casar. Não quebra nada, e é sempre engano. */
+      const vistos = new Set<string>();
+      for (const c of casos) {
+        const chave = `${c.op} ${(c.valor || "").trim().toLowerCase()}`;
+        if (vistos.has(chave)) {
+          erros.push(`A ${n} tem dois casos iguais; o segundo nunca vai ser usado.`);
+          break;
+        }
+        vistos.add(chave);
+      }
+      const temSaida = casos.some((c) => (c.passos ?? []).length > 0) || (p.senao ?? []).length > 0;
+      if (!temSaida) erros.push(`A ${n} é uma escolha sem nada em caso nenhum.`);
+    }
   }
 
   /* PARAR SE RESPONDEU NO PRIMEIRO PASSO NÃO PARA NADA. Ele compara com o
@@ -531,7 +643,20 @@ export interface ColunaDaBase {
   coluna: string;
   /** o valor mais recente que alguém preencheu, para o exemplo da bandeja */
   exemplo: string | null;
+  /**
+   * As respostas distintas que esta coluna tem nas linhas olhadas.
+   *
+   * Existe para a "Escolha" virar clique em vez de digitação. Um caso escrito à
+   * mão com uma palavra que a planilha nunca teve NUNCA CASA, e o lead cai em
+   * "os demais" para sempre sem erro nenhum na tela: é o tipo de defeito que só
+   * aparece semanas depois, quando alguém repara que a recepção personalizada
+   * nunca personalizou nada.
+   */
+  valores: string[];
 }
+
+/** Teto de respostas distintas guardadas por coluna. Acima disso é campo aberto, não opção. */
+export const MAX_VALORES_POR_COLUNA = 12;
 
 /**
  * As colunas que aparecem nas linhas brutas de uma base, na ordem do cabeçalho.
@@ -547,17 +672,30 @@ export interface ColunaDaBase {
 export function colunasDosBrutos(brutos: readonly (Record<string, unknown> | null | undefined)[]): ColunaDaBase[] {
   const ordem: string[] = [];
   const exemplo = new Map<string, string | null>();
+  /* Set guarda a ordem de inserção, e a ordem aqui é a das linhas olhadas (da
+     mais recente para a mais antiga). A resposta que mais gente deu ultimamente
+     aparece primeiro na tela, que é a que mais serve. */
+  const valores = new Map<string, Set<string>>();
   for (const b of brutos) {
     if (!b || typeof b !== "object") continue;
     for (const [k, v] of Object.entries(b)) {
       const chave = k.trim();
       if (!chave || /whats|telefone|celular|fone\b|contato/i.test(chave)) continue;
-      if (!exemplo.has(chave)) { ordem.push(chave); exemplo.set(chave, null); }
+      if (!exemplo.has(chave)) { ordem.push(chave); exemplo.set(chave, null); valores.set(chave, new Set()); }
       const s = v == null ? "" : String(v).trim();
-      if (s && exemplo.get(chave) === null) exemplo.set(chave, s);
+      if (!s) continue;
+      if (exemplo.get(chave) === null) exemplo.set(chave, s);
+      const vistos = valores.get(chave)!;
+      /* Resposta longa é texto livre ("conte seu caso"), e texto livre não vira
+         botão: viraria um botão por lead. */
+      if (vistos.size < MAX_VALORES_POR_COLUNA && s.length <= 120) vistos.add(s);
     }
   }
-  return ordem.map((coluna) => ({ coluna, exemplo: exemplo.get(coluna) ?? null }));
+  return ordem.map((coluna) => ({
+    coluna,
+    exemplo: exemplo.get(coluna) ?? null,
+    valores: [...(valores.get(coluna) ?? [])],
+  }));
 }
 
 /* ══════════════════ como a automação se lê em uma linha ═══════════════════ */
@@ -593,6 +731,13 @@ export function resumoDoPasso(p: Passo): string {
     const n = (p.senao ?? []).length;
     const conta = (q: number) => `${q} passo${q === 1 ? "" : "s"}`;
     return `${fraseDaCondicao(p.condicao)} · sim: ${conta(s)} · não: ${conta(n)}`;
+  }
+  if (p.tipo === "escolha") {
+    const campo = (p.campo || "").trim();
+    const q = (p.casos ?? []).length;
+    const sobra = (p.senao ?? []).length > 0 ? " + os demais" : "";
+    if (!campo) return `escolha sem coluna · ${q} caso${q === 1 ? "" : "s"}${sobra}`;
+    return `por ${campo} · ${q} caso${q === 1 ? "" : "s"}${sobra}`;
   }
   if (p.tipo === "mover_etapa") return p.etapa ? rotuloDeEtapaQualquer(p.etapa) : "etapa não escolhida";
   if (p.tipo === "tarefa") {
@@ -677,13 +822,14 @@ export function resumoDoFluxo(passos: Passo[]): { mensagens: number; duracaoMin:
   for (const p of passos) {
     if (p.tipo === "mensagem") mensagens += 1;
     if (p.tipo === "esperar") duracaoMin += Math.max(0, Number(p.minutos ?? 0));
-    if (p.tipo === "se") {
-      /* Um lead passa por UM lado. O número que interessa antes de ligar é o
-         pior caso ("até N mensagens"), e não a soma dos dois. */
-      const sim = resumoDoFluxo(p.entao ?? []);
-      const nao = resumoDoFluxo(p.senao ?? []);
-      mensagens += Math.max(sim.mensagens, nao.mensagens);
-      duracaoMin += Math.max(sim.duracaoMin, nao.duracaoMin);
+    /* Um lead passa por UM ramo. O número que interessa antes de ligar é o
+       PIOR CASO ("até N mensagens"), e não a soma de todos: somar faria uma
+       escolha de cinco casos parecer cinco vezes mais agressiva do que é, e
+       quem lesse isso não ligaria um fluxo que era perfeitamente seguro. */
+    const ramos = ramosDoPasso(p).map((r) => resumoDoFluxo(r.lista as Passo[]));
+    if (ramos.length > 0) {
+      mensagens += Math.max(...ramos.map((r) => r.mensagens));
+      duracaoMin += Math.max(...ramos.map((r) => r.duracaoMin));
     }
   }
   return { mensagens, duracaoMin };

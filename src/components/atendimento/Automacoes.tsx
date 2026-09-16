@@ -56,16 +56,17 @@ import {
   impedimentos, podeLigar, esperaBonita, resumoDoPasso, fraseDoGatilho,
   etapasOferecidas, resumoDoFluxo, CONDICOES_PADRAO, MAX_PASSOS, ROTULO_STATUS,
   CONDICOES_DEF, OPERADORES, ROTULO_OPERADOR, CONDICAO_PADRAO, VARIAVEIS_FIXAS,
-  TIPOS_DENTRO_DE_RAMO, fraseDaCondicao, operadorPrecisaDeValor,
+  TIPOS_DENTRO_DE_RAMO, TIPOS_DENTRO_DE_CASO, fraseDaCondicao, operadorPrecisaDeValor,
+  casoNovo, fraseDoCaso, MAX_CASOS,
   FAIXAS_DO_DIA, DESCRICAO_DA_FAIXA, faixasDaAutomacao, fraseDasFaixas, mandaAQualquerHora,
   type Automacao, type Gatilho, type GatilhoDef, type Passo, type TipoDePasso,
   type ConfigDoGatilho, type Condicoes, type Condicao, type TipoDeCondicao,
-  type Operador, type ColunaDaBase,
+  type Operador, type ColunaDaBase, type Caso,
 } from "@/lib/automacoes";
 import {
   todosOsPassos, encontrarPasso, rotuloDaPosicao,
   atualizarPasso as atualizarNaArvore, removerPasso as removerDaArvore,
-  inserirPasso as inserirNaArvore,
+  inserirPasso as inserirNaArvore, ramosDoPasso, nomeDoRamo, RAMO_ENTAO, RAMO_SENAO,
   type Ramo,
 } from "@/lib/fluxoDePassos";
 import {
@@ -702,7 +703,7 @@ function Editor({
      um lado ocupam a tela tanto quanto dois passos soltos. */
   const inserirPasso = (tipo: TipoDePasso, indice: number, dentroDe?: { id: string; ramo: Ramo } | null) => {
     if (todosOsPassos(passos).length >= MAX_PASSOS) {
-      toast.error(`No máximo ${MAX_PASSOS} passos, contando os de dentro do “Se”.`);
+      toast.error(`No máximo ${MAX_PASSOS} passos, contando os de dentro dos ramos.`);
       return;
     }
     const novo = passoNovo(tipo);
@@ -819,15 +820,15 @@ function Editor({
                         onAbrir={() => setSelecionado(p.id)}
                         onRemover={() => removerPasso(p.id)}
                       />
-                      {p.tipo === "se" && (
-                        <OsDoisLados
+                      {(p.tipo === "se" || p.tipo === "escolha") && (
+                        <OsRamos
                           passo={p}
                           selecionado={selecionado}
                           cabeMais={cabeMais}
-                          numeroDoPai={i + 1}
+                          trilhaDoPai={`Passo ${i + 1}`}
                           onAbrir={setSelecionado}
                           onRemover={removerPasso}
-                          onInserir={(tipo, ramo, indice) => inserirPasso(tipo, indice, { id: p.id, ramo })}
+                          onInserir={(tipo, paiId, ramo, indice) => inserirPasso(tipo, indice, { id: paiId, ramo })}
                         />
                       )}
                       <Conector
@@ -1012,56 +1013,105 @@ function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
  * é uma regra legítima, e por isso o vazio diz o que significa em vez de
  * mostrar um aviso.
  */
-function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRemover, onInserir }: {
+/**
+ * OS RAMOS DE UMA BIFURCAÇÃO, SEJAM DOIS OU SEIS.
+ *
+ * "Se" e "Escolha" são a mesma coisa com aridade diferente, então o desenho é
+ * um só. O que muda é a FORMA, e muda por causa do texto: os dois lados do
+ * "Se" se chamam "sim" e "não" e cabem lado a lado; um caso da "Escolha" se
+ * chama "quando Situação contém “processo”", que em meia largura vira três
+ * linhas. Por isso o "Se" é grade de duas colunas e a "Escolha" é pilha, com
+ * "os demais" no fim, que é como se lê um funil.
+ *
+ * Desce UM nível: uma "Escolha" dentro de um lado do "Se" desenha os casos
+ * dela aqui dentro. Sem isso a pessoa veria o cartão da escolha e nenhum dos
+ * caminhos que ela abre, que é justamente o fluxo que este passo existe para
+ * tornar visível.
+ */
+function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover, onInserir }: {
   passo: Passo;
   selecionado: string;
   cabeMais: boolean;
-  numeroDoPai: number;
+  /** "Passo 2", ou "Passo 2 · sim 1" quando este é um ramo de dentro */
+  trilhaDoPai: string;
   onAbrir: (id: string) => void;
   onRemover: (id: string) => void;
-  onInserir: (tipo: TipoDePasso, ramo: Ramo, indice: number) => void;
+  onInserir: (tipo: TipoDePasso, paiId: string, ramo: Ramo, indice: number) => void;
 }) {
-  const lados: { ramo: Ramo; rotulo: string; lista: Passo[]; cor: string }[] = [
-    { ramo: "entao", rotulo: "sim", lista: passo.entao ?? [], cor: "text-emerald-400/90 ring-emerald-400/20" },
-    { ramo: "senao", rotulo: "não", lista: passo.senao ?? [], cor: "text-rose-400/90 ring-rose-400/20" },
-  ];
+  const escolha = passo.tipo === "escolha";
+  const ramos = ramosDoPasso(passo).map((r) => {
+    if (!escolha) {
+      const sim = r.chave === RAMO_ENTAO;
+      return {
+        ...r,
+        rotulo: sim ? "sim" : "não",
+        cor: sim ? "text-emerald-400/90" : "text-rose-400/90",
+      };
+    }
+    if (r.chave === RAMO_SENAO) {
+      return { ...r, rotulo: "os demais", cor: "text-muted-foreground" };
+    }
+    const c = (passo.casos ?? []).find((x) => x.id === r.chave);
+    return {
+      ...r,
+      rotulo: c ? fraseDoCaso(passo.campo, c) : "caso",
+      cor: "text-violet-300/90",
+    };
+  });
+
   return (
     <motion.div layout transition={MOLA} className="relative flex flex-col items-center">
       <span className="h-3 w-px bg-violet-400/30" />
-      <div className="w-full grid gap-2 sm:grid-cols-2">
-        {lados.map((l, k) => (
+      <div className={cn("w-full grid gap-2", escolha ? "grid-cols-1" : "sm:grid-cols-2")}>
+        {ramos.map((l, k) => (
           <motion.div
-            key={l.ramo} layout
+            key={l.chave} layout
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             transition={{ ...MOLA, delay: k * 0.05 }}
             className="rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-1.5">
-            <p className={cn("text-[9.5px] uppercase tracking-[0.12em] px-1 pb-1 rounded-t", l.cor)}>
+            <p className={cn("text-[9.5px] uppercase tracking-[0.12em] px-1 pb-1 rounded-t truncate", l.cor)}>
               {l.rotulo}
             </p>
-            <LayoutGroup id={`ramo-${passo.id}-${l.ramo}`}>
+            <LayoutGroup id={`ramo-${passo.id}-${l.chave}`}>
               <AnimatePresence initial={false} mode="popLayout">
-                {l.lista.map((p, i) => (
-                  <React.Fragment key={p.id}>
-                    <NoDoPasso
-                      passo={p} miudo
-                      numero={`Passo ${numeroDoPai} · ${l.rotulo} ${i + 1}`}
-                      aberto={selecionado === p.id}
-                      onAbrir={() => onAbrir(p.id)}
-                      onRemover={() => onRemover(p.id)}
-                    />
-                    <ConectorDoRamo
-                      podeInserir={cabeMais}
-                      onInserir={(t) => onInserir(t, l.ramo, i + 1)}
-                    />
-                  </React.Fragment>
-                ))}
+                {(l.lista as Passo[]).map((p, i) => {
+                  const trilha = `${trilhaDoPai} · ${nomeDoRamo(passo, l.chave)} ${i + 1}`;
+                  return (
+                    <React.Fragment key={p.id}>
+                      <NoDoPasso
+                        passo={p} miudo
+                        numero={trilha}
+                        aberto={selecionado === p.id}
+                        onAbrir={() => onAbrir(p.id)}
+                        onRemover={() => onRemover(p.id)}
+                      />
+                      {p.tipo === "escolha" && (
+                        <OsRamos
+                          passo={p}
+                          selecionado={selecionado}
+                          cabeMais={cabeMais}
+                          trilhaDoPai={trilha}
+                          onAbrir={onAbrir}
+                          onRemover={onRemover}
+                          onInserir={onInserir}
+                        />
+                      )}
+                      <ConectorDoRamo
+                        podeInserir={cabeMais}
+                        dentroDeEscolha={escolha}
+                        onInserir={(t) => onInserir(t, passo.id, l.chave, i + 1)}
+                      />
+                    </React.Fragment>
+                  );
+                })}
               </AnimatePresence>
             </LayoutGroup>
             {l.lista.length === 0 && (
               <ConectorDoRamo
-                vazio={l.ramo === "entao" ? "nada acontece deste lado" : "nada acontece deste lado"}
+                vazio="nada acontece por aqui"
                 podeInserir={cabeMais}
-                onInserir={(t) => onInserir(t, l.ramo, 0)}
+                dentroDeEscolha={escolha}
+                onInserir={(t) => onInserir(t, passo.id, l.chave, 0)}
               />
             )}
           </motion.div>
@@ -1073,14 +1123,17 @@ function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRem
 }
 
 /**
- * O "+" de dentro de um lado.
+ * O "+" de dentro de um ramo.
  *
- * Não oferece "Se": um nível só. A lista curta aqui também é um favor ao olho,
- * porque este menu abre numa coluna que tem metade da largura.
+ * Nunca oferece "Se", e dentro de uma "Escolha" também não oferece outra: a
+ * árvore vai até dois níveis, e o menu é o lugar certo para isso aparecer,
+ * porque a alternativa é deixar clicar e recusar depois. A lista curta aqui
+ * também é um favor ao olho, porque este menu abre numa coluna estreita.
  */
-function ConectorDoRamo({ onInserir, podeInserir, vazio }: {
-  onInserir: (t: TipoDePasso) => void; podeInserir: boolean; vazio?: string;
+function ConectorDoRamo({ onInserir, podeInserir, vazio, dentroDeEscolha }: {
+  onInserir: (t: TipoDePasso) => void; podeInserir: boolean; vazio?: string; dentroDeEscolha?: boolean;
 }) {
+  const oferecidos = dentroDeEscolha ? TIPOS_DENTRO_DE_CASO : TIPOS_DENTRO_DE_RAMO;
   const [aberto, setAberto] = useState(false);
   return (
     <motion.div layout transition={MOLA} className="group/ramo relative flex flex-col items-center py-0.5">
@@ -1092,7 +1145,7 @@ function ConectorDoRamo({ onInserir, podeInserir, vazio }: {
             exit={{ opacity: 0, y: -6, scale: 0.96 }}
             transition={MOLA}
             className="w-full rounded-lg border border-white/[0.10] bg-black/50 backdrop-blur p-1 my-1">
-            {PASSOS_DEF.filter((p) => TIPOS_DENTRO_DE_RAMO.includes(p.chave)).map((p, i) => {
+            {PASSOS_DEF.filter((p) => oferecidos.includes(p.chave)).map((p, i) => {
               const Ico = ICONE_DO_PASSO[p.icone] ?? Send;
               return (
                 <motion.button
@@ -2067,6 +2120,15 @@ function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, n
         />
       )}
 
+      {passo.tipo === "escolha" && (
+        <EditorDaEscolha
+          passo={passo}
+          colunas={colunas} carregando={carregandoColunas} temBase={temBase}
+          nomeDasBases={nomeDasBases}
+          onTrocar={onTrocar}
+        />
+      )}
+
       {passo.tipo === "esperar" && (
         <div>
           <Titulo>Quanto tempo</Titulo>
@@ -2166,6 +2228,154 @@ function InspetorDoPasso({ passo, rotulo, colunas, carregandoColunas, temBase, n
  * base escolhida no gatilho, com o valor de um lead real no título. Digitar o
  * nome da coluna à mão também funciona, para quem sabe o que quer.
  */
+/**
+ * O EDITOR DA ESCOLHA: uma coluna, e uma saída por resposta prevista.
+ *
+ * A coluna é UMA para o passo inteiro, e não uma por caso. Deixar cada caso
+ * escolher a sua transformaria a escolha num "Se" encadeado disfarçado, que é
+ * exatamente a coisa ilegível que este passo existe para substituir.
+ *
+ * Os casos são conferidos NA ORDEM, e o primeiro que casar leva. Isso está
+ * escrito na tela porque é a única regra aqui que a pessoa não descobre
+ * olhando: duas respostas podem casar com dois casos, e quem decide é a
+ * posição.
+ */
+function EditorDaEscolha({ passo, colunas, carregando, temBase, nomeDasBases, onTrocar }: {
+  passo: Passo;
+  colunas: ColunaDaBase[];
+  carregando: boolean;
+  temBase: boolean;
+  nomeDasBases: string;
+  onTrocar: (m: Partial<Passo>) => void;
+}) {
+  const campo = passo.campo ?? "";
+  const casos = passo.casos ?? [];
+  /* As respostas que ESTA coluna realmente tem na planilha. É o que transforma
+     "digite o valor" em "clique na resposta", e é o que evita o erro que não
+     dá erro: um caso escrito com uma palavra que nunca aparece na base nunca
+     casa, e o lead cai sempre em "os demais" sem ninguém entender por quê. */
+  const valores = useMemo(() => {
+    const alvo = campo.trim().toLowerCase();
+    if (!alvo) return [];
+    return colunas.find((c) => c.coluna.trim().toLowerCase() === alvo)?.valores ?? [];
+  }, [colunas, campo]);
+
+  const trocarCaso = (id: string, m: Partial<Caso>) =>
+    onTrocar({ casos: casos.map((c) => (c.id === id ? { ...c, ...m } : c)) });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <Titulo>Qual resposta do formulário</Titulo>
+        <Input
+          value={campo}
+          onChange={(e) => onTrocar({ campo: e.target.value })}
+          placeholder="Situação"
+          className="h-8 text-[12px] bg-transparent border-white/[0.08]"
+        />
+        <div className="pt-1.5">
+          <BandejaDeVariaveis
+            soColunas
+            colunas={colunas} carregando={carregando} temBase={temBase}
+            nomeDasBases={nomeDasBases}
+            onInserir={(marca) => onTrocar({ campo: marca.replace(/^\{|\}$/g, "") })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <Titulo>As saídas</Titulo>
+          <span className="text-[10px] text-muted-foreground/70">
+            {casos.length}/{MAX_CASOS} · vale a primeira que casar
+          </span>
+        </div>
+        <LayoutGroup id={`casos-${passo.id}`}>
+          <div className="grid gap-1.5">
+            <AnimatePresence initial={false} mode="popLayout">
+              {casos.map((c, i) => (
+                <motion.div
+                  key={c.id} layout
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ ...MOLA, delay: i * 0.04 }}
+                  className="rounded-lg ring-1 ring-white/[0.07] bg-white/[0.02] p-1.5 space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-4 w-4 shrink-0 grid place-items-center rounded text-[9px] font-medium ring-1 ring-violet-400/30 bg-violet-400/[0.10] text-violet-300">
+                      {i + 1}
+                    </span>
+                    <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                      {OPERADORES.map((o) => (
+                        <button key={o} type="button"
+                          onClick={() => trocarCaso(c.id, { op: o })}
+                          className={cn("rounded-full px-1.5 py-0.5 text-[10px] ring-1 transition-colors",
+                            c.op === o ? "bg-violet-400/[0.14] text-violet-400 ring-violet-400/30"
+                                       : "bg-white/[0.04] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.07]")}>
+                          {ROTULO_OPERADOR[o]}
+                        </button>
+                      ))}
+                    </div>
+                    <BotaoIcone titulo="Remover esta saída" perigo
+                      onClick={() => onTrocar({ casos: casos.filter((x) => x.id !== c.id) })}>
+                      <Trash2 className="h-3 w-3" />
+                    </BotaoIcone>
+                  </div>
+                  <AnimatePresence initial={false}>
+                    {operadorPrecisaDeValor(c.op) && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }} transition={MOLA} className="overflow-hidden">
+                        <Input
+                          value={c.valor}
+                          onChange={(e) => trocarCaso(c.id, { valor: e.target.value })}
+                          placeholder="processo trabalhista"
+                          className="h-7 text-[11.5px] bg-transparent border-white/[0.08]"
+                        />
+                        {valores.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {valores.map((v) => (
+                              <button key={v} type="button"
+                                onClick={() => trocarCaso(c.id, { valor: v })}
+                                title={v}
+                                className="max-w-full rounded-full px-1.5 py-0.5 text-[9.5px] ring-1 ring-white/[0.08] bg-white/[0.03] text-muted-foreground hover:bg-white/[0.07] hover:text-foreground transition-colors truncate">
+                                {v}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </LayoutGroup>
+        <AnimatePresence initial={false}>
+          {casos.length < MAX_CASOS && (
+            <motion.button
+              type="button" layout
+              initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+              transition={MOLA}
+              onClick={() => onTrocar({ casos: [...casos, casoNovo()] })}
+              className="mt-1.5 w-full flex items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] text-muted-foreground ring-1 ring-white/[0.08] hover:bg-white/[0.05] hover:text-foreground transition-colors">
+              <Plus className="h-3 w-3" /> mais uma saída
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="pt-1 border-t border-white/[0.06]">
+        <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+          Quem não casar com nenhuma das {casos.length} segue por{" "}
+          <span className="text-violet-400/90">os demais</span>, que é o último ramo no desenho.
+          Deixe algo lá: é por onde passa o lead que respondeu uma coisa que você não previu.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function EditorDaCondicao({ condicao, colunas, carregando, temBase, nomeDasBases, onTrocar }: {
   condicao: Condicao; colunas: ColunaDaBase[]; carregando: boolean; temBase: boolean;
   nomeDasBases?: string | null;

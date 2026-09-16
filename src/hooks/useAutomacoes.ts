@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   type Automacao, type Execucao, type Gatilho, type Passo, type ConfigDoGatilho,
   type Condicoes, type ColunaDaBase, CONDICOES_PADRAO, colunasDosBrutos,
-  gatilhoValido, tipoDePassoValido, novoIdDePasso,
+  gatilhoValido, tipoDePassoValido, novoIdDePasso, novoIdDeCaso,
 } from "@/lib/automacoes";
 
 const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
@@ -28,20 +28,47 @@ export interface ResumoAutomacao {
 }
 
 /**
- * O que vem do banco vira uma automação utilizável, ou é descartado.
+ * Limpa uma fila de passos, DESCENDO NOS RAMOS.
  *
  * `passos` é jsonb: nada garante que o que está lá dentro seja o que a tela
  * espera. Um passo de tipo desconhecido (escrito por uma versão futura, ou por
  * um dedo errado no SQL) é jogado fora aqui em vez de virar um cartão em branco
  * no meio do fluxo.
+ *
+ * A versão anterior limpava só a fila de cima. Passava, porque o único ramo era
+ * o "Se" e um passo estranho lá dentro no máximo virava um cartão esquisito.
+ * Com a "Escolha" deixou de passar: o ramo de um caso é identificado pelo ID DO
+ * CASO, e um caso que chegue sem id faz a execução gravar a decisão contra
+ * `undefined`. Aí o `achatar` não acha ramo nenhum, o lead sai pelo fim do
+ * fluxo sem receber nada, e não há erro em lugar nenhum para explicar.
  */
+function passosLimpos(bruto: unknown): Passo[] {
+  return (Array.isArray(bruto) ? bruto : [])
+    .filter((p: unknown) => !!p && tipoDePassoValido((p as Passo).tipo))
+    .map((p: Passo) => {
+      const limpo: Passo = { ...p, id: p.id || novoIdDePasso() };
+      if (Array.isArray(p.entao)) limpo.entao = passosLimpos(p.entao);
+      if (Array.isArray(p.senao)) limpo.senao = passosLimpos(p.senao);
+      if (Array.isArray(p.casos)) {
+        limpo.casos = p.casos
+          .filter((c) => !!c && typeof c === "object")
+          .map((c) => ({
+            ...c,
+            id: c.id || novoIdDeCaso(),
+            op: c.op ?? "contem",
+            valor: String(c.valor ?? ""),
+            passos: passosLimpos(c.passos),
+          }));
+      }
+      return limpo;
+    });
+}
+
 function daLinha(l: Record<string, unknown>): Automacao | null {
   const g = l.gatilho;
   if (!gatilhoValido(g)) return null;
 
-  const passos: Passo[] = (Array.isArray(l.passos) ? l.passos : [])
-    .filter((p: unknown) => !!p && tipoDePassoValido((p as Passo).tipo))
-    .map((p: Passo) => ({ ...p, id: p.id || novoIdDePasso() }));
+  const passos: Passo[] = passosLimpos(l.passos);
 
   const c = (l.condicoes ?? {}) as Partial<Condicoes>;
   return {
@@ -55,6 +82,17 @@ function daLinha(l: Record<string, unknown>): Automacao | null {
     condicoes: {
       so_horario_comercial: c.so_horario_comercial !== false,
       teto_dia: Number(c.teto_dia ?? CONDICOES_PADRAO.teto_dia),
+      /* FAIXAS E RETROATIVO PRECISAM ATRAVESSAR A LEITURA.
+         Este objeto era montado campo a campo, e os dois ficaram de fora quando
+         nasceram. O efeito é pior do que perder a configuração na tela: a tela
+         mostra o padrão, a pessoa salva qualquer outra coisa no fluxo, e o que
+         estava gravado é sobrescrito pelo padrão sem ninguém pedir. O banco
+         continuava com a faixa certa até o primeiro salvamento, e é por isso
+         que some sem parecer que sumiu.
+         `undefined` aqui não é descuido: é "este fluxo é antigo e ainda não
+         respondeu isto", e `faixasDaAutomacao` sabe ler o legado. */
+      faixas: Array.isArray(c.faixas) ? c.faixas : undefined,
+      retroativo: typeof c.retroativo === "boolean" ? c.retroativo : undefined,
     },
     passos,
     updated_at: (l.updated_at as string) ?? null,
@@ -238,7 +276,12 @@ export function useColunasDasBases(fonteIds: string[]) {
         .select("bruto, chegou_em")
         .in("fonte_id", fonteIds)
         .order("chegou_em", { ascending: false, nullsFirst: false })
-        .limit(12 * fonteIds.length);
+        /* 12 linhas bastavam para descobrir QUAIS colunas existem. Não bastam
+           para descobrir quais RESPOSTAS cada uma tem, que é o que a "Escolha"
+           oferece como atalho: numa base com três opções, doze linhas podem
+           facilmente não conter uma delas, e a opção que falta é justamente a
+           que ninguém vai lembrar de escrever à mão. */
+        .limit(60 * fonteIds.length);
       if (error) throw error;
       return colunasDosBrutos(((data ?? []) as { bruto: Record<string, unknown> | null }[]).map((l) => l.bruto));
     },

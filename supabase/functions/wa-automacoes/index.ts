@@ -33,14 +33,18 @@
 // mensagem marcada à mão, que é onde alguém vai procurar quando perguntar "por
 // que esse lead recebeu isso?".
 //
-// ─────────────────────────── o "Se" tem dois lados ──────────────────────────
+// ───────────────────────── as duas bifurcações ──────────────────────────────
 //
-// O passo "Se" bifurca: um lado sim, um lado não, cada um com passos próprios.
+// O passo "Se" bifurca em dois (sim e não) e a "Escolha" bifurca em N (um caso
+// por resposta prevista, mais o lado de quem não casou com nenhuma). São a
+// mesma mecânica com aridade diferente, e o executor trata as duas igual:
+// pergunta ao banco, GRAVA o ramo e achata de novo. A "Escolha" nem precisou
+// de função nova no banco: cada caso é uma condição do tipo "campo", que
+// `fn_wa_automacao_condicao` já sabia responder desde o "Se".
+//
 // O executor não anda numa árvore, anda numa LISTA: a fila principal com cada
-// "Se" seguido dos passos do lado que ele escolheu (`achatar`, em
-// fluxoDePassos.ts, o mesmo arquivo que a tela usa, por link simbólico). Ao
-// chegar num "Se" ainda sem decisão, pergunta ao banco
-// (`fn_wa_automacao_condicao`), GRAVA o lado na execução e achata de novo.
+// bifurcação seguida dos passos do ramo que ela escolheu (`achatar`, em
+// fluxoDePassos.ts, o mesmo arquivo que a tela usa, por link simbólico).
 // Como a decisão entra antes de avançar, nenhum índice anterior muda, e a
 // posição continua sendo um número que sobrevive a uma espera de dois dias.
 //
@@ -73,9 +77,16 @@ interface Condicao {
   valor?: string;
 }
 
+interface Caso {
+  id: string;
+  op?: string;
+  valor?: string;
+  passos?: Passo[];
+}
+
 interface Passo {
   id: string;
-  tipo: "mensagem" | "esperar" | "parar_se_respondeu" | "se" | "mover_etapa" | "tarefa";
+  tipo: "mensagem" | "esperar" | "parar_se_respondeu" | "se" | "escolha" | "mover_etapa" | "tarefa";
   texto?: string;
   midias?: unknown[];
   minutos?: number;
@@ -85,7 +96,12 @@ interface Passo {
   /** se */
   condicao?: Condicao;
   entao?: Passo[];
+  /** se: o lado não; escolha: quem não casou com caso nenhum */
   senao?: Passo[];
+  /** escolha: qual coluna da base está sendo perguntada */
+  campo?: string;
+  /** escolha: os valores previstos, conferidos NA ORDEM */
+  casos?: Caso[];
 }
 
 interface Execucao {
@@ -97,7 +113,7 @@ interface Execucao {
   passo: number;
   tentativas: number;
   disparada_em: string;
-  /** o lado que cada "Se" já tomou nesta execução */
+  /** o ramo que cada bifurcação já tomou nesta execução */
   decisoes: Decisoes | null;
   instancia: string;
   nome: string;
@@ -266,6 +282,44 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
       continue;
     }
 
+    if (p.tipo === "escolha") {
+      /* Já decidida (retomada depois de uma espera): é só marcador, passa. */
+      if (!decisoes[p.id]) {
+        const campo = (p.campo ?? "").trim();
+        const casos = Array.isArray(p.casos) ? p.casos : [];
+        /* NA ORDEM, E O PRIMEIRO QUE CASAR LEVA. Duas respostas do formulário
+           podem casar com o mesmo caso ("contém demitir" e "contém advertir"),
+           e quem escreveu o fluxo pôs os casos numa ordem de propósito: o mais
+           específico em cima. Ordem estável é o que faz o fluxo ser lido e
+           conferido antes de ligar. */
+        let ramo: Ramo = "senao";
+        let rotulo = "nenhum caso";
+        for (const c of casos) {
+          const { data: bate, error } = await sb.rpc("fn_wa_automacao_condicao", {
+            p_conversa: conversa,
+            p_desde: e.disparada_em,
+            p_cond: { tipo: "campo", campo, op: c.op ?? "contem", valor: c.valor ?? "" },
+          });
+          if (error) throw new Error(`passo ${i + 1} (escolha): ${error.message}`);
+          if (bate === true) {
+            ramo = c.id;
+            rotulo = `“${c.valor ?? ""}”`;
+            break;
+          }
+        }
+        decisoes[p.id] = ramo;
+        /* GRAVA ANTES DE AVANÇAR, mesma razão do "Se": se o processo cair entre
+           gravar e o próximo passo, a retomada achata igual e cai no mesmo
+           lugar. */
+        const { error: eDec } = await sb.rpc("fn_wa_automacao_decidir", { p_id: e.id, p_passo: p.id, p_ramo: ramo });
+        if (eDec) throw new Error(`passo ${i + 1} (escolha): ${eDec.message}`);
+        caminhos.push(`${campo || "coluna"} → ${rotulo}`);
+        passos = achatar(arvore, decisoes);
+      }
+      i += 1;
+      continue;
+    }
+
     if (p.tipo === "esperar") {
       const min = Math.max(1, Math.min(Number(p.minutos) || 1, 60 * 24 * 30));
       await sb.rpc("fn_wa_automacao_desfecho", {
@@ -343,9 +397,11 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
     i += 1;
   }
 
-  /* Quantos passos DE VERDADE rodaram: o marcador do "Se" não conta. E por
-     onde foi, para quem abrir o histórico não precisar adivinhar. */
-  const feitos = passos.filter((p) => p.tipo !== "se").length;
+  /* Quantos passos DE VERDADE rodaram: os marcadores de bifurcação não contam,
+     nem o "Se" nem a "Escolha". Eles estão na lista para a posição sobreviver a
+     uma espera, e não porque tenham feito alguma coisa com o lead. E por onde
+     foi, para quem abrir o histórico não precisar adivinhar. */
+  const feitos = passos.filter((p) => p.tipo !== "se" && p.tipo !== "escolha").length;
   const porOnde = caminhos.length > 0 ? ` · ${caminhos.join("; ")}` : "";
   await sb.rpc("fn_wa_automacao_desfecho", {
     p_id: e.id, p_status: "concluida", p_passo: i, p_conversa: conversa,
