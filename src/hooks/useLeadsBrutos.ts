@@ -158,6 +158,8 @@ export function useLeadsBrutos(fonteIds: string[]) {
       const { data, error } = await tabela("leads_brutos")
         .select("id, fonte_id, telefone, nome, cidade, respostas, origem_texto, chegou_em, linha, situacao, conversa_id, bruto")
         .in("fonte_id", fonteIds)
+        // Quem foi tirado da base tem lápide, e não aparece em fila nenhuma.
+        .is("apagado_em", null)
         // Só os que ainda esperam. Trazer os já abordados custava metade do
         // limite: a LP Bradesco sozinha tem 635 linhas, e o teto de 500 cortava
         // a fila sem avisar.
@@ -436,6 +438,21 @@ export async function marcarAbordado(id: string, conversaId: string, quem?: stri
 /** Fora da fila sem virar conversa — número errado, já é cliente, não serve. */
 export async function descartarLead(id: string) {
   const { error } = await tabela("leads_brutos").update({ situacao: "descartado" }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Some da base inteira, e não só da fila.
+ *
+ * É diferente de descartar: o descartado continua na base como registro de
+ * que passou por ali e não servia. O tirado é como se nunca tivesse entrado
+ * (lead de teste, número da própria equipe). Não apaga a linha, grava uma
+ * lápide: apagar de verdade não funciona porque o sync da planilha recria a
+ * linha no minuto seguinte. Se a pessoa preencher o formulário de novo depois
+ * disso, a lápide cai e ela volta como lead novo, com aviso e tudo.
+ */
+export async function tirarDaBase(id: string) {
+  const { error } = await tabela("leads_brutos").update({ apagado_em: new Date().toISOString() }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 

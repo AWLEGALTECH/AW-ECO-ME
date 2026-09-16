@@ -150,7 +150,7 @@ import {
 } from "@/lib/envioOtimista";
 import {
   useFontes, useTodasAsFontes, useNomesDasBases, useLeadsBrutos, useBaseCompleta, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado, alternarAviso,
-  descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
+  descartarLead, tirarDaBase, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
 import { mascaraTelefone, aferirTelefone, nomeDaConversaNova } from "@/lib/novaConversa";
@@ -2974,6 +2974,14 @@ export default function AtendimentoPage() {
           onDescartar={async (l) => {
             try { await descartarLead(l.id); invalidarLeads(); }
             catch (e) { toast.error((e as Error).message); }
+          }}
+          onTirar={async (l) => {
+            try {
+              await tirarDaBase(l.id); invalidarLeads();
+              toast.success(`${l.nome?.trim() || "Lead"} saiu da base.`, {
+                description: "Se preencher o formulário de novo, volta como lead novo.",
+              });
+            } catch (e) { toast.error((e as Error).message); }
           }}
           onAbrirConversa={(id) => {
             setSelecionadoId(id);

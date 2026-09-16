@@ -30,7 +30,7 @@ import { ptBR } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 import {
   Database, Plus, Search, RefreshCw, ChevronLeft, Loader2, Columns3, Power,
-  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X, Bell, ExternalLink,
+  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X, Bell, ExternalLink, UserX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ type Filtro = "todos" | "escreveram" | "nunca";
 
 export default function Bases({
   instancias, apelidos, corDe, nomeDe, sincronizando,
-  onLigarPlanilha, onPuxar, onColunas, onDesligar, onAbordar, onDescartar, onAbrirConversa,
+  onLigarPlanilha, onPuxar, onColunas, onDesligar, onAbordar, onDescartar, onTirar, onAbrirConversa,
   onAlternarAviso,
 }: {
   instancias: Instancia[];
@@ -72,6 +72,8 @@ export default function Bases({
   /** manda a primeira mensagem (ou só abre a conversa) pelo número escolhido */
   onAbordar: (lead: LeadDaBase, texto: string, porQual: string, enviar: boolean) => Promise<void>;
   onDescartar: (lead: LeadDaBase) => Promise<void>;
+  /** some da base de vez (lead de teste, número da equipe); volta se preencher de novo */
+  onTirar: (lead: LeadDaBase) => Promise<void>;
   onAbrirConversa: (conversaId: string) => void;
   onAlternarAviso: (f: Fonte, ligado: boolean) => void;
 }) {
@@ -105,6 +107,7 @@ export default function Bases({
         onDesligar={() => onDesligar(aberta)}
         onAbordar={onAbordar}
         onDescartar={onDescartar}
+        onTirar={onTirar}
         onAbrirConversa={onAbrirConversa}
       />
     );
@@ -323,7 +326,7 @@ function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, pu
 
 function BaseAberta({
   fonte: f, instancias, apelidos, corDe, nomeDe, puxando,
-  onVoltar, onPuxar, onColunas, onDesligar, onAbordar, onDescartar, onAbrirConversa,
+  onVoltar, onPuxar, onColunas, onDesligar, onAbordar, onDescartar, onTirar, onAbrirConversa,
 }: {
   fonte: Fonte;
   instancias: Instancia[];
@@ -337,6 +340,7 @@ function BaseAberta({
   onDesligar: () => void;
   onAbordar: (lead: LeadDaBase, texto: string, porQual: string, enviar: boolean) => Promise<void>;
   onDescartar: (lead: LeadDaBase) => Promise<void>;
+  onTirar: (lead: LeadDaBase) => Promise<void>;
   onAbrirConversa: (conversaId: string) => void;
 }) {
   const { data: leads = [], isLoading } = useBaseCompleta(f.id);
@@ -591,6 +595,7 @@ function BaseAberta({
             <thead className="sticky top-0 z-10 bg-[#101216]">
               <tr className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
                 <th className="font-normal px-3 py-2">Quem</th>
+                <th className="font-normal px-3 py-2 whitespace-nowrap">Número</th>
                 {colunas.map((c) => (
                   <th key={c} className="font-normal px-3 py-2 hidden lg:table-cell">{c}</th>
                 ))}
@@ -630,6 +635,13 @@ function BaseAberta({
                       )}
                     </span>
                   </td>
+                  {/* O NÚMERO SEMPRE À VISTA. É o que a pessoa procura quando
+                      quer conferir se é ela mesma, se é o cliente tal, se o
+                      lead repetiu: o nome da planilha não identifica ninguém
+                      ("Wfwcd"), o telefone identifica. */}
+                  <td className="px-3 py-2 text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
+                    {telefoneBonito(l.telefone)}
+                  </td>
                   {colunas.map((c) => (
                     <td key={c} className="px-3 py-2 text-[11px] text-muted-foreground hidden lg:table-cell max-w-[14rem]">
                       <span className="block truncate" title={valorDaColuna(l, c)}>{valorDaColuna(l, c)}</span>
@@ -658,6 +670,7 @@ function BaseAberta({
             onFechar={() => setAberto(null)}
             onAbordar={onAbordar}
             onDescartar={onDescartar}
+            onTirar={onTirar}
             onAbrirConversa={onAbrirConversa}
           />
         )}
@@ -679,7 +692,7 @@ function BaseAberta({
  */
 function FichaDoLeadNaBase({
   lead, colunas, instancias, instanciaDaBase, apelidos, corDe, nomeDe,
-  onFechar, onAbordar, onDescartar, onAbrirConversa,
+  onFechar, onAbordar, onDescartar, onTirar, onAbrirConversa,
 }: {
   lead: LeadDaBase;
   colunas: string[] | null;
@@ -691,6 +704,7 @@ function FichaDoLeadNaBase({
   onFechar: () => void;
   onAbordar: (lead: LeadDaBase, texto: string, porQual: string, enviar: boolean) => Promise<void>;
   onDescartar: (lead: LeadDaBase) => Promise<void>;
+  onTirar: (lead: LeadDaBase) => Promise<void>;
   onAbrirConversa: (conversaId: string) => void;
 }) {
   const [texto, setTexto] = useState("");
@@ -818,6 +832,16 @@ function FichaDoLeadNaBase({
             className="h-8 text-[11.5px] text-muted-foreground hover:text-rose-400"
             onClick={async () => { setOcupado(true); try { await onDescartar(lead); onFechar(); } finally { setOcupado(false); } }}>
             <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Descartar
+          </Button>
+          {/* DESCARTAR E TIRAR SÃO COISAS DIFERENTES. O descartado fica na base
+              como registro de que passou por ali e não servia. O tirado é como
+              se nunca tivesse entrado: lead de teste, número de alguém da
+              equipe. Se a pessoa preencher o formulário de novo, volta. */}
+          <Button size="sm" variant="ghost" disabled={ocupado}
+            title="Some da base. Se preencher o formulário de novo, volta como lead novo."
+            className="h-8 text-[11.5px] text-muted-foreground hover:text-rose-400"
+            onClick={async () => { setOcupado(true); try { await onTirar(lead); onFechar(); } finally { setOcupado(false); } }}>
+            <UserX className="h-3.5 w-3.5 mr-1.5" /> Tirar da base
           </Button>
           <span className="flex-1" />
           <Button size="sm" variant="outline" className="h-8 text-[11.5px]" disabled={ocupado}

@@ -275,6 +275,7 @@ export function useColunasDasBases(fonteIds: string[]) {
       const { data, error } = await tabela("leads_brutos")
         .select("bruto, chegou_em")
         .in("fonte_id", fonteIds)
+        .is("apagado_em", null)
         .order("chegou_em", { ascending: false, nullsFirst: false })
         /* 12 linhas bastavam para descobrir QUAIS colunas existem. Não bastam
            para descobrir quais RESPOSTAS cada uma tem, que é o que a "Escolha"
