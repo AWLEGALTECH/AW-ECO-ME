@@ -1,0 +1,19 @@
+-- A VERSÃO SEM PARÂMETRO PRECISA SAIR, E ISSO ME ESCAPOU.
+--
+-- `create or replace function fn_leads_resumo(p_desde timestamptz default null)`
+-- não substituiu `fn_leads_resumo()`: em Postgres, assinatura diferente é
+-- função diferente, então as duas passaram a existir lado a lado.
+--
+-- Com as duas, a chamada sem argumentos ficou AMBÍGUA — o PostgREST não tem
+-- como escolher entre elas e devolve erro. Na tela isso apareceu como "0 novos,
+-- 0 na base" em todas as bases, que é o pior formato possível de falha: número
+-- plausível no lugar de erro visível. Quem olhasse concluiria que a base tinha
+-- esvaziado.
+--
+-- A lição, que vale para a próxima: acrescentar parâmetro a uma função que já
+-- existe é CRIAR SOBRECARGA, e não substituir. Quando a chamada antiga precisa
+-- continuar valendo, a velha tem que ser derrubada no mesmo arquivo.
+--
+-- A que fica tem o parâmetro com valor padrão, então continua atendendo quem
+-- chama sem argumento nenhum.
+drop function if exists public.fn_leads_resumo();
