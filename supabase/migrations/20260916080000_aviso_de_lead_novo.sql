@@ -56,7 +56,7 @@ values (
   'Lead novo na base',
   true,
   true,
-  'Lead novo 🌱',
+  'Lead novo 📩',
   '{lead} acabou de se cadastrar em {base}.',
   jsonb_build_object(
     'lead', 'Nome de quem se cadastrou',
@@ -107,7 +107,7 @@ begin
 
   perform public.fn_criar_notificacao(
     'lead_novo_na_base',
-    'Lead novo 🌱',
+    'Lead novo 📩',
     v_nome || ' acabou de se cadastrar em ' || f.nome || '.',
     jsonb_build_object(
       'lead', v_nome,
