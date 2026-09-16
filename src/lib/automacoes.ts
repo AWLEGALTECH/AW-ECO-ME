@@ -33,6 +33,7 @@
  * conferência do que a tela deixa salvar.
  */
 
+import { ROTULO_FAIXA, type Faixa } from "./horarioAtendimento";
 import { ETAPAS_BRADESCO, ETAPAS_PADRAO, type Jornada, etapasDaJornada } from "./jornada";
 import type { Midia } from "./anexos";
 import { todosOsPassos, rotuloDaPosicao, variaveisDoTexto, type PassoComRamos } from "./fluxoDePassos";
@@ -283,13 +284,87 @@ export const VARIAVEIS_FIXAS = ["nome", "horario"] as const;
 /* ══════════════════ a automação inteira ═══════════════════════════════════ */
 
 export interface Condicoes {
-  /** só dispara dentro da grade de atendimento do número */
+  /**
+   * LEGADO. Era o interruptor único de "só no horário de atendimento", e virou
+   * o valor de partida de `faixas` para os fluxos salvos antes delas
+   * existirem. Fluxo novo não escreve mais aqui.
+   */
   so_horario_comercial: boolean;
   /** quantos leads por dia, no máximo. Trava contra a planilha que ganha 600 linhas de uma vez. */
   teto_dia: number;
+  /**
+   * EM QUAIS FAIXAS DO DIA ESTE FLUXO PODE MANDAR.
+   *
+   * O dia do número tem três estados (a mesma grade do Primeiro atendimento):
+   * atendimento, direcionamento e fechado. Antes a escolha era um sim ou não
+   * para "atendimento", o que deixava de fora o caso comum de querer mandar
+   * também na faixa de direcionamento, quando o escritório já está de pé.
+   *
+   * Lista vazia é "a qualquer hora", e é diferente de ausente: ausente quer
+   * dizer fluxo antigo, que ainda não respondeu isto e herda o interruptor de
+   * cima.
+   */
+  faixas?: Faixa[];
+  /**
+   * O LEAD QUE CHEGOU FORA DA FAIXA RECEBE DEPOIS, OU NÃO RECEBE?
+   *
+   * Chega lead às 3 da manhã e o fluxo só manda no atendimento. Duas respostas
+   * defensáveis e opostas: mandar às 7, quando abrir (ele esperou, mas a
+   * mensagem faz sentido), ou não mandar nunca (de manhã aquele lead já é
+   * velho, e uma saudação de primeiro contato oito horas depois soa a robô
+   * atrasado). Quem sabe qual é o certo é quem atende, então isto é pergunta,
+   * e não regra minha.
+   */
+  retroativo?: boolean;
 }
 
-export const CONDICOES_PADRAO: Condicoes = { so_horario_comercial: true, teto_dia: 50 };
+export const CONDICOES_PADRAO: Condicoes = {
+  so_horario_comercial: true,
+  teto_dia: 50,
+  faixas: ["atendimento"],
+  retroativo: true,
+};
+
+/** As três faixas, na ordem em que o dia acontece. */
+export const FAIXAS_DO_DIA: readonly Faixa[] = ["atendimento", "direcionamento", "fechado"];
+
+export const DESCRICAO_DA_FAIXA: Record<Faixa, string> = {
+  atendimento: "tem gente aqui para responder",
+  direcionamento: "já estamos de pé, o responsável ainda não chegou",
+  fechado: "fora da grade, incluindo a madrugada",
+};
+
+/**
+ * Em quais faixas este fluxo manda, resolvendo o legado.
+ *
+ * Fluxo salvo antes das faixas existirem não tem a lista; o que ele tem é o
+ * interruptor antigo, e ele quer dizer exatamente "só na faixa de
+ * atendimento". Ler o legado aqui, num lugar só, evita que a tela e o banco
+ * cheguem a conclusões diferentes sobre o mesmo fluxo.
+ */
+export function faixasDaAutomacao(c: Pick<Condicoes, "so_horario_comercial" | "faixas">): Faixa[] {
+  if (Array.isArray(c.faixas)) {
+    const boas = c.faixas.filter((f): f is Faixa => (FAIXAS_DO_DIA as readonly string[]).includes(f));
+    /* As três marcadas é o mesmo que nenhuma: o dia inteiro cabe nelas, e
+       guardar as três faria o banco conferir três vezes para sempre dar sim. */
+    return boas.length >= FAIXAS_DO_DIA.length ? [] : [...new Set(boas)];
+  }
+  return c.so_horario_comercial ? ["atendimento"] : [];
+}
+
+/** O fluxo manda a qualquer hora? */
+export function mandaAQualquerHora(c: Pick<Condicoes, "so_horario_comercial" | "faixas">): boolean {
+  return faixasDaAutomacao(c).length === 0;
+}
+
+/** "só no atendimento", "no atendimento e no direcionamento", "a qualquer hora". */
+export function fraseDasFaixas(c: Pick<Condicoes, "so_horario_comercial" | "faixas">): string {
+  const f = faixasDaAutomacao(c);
+  if (f.length === 0) return "a qualquer hora do dia";
+  const nomes = FAIXAS_DO_DIA.filter((x) => f.includes(x)).map((x) => ROTULO_FAIXA[x].toLowerCase());
+  if (nomes.length === 1) return `só em ${nomes[0]}`;
+  return `em ${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+}
 
 export interface Automacao {
   id: string;

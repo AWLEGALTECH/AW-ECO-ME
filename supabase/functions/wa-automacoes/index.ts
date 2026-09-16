@@ -102,7 +102,14 @@ interface Execucao {
   instancia: string;
   nome: string;
   passos: Passo[];
-  condicoes: { so_horario_comercial?: boolean; teto_dia?: number } | null;
+  condicoes: {
+    so_horario_comercial?: boolean;
+    teto_dia?: number;
+    /** em quais faixas do dia este fluxo pode mandar; vazia = a qualquer hora */
+    faixas?: string[];
+    /** quem chegou fora da faixa recebe quando abrir, ou não recebe */
+    retroativo?: boolean;
+  } | null;
   gatilho: string;
   /** disparada a mão pelo botão Testar agora */
   teste?: boolean;
@@ -209,11 +216,22 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
      atual: é isso que deixa `i` continuar valendo. */
   let passos = achatar(arvore, decisoes);
   const caminhos: string[] = [];
-  /* O TESTE SAI NA HORA. Quem aperta "Testar agora" às nove da noite quer ver
-     a mensagem às nove da noite; segurar até a próxima janela de atendimento
-     faria o teste parecer que não funcionou, que é justamente o problema que o
-     botão existe para resolver. */
-  const soComercial = e.condicoes?.so_horario_comercial !== false && e.teste !== true;
+  /* EM QUE FAIXAS DO DIA ESTE FLUXO MANDA.
+     Lista vazia é "a qualquer hora". Fluxo salvo antes das faixas existirem
+     não tem a lista, e o que ele tem é o interruptor antigo, que queria dizer
+     exatamente "só na faixa de atendimento" — a mesma leitura que o
+     `faixasDaAutomacao` do lado da tela faz.
+
+     O TESTE SAI NA HORA. Quem aperta "Testar agora" às nove da noite quer ver
+     a mensagem às nove da noite; segurar até a próxima janela faria o teste
+     parecer que não funcionou, que é justamente o problema que o botão existe
+     para resolver. */
+  const faixas: string[] | null = e.teste === true
+    ? null
+    : Array.isArray(e.condicoes?.faixas)
+      ? (e.condicoes!.faixas!.length >= 3 ? [] : e.condicoes!.faixas!)
+      : (e.condicoes?.so_horario_comercial !== false ? ["atendimento"] : []);
+  const retroativo = e.condicoes?.retroativo !== false;
 
   const { id: conversa, erro } = await conversaDaExecucao(sb, e, evo);
   if (!conversa) {
@@ -275,13 +293,30 @@ async function rodar(sb: any, e: Execucao, evo: { base: string; apikey: string }
     }
 
     if (p.tipo === "mensagem") {
-      const { error } = await sb.rpc("fn_wa_automacao_enviar", {
+      const { data: envio, error } = await sb.rpc("fn_wa_automacao_enviar", {
         p_conversa: conversa,
         p_texto: p.texto ?? "",
         p_midias: Array.isArray(p.midias) ? p.midias : [],
-        p_so_comercial: soComercial,
+        p_faixas: faixas,
+        p_retroativo: retroativo,
       });
       if (error) throw new Error(`passo ${i + 1} (mensagem): ${error.message}`);
+
+      /* FORA DA FAIXA E SEM RETROATIVO: O FLUXO PARA AQUI, e diz isso.
+         Antes o envio devolvia só um id, e nulo servia para tudo — texto
+         vazio, conversa que sumiu, fora do horário. A execução seguia em
+         frente como se a mensagem tivesse saído, e quem fosse perguntar por
+         que o lead não recebeu encontrava um histórico dizendo "concluída".
+         Seguir para os próximos passos também seria errado: esperar dois dias
+         e mandar a segunda mensagem de quem nunca recebeu a primeira. */
+      const r = (Array.isArray(envio) ? envio[0] : envio) as { motivo?: string | null } | null;
+      if (r?.motivo === "fora_da_faixa") {
+        await sb.rpc("fn_wa_automacao_desfecho", {
+          p_id: e.id, p_status: "parada", p_passo: i, p_conversa: conversa,
+          p_detalhe: "chegou fora da faixa de horário do fluxo, que não guarda quem chega fora",
+        });
+        return "parada";
+      }
     }
 
     if (p.tipo === "mover_etapa" && p.etapa) {

@@ -57,6 +57,7 @@ import {
   etapasOferecidas, resumoDoFluxo, CONDICOES_PADRAO, MAX_PASSOS, ROTULO_STATUS,
   CONDICOES_DEF, OPERADORES, ROTULO_OPERADOR, CONDICAO_PADRAO, VARIAVEIS_FIXAS,
   TIPOS_DENTRO_DE_RAMO, fraseDaCondicao, operadorPrecisaDeValor,
+  FAIXAS_DO_DIA, DESCRICAO_DA_FAIXA, faixasDaAutomacao, fraseDasFaixas, mandaAQualquerHora,
   type Automacao, type Gatilho, type GatilhoDef, type Passo, type TipoDePasso,
   type ConfigDoGatilho, type Condicoes, type Condicao, type TipoDeCondicao,
   type Operador, type ColunaDaBase,
@@ -85,6 +86,7 @@ import {
 } from "@/lib/diagnosticoPlanilha";
 import { horaDaLista } from "@/lib/wa";
 import { mesmaInstancia, apelidoDeInstancia } from "@/lib/instancias";
+import { ROTULO_FAIXA, type Faixa } from "@/lib/horarioAtendimento";
 import type { Instancia } from "@/lib/atendimentoMock";
 
 /* A MOLA É A MESMA EM TUDO QUE MUDA DE TAMANHO. Com duração fixa, o cartão
@@ -447,9 +449,19 @@ function ConfirmarLigar({ aberto, onOpenChange, automacao: a, nomeDaBase, ocupad
           <Linha rotulo="Mensagens por pessoa" valor={String(r.mensagens)} />
           {r.duracaoMin > 0 && <Linha rotulo="Duração do fluxo" valor={esperaBonita(r.duracaoMin)} />}
           <Linha rotulo="No máximo por dia" valor={`${a.condicoes.teto_dia} pessoas`} />
-          <Linha
-            rotulo="Horário"
-            valor={a.condicoes.so_horario_comercial ? "só na grade de atendimento" : "a qualquer hora"} />
+          {/* LÊ AS FAIXAS, e não o interruptor antigo. Um fluxo com
+              "atendimento" marcado e o campo legado em false dizia aqui "a
+              qualquer hora", que é o contrário do que ele faz — e este é
+              justamente o aviso que a pessoa lê antes de mandar mensagem para
+              gente de verdade. */}
+          <Linha rotulo="Horário" valor={fraseDasFaixas(a.condicoes)} />
+          {!mandaAQualquerHora(a.condicoes) && (
+            <Linha
+              rotulo="Quem chega fora"
+              valor={a.condicoes.retroativo !== false
+                ? "recebe quando a faixa abrir"
+                : "não recebe nada"} />
+          )}
         </div>
 
         <p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -1246,20 +1258,10 @@ function InspetorDoGatilho({
       </div>
 
       <div className="pt-1 border-t border-white/[0.06]">
-        <Titulo>Travas</Titulo>
-        <label className="flex items-start gap-2 py-1.5 cursor-pointer">
-          <Switch
-            checked={condicoes.so_horario_comercial}
-            onCheckedChange={(v) => onTrocarCondicoes({ ...condicoes, so_horario_comercial: v })}
-          />
-          <span className="min-w-0">
-            <span className="block text-[11.5px]">Só no horário de atendimento</span>
-            <span className="block text-[10px] text-muted-foreground leading-snug">
-              Fora da grade, a mensagem espera a próxima abertura em vez de sair de madrugada.
-            </span>
-          </span>
-        </label>
-        <div className="flex items-center gap-2 pt-2">
+        <Titulo>Em que horas do dia</Titulo>
+        <EscolhaDasFaixas condicoes={condicoes} onTrocar={onTrocarCondicoes} />
+
+        <div className="flex items-center gap-2 pt-3">
           <Input
             type="number" min={1} max={1000}
             value={condicoes.teto_dia}
@@ -1275,6 +1277,108 @@ function InspetorDoGatilho({
           resto fica para amanhã.
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * EM QUE FAIXAS DO DIA O FLUXO MANDA, e o que fazer com quem chegou fora.
+ *
+ * Antes era um interruptor só: "só no horário de atendimento", sim ou não. Ele
+ * resolvia metade e escondia duas decisões.
+ *
+ * A primeira é que o dia tem TRÊS estados, e não dois: atendimento,
+ * direcionamento (já estamos de pé, o responsável ainda não chegou) e fechado.
+ * O interruptor não sabia dizer "também no direcionamento", que é o caso comum
+ * de quem quer responder cedo sem prometer atendimento.
+ *
+ * A segunda é o retroativo, e essa era pior porque o sistema decidia sozinho:
+ * a mensagem do lead que chegou às 3 da manhã era empurrada para a abertura, e
+ * ninguém sabia que havia escolha ali. As duas respostas se defendem, e quem
+ * sabe qual serve é quem atende.
+ *
+ * A grade em si é a mesma do Primeiro atendimento, e não se edita aqui: a
+ * frase abaixo diz onde ela mora, porque duas telas editando a mesma grade é
+ * como elas passam a discordar.
+ */
+function EscolhaDasFaixas({ condicoes, onTrocar }: {
+  condicoes: Condicoes; onTrocar: (c: Condicoes) => void;
+}) {
+  const marcadas = faixasDaAutomacao(condicoes);
+  const qualquerHora = marcadas.length === 0;
+
+  const alternar = (f: Faixa) => {
+    const atual = new Set(marcadas.length === 0 ? FAIXAS_DO_DIA : marcadas);
+    if (atual.has(f)) atual.delete(f); else atual.add(f);
+    /* Desmarcar tudo não pode virar "a qualquer hora" por acidente: quem
+       desmarca a última está dizendo que nenhuma hora serve, e isso é um fluxo
+       que nunca manda. Deixamos a última marcada em vez de virar o oposto. */
+    const nova = FAIXAS_DO_DIA.filter((x) => atual.has(x));
+    if (nova.length === 0) return;
+    onTrocar({ ...condicoes, faixas: nova });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-1">
+        {FAIXAS_DO_DIA.map((f, i) => {
+          const marcada = qualquerHora || marcadas.includes(f);
+          return (
+            <motion.div key={f} layout
+              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ ...MOLA, delay: i * 0.04 }}>
+              <button type="button" onClick={() => alternar(f)}
+                className={cn("w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left ring-1 transition-colors",
+                  marcada ? "ring-primary/35 bg-primary/[0.08]" : "ring-transparent hover:bg-white/[0.05]")}>
+                <span className={cn("mt-[2px] h-3.5 w-3.5 shrink-0 rounded grid place-items-center ring-1 transition-colors",
+                  marcada ? "bg-primary/20 ring-primary/40 text-primary" : "ring-white/[0.18] text-transparent")}>
+                  <Check className="h-2.5 w-2.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[11.5px]">{ROTULO_FAIXA[f]}</span>
+                  <span className="block text-[10px] text-muted-foreground leading-snug">
+                    {DESCRICAO_DA_FAIXA[f]}
+                  </span>
+                </span>
+              </button>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/70 leading-snug">
+        O fluxo manda {fraseDasFaixas(condicoes)}. A grade de horários é a mesma do
+        Primeiro atendimento, e se ajusta lá.
+      </p>
+
+      {/* O RETROATIVO SÓ FAZ SENTIDO SE HOUVER "FORA". Com as três faixas
+          marcadas nunca existe lead que chegou fora, e a pergunta seria um
+          controle que não muda nada. */}
+      <AnimatePresence initial={false}>
+        {!qualquerHora && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={MOLA}
+            className="overflow-hidden">
+            <label className="flex items-start gap-2 pt-2 cursor-pointer">
+              <Switch
+                checked={condicoes.retroativo !== false}
+                onCheckedChange={(v) => onTrocar({ ...condicoes, retroativo: v })}
+              />
+              <span className="min-w-0">
+                <span className="block text-[11.5px]">Guardar quem chegou fora do horário</span>
+                <span className="block text-[10px] text-muted-foreground leading-snug">
+                  {condicoes.retroativo !== false
+                    ? "O lead das 3 da manhã recebe quando a faixa abrir, um por minuto, na ordem em que chegou."
+                    : "O lead que chega fora da faixa não recebe nada. O fluxo para nele e o histórico diz por quê."}
+                </span>
+              </span>
+            </label>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -343,3 +343,43 @@ test("colunasDosBrutos lista as colunas na ordem do cabeçalho, com exemplo, sem
   expect(colunasDosBrutos([])).toEqual([]);
   expect(colunasDosBrutos([{ Telefone: "1", Celular: "2", Contato: "3", "E-mail": "a@b" }]).map((c) => c.coluna)).toEqual(["E-mail"]);
 });
+
+/* ── as faixas de horário do fluxo ─────────────────────────────────────────── */
+
+import {
+  faixasDaAutomacao, mandaAQualquerHora, fraseDasFaixas, FAIXAS_DO_DIA, DESCRICAO_DA_FAIXA,
+} from "./automacoes";
+
+test("fluxo antigo, sem a lista, herda o interruptor que existia", () => {
+  expect(faixasDaAutomacao({ so_horario_comercial: true })).toEqual(["atendimento"]);
+  expect(faixasDaAutomacao({ so_horario_comercial: false })).toEqual([]);
+});
+
+test("a lista, quando existe, manda; o interruptor antigo é ignorado", () => {
+  expect(faixasDaAutomacao({ so_horario_comercial: false, faixas: ["atendimento"] })).toEqual(["atendimento"]);
+  expect(faixasDaAutomacao({ so_horario_comercial: true, faixas: [] })).toEqual([]);
+});
+
+test("as três marcadas é o mesmo que nenhuma: o dia inteiro cabe nelas", () => {
+  expect(faixasDaAutomacao({ so_horario_comercial: true, faixas: [...FAIXAS_DO_DIA] })).toEqual([]);
+  expect(mandaAQualquerHora({ so_horario_comercial: true, faixas: [...FAIXAS_DO_DIA] })).toBe(true);
+});
+
+test("faixa desconhecida é descartada, e repetida não conta duas vezes", () => {
+  expect(faixasDaAutomacao({ so_horario_comercial: true, faixas: ["atendimento", "lua" as never] }))
+    .toEqual(["atendimento"]);
+  expect(faixasDaAutomacao({ so_horario_comercial: true, faixas: ["atendimento", "atendimento"] }))
+    .toEqual(["atendimento"]);
+});
+
+test("a frase diz em português, e na ordem em que o dia acontece", () => {
+  expect(fraseDasFaixas({ so_horario_comercial: true, faixas: [] })).toBe("a qualquer hora do dia");
+  expect(fraseDasFaixas({ so_horario_comercial: true, faixas: ["atendimento"] })).toBe("só em atendimento");
+  // pedidas fora de ordem, ditas na ordem do dia
+  expect(fraseDasFaixas({ so_horario_comercial: true, faixas: ["direcionamento", "atendimento"] }))
+    .toBe("em atendimento e direcionamento");
+});
+
+test("toda faixa tem descrição, para a tela não precisar inventar", () => {
+  for (const f of FAIXAS_DO_DIA) expect(DESCRICAO_DA_FAIXA[f].length).toBeGreaterThan(10);
+});
