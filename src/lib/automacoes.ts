@@ -489,11 +489,7 @@ export function resumoDoPasso(p: Passo): string {
   if (p.tipo === "mensagem") {
     const t = (p.texto || "").trim().replace(/\s+/g, " ");
     const n = (p.midias ?? []).length;
-    /* O CORTE ACOMPANHA O BLOCO. Eram 70 quando o bloco tinha duas linhas
-       estreitas; com três linhas num bloco mais largo, cortar em 70 deixava a
-       terceira linha vazia e a frase truncada antes do assunto, que é
-       justamente o que se quer conferir de relance. */
-    if (t) return t.length <= 110 ? t : `${t.slice(0, 109).trimEnd()}…`;
+    if (t) return t.length <= 70 ? t : `${t.slice(0, 69).trimEnd()}…`;
     return n > 0 ? `${n} anexo${n === 1 ? "" : "s"}` : "mensagem em branco";
   }
   if (p.tipo === "esperar") return esperaBonita(Number(p.minutos ?? 0));

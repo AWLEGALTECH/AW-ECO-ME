@@ -36,7 +36,7 @@ import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
   Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw, Play,
-  GitFork, Braces, User, ChevronRight,
+  GitFork, Braces, User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ import {
   impedimentos, podeLigar, esperaBonita, resumoDoPasso, fraseDoGatilho,
   etapasOferecidas, resumoDoFluxo, CONDICOES_PADRAO, MAX_PASSOS, ROTULO_STATUS,
   CONDICOES_DEF, OPERADORES, ROTULO_OPERADOR, CONDICAO_PADRAO, VARIAVEIS_FIXAS,
-  TIPOS_DE_PASSO, TIPOS_DENTRO_DE_RAMO, fraseDaCondicao, operadorPrecisaDeValor,
+  TIPOS_DENTRO_DE_RAMO, fraseDaCondicao, operadorPrecisaDeValor,
   type Automacao, type Gatilho, type GatilhoDef, type Passo, type TipoDePasso,
   type ConfigDoGatilho, type Condicoes, type Condicao, type TipoDeCondicao,
   type Operador, type ColunaDaBase,
@@ -709,62 +709,30 @@ function Editor({
           ligadaEm={automacao.ativa ? (automacao.ligada_em ?? null) : null} />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-          {/* ── canvas ──
-              DA ESQUERDA PARA A DIREITA, e rolando para o lado quando enche.
-              Em pé, a fila só cabia no computador: no celular cada cartão
-              ocupava a largura toda e um fluxo de cinco passos virava cinco
-              telas de rolagem, sem nunca se ver inteiro. Deitado, o fluxo é
-              uma faixa: dois ou três blocos aparecem de uma vez e o resto está
-              a um deslize do polegar, que é o gesto natural do telefone. */}
-          {/* No celular a faixa ocupa só a altura dela e o painel fica com o
-              resto: deitada, ela não precisa de tela inteira, e quem edita
-              passa a maior parte do tempo no painel. No computador a divisão
-              volta a ser lado a lado. */}
-          <div className="shrink-0 lg:flex-1 min-h-0 overflow-x-auto overflow-y-hidden
-                          lg:overflow-y-auto scrollbar-thin px-3 py-4">
-            {/* ALINHADOS PELO CENTRO, e não pelo topo. Os pinos de encaixe
-                ficam na metade da altura do bloco; com blocos de alturas
-                diferentes (o "Se" é mais alto por causa das duas pistas),
-                alinhar pelo topo deixaria cada pino numa altura, e a fila
-                pareceria desencaixada justamente onde ela se ramifica.
-                `lg:min-h-full` centra a faixa na vertical em vez de deixá-la
-                colada no topo com um vazio embaixo. */}
-            <div className="flex items-center min-w-max pr-6 lg:min-h-full">
-              <BlocoDoGatilho
+          {/* ── canvas ── */}
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-4">
+            <div className="mx-auto w-full max-w-md flex flex-col items-stretch">
+              <NoDoGatilho
                 gatilho={gatilho}
                 cfg={cfg}
                 nomeDaBase={nomeDaBase}
                 nomeDoNumero={nomeDe(instancia)}
                 aberto={selecionado === "gatilho"}
-                cabeMais={cabeMais}
                 onAbrir={() => setSelecionado("gatilho")}
-                onInserir={(t) => inserirPasso(t, 0)}
               />
 
+              <Conector onInserir={(t) => inserirPasso(t, 0)} podeInserir={cabeMais} />
+
               <LayoutGroup id="passos-do-fluxo">
-                <AnimatePresence initial={false}>
+                <AnimatePresence initial={false} mode="popLayout">
                   {passos.map((p, i) => (
-                    <motion.div
-                      key={p.id} layout
-                      initial={{ opacity: 0, x: -10, scale: 0.97 }}
-                      animate={{ opacity: 1, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: 10, scale: 0.97 }}
-                      transition={MOLA}
-                      className="flex items-center shrink-0 gap-2">
-                      {/* O SINAL DE SEQUÊNCIA, e não uma linha. Ele diz "e
-                          depois" entre um cartão e o seguinte sem desenhar fio
-                          nenhum, que é o que ficava pesado e o que a peça
-                          recortada tentou resolver quebrando tudo. */}
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/25" />
-                      <BlocoDoPasso
+                    <React.Fragment key={p.id}>
+                      <NoDoPasso
                         passo={p}
                         numero={`Passo ${i + 1}`}
                         aberto={selecionado === p.id}
-                        cabeMais={cabeMais}
-                        tiposQueCabem={TIPOS_DE_PASSO}
                         onAbrir={() => setSelecionado(p.id)}
                         onRemover={() => removerPasso(p.id)}
-                        onInserirDepois={(t) => inserirPasso(t, i + 1)}
                       />
                       {p.tipo === "se" && (
                         <OsDoisLados
@@ -774,26 +742,29 @@ function Editor({
                           numeroDoPai={i + 1}
                           onAbrir={setSelecionado}
                           onRemover={removerPasso}
-                          onInserir={(tipo, ramo, indice) =>
-                            inserirPasso(tipo, indice, { id: p.id, ramo })}
+                          onInserir={(tipo, ramo, indice) => inserirPasso(tipo, indice, { id: p.id, ramo })}
                         />
                       )}
-                    </motion.div>
+                      <Conector
+                        onInserir={(t) => inserirPasso(t, i + 1)}
+                        podeInserir={cabeMais}
+                        fim={i === passos.length - 1}
+                      />
+                    </React.Fragment>
                   ))}
                 </AnimatePresence>
               </LayoutGroup>
 
               {passos.length === 0 && (
-                <p className="text-[11.5px] text-muted-foreground self-center py-2 pl-3 whitespace-nowrap">
-                  Fluxo sem passos não faz nada. Use o + do bloco.
+                <p className="text-[11px] text-muted-foreground text-center py-2">
+                  Um fluxo sem passos não faz nada. Use o sinal de mais acima.
                 </p>
               )}
             </div>
           </div>
 
           {/* ── inspetor ── */}
-          <div className="flex-1 lg:flex-none lg:w-[330px] min-h-0 lg:shrink-0
-                          border-t lg:border-t-0 lg:border-l border-white/[0.06] overflow-y-auto scrollbar-thin">
+          <div className="lg:w-[330px] shrink-0 border-t lg:border-t-0 lg:border-l border-white/[0.06] overflow-y-auto scrollbar-thin">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selecionado}
@@ -856,193 +827,105 @@ function Editor({
   );
 }
 
-/* ══════════════════ os blocos do canvas ═══════════════════════════════════
- *
- * PEÇAS DE QUEBRA-CABEÇA, ENCAIXADAS UMA NA OUTRA, da esquerda para a direita.
- *
- * Não há linha ligando bloco a bloco. A linha era um jeito de dizer "isto vem
- * depois daquilo", e a peça diz a mesma coisa melhor: o pino de um entra no
- * furo do outro, e a sequência se lê sem precisar seguir fio nenhum. Blocos
- * separados por um traço parecem coisas soltas que alguém ligou; blocos
- * encaixados são uma coisa só.
- *
- * COMO O ENCAIXE É FEITO. Cada bloco é recortado por `clip-path`: um pino
- * retangular saindo da metade da direita, e um furo do mesmo tamanho mordido na
- * metade da esquerda. O bloco seguinte entra com margem negativa da largura do
- * pino, e o pino preenche o furo exatamente.
- *
- * POR QUE SEM BORDA. `clip-path` recorta o elemento, mas a borda do CSS não
- * acompanha o recorte: ela continuaria desenhando o retângulo original por cima
- * da peça. Então a peça é um bloco de cor sólida, e o que era papel da borda
- * (dizer qual está selecionado) passou para a cor de fundo e para a faixa
- * colorida da ação, que é mais visível de longe do que um fio de 1px.
- *
- * SEM ARRASTAR. A alça saiu: mexer na ordem é raro depois que o fluxo está
- * montado, e o gesto competia com o toque que abre o bloco para editar, que é
- * o que se faz o tempo todo.
- */
+/* ══════════════════ os nós do canvas ══════════════════════════════════════ */
 
-/* Largura da peça. Fixa de propósito: fila com peças de tamanhos diferentes
-   vira serra. Grande o bastante para o texto do passo caber em três linhas sem
-   cortar no meio da frase, que era o defeito das versões apertadas. Num
-   telefone de 390px aparecem uma inteira e boa parte da seguinte, o que basta
-   para não se perder na faixa. */
-/* Largura do cartão. Fixa de propósito: fila com cartões de tamanhos diferentes
-   vira serra. Num telefone de 390px aparece um inteiro e boa parte do seguinte,
-   que é o que basta para não se perder na faixa. */
-const LARGURA = "w-[236px]";
-const LARGURA_MIUDA = "w-[204px]";
-
-/* O CARTÃO É O MESMO DO RESTO DO SISTEMA, e isto foi uma volta atrás.
-   Eu tinha recortado os blocos com `clip-path` para eles se encaixarem como
-   peça de quebra-cabeça, com margem negativa para o pino de um entrar no furo
-   do outro. Na tela deu errado de um jeito que não dava para defender: a margem
-   negativa fez cada bloco entrar por cima do conteúdo do anterior, o texto de
-   um atravessou o outro, e a borda não seguia o recorte, então sobrava um
-   contorno reto cruzando o pino. Invenção de forma nova custou legibilidade, e
-   legibilidade é o que esta tela vende.
-   Voltou a ser o cartão da casa: mesma borda, mesmo fundo, mesmo realce de
-   selecionado que a caixa, a lista de bases e os ajustes usam. */
-const CARTAO = "rounded-xl border border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]";
-const CARTAO_ABERTO = "rounded-xl border border-primary/40 bg-primary/[0.06]";
-
-function BotaoMais({ tipos, onInserir, titulo }: {
-  tipos: readonly TipoDePasso[];
-  onInserir: (t: TipoDePasso) => void;
-  titulo: string;
-}) {
-  const [aberto, setAberto] = useState(false);
-  return (
-    <span className="relative shrink-0">
-      <button
-        type="button" onClick={() => setAberto((v) => !v)} title={titulo} aria-label={titulo}
-        className={cn(
-          "h-5 w-5 grid place-items-center rounded-md ring-1 transition-colors",
-          aberto
-            ? "ring-primary/50 text-primary bg-primary/10"
-            : "ring-white/[0.14] text-muted-foreground/60 hover:text-primary hover:ring-primary/40 hover:bg-primary/[0.08]")}>
-        <Plus className="h-3 w-3" />
-      </button>
-      <AnimatePresence>
-        {aberto && (
-          <MenuDeAcoes
-            tipos={tipos}
-            onEscolher={(t) => { onInserir(t); setAberto(false); }}
-            onFechar={() => setAberto(false)}
-          />
-        )}
-      </AnimatePresence>
-    </span>
-  );
-}
-
-function BlocoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, cabeMais, onAbrir, onInserir }: {
+function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; nomeDaBase: (id: string) => string;
-  nomeDoNumero: string; aberto: boolean; cabeMais: boolean;
-  onAbrir: () => void;
-  onInserir: (t: TipoDePasso) => void;
+  nomeDoNumero: string; aberto: boolean; onAbrir: () => void;
 }) {
   const def = defDoGatilho(gatilho);
   const Ico = ICONE_DO_GATILHO[def.icone] ?? Zap;
-  /* A pergunta da base sem resposta aparece NO BLOCO, e não só no painel: o
-     painel fica ao lado no computador e embaixo no celular, e é justamente no
-     celular que ela passaria batida. */
+  /* A pergunta da base sem resposta aparece NO CARTÃO, e não só no inspetor:
+     o inspetor fica ao lado no computador e embaixo no celular, e é justamente
+     no celular que ela passaria batida. */
   const faltaBase = def.campo === "bases" && !cfg.bases_todas && (cfg.fonte_ids ?? []).length === 0;
   return (
-    <motion.div
-      layout transition={MOLA}
-      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-      className={cn("relative shrink-0 min-h-[128px] px-3 py-3 transition-colors",
-        LARGURA, aberto ? CARTAO_ABERTO : CARTAO)}>
-      <div className="flex items-center gap-2">
+    <motion.button
+      type="button" layout onClick={onAbrir} transition={MOLA}
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "text-left rounded-xl border px-3 py-2.5 transition-colors",
+        aberto ? "border-primary/40 bg-primary/[0.06]"
+               : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+      <div className="flex items-start gap-2.5">
         <span className={cn("h-8 w-8 shrink-0 rounded-lg grid place-items-center ring-1", TOM.primary)}>
           <Ico className="h-4 w-4" />
         </span>
-        <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/60 truncate min-w-0 flex-1">
-          Quando
-        </span>
-        {cabeMais && (
-          <BotaoMais tipos={TIPOS_DE_PASSO} onInserir={onInserir} titulo="Inserir o primeiro passo" />
-        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
+            Quando · em {nomeDoNumero}
+          </p>
+          <p className="text-[12.5px] font-medium">{def.rotulo}</p>
+          {/* O QUE FALTA SE DIZ NUMA LINHA, NÃO NUM BLOCO PINTADO. O cartão
+              inteiro de âmbar gritava a mesma coisa que este ponto diz: falta
+              responder. Um sinal discreto no lugar certo é lido; um aviso
+              grande e colorido passa a ser mobília em dois dias. */}
+          <p className={cn("text-[10.5px] leading-snug mt-0.5 flex items-center gap-1",
+            faltaBase ? "text-amber-400/90" : "text-muted-foreground")}>
+            {faltaBase && <Pendente />}
+            {faltaBase ? "Escolha em qual base" : fraseDoGatilho(gatilho, cfg, nomeDaBase)}
+          </p>
+        </div>
       </div>
-
-      <button type="button" onClick={onAbrir} className="block w-full text-left mt-2">
-        <span className="block text-[14px] font-medium">{def.rotulo}</span>
-        <span className={cn("block text-[11.5px] leading-snug mt-1 line-clamp-3",
-          faltaBase ? "text-amber-400/90" : "text-muted-foreground")}>
-          {faltaBase ? "Escolha em qual base" : fraseDoGatilho(gatilho, cfg, nomeDaBase)}
-        </span>
-        <span className="block text-[10px] text-muted-foreground/45 mt-1.5 truncate">
-          em {nomeDoNumero}
-        </span>
-      </button>
-    </motion.div>
+    </motion.button>
   );
 }
 
-function BlocoDoPasso({
-  passo, numero, aberto, miudo, cabeMais, tiposQueCabem, onAbrir, onRemover, onInserirDepois,
-}: {
-  passo: Passo; numero: string; aberto: boolean;
-  /** dentro de uma pista do "Se": cabe menos, então a peça encolhe */
+function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
+  passo: Passo; numero: string; aberto: boolean; onAbrir: () => void; onRemover: () => void;
+  /** dentro de um lado do "Se": cabe menos, então o cartão encolhe */
   miudo?: boolean;
-  cabeMais: boolean;
-  tiposQueCabem: readonly TipoDePasso[];
-  onAbrir: () => void;
-  onRemover: () => void;
-  onInserirDepois: (t: TipoDePasso) => void;
 }) {
   const def = defDoPasso(passo.tipo);
   const Ico = ICONE_DO_PASSO[def.icone] ?? Send;
   return (
     <motion.div
-      layout transition={MOLA}
+      layout
+      initial={{ opacity: 0, y: 10, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.97 }}
+      transition={MOLA}
       className={cn(
-        "group relative shrink-0 transition-colors",
-        miudo ? cn(LARGURA_MIUDA, "min-h-[110px] px-2.5 py-2.5")
-              : cn(LARGURA, "min-h-[128px] px-3 py-3"),
-        aberto ? CARTAO_ABERTO : CARTAO)}>
-      <div className="flex items-center gap-2">
-        <span className={cn("shrink-0 rounded-lg grid place-items-center ring-1",
-          miudo ? "h-7 w-7" : "h-8 w-8", TOM[def.tom])}>
-          <Ico className={miudo ? "h-3.5 w-3.5" : "h-4 w-4"} />
-        </span>
-        <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/60 truncate min-w-0 flex-1">
-          {numero}
-        </span>
-        {cabeMais && (
-          <BotaoMais tipos={tiposQueCabem} onInserir={onInserirDepois} titulo="Inserir um passo depois deste" />
-        )}
-        <button type="button" onClick={onRemover} title="Remover passo" aria-label="Remover passo"
-          className="h-5 w-5 shrink-0 grid place-items-center rounded-md text-muted-foreground/40
-                     opacity-0 group-hover:opacity-100 focus:opacity-100
-                     hover:text-rose-400 hover:bg-rose-400/10 transition-all">
+        "group rounded-xl border transition-colors",
+        aberto ? "border-primary/40 bg-primary/[0.06]" : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+      <div className={cn("flex items-start gap-2.5", miudo ? "px-2 py-1.5 gap-2" : "px-3 py-2.5")}>
+        <button type="button" onClick={onAbrir} className="flex items-start gap-2.5 min-w-0 flex-1 text-left">
+          <span className={cn("shrink-0 rounded-lg grid place-items-center ring-1",
+            miudo ? "h-6 w-6" : "h-8 w-8", TOM[def.tom])}>
+            <Ico className={miudo ? "h-3 w-3" : "h-4 w-4"} />
+          </span>
+          <div className="min-w-0 flex-1">
+            {!miudo && (
+              <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">{numero}</p>
+            )}
+            <p className={cn("font-medium", miudo ? "text-[11px]" : "text-[12.5px]")}>{def.rotulo}</p>
+            <p className={cn("text-muted-foreground leading-snug mt-0.5 line-clamp-2",
+              miudo ? "text-[10px]" : "text-[10.5px]")}>
+              {resumoDoPasso(passo)}
+            </p>
+          </div>
+        </button>
+        <button type="button" onClick={onRemover} title="Remover passo"
+          className="h-6 w-6 shrink-0 grid place-items-center rounded-md text-muted-foreground/50
+                     opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-400 hover:bg-rose-400/10 transition-all">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-
-      <button type="button" onClick={onAbrir} className="block w-full text-left mt-2">
-        <span className={cn("block font-medium", miudo ? "text-[13px]" : "text-[14px]")}>
-          {def.rotulo}
-        </span>
-        <span className={cn("block text-muted-foreground leading-snug mt-1 line-clamp-3",
-          miudo ? "text-[11px]" : "text-[11.5px]")}>
-          {resumoDoPasso(passo)}
-        </span>
-      </button>
     </motion.div>
   );
 }
 
 /**
- * AS DUAS PISTAS DO "SE", uma em cima da outra, seguindo para a direita.
+ * OS DOIS LADOS DO "SE", lado a lado.
  *
- * Deitado, é assim que bifurcação se lê sem virar desenho de fios cruzados: o
- * caminho de cima é o sim, o de baixo é o não, e cada um continua para a
- * direita como o resto do fluxo.
+ * Um lado é uma fila igual à de cima, só que estreita. Ficam lado a lado no
+ * computador e empilhados no celular: a comparação entre o que acontece num
+ * caso e no outro é o que a pessoa vem ver aqui, e um em cima do outro numa
+ * tela larga jogaria o segundo para fora do campo de visão.
  *
- * Pista vazia não é erro de preenchimento: "se já escreveu, não manda nada" é
- * regra legítima, e por isso o vazio diz o que significa em vez de acusar.
+ * Um lado vazio não é erro de preenchimento: "se já escreveu, não manda nada"
+ * é uma regra legítima, e por isso o vazio diz o que significa em vez de
+ * mostrar um aviso.
  */
 function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRemover, onInserir }: {
   passo: Passo;
@@ -1053,121 +936,182 @@ function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRem
   onRemover: (id: string) => void;
   onInserir: (tipo: TipoDePasso, ramo: Ramo, indice: number) => void;
 }) {
-  const pistas: { ramo: Ramo; rotulo: string; lista: Passo[]; cor: string }[] = [
-    { ramo: "entao", rotulo: "sim", lista: passo.entao ?? [], cor: "text-emerald-400/90 ring-emerald-400/25" },
-    { ramo: "senao", rotulo: "não", lista: passo.senao ?? [], cor: "text-rose-400/90 ring-rose-400/25" },
+  const lados: { ramo: Ramo; rotulo: string; lista: Passo[]; cor: string }[] = [
+    { ramo: "entao", rotulo: "sim", lista: passo.entao ?? [], cor: "text-emerald-400/90 ring-emerald-400/20" },
+    { ramo: "senao", rotulo: "não", lista: passo.senao ?? [], cor: "text-rose-400/90 ring-rose-400/20" },
   ];
   return (
-    <motion.div layout transition={MOLA} className="flex flex-col gap-2 shrink-0">
-      {pistas.map((l, k) => (
-        <motion.div
-          key={l.ramo} layout
-          initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }}
-          transition={{ ...MOLA, delay: k * 0.05 }}
-          className="flex items-center">
-          <span className={cn(
-            "shrink-0 rounded-full px-2 py-[2px] text-[9.5px] uppercase tracking-[0.12em] ring-1 ml-1 mr-1 z-10",
-            l.cor)}>
-            {l.rotulo}
-          </span>
-          <LayoutGroup id={`ramo-${passo.id}-${l.ramo}`}>
-            <div className="flex items-center">
-              <AnimatePresence initial={false}>
+    <motion.div layout transition={MOLA} className="relative flex flex-col items-center">
+      <span className="h-3 w-px bg-violet-400/30" />
+      <div className="w-full grid gap-2 sm:grid-cols-2">
+        {lados.map((l, k) => (
+          <motion.div
+            key={l.ramo} layout
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ ...MOLA, delay: k * 0.05 }}
+            className="rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-1.5">
+            <p className={cn("text-[9.5px] uppercase tracking-[0.12em] px-1 pb-1 rounded-t", l.cor)}>
+              {l.rotulo}
+            </p>
+            <LayoutGroup id={`ramo-${passo.id}-${l.ramo}`}>
+              <AnimatePresence initial={false} mode="popLayout">
                 {l.lista.map((p, i) => (
-                  <motion.div
-                    key={p.id} layout
-                    initial={{ opacity: 0, x: -8, scale: 0.97 }}
-                    animate={{ opacity: 1, x: 0, scale: 1 }}
-                    exit={{ opacity: 0, x: 8, scale: 0.97 }}
-                    transition={MOLA}
-                    className="flex items-center shrink-0 gap-2">
-                    <BlocoDoPasso
+                  <React.Fragment key={p.id}>
+                    <NoDoPasso
                       passo={p} miudo
-                      numero={`${numeroDoPai}·${l.rotulo} ${i + 1}`}
+                      numero={`Passo ${numeroDoPai} · ${l.rotulo} ${i + 1}`}
                       aberto={selecionado === p.id}
-                      cabeMais={cabeMais}
-                      tiposQueCabem={TIPOS_DENTRO_DE_RAMO}
                       onAbrir={() => onAbrir(p.id)}
                       onRemover={() => onRemover(p.id)}
-                      onInserirDepois={(t) => onInserir(t, l.ramo, i + 1)}
                     />
-                  </motion.div>
+                    <ConectorDoRamo
+                      podeInserir={cabeMais}
+                      onInserir={(t) => onInserir(t, l.ramo, i + 1)}
+                    />
+                  </React.Fragment>
                 ))}
               </AnimatePresence>
-
-              {l.lista.length === 0 && cabeMais && (
-                <span className="flex items-center gap-1.5 pl-1">
-                  <BotaoMais
-                    tipos={TIPOS_DENTRO_DE_RAMO}
-                    onInserir={(t) => onInserir(t, l.ramo, 0)}
-                    titulo="Pôr um passo neste lado"
-                  />
-                  <span className="text-[10.5px] text-muted-foreground/60 whitespace-nowrap">
-                    nada deste lado
-                  </span>
-                </span>
-              )}
-            </div>
-          </LayoutGroup>
-        </motion.div>
-      ))}
+            </LayoutGroup>
+            {l.lista.length === 0 && (
+              <ConectorDoRamo
+                vazio={l.ramo === "entao" ? "nada acontece deste lado" : "nada acontece deste lado"}
+                podeInserir={cabeMais}
+                onInserir={(t) => onInserir(t, l.ramo, 0)}
+              />
+            )}
+          </motion.div>
+        ))}
+      </div>
+      <span className="h-3 w-px bg-violet-400/30" />
     </motion.div>
   );
 }
 
 /**
- * O MENU DE AÇÕES, flutuando abaixo do sinal de mais.
+ * O "+" de dentro de um lado.
  *
- * Ele NÃO pode abrir no lugar, empurrando a fila para o lado: o bloco que a
- * pessoa estava olhando sairia da tela no instante do clique. Então flutua por
- * cima, ancorado no "+", e a faixa fica parada onde estava.
+ * Não oferece "Se": um nível só. A lista curta aqui também é um favor ao olho,
+ * porque este menu abre numa coluna que tem metade da largura.
  */
-function MenuDeAcoes({ tipos, onEscolher, onFechar }: {
-  tipos: readonly TipoDePasso[];
-  onEscolher: (t: TipoDePasso) => void;
-  onFechar: () => void;
+function ConectorDoRamo({ onInserir, podeInserir, vazio }: {
+  onInserir: (t: TipoDePasso) => void; podeInserir: boolean; vazio?: string;
 }) {
+  const [aberto, setAberto] = useState(false);
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -6, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -6, scale: 0.96 }}
-      transition={MOLA}
-      className="absolute top-full right-0 mt-1.5 z-50 w-[222px]
-                 rounded-xl border border-white/[0.10] bg-black/90 backdrop-blur p-1.5
-                 shadow-[0_12px_28px_rgba(0,0,0,0.55)]">
-      <div className="flex items-center justify-between px-1.5 pb-1">
-        <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
-          O que acontece aqui
-        </span>
-        <button type="button" onClick={onFechar} aria-label="Fechar"
-          className="h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="grid gap-0.5">
-        {PASSOS_DEF.filter((p) => tipos.includes(p.chave)).map((p, i) => {
-          const Ico = ICONE_DO_PASSO[p.icone] ?? Send;
-          return (
+    <motion.div layout transition={MOLA} className="group/ramo relative flex flex-col items-center py-0.5">
+      <AnimatePresence initial={false}>
+        {aberto ? (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.96 }}
+            transition={MOLA}
+            className="w-full rounded-lg border border-white/[0.10] bg-black/50 backdrop-blur p-1 my-1">
+            {PASSOS_DEF.filter((p) => TIPOS_DENTRO_DE_RAMO.includes(p.chave)).map((p, i) => {
+              const Ico = ICONE_DO_PASSO[p.icone] ?? Send;
+              return (
+                <motion.button
+                  key={p.chave} type="button"
+                  initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.18, ease: CURVA, delay: i * 0.03 }}
+                  onClick={() => { onInserir(p.chave); setAberto(false); }}
+                  className="w-full flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-white/[0.06] transition-colors">
+                  <span className={cn("h-4 w-4 shrink-0 rounded grid place-items-center ring-1", TOM[p.tom])}>
+                    <Ico className="h-2.5 w-2.5" />
+                  </span>
+                  <span className="text-[10.5px] truncate">{p.rotulo}</span>
+                </motion.button>
+              );
+            })}
+          </motion.div>
+        ) : podeInserir ? (
+          <motion.button
+            type="button" onClick={() => setAberto(true)}
+            initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}
+            transition={MOLA}
+            className={cn(
+              "flex items-center justify-center gap-1 rounded-md py-1 text-muted-foreground/70",
+              "hover:text-foreground hover:bg-white/[0.05] transition-colors",
+              vazio ? "w-full" : "h-4 w-4 opacity-0 group-hover/ramo:opacity-100 focus:opacity-100")}>
+            <Plus className="h-2.5 w-2.5 shrink-0" />
+            {vazio && <span className="text-[10px]">{vazio}</span>}
+          </motion.button>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+/**
+ * A linha entre dois nós, com o sinal de mais no meio.
+ *
+ * O "+" só aparece no hover da própria linha: visível o tempo todo, a coluna
+ * vira uma fileira de botões e o fluxo some no meio deles.
+ */
+function Conector({ onInserir, podeInserir, fim }: {
+  onInserir: (t: TipoDePasso) => void; podeInserir: boolean; fim?: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <motion.div layout transition={MOLA} className="relative group/conector flex flex-col items-center py-1">
+      <span className={cn("w-px bg-white/[0.12]", aberto ? "h-2" : "h-5")} />
+
+      <AnimatePresence initial={false}>
+        {aberto ? (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.96 }}
+            transition={MOLA}
+            className="w-full rounded-xl border border-white/[0.10] bg-black/40 backdrop-blur p-1.5 my-1">
+            <div className="flex items-center justify-between px-1 pb-1">
+              <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60">
+                O que acontece aqui
+              </span>
+              <button type="button" onClick={() => setAberto(false)}
+                className="h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="grid gap-1">
+              {PASSOS_DEF.map((p, i) => {
+                const Ico = ICONE_DO_PASSO[p.icone] ?? Send;
+                return (
+                  <motion.button
+                    key={p.chave} type="button"
+                    initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2, ease: CURVA, delay: i * 0.04 }}
+                    onClick={() => { onInserir(p.chave); setAberto(false); }}
+                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/[0.06] transition-colors">
+                    <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1", TOM[p.tom])}>
+                      <Ico className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[11.5px] font-medium">{p.rotulo}</span>
+                      <span className="block text-[10px] text-muted-foreground leading-snug">{p.descricao}</span>
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </motion.div>
+        ) : (
+          podeInserir && (
             <motion.button
-              key={p.chave} type="button"
-              initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.18, ease: CURVA, delay: i * 0.03 }}
-              onClick={() => onEscolher(p.chave)}
-              className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-white/[0.07] transition-colors">
-              <span className={cn("h-6 w-6 shrink-0 rounded-md grid place-items-center ring-1", TOM[p.tom])}>
-                <Ico className="h-3 w-3" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[11.5px] font-medium truncate">{p.rotulo}</span>
-                <span className="block text-[9.5px] text-muted-foreground leading-tight truncate">
-                  {p.descricao}
-                </span>
-              </span>
+              type="button" onClick={() => setAberto(true)} title="Inserir passo aqui"
+              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+              transition={MOLA}
+              className="h-5 w-5 grid place-items-center rounded-full ring-1 ring-white/[0.12] bg-black/40
+                         text-muted-foreground opacity-0 group-hover/conector:opacity-100 focus:opacity-100
+                         hover:text-primary hover:ring-primary/40 transition-all">
+              <Plus className="h-3 w-3" />
             </motion.button>
-          );
-        })}
-      </div>
+          )
+        )}
+      </AnimatePresence>
+
+      {!fim && <span className={cn("w-px bg-white/[0.12]", aberto ? "h-2" : "h-5")} />}
+      {fim && !aberto && <span className="h-5 w-px bg-gradient-to-b from-white/[0.12] to-transparent" />}
     </motion.div>
   );
 }
@@ -1211,15 +1155,6 @@ function InspetorDoGatilho({
 }) {
   return (
     <div className="space-y-4">
-      {/* O PAINEL DIZ DE QUEM ELE É. Os passos já traziam "Passo 2 · Esperar"
-          no alto; o gatilho começava direto nas opções, e aí a coluna da
-          direita parecia um painel de ajustes soltos em vez do verso do
-          cartão que está selecionado. */}
-      <div className="min-w-0 pb-1 border-b border-white/[0.06]">
-        <Titulo>Quando</Titulo>
-        <p className="text-[12.5px] font-medium -mt-1">{defDoGatilho(gatilho).rotulo}</p>
-      </div>
-
       {/* ── EM QUAL NÚMERO ──
           Primeiro de tudo, porque é a pergunta ANTERIOR às outras: as bases
           oferecidas abaixo são as deste número, e a mensagem vai sair por ele. */}
