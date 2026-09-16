@@ -69,7 +69,7 @@ import {
   type Ramo,
 } from "@/lib/fluxoDePassos";
 import {
-  useAutomacoes, useResumoAutomacoes, useExecucoes, useColunasDasBases,
+  useAutomacoes, useResumoAutomacoes, useExecucoes, useExecucoesGerais, useColunasDasBases,
   criarAutomacao, salvarAutomacao, alternarAutomacao, apagarAutomacao, duplicarAutomacao,
   testarAutomacao,
   type Rascunho,
@@ -79,6 +79,7 @@ import {
 } from "@/hooks/useLeadsBrutos";
 import { idDaPlanilha } from "@/lib/planilhaLeads";
 import { saudeDaBase } from "@/lib/bases";
+import { useHorarios } from "@/hooks/usePrimeiroAtendimento";
 import { GuiaDaPlanilha } from "@/components/GuiaDaPlanilha";
 import {
   diagnosticarPlanilha, linhasLidas,
@@ -135,6 +136,9 @@ export default function Automacoes({
      existe justamente para ninguém perder de vista um fluxo ligado em outro
      número. */
   const [filtro, setFiltro] = useState<string | null>(null);
+  /* Os fluxos ou o registro do que eles fizeram. Fluxos é o padrão: é onde se
+     monta; o registro é onde se vai quando alguma coisa cheira mal. */
+  const [vendo, setVendo] = useState<"fluxos" | "registro">("fluxos");
 
   /* As bases de TODOS os números: a lista mostra fluxos de qualquer número, e
      buscar só as do número aberto faria o cartão de um fluxo vizinho escrever
@@ -176,6 +180,42 @@ export default function Automacoes({
 
   const visiveis = filtro ? automacoes.filter((a) => mesmaInstancia(a.instancia, filtro)) : automacoes;
 
+  if (vendo === "registro") {
+    return (
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="px-3 py-3 flex items-center justify-between gap-2 border-b border-white/[0.06] shrink-0">
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium">Automações</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              O que acontece sozinho quando um lead chega ou se mexe.
+            </p>
+          </div>
+          <Button size="sm" className="h-8 text-[12px] shrink-0" onClick={() => setCriando(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Nova automação
+          </Button>
+        </div>
+        <LayoutGroup id="abas-da-lista">
+          <div className="px-3 pt-2 flex items-center gap-1 shrink-0">
+            {([["fluxos", "Fluxos", Workflow], ["registro", "Registro de execuções", History]] as const).map(([k, rot, Ico]) => (
+              <button key={k} type="button" onClick={() => setVendo(k)}
+                className={cn("relative flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors",
+                  vendo === k ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {vendo === k && (
+                  <motion.span layoutId="aba-da-lista" transition={MOLA}
+                    className="absolute inset-0 rounded-md bg-white/[0.08]" />
+                )}
+                <span className="relative flex items-center gap-1.5">
+                  <Ico className="h-3.5 w-3.5" /> {rot}
+                </span>
+              </button>
+            ))}
+          </div>
+        </LayoutGroup>
+        <RegistroGeral aoVivo={aoVivo} onAbrirFluxo={setAbertaId} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
       <div className="px-3 py-3 flex items-center justify-between gap-2 border-b border-white/[0.06]">
@@ -189,6 +229,30 @@ export default function Automacoes({
           <Plus className="h-3.5 w-3.5 mr-1" /> Nova automação
         </Button>
       </div>
+
+      {/* ── FLUXOS OU REGISTRO ──
+          O histórico por fluxo já existia dentro de cada um, e ele só responde
+          quando alguém JÁ desconfia de um fluxo e vai abrir aquele. A pergunta
+          que não tinha onde ser feita é a outra, e é a mais frequente: "o que
+          os robôs andaram fazendo?". Sem ela, um fluxo que começou a falhar às
+          três da tarde só aparece quando um lead reclama. */}
+      <LayoutGroup id="abas-da-lista">
+        <div className="px-3 pt-2 flex items-center gap-1">
+          {([["fluxos", "Fluxos", Workflow], ["registro", "Registro de execuções", History]] as const).map(([k, rot, Ico]) => (
+            <button key={k} type="button" onClick={() => setVendo(k)}
+              className={cn("relative flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition-colors",
+                vendo === k ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+              {vendo === k && (
+                <motion.span layoutId="aba-da-lista" transition={MOLA}
+                  className="absolute inset-0 rounded-md bg-white/[0.08]" />
+              )}
+              <span className="relative flex items-center gap-1.5">
+                <Ico className="h-3.5 w-3.5" /> {rot}
+              </span>
+            </button>
+          ))}
+        </div>
+      </LayoutGroup>
 
       {/* ── DE QUAL NÚMERO ──
           Só aparece com mais de um número. Com um só, a pergunta não existe e a
@@ -576,12 +640,21 @@ function Editor({
     return `de ${nomes.length} bases`;
   }, [idsDasBases, nomeDaBase]);
 
+  /* A GRADE DO NÚMERO ESCOLHIDO. Sem ela, restringir faixa não vale nada, e o
+     banco manda a qualquer hora de propósito. A tela precisa saber disso para
+     impedir de ligar um fluxo cuja restrição de horário é mentira. */
+  const { data: horarios, isLoading: carregandoGrade } = useHorarios(instancia || null);
+  const temGrade = carregandoGrade || horarios === undefined ? undefined : horarios.length > 0;
+
   const rascunho: Rascunho = { nome, instancia, gatilho, gatilho_config: cfg, condicoes, passos };
   /* Enquanto as colunas não chegaram, a conferência de variável fica de fora:
      acusar `{Funcionários}` de não existir por meio segundo faria a lista do
      que falta piscar uma acusação falsa. */
-  const travas = impedimentos(rascunho, idsDasBases.length > 0 && !carregandoColunas
-    ? colunas.map((c) => c.coluna) : null);
+  const travas = impedimentos(
+    rascunho,
+    idsDasBases.length > 0 && !carregandoColunas ? colunas.map((c) => c.coluna) : null,
+    temGrade,
+  );
 
   const salvar = async () => {
     if (!nome.trim()) { toast.error("Dê um nome à automação."); return; }
@@ -2301,6 +2374,132 @@ const TOM_DO_STATUS: Record<string, string> = {
   pendente:  "text-amber-400 ring-amber-400/25 bg-amber-400/[0.10]",
   rodando:   "text-primary ring-primary/25 bg-primary/[0.10]",
 };
+
+/**
+ * O REGISTRO DE TODOS OS FLUXOS JUNTOS.
+ *
+ * Agrupado por dia, porque a pergunta que se faz aqui tem data: "o que rodou
+ * hoje?", "o que aconteceu ontem de tarde?". Uma lista corrida de duzentas
+ * linhas com horário não responde nenhuma das duas sem rolar contando.
+ *
+ * O CONTADOR DE FALHAS FICA NO ALTO, e não perdido no meio. Uma falha entre
+ * cento e vinte linhas verdes é exatamente o que ninguém vê, e é o único
+ * motivo pelo qual esta tela existe.
+ */
+function RegistroGeral({ aoVivo, onAbrirFluxo }: {
+  aoVivo: boolean;
+  onAbrirFluxo: (id: string) => void;
+}) {
+  const { data: execs = [], isLoading } = useExecucoesGerais(aoVivo);
+  const [soProblemas, setSoProblemas] = useState(false);
+
+  const falhas = execs.filter((e) => e.status === "falhou").length;
+  const lista = soProblemas ? execs.filter((e) => e.status === "falhou") : execs;
+
+  /* Por dia, na ordem em que o tempo anda para trás. */
+  const porDia = useMemo(() => {
+    const mapa = new Map<string, typeof lista>();
+    for (const e of lista) {
+      const d = new Date(e.disparada_em);
+      const chave = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      mapa.get(chave)!.push(e);
+    }
+    return [...mapa.entries()];
+  }, [lista]);
+
+  const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 grid place-items-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (execs.length === 0) {
+    return (
+      <div className="flex-1 px-5 py-12 text-center">
+        <p className="text-[12.5px] font-medium">Nenhum fluxo rodou ainda.</p>
+        <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-2 max-w-sm mx-auto">
+          Quando um lead passar por qualquer automação, a passagem aparece aqui, com o fluxo, o
+          nome de quem passou e no que deu.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-2.5 py-2.5 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {execs.length} passagem{execs.length === 1 ? "" : "s"} nas últimas
+        </span>
+        <button type="button" onClick={() => setSoProblemas((v) => !v)}
+          className={cn("rounded-full px-2 py-1 text-[10.5px] ring-1 transition-colors",
+            falhas === 0
+              ? "bg-white/[0.03] text-muted-foreground/60 ring-white/[0.08] cursor-default"
+              : soProblemas
+                ? "bg-rose-400/[0.14] text-rose-300 ring-rose-400/30"
+                : "bg-white/[0.04] text-muted-foreground ring-white/[0.10] hover:bg-white/[0.08]")}
+          disabled={falhas === 0}>
+          {falhas === 0 ? "nenhuma falha" : `${falhas} falha${falhas === 1 ? "" : "s"}`}
+        </button>
+      </div>
+
+      {porDia.map(([dia, doDia], iDia) => (
+        <motion.div key={dia} layout
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ ...MOLA, delay: Math.min(iDia * 0.04, 0.2) }}
+          className="space-y-1.5">
+          <p className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/60 flex items-center gap-2 px-0.5">
+            {dia === hoje ? "Hoje" : dia}
+            <span className="tabular-nums opacity-70">{doDia.length}</span>
+          </p>
+
+          <AnimatePresence initial={false}>
+            {doDia.map((e, i) => (
+              <motion.button
+                key={e.id} type="button" layout
+                onClick={() => onAbrirFluxo(e.automacao_id)}
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                transition={{ ...MOLA, delay: Math.min(i * 0.015, 0.15) }}
+                className="w-full text-left rounded-lg border border-white/[0.07] bg-white/[0.02]
+                           hover:bg-white/[0.04] px-2.5 py-2 transition-colors">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-[11.5px] font-medium truncate min-w-0">
+                    {e.nome_do_lead || e.telefone || "lead sem nome"}
+                  </span>
+                  <span className="flex items-center gap-1 shrink-0">
+                    {e.teste && (
+                      <span className="rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 ring-white/[0.12] bg-white/[0.05] text-muted-foreground">
+                        teste
+                      </span>
+                    )}
+                    <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1", TOM_DO_STATUS[e.status])}>
+                      {ROTULO_STATUS[e.status]}
+                    </span>
+                  </span>
+                </span>
+                <span className="block text-[10.5px] text-muted-foreground/90 truncate mt-0.5">
+                  {e.automacao_nome}
+                </span>
+                <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-0.5">
+                  {new Date(e.disparada_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  {e.detalhe ? ` · ${e.detalhe}` : ""}
+                </span>
+                {e.erro && (
+                  <span className="block text-[10px] text-rose-400/90 leading-snug mt-1">{e.erro}</span>
+                )}
+              </motion.button>
+            ))}
+          </AnimatePresence>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
 
 function Execucoes({ automacaoId, aoVivo, ligadaEm }: {
   automacaoId: string;

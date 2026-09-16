@@ -147,6 +147,74 @@ export function useExecucoes(automacaoId: string | null, aoVivo: boolean) {
 }
 
 /**
+ * O REGISTRO DE TUDO QUE OS FLUXOS FIZERAM, de todos eles juntos.
+ *
+ * O histórico por fluxo já existia, mas ele só responde quando alguém já
+ * desconfia de um fluxo específico e vai abrir aquele. A pergunta que não tinha
+ * onde ser feita é a outra, e é a mais frequente: "o que os robôs andaram
+ * fazendo?". Sem ela, um fluxo que começou a falhar às três da tarde só
+ * aparece quando um lead reclama.
+ *
+ * Traz o nome do fluxo e o nome de quem passou, porque uma coluna de horários
+ * com dois uuid não é registro, é ruído. As duas consultas extras são por id,
+ * em cima de no máximo 200 linhas.
+ */
+export interface ExecucaoGeral extends Execucao {
+  automacao_nome: string;
+  instancia: string;
+  nome_do_lead: string | null;
+  teste: boolean;
+}
+
+export function useExecucoesGerais(aoVivo: boolean, limite = 120) {
+  return useQuery({
+    queryKey: ["wa", "automacoes", "execucoes", "gerais", limite],
+    refetchInterval: aoVivo ? 20_000 : false,
+    queryFn: async (): Promise<ExecucaoGeral[]> => {
+      const { data, error } = await tabela("wa_automacao_execucoes")
+        .select("id, automacao_id, conversa_id, telefone, status, passo, detalhe, erro, disparada_em, rodar_em, terminada_em, teste")
+        .order("disparada_em", { ascending: false })
+        .limit(limite);
+      if (error) throw error;
+
+      const linhas = (data ?? []) as (Execucao & { teste?: boolean })[];
+      if (linhas.length === 0) return [];
+
+      const idsDeFluxo = [...new Set(linhas.map((l) => l.automacao_id))];
+      const { data: fluxos } = await tabela("wa_automacoes")
+        .select("id, nome, instancia").in("id", idsDeFluxo);
+      const doFluxo = new Map(
+        ((fluxos ?? []) as Record<string, string>[]).map((f) => [f.id, { nome: f.nome, instancia: f.instancia }]),
+      );
+
+      const idsDeConversa = [...new Set(linhas.map((l) => l.conversa_id).filter(Boolean))] as string[];
+      const nomes: Record<string, string> = {};
+      if (idsDeConversa.length > 0) {
+        const { data: convs } = await tabela("wa_conversas")
+          .select("id, nome_real, nome_wa, telefone").in("id", idsDeConversa);
+        for (const c of ((convs ?? []) as Record<string, string>[])) {
+          nomes[c.id] = c.nome_real || c.nome_wa || c.telefone || "";
+        }
+      }
+
+      return linhas.map((l) => {
+        const f = doFluxo.get(l.automacao_id);
+        return {
+          ...l,
+          teste: !!l.teste,
+          /* Fluxo apagado deixa execução para trás, e o histórico continua
+             valendo: é justamente ali que se vai procurar o que aquele fluxo
+             fez antes de alguém apagá-lo. */
+          automacao_nome: f?.nome ?? "fluxo apagado",
+          instancia: f?.instancia ?? "",
+          nome_do_lead: l.conversa_id ? (nomes[l.conversa_id] ?? null) : null,
+        };
+      });
+    },
+  });
+}
+
+/**
  * AS COLUNAS DAS BASES DO FLUXO, para a bandeja de variáveis.
  *
  * Não existe tabela de "cabeçalho da planilha": o que existe é o `bruto` de

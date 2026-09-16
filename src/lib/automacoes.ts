@@ -421,6 +421,18 @@ export function impedimentos(
    * acusar tudo por não saber.
    */
   colunas?: readonly string[] | null,
+  /**
+   * O número deste fluxo tem grade de horário configurada?
+   *
+   * RESTRINGIR FAIXA NUM NÚMERO SEM GRADE NÃO FAZ NADA, E EM SILÊNCIO. O banco
+   * trata "sem grade" como "não sei que horas são aqui" e manda a qualquer
+   * hora, de propósito: quem nunca configurou horário não quer o fluxo preso
+   * para sempre. Só que na tela a pessoa marcou "só em atendimento", salvou,
+   * ligou, e vai jurar que a mensagem não sai de madrugada. Sai.
+   *
+   * `undefined` é "a tela ainda não sabe", e aí não se acusa nada.
+   */
+  temGrade?: boolean,
 ): string[] {
   const erros: string[] = [];
 
@@ -497,6 +509,13 @@ export function impedimentos(
 
   const t = Number(a.condicoes.teto_dia ?? 0);
   if (!Number.isFinite(t) || t < 1 || t > 1000) erros.push("O teto por dia precisa ser entre 1 e 1000.");
+
+  if (temGrade === false && !mandaAQualquerHora(a.condicoes)) {
+    erros.push(
+      "Este número não tem grade de horário, então a restrição de faixa não vale: "
+      + "monte a grade em Automações, Primeiro atendimento.",
+    );
+  }
 
   return erros;
 }

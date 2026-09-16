@@ -383,3 +383,21 @@ test("a frase diz em português, e na ordem em que o dia acontece", () => {
 test("toda faixa tem descrição, para a tela não precisar inventar", () => {
   for (const f of FAIXAS_DO_DIA) expect(DESCRICAO_DA_FAIXA[f].length).toBeGreaterThan(10);
 });
+
+test("restringir faixa sem grade no número é impedimento, não silêncio", () => {
+  const f = fluxo([msg("oi")], { condicoes: { ...CONDICOES_PADRAO, faixas: ["atendimento"] } });
+  // sem saber, não acusa
+  expect(impedimentos(f)).toEqual([]);
+  expect(impedimentos(f, null, undefined)).toEqual([]);
+  // sabendo que não há grade, acusa e diz onde resolver
+  const e = impedimentos(f, null, false);
+  expect(e.some((x) => /não tem grade/.test(x))).toBe(true);
+  expect(e.join(" ")).toContain("Primeiro atendimento");
+  // com grade, tudo certo
+  expect(impedimentos(f, null, true)).toEqual([]);
+});
+
+test("sem grade, mas mandando a qualquer hora, não há o que acusar", () => {
+  const f = fluxo([msg("oi")], { condicoes: { ...CONDICOES_PADRAO, faixas: [] } });
+  expect(impedimentos(f, null, false)).toEqual([]);
+});
