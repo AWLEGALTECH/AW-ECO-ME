@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import Automacoes from "@/components/atendimento/Automacoes";
+import Bases from "@/components/atendimento/Bases";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LEADS, LEMBRETES, ESTAGIOS, ORIGENS,
@@ -266,7 +267,7 @@ const LEAD_VAZIO: Lead = {
 };
 
 export default function AtendimentoPage() {
-  const [aba, setAba] = useState<"atendimento" | "programadas" | "automacoes" | "config">("atendimento");
+  const [aba, setAba] = useState<"atendimento" | "bases" | "programadas" | "automacoes" | "config">("atendimento");
   /* Qual das três coisas que rodam sozinhas está aberta. Os fluxos são o
      padrão porque são o que se monta; a régua e o primeiro atendimento se
      configuram uma vez e ficam. */
@@ -515,7 +516,6 @@ export default function AtendimentoPage() {
   /* A escolha dos anexos que vão para o Finder. */
   const [finderAberto, setFinderAberto] = useState(false);
   const [docsEscolhidos, setDocsEscolhidos] = useState<string[]>([]);
-  const [caixa, setCaixa] = useState<"conversas" | "bases">("conversas");
   /* Qual número filtra a LISTA DE BASES. Nulo é todas, que é o padrão: a lista
      existe justamente para ninguém perder de vista uma base de outro número. */
   const [filtroDeBase, setFiltroDeBase] = useState<string | null>(null);
@@ -2451,13 +2451,41 @@ export default function AtendimentoPage() {
       setMsgAbordagem("");
       // Vai junto pra conversa: quem abordou quer ver a resposta chegar, não
       // voltar pra fila e procurar a pessoa de novo.
-      setCaixa("conversas");
       setSelecionadoId(r.conversa_id);
       if (r.aviso) toast.warning(r.aviso);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setAbordando(false);
+    }
+  };
+
+  /* ABORDAR A PARTIR DA ABA BASES.
+     Mesma coisa que o `abordarLead` da caixa faz, com duas diferenças que vêm
+     do pedido: o NÚMERO é escolhido na ficha (e não herdado da tela), e o
+     texto vem junto em vez de morar num estado compartilhado — na aba a ficha
+     abre e fecha por lead, e um rascunho global vazaria de um para o outro. */
+  const abordarDaBase = async (l: { id: string; telefone: string; nome: string | null },
+                               texto: string, porQual: string, enviar: boolean) => {
+    try {
+      const r = await criarConversa({
+        instancia: porQual,
+        telefone: l.telefone,
+        nome: l.nome ?? null,
+      });
+      if (enviar && texto.trim()) await enviarTexto(r.conversa_id, texto.trim());
+      await marcarAbordado(l.id, r.conversa_id, user?.id ?? null);
+      invalidarLeads();
+      invalidarWa();
+      /* Vai junto para a conversa: quem abordou quer ver a resposta chegar, e
+         não voltar para a tabela e procurar a pessoa de novo. */
+      setSelecionadoId(r.conversa_id);
+      setAba("atendimento");
+      if (ehMobile) setTelaMobile("conversa");
+      if (r.aviso) toast.warning(r.aviso);
+    } catch (e) {
+      toast.error((e as Error).message);
+      throw e;
     }
   };
 
@@ -2915,7 +2943,7 @@ export default function AtendimentoPage() {
                 numa sub-aba de Programadas, e os fluxos numa terceira. Agora
                 tudo que acontece sem alguém apertar enviar mora em Automações,
                 e Programadas voltou a ser só a fila do que vai sair. */}
-            {([["atendimento", "Atendimento", Inbox], ["programadas", "Programadas", Clock], ["automacoes", "Automações", Workflow], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
+            {([["atendimento", "Atendimento", Inbox], ["bases", "Bases", Database], ["programadas", "Programadas", Clock], ["automacoes", "Automações", Workflow], ["config", "Ajustes", SlidersHorizontal]] as const).map(([k, rot, Ico]) => (
               <button key={k} onClick={() => { setAba(k); setAutomacaoDaBase(null); if (ehMobile) setTelaMobile("caixa"); }}
                 className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] transition-colors shrink-0",
                   aba === k ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -2927,7 +2955,33 @@ export default function AtendimentoPage() {
       />
       )}
 
-      {aba === "programadas" ? (
+      {aba === "bases" ? (
+        /* BASES SAIU DA CAIXA E VIROU ABA. A caixa é uma coluna de 15rem feita
+           para uma fila de conversas; uma base é uma tabela de centenas de
+           pessoas com meia dúzia de respostas cada, e o trabalho ali é
+           COMPARAR. Comparar em 15rem significa ler uma linha de cada vez. */
+        <Bases
+          instancias={instancias}
+          apelidos={apelidos}
+          corDe={corDe}
+          nomeDe={nomeDe}
+          sincronizando={sincronizando}
+          onLigarPlanilha={() => setFonteAberta(true)}
+          onPuxar={puxarPlanilha}
+          onColunas={abrirColunasDe}
+          onDesligar={setDesligando}
+          onAbordar={abordarDaBase}
+          onDescartar={async (l) => {
+            try { await descartarLead(l.id); invalidarLeads(); }
+            catch (e) { toast.error((e as Error).message); }
+          }}
+          onAbrirConversa={(id) => {
+            setSelecionadoId(id);
+            setAba("atendimento");
+            if (ehMobile) setTelaMobile("conversa");
+          }}
+        />
+      ) : aba === "programadas" ? (
         <CentralProgramadas
           agendadas={agendadas}
           leads={leadsBase}
@@ -3068,7 +3122,7 @@ export default function AtendimentoPage() {
                  três colunas, com largura própria. */
               "w-full md:shrink-0",
               ehMobile && telaMobile !== "caixa" && "hidden",
-              caixa === "bases" && baseAberta ? "md:w-[21rem] 2xl:md:w-[24rem]" : "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
+              "md:w-[13.25rem] 2xl:md:w-[15.5rem]")}>
               <div className="px-2.5 pt-2.5 pb-2 flex flex-col gap-2 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[12.5px] font-semibold flex items-center gap-1.5">
@@ -3076,53 +3130,25 @@ export default function AtendimentoPage() {
                   </h2>
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10.5px] text-muted-foreground tabular-nums">
-                      {caixa === "conversas" ? lista.length : brutosNovos.length}
+                      {lista.length}
                     </span>
                     {/* O "+" fica no cabeçalho da caixa, e não perto do campo
                         de digitar, porque o gesto é "arrumar mais um na lista"
                         — não "responder alguém". */}
                     <button type="button"
-                      title={caixa === "conversas" ? "Nova conversa" : "Ligar uma planilha"}
-                      onClick={() => (caixa === "conversas" ? setNovaAberta(true) : setFonteAberta(true))}
+                      title="Nova conversa"
+                      onClick={() => setNovaAberta(true)}
                       className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
                       <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
 
-                {/* DUAS CAIXAS, UM CARTÃO SÓ.
-                    Conversas é quem falou com a gente; bases é quem deixou o
-                    número na landing. São dois trabalhos diferentes —
-                    responder e prospectar — mas a mesma fila de pessoas: quem
-                    sai da base entra nas conversas assim que troca a primeira
-                    mensagem. Separar em duas telas faria a atendente perder de
-                    vista metade do funil enquanto trabalha a outra.
-
-                    "INBOUND" SAIU DO VOCABULÁRIO. Era jargão nosso na tela de
-                    quem atende: ninguém que abre esta caixa pensa "vou ver o
-                    inbound", pensa "vou ver quem me chamou". E ao lado de
-                    "Base" a dupla não dizia o que separava as duas, porque
-                    misturava o caminho (inbound) com a origem (base).
-
-                    BASES VEM PRIMEIRO porque é de lá que sai o trabalho do dia
-                    nesta operação: a conversa é a consequência, a base é a
-                    causa. O padrão continua sendo Conversas, que é o que se
-                    olha ao abrir a tela de manhã. */}
-                <div className="flex rounded-lg bg-white/[0.03] ring-1 ring-white/[0.06] p-[2px]">
-                  {([
-                    { chave: "bases" as const, rotulo: "Bases", n: brutosNovos.length },
-                    { chave: "conversas" as const, rotulo: "Conversas", n: leadsBase.length },
-                  ]).map((t) => (
-                    <button key={t.chave} onClick={() => setCaixa(t.chave)}
-                      className={cn("flex-1 rounded-md px-2 py-1 text-[10.5px] transition-colors flex items-center justify-center gap-1.5",
-                        caixa === t.chave
-                          ? "bg-white/[0.10] text-foreground"
-                          : "text-muted-foreground hover:text-foreground")}>
-                      {t.rotulo}
-                      {t.n > 0 && <span className="tabular-nums opacity-60">{t.n}</span>}
-                    </button>
-                  ))}
-                </div>
+                {/* O SELETOR DE DUAS CAIXAS SAIU DAQUI. Bases virou aba no topo,
+                    ao lado de Atendimento e Programadas, porque uma base não
+                    cabe numa coluna de 15rem: é uma tabela de centenas de
+                    pessoas, e o trabalho ali é comparar. A caixa voltou a ser
+                    uma coisa só, e sem o seletor ela ganha uma linha de fila. */}
                 {/* O FILTRO SAI DA FRENTE.
                     Eram seis chips de etapa ocupando duas linhas do cabeçalho,
                     todo dia, para um gesto que se faz poucas vezes por hora — e
@@ -3133,7 +3159,7 @@ export default function AtendimentoPage() {
                     O botão CONTA quantos filtros estão ligados e fica aceso
                     quando há algum. Filtro ligado e invisível é a forma mais
                     rápida de alguém concluir que "sumiram conversas". */}
-                {caixa === "conversas" && (
+                {(
                   <div className="flex items-center gap-1.5">
                     <Popover>
                       <PopoverTrigger asChild>
@@ -3314,399 +3340,11 @@ export default function AtendimentoPage() {
                 </div>
               </div>
 
-              {caixa === "bases" ? (
-                /* AS BASES VÊM ANTES DOS CONTATOS.
-                   Cada landing é uma base — LP Bradesco, LP concessionárias — e
-                   elas não se misturam: a abordagem de quem veio de uma é
-                   diferente da de quem veio da outra, e a fila só faz sentido
-                   dentro de uma delas. Então a aba abre com a LISTA DE BASES, e
-                   uma se expande por vez. */
-                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-                  {/* ── AS BASES DE TODOS OS NÚMEROS ──
-                      Elas eram filtradas pelo número aberto na tela, e isso
-                      escondia base sem dizer que existia: quem estava no
-                      OUTBOUND não via a base do INBOUND e concluía que ela
-                      tinha sumido. Agora aparecem todas, com o número dito em
-                      cada uma, e o filtro é uma escolha visível. */}
-                  {instancias.length > 1 && todasAsFontes.length > 0 && (
-                    <div className="px-2.5 py-2 flex items-center gap-1 flex-wrap border-b border-white/[0.06]">
-                      <button type="button" onClick={() => setFiltroDeBase(null)}
-                        className={cn("rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors",
-                          filtroDeBase === null ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
-                                                : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
-                        Todas ({todasAsFontes.length})
-                      </button>
-                      {instancias.map((i) => {
-                        const n = todasAsFontes.filter((f) => mesmaInstancia(f.instancia, i.nome)).length;
-                        if (n === 0) return null;
-                        const cor = corDe(i.nome);
-                        const ativo = mesmaInstancia(filtroDeBase, i.nome);
-                        return (
-                          <button key={i.id} type="button" onClick={() => setFiltroDeBase(ativo ? null : i.nome)}
-                            title={nomeDe(i.nome)}
-                            className={cn("flex items-center gap-1 rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors",
-                              ativo ? "bg-white/[0.09] text-foreground ring-white/[0.14]"
-                                    : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
-                            <span className={cn("rounded px-1 py-[1px] text-[8px] font-bold tracking-wide",
-                              ativo ? cn(cor.fundo, cor.texto) : "bg-white/[0.08] text-muted-foreground")}>
-                              {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
-                            </span>
-                            <span className="tabular-nums opacity-70">{n}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {basesVisiveis.length === 0 ? (
-                    <div className="px-3 py-8 text-center flex flex-col items-center gap-2">
-                      <Table2 className="h-5 w-5 text-muted-foreground/50" />
-                      <p className="text-[11.5px] text-muted-foreground leading-snug">
-                        {todasAsFontes.length === 0
-                          ? "Nenhuma base ligada ainda."
-                          : "Nenhuma base neste número."}
-                      </p>
-                      <Button size="sm" variant="outline" className="h-7 text-[11px]"
-                        onClick={() => setFonteAberta(true)}>
-                        <Plus className="h-3.5 w-3.5 mr-1" /> Ligar planilha
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      {basesVisiveis.map((f) => {
-                        const aberta = baseAberta === f.id;
-                        const r = resumoBases[f.id];
-                        /* ── A BASE ABERTA VEM INTEIRA ──
-                           Fechada, a linha usa o resumo. Aberta, ela busca a
-                           base completa: todo mundo que está lá dentro, com
-                           quem já escreveu marcado — e escrever conta em
-                           QUALQUER número do escritório, porque o lead não sabe
-                           que temos dois. */
-                        const daBase = aberta
-                          ? baseCompleta
-                              .filter((b) => filtroDoLead === "todos"
-                                || (filtroDoLead === "escreveram" ? b.escreveu : !b.escreveu))
-                              .filter((b) => {
-                                const t = busca.trim().toLowerCase();
-                                if (!t) return true;
-                                return (b.nome ?? "").toLowerCase().includes(t) || b.telefone.includes(t);
-                              })
-                          : [];
-                        return (
-                          <div key={f.id} className="border-b border-white/[0.06]">
-                            {/* O NOME É O BOTÃO, e o sinal à esquerda diz o que
-                                o clique faz: + abre, − fecha. Um "v" de seta
-                                diria "tem mais coisa"; o par +/− diz que é uma
-                                gaveta, e gaveta é o que isto é. */}
-                            {/* UMA BASE NÃO É UMA LINHA. São 635 pessoas atrás
-                                desse nome; num item de lista fininho ela pesa o
-                                mesmo que um contato solto, e o olho passa
-                                batido. Duas alturas de texto, o número grande do
-                                que espera, e o total logo abaixo — é um bloco,
-                                porque é um bloco de trabalho. */}
-                            <div className={cn("px-2.5 py-2.5 transition-colors",
-                              aberta ? "bg-white/[0.06]" : "bg-white/[0.02] hover:bg-white/[0.04]")}>
-                              <div className="flex items-start gap-2">
-                                <button type="button"
-                                  onClick={() => setBaseAberta(aberta ? null : f.id)}
-                                  className="flex items-start gap-2 min-w-0 flex-1 text-left">
-                                  {/* O ícone é o de BANCO DE DADOS, e não um
-                                      +/−: ele diz o que a linha É, não o que o
-                                      clique faz. O que o clique faz já está
-                                      dito pelo fundo aceso e pela fila que
-                                      aparece embaixo. */}
-                                  <span className={cn("h-6 w-6 mt-[1px] shrink-0 rounded-md grid place-items-center ring-1 transition-colors",
-                                    aberta
-                                      ? "bg-primary/15 text-primary ring-primary/25"
-                                      : "bg-white/[0.05] text-muted-foreground ring-white/[0.10]")}>
-                                    <Database className="h-3.5 w-3.5" />
-                                  </span>
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-[12.5px] font-medium truncate" title={f.nome}>
-                                      {f.nome}
-                                    </span>
-                                    {/* Um número por linha. Lado a lado, "635 na
-                                        base" não cabia junto do selo e quebrava
-                                        no meio ("635 na / base") — número
-                                        partido em duas linhas deixa de ser
-                                        número e vira texto. */}
-                                    <span className="flex flex-col items-start gap-1 mt-1">
-                                      <span className={cn(
-                                        "rounded px-1.5 py-[1px] text-[10px] font-semibold tabular-nums ring-1 whitespace-nowrap",
-                                        (r?.novos ?? 0) > 0
-                                          ? "bg-primary/15 text-primary ring-primary/25"
-                                          : "bg-white/[0.05] text-muted-foreground ring-white/[0.08]")}>
-                                        {r?.novos ?? 0} novo{(r?.novos ?? 0) === 1 ? "" : "s"}
-                                      </span>
-                                      <span className="text-[10px] tabular-nums text-muted-foreground/70 whitespace-nowrap">
-                                        {r?.total ?? 0} na base
-                                      </span>
-                                    </span>
-                                  </span>
-                                </button>
-
-                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                  <div className="flex items-center gap-0.5">
-                                    {/* O PINGO DIZ SE A LEITURA ESTÁ DE PÉ.
-                                        Verde = último puxão trouxe os leads;
-                                        âmbar = trouxe com ressalva (é o texto
-                                        logo abaixo); cinza = nunca puxou. Sem
-                                        ele, "635 na base" continuaria escrito
-                                        igual no dia em que a planilha parar de
-                                        responder — o número velho é o disfarce
-                                        perfeito pra uma integração quebrada. */}
-                                    <span title={saudeDaFonte(f).titulo}
-                                      className={cn("h-1.5 w-1.5 rounded-full mr-1 shrink-0",
-                                        saudeDaFonte(f).cor,
-                                        sincronizando === f.id && "animate-pulse")} />
-                                    <button type="button" title="Colunas que aparecem"
-                                      onClick={() => abrirColunasDe(f)}
-                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
-                                      <Columns3 className="h-3 w-3" />
-                                    </button>
-                                    <button type="button" title="Puxar da planilha"
-                                      onClick={() => puxarPlanilha(f)}
-                                      disabled={sincronizando === f.id}
-                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-foreground hover:bg-white/[0.10] transition-colors">
-                                      <RefreshCw className={cn("h-3 w-3", sincronizando === f.id && "animate-spin")} />
-                                    </button>
-                                    {/* O CAMINHO CURTO ATÉ A AUTOMAÇÃO DESTA
-                                        BASE. A aba existe no topo, mas quem
-                                        está olhando uma planilha e pensa "toda
-                                        vez que entrar gente aqui, manda tal
-                                        mensagem" está pensando nESTA base — e
-                                        chegar numa lista vazia o obrigaria a
-                                        escolher de novo o que já escolheu. */}
-                                    <button type="button" title="Automações desta base"
-                                      onClick={() => { setAutomacaoDaBase(f.id); setAba("automacoes"); }}
-                                      className="h-5 w-5 rounded-full grid place-items-center text-muted-foreground hover:text-primary hover:bg-white/[0.10] transition-colors">
-                                      <Workflow className="h-3 w-3" />
-                                    </button>
-                                    {/* Separado do atualizar e apagado até o
-                                        mouse chegar. A confirmação evita o
-                                        estrago, mas o estrago começou na
-                                        vizinhança: dois botões colados, um que
-                                        se usa dez vezes por dia e outro que
-                                        tira a base da tela. */}
-                                    <button type="button" title="Desligar base"
-                                      onClick={() => setDesligando(f)}
-                                      className="h-5 w-5 ml-1.5 rounded-full grid place-items-center text-muted-foreground/40 hover:text-destructive hover:bg-white/[0.10] transition-colors">
-                                      <X className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                  <span className="text-[9px] text-muted-foreground/60 whitespace-nowrap">
-                                    {sincronizando === f.id ? "puxando…"
-                                      : f.ultimo_sync ? horaDaLista(f.ultimo_sync) : "nunca"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* O ERRO FICA NA TELA, NÃO SÓ NO TOAST. Toast some;
-                                o motivo de a fila estar vazia não pode. */}
-                            {f.ultimo_erro && (
-                              <div className="px-2.5 pb-2 pt-0.5">
-                                <div className="rounded-md bg-amber-400/10 ring-1 ring-amber-400/25 px-2 py-1.5">
-                                  <p className="text-[10px] text-amber-200/90 leading-snug break-words">
-                                    {f.ultimo_erro}
-                                  </p>
-                                  {emailDaConta(f.ultimo_erro) && (
-                                    <button type="button"
-                                      onClick={() => copiarEmail(emailDaConta(f.ultimo_erro)!)}
-                                      className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[9.5px] bg-amber-400/15 text-amber-200 hover:bg-amber-400/25 transition-colors">
-                                      <Copy className="h-2.5 w-2.5" /> Copiar e-mail
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* ── QUEM JÁ FALOU E QUEM NUNCA FALOU ──
-                                As duas etiquetas dizem o número ANTES de
-                                filtrar, e é aí que está o valor: "escreveram
-                                71" ao lado de "nunca 637" é a leitura da base
-                                num relance, e some assim que o filtro é
-                                aplicado. Escrever conta em qualquer número do
-                                escritório. */}
-                            {aberta && (
-                              <div className="px-2.5 py-2 flex items-center gap-1 flex-wrap border-t border-white/[0.04] bg-black/20">
-                                {([
-                                  ["todos", "Todos", contagemDaBase.total],
-                                  ["escreveram", "Já escreveram", contagemDaBase.escreveram],
-                                  ["nunca", "Nunca escreveram", contagemDaBase.nunca],
-                                ] as const).map(([k, rot, n]) => (
-                                  <button key={k} type="button" onClick={() => setFiltroDoLead(k)}
-                                    className={cn("rounded-full px-2 py-[3px] text-[10px] ring-1 transition-colors flex items-center gap-1",
-                                      filtroDoLead === k
-                                        ? k === "escreveram"
-                                          ? "bg-emerald-400/[0.14] text-emerald-300 ring-emerald-400/30"
-                                          : k === "nunca"
-                                            ? "bg-primary/[0.14] text-primary ring-primary/30"
-                                            : "bg-white/[0.09] text-foreground ring-white/[0.14]"
-                                        : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}>
-                                    {rot}
-                                    <span className="tabular-nums opacity-70">{n}</span>
-                                  </button>
-                                ))}
-                                {carregandoBaseCompleta && (
-                                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60" />
-                                )}
-                              </div>
-                            )}
-
-                            {aberta && (carregandoBaseCompleta && daBase.length === 0 ? (
-                              <div className="py-6 grid place-items-center">
-                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
-                              </div>
-                            ) : daBase.length === 0 ? (
-                              <p className="text-[11.5px] text-muted-foreground/70 text-center py-6">
-                                {busca.trim() ? "Ninguém com esse nome aqui."
-                                  : filtroDoLead === "escreveram" ? "Ninguém desta base escreveu ainda."
-                                  : filtroDoLead === "nunca" ? "Todo mundo desta base já escreveu."
-                                  : "Esta base está vazia."}
-                              </p>
-                            ) : daBase.map((b) => (
-                              <Popover key={b.id}
-                                open={abordar?.id === b.id}
-                                onOpenChange={(a) => { if (!abordando) { if (a) abrirAbordagem(b); else setAbordar(null); } }}>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    className="w-full text-left pl-4 pr-2.5 py-2 border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors flex gap-2 data-[state=open]:bg-white/[0.06]">
-                                    <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-[10px] font-semibold ring-1 bg-primary/10 text-primary ring-primary/20">
-                                      {iniciais(b.nome || telefoneBonito(b.telefone))}
-                                    </span>
-                                    <span className="min-w-0 flex-1">
-                                      <span className="flex items-baseline gap-1.5">
-                                        <span className="text-[12px] font-medium truncate flex-1">
-                                          {b.nome || telefoneBonito(b.telefone)}
-                                        </span>
-                                        <span className="text-[9.5px] text-muted-foreground shrink-0">
-                                          {horaDaLista(b.chegou_em)}
-                                        </span>
-                                      </span>
-                                      {/* UMA COLUNA POR LINHA, com o rótulo à
-                                          esquerda. Emendadas com "·" numa
-                                          linha só, o olho tinha que procurar
-                                          onde um campo acabava e o outro
-                                          começava; em coluna, os rótulos se
-                                          alinham e a leitura vira varredura
-                                          vertical — que é como se compara um
-                                          lead com o de baixo. */}
-                                      {(() => {
-                                        const f2 = fontes.find((x) => x.id === b.fonte_id);
-                                        const campos = dossieExtra(b.bruto, f2?.colunas_exibidas);
-                                        if (campos.length === 0) {
-                                          return (
-                                            <span className="block text-[10.5px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
-                                              {resumoDasRespostas(b.respostas, 150) || telefoneBonito(b.telefone)}
-                                            </span>
-                                          );
-                                        }
-                                        return (
-                                          <span className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-[1px] mt-1">
-                                            {campos.slice(0, 5).map((c) => (
-                                              <span key={c.rotulo} className="contents">
-                                                <span className="text-[9.5px] uppercase tracking-wide text-muted-foreground/55 whitespace-nowrap pt-[1px]">
-                                                  {c.rotulo}
-                                                </span>
-                                                <span className="text-[10.5px] text-muted-foreground truncate">
-                                                  {c.valor}
-                                                </span>
-                                              </span>
-                                            ))}
-                                          </span>
-                                        );
-                                      })()}
-                                      {/* A ETIQUETA ERA FIXA NO CÓDIGO, e podia
-                                          ser: a lista só trazia quem nunca
-                                          tinha sido abordado, então todos eram
-                                          "nunca escreveu". Com a base inteira
-                                          na tela virou pergunta de verdade, e a
-                                          resposta vem do banco — contando
-                                          QUALQUER número do escritório, porque
-                                          o lead não sabe que temos dois. */}
-                                      <span className="flex items-center gap-1 mt-1">
-                                        {b.escreveu ? (
-                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-emerald-400/10 text-emerald-300/90 ring-1 ring-emerald-400/25"
-                                            title={b.conversa_instancia ? `Escreveu para ${nomeDe(b.conversa_instancia)}` : undefined}>
-                                            Já escreveu
-                                          </span>
-                                        ) : (
-                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-primary/10 text-primary/90 ring-1 ring-primary/20">
-                                            Nunca escreveu
-                                          </span>
-                                        )}
-                                        {/* De qual número, quando não é o da
-                                            base: é a informação que mais muda o
-                                            gesto seguinte, e a que estava
-                                            faltando. */}
-                                        {b.conversa_instancia && !mesmaInstancia(b.conversa_instancia, f.instancia) && (
-                                          <span className="rounded px-1.5 py-[1px] text-[9px] bg-white/[0.06] text-muted-foreground ring-1 ring-white/[0.10] truncate">
-                                            {apelidos.get(b.conversa_instancia) ?? apelidoDeInstancia(b.conversa_instancia)}
-                                          </span>
-                                        )}
-                                        {b.cidade && (
-                                          <span className="text-[9px] text-muted-foreground/70 truncate">{b.cidade}</span>
-                                        )}
-                                      </span>
-                                    </span>
-                                  </button>
-                                </PopoverTrigger>
-
-                                {/* O DOBRO DA LARGURA DA CAIXA (15,5rem → 31rem),
-                                    e ao LADO da linha: um modal centralizado faz
-                                    a fila sumir atrás dele, e quem prospecta
-                                    trabalha a fila em sequência. */}
-                                <PopoverContent side="right" align="start" sideOffset={8}
-                                  className="w-[31rem] p-0 overflow-hidden">
-                                  <FichaDoLead
-                                    lead={b}
-                                    colunas={f.colunas_exibidas}
-                                    mensagem={msgAbordagem}
-                                    onMensagem={setMsgAbordagem}
-                                    ocupado={abordando}
-                                    instancias={instancias}
-                                    porQual={porQualNumero || instancia.nome}
-                                    onTrocarPorQual={setPorQualNumero}
-                                    apelidos={apelidos}
-                                    corDe={corDe}
-                                    nomeDe={nomeDe}
-                                    onCopiar={() => copiarTexto(telefoneBonito(b.telefone), "Número copiado")}
-                                    onEnviar={() => abordarLead(true)}
-                                    onSoAbrir={() => abordarLead(false)}
-                                    onDescartar={async () => {
-                                      setAbordar(null);
-                                      try { await descartarLead(b.id); invalidarLeads(); }
-                                      catch (e) { toast.error((e as Error).message); }
-                                    }}
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            )))}
-
-                            {/* O BOTÃO "MOSTRAR OS ANTERIORES AO CORTE" SAIU.
-                                Ele existia porque a lista escondia quem já
-                                tinha sido trabalhado, e esconder 612 pessoas
-                                sem dizer nada já tinha sido defeito desta tela
-                                três vezes. Agora a base abre INTEIRA, então não
-                                há nada escondido para revelar: o que separa as
-                                pessoas são as etiquetas lá em cima, e elas
-                                dizem o número dos dois lados antes de filtrar. */}
-                          </div>
-                        );
-                      })}
-
-                      {/* Adicionar outra base fica no FIM da lista, e não no
-                          cabeçalho: é o gesto mais raro desta coluna, e no topo
-                          ele ficaria do lado do que se faz todo dia. */}
-                      <button type="button" onClick={() => setFonteAberta(true)}
-                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/[0.04] transition-colors">
-                        <Plus className="h-3.5 w-3.5" /> Adicionar base
-                      </button>
-                    </>
-                  )}
-                </div>
-              ) : (
+              {/* A CAIXA VOLTOU A SER SÓ AS CONVERSAS. As bases moravam aqui
+                  numa coluna de 15rem, e uma base não cabe numa coluna: são
+                  centenas de pessoas com meia dúzia de respostas cada, e o
+                  trabalho ali é comparar. Foram para a aba Bases, no topo, onde
+                  a tela inteira é delas. */}
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
                 {lista.length === 0 ? (
                   <p className="text-[12px] text-muted-foreground text-center py-8">Nenhuma conversa aqui.</p>
@@ -3890,7 +3528,6 @@ export default function AtendimentoPage() {
                   );
                 })}
               </div>
-              )}
             </SpotlightCard>
 
             {semConversas ? (
