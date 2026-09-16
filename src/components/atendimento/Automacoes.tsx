@@ -57,7 +57,7 @@ import {
   etapasOferecidas, resumoDoFluxo, CONDICOES_PADRAO, MAX_PASSOS, ROTULO_STATUS,
   CONDICOES_DEF, OPERADORES, ROTULO_OPERADOR, CONDICAO_PADRAO, VARIAVEIS_FIXAS,
   TIPOS_DENTRO_DE_RAMO, TIPOS_DENTRO_DE_CASO, fraseDaCondicao, operadorPrecisaDeValor,
-  casoNovo, fraseDoCaso, MAX_CASOS,
+  casoNovo, fraseDoCaso, rotuloDoCaso, MAX_CASOS,
   FAIXAS_DO_DIA, DESCRICAO_DA_FAIXA, faixasDaAutomacao, fraseDasFaixas, mandaAQualquerHora,
   type Automacao, type Gatilho, type GatilhoDef, type Passo, type TipoDePasso,
   type ConfigDoGatilho, type Condicoes, type Condicao, type TipoDeCondicao,
@@ -1042,34 +1042,41 @@ function OsRamos({ passo, selecionado, cabeMais, trilhaDoPai, onAbrir, onRemover
   const ramos = ramosDoPasso(passo).map((r) => {
     if (!escolha) {
       const sim = r.chave === RAMO_ENTAO;
-      return {
-        ...r,
-        rotulo: sim ? "sim" : "não",
-        cor: sim ? "text-emerald-400/90" : "text-rose-400/90",
-      };
+      return { ...r, rotulo: sim ? "sim" : "não", cor: sim ? "text-emerald-400/90" : "text-rose-400/90" };
     }
-    if (r.chave === RAMO_SENAO) {
-      return { ...r, rotulo: "os demais", cor: "text-muted-foreground" };
-    }
+    if (r.chave === RAMO_SENAO) return { ...r, rotulo: "os demais", cor: "text-muted-foreground/80" };
     const c = (passo.casos ?? []).find((x) => x.id === r.chave);
-    return {
-      ...r,
-      rotulo: c ? fraseDoCaso(passo.campo, c) : "caso",
-      cor: "text-violet-300/90",
-    };
+    return { ...r, rotulo: c ? rotuloDoCaso(c) : "caso", cor: "text-violet-300" };
   });
 
   return (
     <motion.div layout transition={MOLA} className="relative flex flex-col items-center">
       <span className="h-3 w-px bg-violet-400/30" />
-      <div className={cn("w-full grid gap-2", escolha ? "grid-cols-1" : "sm:grid-cols-2")}>
+      <div className={cn("w-full", escolha ? "flex flex-col gap-2.5" : "grid gap-2 sm:grid-cols-2")}>
         {ramos.map((l, k) => (
           <motion.div
             key={l.chave} layout
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             transition={{ ...MOLA, delay: k * 0.05 }}
-            className="rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-1.5">
-            <p className={cn("text-[9.5px] uppercase tracking-[0.12em] px-1 pb-1 rounded-t truncate", l.cor)}>
+            /* O CASO NÃO GANHA CAIXA. Ele já mora dentro do lado do "Se", que já
+               mora dentro do fluxo: uma terceira moldura fazia a tela virar
+               caixas dentro de caixas e o olho perdia o que era o quê. Um caso é
+               um rótulo e uma fila curta, separado do vizinho por um fio à
+               esquerda, que é o que sobra quando se tira a moldura e ainda dá
+               pra ver onde um termina e o outro começa. */
+            className={cn(
+              "group/caso",
+              escolha
+                ? "border-l-2 border-violet-400/25 pl-2"
+                : "rounded-xl ring-1 ring-white/[0.07] bg-white/[0.015] p-1.5",
+            )}>
+            <p
+              title={l.rotulo}
+              className={cn(
+                "px-1 pb-1 truncate",
+                escolha ? "text-[10.5px] font-medium" : "text-[9.5px] uppercase tracking-[0.12em]",
+                l.cor,
+              )}>
               {l.rotulo}
             </p>
             <LayoutGroup id={`ramo-${passo.id}-${l.chave}`}>
@@ -1163,17 +1170,28 @@ function ConectorDoRamo({ onInserir, podeInserir, vazio, dentroDeEscolha }: {
             })}
           </motion.div>
         ) : podeInserir ? (
-          <motion.button
-            type="button" onClick={() => setAberto(true)}
-            initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}
+          /* O FRAMER NÃO PODE ANIMAR A OPACIDADE AQUI. `animate={{ opacity: 1 }}`
+             vira estilo inline, e estilo inline ganha da classe `opacity-0`:
+             o "+" que devia aparecer só no hover ficava aceso o tempo todo, um
+             debaixo de cada cartão, e o fluxo virava uma coluna de botões. A
+             entrada e a saída animam só a escala, num invólucro; a opacidade é
+             do botão e só do Tailwind. */
+          <motion.div
+            initial={{ scale: 0.85 }} animate={{ scale: 1 }} exit={{ scale: 0.85, opacity: 0 }}
             transition={MOLA}
-            className={cn(
-              "flex items-center justify-center gap-1 rounded-md py-1 text-muted-foreground/70",
-              "hover:text-foreground hover:bg-white/[0.05] transition-colors",
-              vazio ? "w-full" : "h-4 w-4 opacity-0 group-hover/ramo:opacity-100 focus:opacity-100")}>
-            <Plus className="h-2.5 w-2.5 shrink-0" />
-            {vazio && <span className="text-[10px]">{vazio}</span>}
-          </motion.button>
+            className={cn("flex justify-center", vazio && "w-full")}>
+            <button
+              type="button" onClick={() => setAberto(true)}
+              className={cn(
+                "flex items-center justify-center gap-1 rounded-md py-1 text-muted-foreground/70",
+                "hover:text-foreground hover:bg-white/[0.05] transition-all",
+                vazio
+                  ? "w-full"
+                  : "h-4 w-4 opacity-0 group-hover/caso:opacity-100 group-hover/ramo:opacity-100 focus:opacity-100")}>
+              <Plus className="h-2.5 w-2.5 shrink-0" />
+              {vazio && <span className="text-[10px]">{vazio}</span>}
+            </button>
+          </motion.div>
         ) : null}
       </AnimatePresence>
     </motion.div>
@@ -1235,15 +1253,19 @@ function Conector({ onInserir, podeInserir, fim }: {
           </motion.div>
         ) : (
           podeInserir && (
-            <motion.button
-              type="button" onClick={() => setAberto(true)} title="Inserir passo aqui"
-              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
-              transition={MOLA}
-              className="h-5 w-5 grid place-items-center rounded-full ring-1 ring-white/[0.12] bg-black/40
-                         text-muted-foreground opacity-0 group-hover/conector:opacity-100 focus:opacity-100
-                         hover:text-primary hover:ring-primary/40 transition-all">
-              <Plus className="h-3 w-3" />
-            </motion.button>
+            /* Mesmo cuidado do ConectorDoRamo: o framer anima a escala no
+               invólucro, e a opacidade do hover fica com o Tailwind no botão. */
+            <motion.div
+              initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8, opacity: 0 }}
+              transition={MOLA}>
+              <button
+                type="button" onClick={() => setAberto(true)} title="Inserir passo aqui"
+                className="h-5 w-5 grid place-items-center rounded-full ring-1 ring-white/[0.12] bg-black/40
+                           text-muted-foreground opacity-0 group-hover/conector:opacity-100 focus:opacity-100
+                           hover:text-primary hover:ring-primary/40 transition-all">
+                <Plus className="h-3 w-3" />
+              </button>
+            </motion.div>
           )
         )}
       </AnimatePresence>

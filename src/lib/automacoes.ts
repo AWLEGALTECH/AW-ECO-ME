@@ -337,7 +337,22 @@ export function casoNovo(valor = ""): Caso {
   return { id: novoIdDeCaso(), op: "contem", valor, passos: [] };
 }
 
-/** "quando Situação contém “processo”" — o cabeçalho do caso, na tela. */
+/**
+ * O rótulo CURTO do caso: só o que o distingue dos irmãos.
+ *
+ * No desenho do fluxo a coluna já está escrita no cartão da Escolha, logo
+ * acima. Repetir "quando Situação contém" em cada caso fazia os três
+ * cabeçalhos começarem iguais, e a parte que muda (o valor) era justamente a
+ * que o `truncate` cortava: três casos idênticos na tela, impossíveis de
+ * distinguir sem abrir um por um.
+ */
+export function rotuloDoCaso(c: Caso): string {
+  if (!operadorPrecisaDeValor(c.op)) return ROTULO_OPERADOR[c.op];
+  const v = (c.valor || "").trim();
+  return v ? `“${v}”` : "(falta o valor)";
+}
+
+/** "quando Situação contém “processo”" — a frase completa, para o inspetor. */
 export function fraseDoCaso(campo: string | null | undefined, c: Caso): string {
   const col = (campo || "").trim() || "a coluna";
   if (!operadorPrecisaDeValor(c.op)) return `quando ${col} ${ROTULO_OPERADOR[c.op]}`;

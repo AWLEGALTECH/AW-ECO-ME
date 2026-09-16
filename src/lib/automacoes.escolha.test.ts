@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   impedimentos, passoNovo, casoNovo, colunasDosBrutos, resumoDoFluxo, resumoDoPasso,
-  fraseDoCaso, MAX_VALORES_POR_COLUNA, CONDICOES_PADRAO,
+  fraseDoCaso, rotuloDoCaso, MAX_VALORES_POR_COLUNA, CONDICOES_PADRAO,
   type Passo, type Automacao,
 } from "./automacoes";
 
@@ -116,6 +116,15 @@ test("a duração também é a do pior caminho", () => {
     { valor: "b", passos: [espera(600)] },
   ]);
   expect(resumoDoFluxo([p]).duracaoMin).toBe(600);
+});
+
+test("no desenho, o caso mostra só o que o distingue dos irmãos", () => {
+  /* A coluna já está no cartão da Escolha. Repetir "quando Situação contém"
+     em cada caso fazia os três começarem iguais, e o valor, a única parte que
+     muda, era o que o truncate cortava. */
+  expect(rotuloDoCaso(casoNovo("processo trabalhista"))).toBe("“processo trabalhista”");
+  expect(rotuloDoCaso({ ...casoNovo(""), op: "vazio" })).toBe("está vazia");
+  expect(rotuloDoCaso(casoNovo(""))).toBe("(falta o valor)");
 });
 
 test("o cartão se lê sem abrir", () => {
