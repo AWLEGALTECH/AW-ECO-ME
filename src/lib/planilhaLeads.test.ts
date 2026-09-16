@@ -47,18 +47,18 @@ describe("achar as colunas", () => {
 });
 
 describe("a data da planilha", () => {
-  it("lê dia/mês/ano com hora", () => {
-    const iso = dataDaPlanilha("01/09/2026 10:58:39");
-    expect(new Date(iso!).getDate()).toBe(1);
-    expect(new Date(iso!).getMonth()).toBe(8);   // setembro
-    expect(new Date(iso!).getHours()).toBe(10);
+  /* ESTE TESTE AFIRMA O INSTANTE, e não `getHours()`. A versão anterior dele
+     usava a hora local de quem roda — a mesma suposição que o código tinha —
+     e por isso passava com o bug de fuso dentro: os dois erravam juntos e
+     concordavam. Instante em ISO não tem essa saída. */
+  it("lê dia/mês/ano com hora, no relógio do escritório", () => {
+    // 10:58:39 em Manaus (UTC-4) é 14:58:39 em UTC
+    expect(dataDaPlanilha("01/09/2026 10:58:39")).toBe("2026-09-01T14:58:39.000Z");
   });
 
   it("dia 09 do mês 01 não vira 9 de janeiro invertido", () => {
     // o erro que ninguém percebe: as duas leituras dão datas plausíveis
-    const iso = dataDaPlanilha("09/01/2026");
-    expect(new Date(iso!).getDate()).toBe(9);
-    expect(new Date(iso!).getMonth()).toBe(0);
+    expect(dataDaPlanilha("09/01/2026")).toBe("2026-01-09T04:00:00.000Z");
   });
 
   it("aceita vírgula entre data e hora", () => {
@@ -240,4 +240,44 @@ it("o link inteiro da planilha vira id, e id já pronto passa intacto", () => {
   expect(idDaPlanilha("https://docs.google.com/spreadsheets/d/1AbC-dEf_9")).toBe("1AbC-dEf_9");
   expect(idDaPlanilha("  1AbC-dEf_9  ")).toBe("1AbC-dEf_9");
   expect(idDaPlanilha("")).toBe("");
+});
+
+/* ── o fuso da planilha, que custou um bug de quatro horas ─────────────────
+ *
+ * A versão anterior usava `new Date(ano, mes, dia, hora)`, que monta no fuso de
+ * QUEM RODA. No navegador isso era Manaus e dava certo por acaso; na edge
+ * function, que roda em UTC, o "22:40" do formulário virou 22:40 UTC — 18:40
+ * em Manaus. Todo lead passou a chegar quatro horas no passado, e isso quebrou
+ * a trava do aviso de lead novo, a contagem de "esta semana" e o filtro de
+ * data. Estes testes existem para o relógio da planilha continuar sendo o
+ * relógio do escritório, rode onde rodar. */
+
+it("a hora da planilha é a hora do escritório, e não a de quem roda", () => {
+  // 22:40 em Manaus (UTC-4) é 02:40 do dia seguinte em UTC
+  expect(dataDaPlanilha("15/09/2026 22:40:00")).toBe("2026-09-16T02:40:00.000Z");
+  // meio-dia daqui é 16h em UTC
+  expect(dataDaPlanilha("15/09/2026 12:00:00")).toBe("2026-09-15T16:00:00.000Z");
+});
+
+it("sem hora, o dia começa à meia-noite DAQUI", () => {
+  // 00:00 de Manaus é 04:00 UTC do mesmo dia
+  expect(dataDaPlanilha("15/09/2026")).toBe("2026-09-15T04:00:00.000Z");
+});
+
+it("a leitura não depende do fuso da máquina: o fuso é dito, não herdado", () => {
+  /* O mesmo texto, pedido em dois fusos, dá dois instantes diferentes — e é
+     isso que prova que a função não está mais usando o relógio de quem roda. */
+  expect(dataDaPlanilha("15/09/2026 22:40:00", "UTC")).toBe("2026-09-15T22:40:00.000Z");
+  expect(dataDaPlanilha("15/09/2026 22:40:00", "America/Sao_Paulo")).toBe("2026-09-16T01:40:00.000Z");
+});
+
+it("dia/mês continua sendo dia/mês, e não a leitura americana", () => {
+  // 09/01 é 9 de janeiro, e não 1º de setembro
+  expect(dataDaPlanilha("09/01/2026 10:00:00")).toBe("2026-01-09T14:00:00.000Z");
+});
+
+it("o que não é data continua devolvendo nulo", () => {
+  expect(dataDaPlanilha("")).toBeNull();
+  expect(dataDaPlanilha("ontem")).toBeNull();
+  expect(dataDaPlanilha("2026-09-15")).toBeNull();
 });

@@ -83,6 +83,28 @@ export function mapearColunas(cabecalho: string[]): Record<string, number> {
   return mapa;
 }
 
+/** O fuso do escritório. A planilha escreve a hora do relógio daqui. */
+export const FUSO_DO_ESCRITORIO = "America/Manaus";
+
+/**
+ * Quantos minutos um fuso está à frente do UTC naquele instante.
+ *
+ * Via `Intl`, que existe igual no navegador e no Deno, em vez de um número
+ * fixo: Manaus não tem horário de verão hoje, mas já teve, e um `-4` cravado no
+ * código é a linha que ninguém encontra no dia em que ele volta.
+ */
+function deslocamentoDoFuso(zona: string, quando: Date): number {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: zona, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(quando);
+  const n = (tipo: string) => Number(partes.find((p) => p.type === tipo)?.value ?? 0);
+  // `hour` pode vir "24" à meia-noite em alguns motores; o módulo resolve.
+  const naZona = Date.UTC(n("year"), n("month") - 1, n("day"), n("hour") % 24, n("minute"), n("second"));
+  return Math.round((naZona - quando.getTime()) / 60_000);
+}
+
 /**
  * "01/09/2026 10:58:39" ou "01/09/2026" → ISO. Null quando não dá pra ler.
  *
@@ -90,16 +112,44 @@ export function mapearColunas(cabecalho: string[]): Record<string, number> {
  * "01/09" como 1º de setembro nos EUA e como 9 de janeiro aqui — no mesmo mês
  * as duas leituras dão datas plausíveis, que é o pior tipo de ambiguidade:
  * ninguém percebe que está errada.
+ *
+ * ─────────────────── e o fuso, que custou um bug de quatro horas ────────────
+ *
+ * A versão anterior montava a data com `new Date(ano, mes, dia, hora)`, que
+ * usa o fuso DE QUEM ESTÁ RODANDO. No navegador isso era Manaus e dava certo
+ * por acaso. Quando a leitura virou edge function, ela passou a rodar em UTC:
+ * o "22:40" que a pessoa preencheu no formulário virou 22:40 UTC, que é 18:40
+ * em Manaus. Todo lead passou a chegar quatro horas no passado.
+ *
+ * Isso não ficou só no campo: quebrou a trava do aviso de lead novo (o lead
+ * "chegava" antes de o aviso ser ligado e era descartado), a contagem de "esta
+ * semana" e o filtro por data.
+ *
+ * O relógio da planilha é o relógio do escritório. Dizer isso explicitamente é
+ * a única forma de a função dar a MESMA resposta nos dois lugares em que ela
+ * roda — que é a razão de ela ser um arquivo só, lido por link simbólico.
  */
-export function dataDaPlanilha(texto: string): string | null {
+export function dataDaPlanilha(texto: string, zona = FUSO_DO_ESCRITORIO): string | null {
   const t = String(texto || "").trim();
   const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if (!m) return null;
   const [, d, mes, ano, h, min, seg] = m;
-  const data = new Date(
+
+  /* Monta a hora do relógio como se fosse UTC e desconta o deslocamento do
+     fuso. Duas passadas porque o deslocamento depende do instante, e o
+     instante é o que estamos calculando: a primeira chuta, a segunda acerta
+     em cima do chute. Sem horário de verão as duas dão igual; com ele, é a
+     segunda que salva a hora da virada. */
+  const relogio = Date.UTC(
     Number(ano), Number(mes) - 1, Number(d),
     Number(h ?? 0), Number(min ?? 0), Number(seg ?? 0),
   );
+  if (Number.isNaN(relogio)) return null;
+
+  let instante = relogio - deslocamentoDoFuso(zona, new Date(relogio)) * 60_000;
+  instante = relogio - deslocamentoDoFuso(zona, new Date(instante)) * 60_000;
+
+  const data = new Date(instante);
   return Number.isNaN(data.getTime()) ? null : data.toISOString();
 }
 
