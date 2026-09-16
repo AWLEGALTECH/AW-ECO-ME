@@ -31,12 +31,12 @@
  * "tem certeza?" sem números não informa nada.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup, Reorder, useDragControls } from "framer-motion";
 import {
   Plus, Power, Trash2, Copy, Send, Timer, Split, Milestone, ListTodo,
   Database, MessageSquareText, Hourglass, BadgeCheck, ChevronLeft, Save,
   Workflow, History, Check, Loader2, X, Zap, Layers, RefreshCw, Play,
-  GitFork, Braces, User,
+  GitFork, Braces, User, GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -723,36 +723,35 @@ function Editor({
 
               <Conector onInserir={(t) => inserirPasso(t, 0)} podeInserir={cabeMais} />
 
+              {/* A FILA ARRASTA, E ARRASTAR MUDA A ORDEM DE VERDADE.
+                  Num quadro livre de duas dimensões, mover o cartão não
+                  significaria nada: quem manda na execução é a ordem da lista,
+                  e o desenho viraria enfeite que mente. Aqui a posição É a
+                  ordem, então o gesto tem consequência e o número do passo
+                  muda na hora, embaixo do dedo. */}
               <LayoutGroup id="passos-do-fluxo">
-                <AnimatePresence initial={false} mode="popLayout">
-                  {passos.map((p, i) => (
-                    <React.Fragment key={p.id}>
-                      <NoDoPasso
+                <Reorder.Group
+                  as="div" axis="y" values={passos} onReorder={setPassos}
+                  className="flex flex-col">
+                  <AnimatePresence initial={false}>
+                    {passos.map((p, i) => (
+                      <PassoArrastavel
+                        key={p.id}
                         passo={p}
-                        numero={`Passo ${i + 1}`}
-                        aberto={selecionado === p.id}
-                        onAbrir={() => setSelecionado(p.id)}
-                        onRemover={() => removerPasso(p.id)}
+                        indice={i}
+                        ultimo={i === passos.length - 1}
+                        selecionado={selecionado}
+                        cabeMais={cabeMais}
+                        podeArrastar={passos.length > 1}
+                        onAbrir={setSelecionado}
+                        onRemover={removerPasso}
+                        onInserirDepois={(t) => inserirPasso(t, i + 1)}
+                        onInserirNoRamo={(tipo, ramo, indice) =>
+                          inserirPasso(tipo, indice, { id: p.id, ramo })}
                       />
-                      {p.tipo === "se" && (
-                        <OsDoisLados
-                          passo={p}
-                          selecionado={selecionado}
-                          cabeMais={cabeMais}
-                          numeroDoPai={i + 1}
-                          onAbrir={setSelecionado}
-                          onRemover={removerPasso}
-                          onInserir={(tipo, ramo, indice) => inserirPasso(tipo, indice, { id: p.id, ramo })}
-                        />
-                      )}
-                      <Conector
-                        onInserir={(t) => inserirPasso(t, i + 1)}
-                        podeInserir={cabeMais}
-                        fim={i === passos.length - 1}
-                      />
-                    </React.Fragment>
-                  ))}
-                </AnimatePresence>
+                    ))}
+                  </AnimatePresence>
+                </Reorder.Group>
               </LayoutGroup>
 
               {passos.length === 0 && (
@@ -829,6 +828,79 @@ function Editor({
 
 /* ══════════════════ os nós do canvas ══════════════════════════════════════ */
 
+/**
+ * UM PASSO DA FILA PRINCIPAL, QUE SE ARRASTA.
+ *
+ * A ALÇA É SEPARADA DO CARTÃO de propósito. Com o cartão inteiro arrastável,
+ * todo toque vira uma aposta entre "abrir para editar" e "mover", e o
+ * navegador decide por milímetros — no celular, onde o dedo escorrega, o
+ * editor abriria sozinho metade das vezes. A alça diz onde pegar, e o resto do
+ * cartão continua sendo um botão que abre.
+ *
+ * `dragListener={false}` desliga o arrasto do item inteiro; quem começa o
+ * movimento é o `pointerdown` da alça, pelos controles.
+ */
+function PassoArrastavel({
+  passo, indice, ultimo, selecionado, cabeMais, podeArrastar,
+  onAbrir, onRemover, onInserirDepois, onInserirNoRamo,
+}: {
+  passo: Passo; indice: number; ultimo: boolean;
+  selecionado: string; cabeMais: boolean; podeArrastar: boolean;
+  onAbrir: (id: string) => void;
+  onRemover: (id: string) => void;
+  onInserirDepois: (t: TipoDePasso) => void;
+  onInserirNoRamo: (t: TipoDePasso, ramo: Ramo, indice: number) => void;
+}) {
+  const controles = useDragControls();
+  const [arrastando, setArrastando] = useState(false);
+
+  return (
+    <Reorder.Item
+      as="div"
+      value={passo}
+      dragListener={false}
+      dragControls={controles}
+      onDragStart={() => setArrastando(true)}
+      onDragEnd={() => setArrastando(false)}
+      initial={{ opacity: 0, y: 10, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.97 }}
+      transition={MOLA}
+      /* Enquanto arrasta, o cartão sobe: sem a sombra e sem o degrau de
+         elevação, ele parece estar preso no meio dos outros. */
+      style={{ zIndex: arrastando ? 30 : 1, position: "relative" }}
+      className={cn(arrastando && "drop-shadow-[0_12px_24px_rgba(0,0,0,0.55)]")}>
+      <NoDoPasso
+        passo={passo}
+        numero={`Passo ${indice + 1}`}
+        aberto={selecionado === passo.id}
+        arrastando={arrastando}
+        onAbrir={() => onAbrir(passo.id)}
+        onRemover={() => onRemover(passo.id)}
+        alca={podeArrastar
+          ? (e: React.PointerEvent) => controles.start(e)
+          : undefined}
+      />
+
+      {passo.tipo === "se" && (
+        <OsDoisLados
+          passo={passo}
+          selecionado={selecionado}
+          cabeMais={cabeMais}
+          numeroDoPai={indice + 1}
+          onAbrir={onAbrir}
+          onRemover={onRemover}
+          onInserir={onInserirNoRamo}
+        />
+      )}
+
+      {/* A LINHA ACOMPANHA O CARTÃO porque mora dentro dele: o que se move é o
+          conjunto, e não um cartão que desgruda do próprio fio. */}
+      <Conector onInserir={onInserirDepois} podeInserir={cabeMais} fim={ultimo} />
+    </Reorder.Item>
+  );
+}
+
 function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }: {
   gatilho: Gatilho; cfg: ConfigDoGatilho; nomeDaBase: (id: string) => string;
   nomeDoNumero: string; aberto: boolean; onAbrir: () => void;
@@ -871,24 +943,40 @@ function NoDoGatilho({ gatilho, cfg, nomeDaBase, nomeDoNumero, aberto, onAbrir }
   );
 }
 
-function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo }: {
+function NoDoPasso({ passo, numero, aberto, onAbrir, onRemover, miudo, alca, arrastando }: {
   passo: Passo; numero: string; aberto: boolean; onAbrir: () => void; onRemover: () => void;
   /** dentro de um lado do "Se": cabe menos, então o cartão encolhe */
   miudo?: boolean;
+  /** quando existe, o cartão ganha alça de arrastar; sem ela, é só um cartão */
+  alca?: (e: React.PointerEvent) => void;
+  arrastando?: boolean;
 }) {
   const def = defDoPasso(passo.tipo);
   const Ico = ICONE_DO_PASSO[def.icone] ?? Send;
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 10, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -8, scale: 0.97 }}
       transition={MOLA}
       className={cn(
         "group rounded-xl border transition-colors",
-        aberto ? "border-primary/40 bg-primary/[0.06]" : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
+        arrastando ? "border-primary/50 bg-primary/[0.10] cursor-grabbing"
+          : aberto ? "border-primary/40 bg-primary/[0.06]"
+          : "border-white/[0.09] bg-white/[0.02] hover:bg-white/[0.04]")}>
       <div className={cn("flex items-start gap-2.5", miudo ? "px-2 py-1.5 gap-2" : "px-3 py-2.5")}>
+        {/* A ALÇA. Ela some quando há um passo só, porque não há para onde
+            mover e um controle que não faz nada é pior que nenhum. */}
+        {alca && (
+          <button
+            type="button"
+            onPointerDown={alca}
+            title="Arraste para mudar a ordem"
+            aria-label="Arraste para mudar a ordem"
+            className="shrink-0 -ml-1 self-stretch px-0.5 grid place-items-center rounded
+                       text-muted-foreground/30 hover:text-muted-foreground touch-none
+                       cursor-grab active:cursor-grabbing transition-colors">
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button type="button" onClick={onAbrir} className="flex items-start gap-2.5 min-w-0 flex-1 text-left">
           <span className={cn("shrink-0 rounded-lg grid place-items-center ring-1",
             miudo ? "h-6 w-6" : "h-8 w-8", TOM[def.tom])}>
@@ -956,7 +1044,17 @@ function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRem
             <LayoutGroup id={`ramo-${passo.id}-${l.ramo}`}>
               <AnimatePresence initial={false} mode="popLayout">
                 {l.lista.map((p, i) => (
-                  <React.Fragment key={p.id}>
+                  /* A ENTRADA E A SAÍDA MORAM AQUI, e não no cartão. O cartão
+                     virou peça compartilhada: na fila principal quem anima é
+                     o item que arrasta, e se ele também animasse por dentro
+                     os dois brigariam. Dentro do lado não há arrasto, então a
+                     animação precisa de alguém, e é este invólucro. */
+                  <motion.div
+                    key={p.id} layout
+                    initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                    transition={MOLA}>
                     <NoDoPasso
                       passo={p} miudo
                       numero={`Passo ${numeroDoPai} · ${l.rotulo} ${i + 1}`}
@@ -968,7 +1066,7 @@ function OsDoisLados({ passo, selecionado, cabeMais, numeroDoPai, onAbrir, onRem
                       podeInserir={cabeMais}
                       onInserir={(t) => onInserir(t, l.ramo, i + 1)}
                     />
-                  </React.Fragment>
+                  </motion.div>
                 ))}
               </AnimatePresence>
             </LayoutGroup>
@@ -1155,6 +1253,15 @@ function InspetorDoGatilho({
 }) {
   return (
     <div className="space-y-4">
+      {/* O PAINEL DIZ DE QUEM ELE É. Os passos já traziam "Passo 2 · Esperar"
+          no alto; o gatilho começava direto nas opções, e aí a coluna da
+          direita parecia um painel de ajustes soltos em vez do verso do
+          cartão que está selecionado. */}
+      <div className="min-w-0 pb-1 border-b border-white/[0.06]">
+        <Titulo>Quando</Titulo>
+        <p className="text-[12.5px] font-medium -mt-1">{defDoGatilho(gatilho).rotulo}</p>
+      </div>
+
       {/* ── EM QUAL NÚMERO ──
           Primeiro de tudo, porque é a pergunta ANTERIOR às outras: as bases
           oferecidas abaixo são as deste número, e a mensagem vai sair por ele. */}
