@@ -42,6 +42,10 @@ export interface Fonte {
   novos_desde: string | null;
   /** colunas da planilha que aparecem no cartão, na ordem escolhida; nulo = todas */
   colunas_exibidas: string[] | null;
+  /** avisar no sino do AW quando um lead novo entrar nesta base */
+  notificar: boolean;
+  /** quando o aviso foi ligado; lead anterior a isso não avisa */
+  notificar_desde: string | null;
 }
 
 export interface LeadBruto {
@@ -78,7 +82,7 @@ export function useFontes(instancia: string | null, opcoes?: { incluirInativas?:
     enabled: !!instancia,
     queryFn: async (): Promise<Fonte[]> => {
       let q = tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde")
         .ilike("instancia", instancia!);
       if (!todas) q = q.eq("ativa", true);
       const { data, error } = await q.order("nome");
@@ -133,7 +137,7 @@ export function useTodasAsFontes() {
     staleTime: 60_000,
     queryFn: async (): Promise<Fonte[]> => {
       const { data, error } = await tabela("leads_fontes")
-        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas")
+        .select("id, nome, planilha_id, aba, instancia, ativa, ultimo_sync, ultimo_erro, novos_desde, colunas_exibidas, notificar, notificar_desde")
         .eq("ativa", true)
         .order("instancia").order("nome");
       if (error) throw error;
@@ -246,6 +250,18 @@ export async function testarPlanilha(planilhaId: string, aba?: string | null) {
      consertar o que não está quebrado. */
   if (error) throw new Error(error.message);
   return (data ?? { ok: false, error: "A leitura não respondeu." }) as Record<string, unknown>;
+}
+
+/**
+ * Liga e desliga o aviso de lead novo no sino do AW.
+ *
+ * `notificar_desde` é escrito pelo GATILHO DO BANCO, e não daqui: é a trava
+ * que impede uma base com 708 linhas de despejar 708 avisos ao ser ligada, e
+ * trava que o cliente preenche não é trava.
+ */
+export async function alternarAviso(fonteId: string, notificar: boolean) {
+  const { error } = await tabela("leads_fontes").update({ notificar }).eq("id", fonteId);
+  if (error) throw new Error(error.message);
 }
 
 export async function salvarColunas(fonteId: string, colunas: string[]) {

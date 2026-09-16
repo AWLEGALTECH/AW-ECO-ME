@@ -30,11 +30,12 @@ import { ptBR } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
 import {
   Database, Plus, Search, RefreshCw, ChevronLeft, Loader2, Columns3, Power,
-  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X,
+  Phone, Copy, MessageSquarePlus, Trash2, Check, CalendarDays, X, Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,7 @@ type Filtro = "todos" | "escreveram" | "nunca";
 export default function Bases({
   instancias, apelidos, corDe, nomeDe, sincronizando,
   onLigarPlanilha, onPuxar, onColunas, onDesligar, onAbordar, onDescartar, onAbrirConversa,
+  onAlternarAviso,
 }: {
   instancias: Instancia[];
   apelidos: Map<string, string>;
@@ -71,6 +73,7 @@ export default function Bases({
   onAbordar: (lead: LeadDaBase, texto: string, porQual: string, enviar: boolean) => Promise<void>;
   onDescartar: (lead: LeadDaBase) => Promise<void>;
   onAbrirConversa: (conversaId: string) => void;
+  onAlternarAviso: (f: Fonte, ligado: boolean) => void;
 }) {
   const { data: fontes = [] } = useTodasAsFontes();
   const { data: resumos = {} } = useResumoBases(fontes.length > 0);
@@ -181,6 +184,7 @@ export default function Bases({
                   puxando={sincronizando === f.id}
                   onAbrir={() => setAbertaId(f.id)}
                   onPuxar={() => onPuxar(f)}
+                  onAlternarAviso={(v) => onAlternarAviso(f, v)}
                 />
               ))}
             </AnimatePresence>
@@ -193,7 +197,7 @@ export default function Bases({
 
 /* ══════════════════ o cartão de uma base ══════════════════════════════════ */
 
-function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, puxando, onAbrir, onPuxar }: {
+function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, puxando, onAbrir, onPuxar, onAlternarAviso }: {
   fonte: Fonte;
   resumo?: { novos: number; total: number; antigos: number };
   atraso: number;
@@ -203,6 +207,7 @@ function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, pu
   puxando: boolean;
   onAbrir: () => void;
   onPuxar: () => void;
+  onAlternarAviso: (v: boolean) => void;
 }) {
   const saude = saudeDaBase(f, horaDaLista);
   return (
@@ -251,7 +256,32 @@ function CartaoDaBase({ fonte: f, resumo, atraso, apelido, cor, nomeDoNumero, pu
         )}
       </button>
 
-      <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
+      {/* ── O AVISO DE LEAD NOVO ──
+          Fica no cartão, e não escondido num menu: é um interruptor que muda o
+          que a equipe inteira recebe no sino, e quem liga precisa conseguir ver
+          depois que ligou. */}
+      <div className="px-3 pb-2 pt-0.5">
+        <label className="flex items-center gap-2 cursor-pointer group/aviso">
+          <Switch
+            checked={f.notificar}
+            onCheckedChange={(v) => onAlternarAviso(v)}
+            aria-label="Avisar no sino quando chegar lead novo"
+          />
+          <span className="min-w-0 flex-1">
+            <span className={cn("flex items-center gap-1 text-[11px] transition-colors",
+              f.notificar ? "text-foreground" : "text-muted-foreground group-hover/aviso:text-foreground")}>
+              <Bell className="h-3 w-3 shrink-0" /> Avisar no sino
+            </span>
+            <span className="block text-[9.5px] text-muted-foreground/60 leading-snug">
+              {f.notificar
+                ? "A equipe recebe o nome de quem se cadastrar aqui."
+                : "Ninguém é avisado quando chega lead nesta base."}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="px-3 pb-2.5 flex items-center justify-between gap-2 border-t border-white/[0.05] pt-2">
         <span className="text-[9.5px] text-muted-foreground/50 truncate">
           {f.ultimo_sync ? `lida ${horaDaLista(f.ultimo_sync)}` : "nunca lida"}
         </span>

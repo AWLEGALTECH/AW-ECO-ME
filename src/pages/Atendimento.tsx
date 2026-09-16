@@ -149,7 +149,7 @@ import {
   type Pendente,
 } from "@/lib/envioOtimista";
 import {
-  useFontes, useTodasAsFontes, useNomesDasBases, useLeadsBrutos, useBaseCompleta, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado,
+  useFontes, useTodasAsFontes, useNomesDasBases, useLeadsBrutos, useBaseCompleta, useResumoBases, criarFonte, testarPlanilha, sincronizarFonte, marcarAbordado, alternarAviso,
   descartarLead, desativarFonte, lerColunas, salvarColunas, useInvalidarLeads,
   type Fonte, type LeadBruto,
 } from "@/hooks/useLeadsBrutos";
@@ -2979,6 +2979,20 @@ export default function AtendimentoPage() {
             setSelecionadoId(id);
             setAba("atendimento");
             if (ehMobile) setTelaMobile("conversa");
+          }}
+          onAlternarAviso={async (f, ligado) => {
+            try {
+              await alternarAviso(f.id, ligado);
+              invalidarLeads();
+              toast.success(ligado
+                ? `Avisos ligados. A equipe será avisada de cada lead novo em ${f.nome}.`
+                : `Avisos desligados em ${f.nome}.`,
+                ligado
+                  ? { description: "Quem já estava na base não gera aviso: vale só daqui para frente." }
+                  : undefined);
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
           }}
         />
       ) : aba === "programadas" ? (
