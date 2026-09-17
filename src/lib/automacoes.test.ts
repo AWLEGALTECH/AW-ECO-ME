@@ -307,8 +307,11 @@ test("variável que não é coluna de base nenhuma só é impedimento quando as 
   const erros = impedimentos(fluxo(passos), ["Funcionários", "Nome"]);
   expect(erros).toEqual(["O passo 1 usa {Empresa}, que não é coluna de nenhuma base deste fluxo."]);
   // as fixas nunca são estranhas
-  expect(impedimentos(fluxo([msgId("a", "{nome} {horario}")]), [])).toEqual([]);
-  expect([...VARIAVEIS_FIXAS]).toEqual(["nome", "horario"]);
+  expect(impedimentos(fluxo([msgId("a", "{nome} {horario} {saudacao}")]), [])).toEqual([]);
+  /* A lista é travada de propósito: ela é o contrato entre a tela e o
+     `fn_wa_texto_variaveis` do banco. Variável que a tela aceita e o banco não
+     conhece não dá erro, sai como buraco no texto de um lead de verdade. */
+  expect([...VARIAVEIS_FIXAS]).toEqual(["nome", "horario", "saudacao"]);
   // e a coluna comparada no Se também é conferida
   const seColuna = impedimentos(fluxo([msgId("a", "oi"), se({ tipo: "campo", campo: "Porte", op: "contem", valor: "x" }, [msgId("b", "b")], [])]), ["Funcionários"]);
   expect(seColuna.some((e) => /“Porte”, que não existe/.test(e))).toBe(true);

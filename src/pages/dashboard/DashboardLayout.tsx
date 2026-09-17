@@ -27,7 +27,7 @@ interface Aba {
 }
 
 export const ABAS: Aba[] = [
-  { to: "/dashboard", fim: true, rotulo: "Valores ajuizados", frase: "O que está em juízo, em dinheiro.", icone: Gavel },
+  { to: "/dashboard", fim: true, rotulo: "Geral", frase: "O que está em juízo, em dinheiro.", icone: Gavel },
   { to: "/dashboard/procedencia", rotulo: "Procedência", frase: "O que o DJEN diz sobre as sentenças de primeiro grau.", icone: Scale },
   { to: "/dashboard/materias", rotulo: "Matérias e ações", frase: "Contra quem, sobre o quê e em que fase.", icone: ClipboardList },
   { to: "/dashboard/comercial", rotulo: "Comercial", frase: "Fechamentos, ações e metas do time.", icone: Handshake, modulo: "fechamentos" },
@@ -43,34 +43,49 @@ export default function DashboardLayout() {
 
   return (
     <div className="relative">
-      {/* Fundo: um brilho na cor do tema no canto de cima. A caixa dele vai até
-          a borda da área de conteúdo (anula o padding do main: px-3/py-3 e
-          sm:px-6/py-6), senão o corte do overflow aparece como uma linha reta
-          no meio da luz. O brilho fica inteiro dentro da caixa; o que o
-          desfoque espalha além disso morre na borda da tela, onde não se vê. */}
-      <div aria-hidden className="pointer-events-none absolute -inset-x-3 sm:-inset-x-6 -top-3 sm:-top-6 h-[440px] -z-10 overflow-hidden">
-        <div className="absolute -top-24 right-0 h-96 w-[28rem] rounded-full bg-primary/[0.12] blur-3xl" />
-      </div>
-
-      <header className="space-y-5 mb-8">
-        <div className="min-h-[3.75rem]">
+      {/* SEM BRILHO DE FUNDO.
+          Havia aqui um halo na cor do tema atrás do título. Ele competia com o
+          número, que é a única coisa desta tela que a pessoa veio ver, e deixava
+          o topo com aspecto de banner. Fundo liso: o que se destaca passa a ser
+          a tipografia, e não a luz atrás dela. */}
+      <header className="mb-10">
+        {/* Altura reservada para a barra não pular quando o texto troca de
+            painel, e margem PRÓPRIA em vez de min-h maior: se a frase quebrar em
+            duas linhas no celular, o bloco cresce e o respiro continua lá. */}
+        <div className="min-h-[4.5rem] sm:min-h-[5rem] mb-7">
           <AnimatePresence mode="wait">
             <motion.div
               key={ativa.to}
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.25, ease: EASE }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3, ease: EASE }}
             >
-              <h1 className="font-display text-3xl sm:text-4xl font-medium tracking-tight">{ativa.rotulo}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{ativa.frase}</p>
+              {/* GRANDE, APERTADO E PESADO, que é o que dá ar de coisa cara.
+                  O tracking negativo é o detalhe que mais muda a impressão: na
+                  escala de display, a letra espaçada do padrão parece software
+                  de painel, e a apertada parece marca. */}
+              <h1 className="font-display text-[2.125rem] sm:text-[2.625rem] font-semibold tracking-[-0.03em] leading-[1.05]">
+                {ativa.rotulo}
+              </h1>
+              <p className="text-[0.9375rem] text-muted-foreground/70 mt-2 tracking-[-0.011em]">
+                {ativa.frase}
+              </p>
             </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* A barra. O indicador é um só elemento que desliza entre as abas
-            (layoutId), e não um fundo que acende em cada uma. */}
-        <nav aria-label="Painéis" className="inline-flex max-w-full overflow-x-auto scrollbar-thin rounded-2xl border border-border/50 bg-card/40 backdrop-blur p-1.5 gap-1">
+        {/* A BARRA, NO FORMATO DE UM SEGMENTED CONTROL.
+            Pílula inteira, sem borda dura, e o item ativo é uma pastilha clara
+            que desliza (layoutId), não um fundo que acende em cada botão.
+
+            O ativo perdeu a cor de marca de propósito: num controle de quatro
+            itens, cor é ruído, e o contraste sozinho já diz onde a pessoa está.
+            É também o que separa "premium" de "colorido". */}
+        <nav
+          aria-label="Painéis"
+          className="inline-flex max-w-full overflow-x-auto scrollbar-thin rounded-full bg-white/[0.035] ring-1 ring-white/[0.06] p-1 gap-0.5"
+        >
           {visiveis.map((a) => {
             const Icone = a.icone;
             const eAtiva = a.to === ativa.to;
@@ -79,21 +94,19 @@ export default function DashboardLayout() {
                 key={a.to}
                 to={a.to}
                 end={a.fim}
-                className={`relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm whitespace-nowrap transition-colors
-                            ${eAtiva ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`relative flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[0.8125rem] whitespace-nowrap
+                            tracking-[-0.006em] transition-colors duration-200
+                            ${eAtiva ? "text-foreground" : "text-muted-foreground/70 hover:text-foreground/90"}`}
               >
-                {/* Discreto de propósito: um fundo leve e uma borda fina, sem
-                    brilho. A barra é para trocar de painel, não para chamar
-                    atenção. */}
                 {eAtiva && (
                   <motion.span
                     layoutId="aba-ativa"
-                    className="absolute inset-0 rounded-xl bg-primary/[0.07] ring-1 ring-primary/15"
+                    className="absolute inset-0 rounded-full bg-white/[0.085] shadow-[0_1px_2px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.07]"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
-                <Icone className={`relative h-4 w-4 ${eAtiva ? "text-primary/80" : ""}`} />
-                <span className="relative">{a.rotulo}</span>
+                <Icone className={`relative h-[0.875rem] w-[0.875rem] transition-opacity duration-200 ${eAtiva ? "opacity-90" : "opacity-55"}`} />
+                <span className={`relative ${eAtiva ? "font-medium" : ""}`}>{a.rotulo}</span>
               </NavLink>
             );
           })}
