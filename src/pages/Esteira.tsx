@@ -677,10 +677,19 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        /* Grade no médio, FLEX no largo: só o flex deixa uma coluna tomar o
-           espaço das vizinhas sem quebrar a linha. */
+        /* Grade no médio, TRILHO ROLANTE no largo.
+           A primeira versão usava flex com `basis-0 grow`, e o espaço da coluna
+           que abria saía das vizinhas: com seis colunas, a de Análise ficava com
+           uns cinquenta pixels e os nomes viravam "VA…", "FA…". Ilegível, e o
+           pior é que estragava justamente as colunas que a pessoa NÃO estava
+           mexendo. Agora cada coluna tem largura própria e ninguém encolhe: o
+           quadro cresce para o lado e rola. */
         <LayoutGroup id="esteira">
-        <motion.div layout className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:flex 2xl:flex-row gap-4 items-start">
+        <motion.div
+          layout
+          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start
+                     2xl:flex 2xl:flex-row 2xl:overflow-x-auto 2xl:pb-3 scrollbar-thin"
+        >
           <Coluna
             titulo="0. Pendências"
             ordem={0}
@@ -1264,8 +1273,10 @@ function Coluna({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ layout: LARGURA, duration: 0.3, ease: CURVA, delay: Math.min(ordem, 6) * 0.04 }}
+      /* `shrink-0` é o ponto: sem ele o flex volta a espremer todo mundo para
+         caber na tela, que é exatamente o que se quer evitar. */
       className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
-                  2xl:basis-0 2xl:grow ${expandida ? "2xl:grow-[2.6] z-10" : ""}`}
+                  2xl:shrink-0 ${expandida ? "2xl:w-[34rem] z-10" : "2xl:w-[19.5rem]"}`}
     >
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
