@@ -668,7 +668,7 @@ export default function Esteira() {
                     key={key}
                     nome={g.nome}
                     count={g.items.length}
-                    accent="amber"
+                    accent="primary"
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} pendências documentais`}
@@ -840,7 +840,7 @@ export default function Esteira() {
             titulo="4. Peças prontas"
             descricao="Geradas no Writer, aguardando protocolo no tribunal"
             icon={Send}
-            cor="amber"
+            cor="primary"
             count={protos.length}
           >
             {protos.length === 0 ? (
@@ -900,7 +900,7 @@ export default function Esteira() {
             titulo="5. Reajuizamentos"
             descricao="Extintas sem mérito, voltando para protocolo com número novo"
             icon={RotateCcw}
-            cor="amber"
+            cor="primary"
             count={reajuizamentos.length}
           >
             {reajuizamentos.length === 0 ? (
@@ -914,7 +914,7 @@ export default function Esteira() {
                     key={key}
                     nome={g.nome}
                     count={g.items.length}
-                    accent="amber"
+                    accent="primary"
                     expanded={expandidos.has(key)}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1
@@ -936,7 +936,7 @@ export default function Esteira() {
                         data={d.created_at}
                         acao="Abrir espelho"
                         acaoIcon={Send}
-                        accent="amber"
+                        accent="primary"
                         audit={lookupAudit(d.id)}
                         bloqueada={bloqueado}
                         motivoBloqueio={MOTIVO_BLOQUEIO}
@@ -1114,11 +1114,15 @@ function ClienteAccordion({
   locked?: boolean;
   lockedHint?: string;
 }) {
+  /* CARTÃO É CARTÃO, DA COR DO TEMA. O âmbar ficou reservado ao que AVISA de
+     algo: o cadeado da demanda bloqueada e o ícone da coluna de pendências.
+     Pintar o cartão inteiro fazia metade do quadro gritar ao mesmo tempo, e
+     quando tudo grita nada se destaca. O `accent` some daqui de propósito. */
   const accentBorder = locked
-    ? "border-amber-400/40"
-    : accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-white/[0.07] hover:border-primary/40";
-  const accentBg = locked ? "bg-amber-400/[0.04]" : accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-white/[0.03] hover:bg-white/[0.06]";
-  const accentBadge = accent === "amber" ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
+    ? "border-white/[0.10]"
+    : "border-white/[0.07] hover:border-primary/40";
+  const accentBg = locked ? "bg-white/[0.02]" : "bg-white/[0.03] hover:bg-white/[0.06]";
+  const accentBadge = "text-primary bg-primary/15 border-primary/30";
   return (
     <div
       className={`rounded-xl border transition-all duration-200 ${accentBorder} ${expanded ? "bg-white/[0.02]" : accentBg} ${locked ? "opacity-80" : ""}`}
@@ -1168,12 +1172,16 @@ function Coluna({
   count: number;
   children: React.ReactNode;
 }) {
+  /* Só o ÍCONE guarda a cor da coluna. A contagem é sempre do tema: ela é o
+     mesmo dado nas seis colunas, e pintá-la de duas cores sugeria uma
+     hierarquia entre elas que não existe. */
+  /* Âmbar sobrou para UMA coluna, a de pendências, porque ela é a única que
+     avisa: enquanto houver pendência aberta, o cliente inteiro fica travado nas
+     outras colunas. As demais seguem o tema. */
   const chipClass = cor === "amber"
     ? "bg-amber-400/10 ring-amber-400/25 text-amber-400"
     : "bg-primary/10 ring-primary/25 text-primary";
-  const badgeClass = cor === "amber"
-    ? "text-amber-400 bg-amber-400/15 border-amber-400/30"
-    : "text-primary bg-primary/15 border-primary/30";
+  const badgeClass = "text-primary bg-primary/15 border-primary/30";
   return (
     <div className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0`}>
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
@@ -1239,7 +1247,7 @@ function CardLinha({
   accent?: "primary" | "amber";
   audit?: AuditInfo;
 }) {
-  const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
+  const accentText = "text-primary";
   return (
     <Link
       to={to}
@@ -1293,7 +1301,7 @@ function CardBotaoLinha({
   motivoBloqueio?: string;
   onRenomear?: () => void;
 }) {
-  const accentText = accent === "amber" ? "text-amber-400" : "text-primary";
+  const accentText = "text-primary";
   // Bloqueada: card permanece VISÍVEL (nada some), mas acinzentado, com
   // cadeado e sem ação — só leitura. title mostra o motivo ao passar o mouse.
   if (bloqueada) {
@@ -1301,7 +1309,7 @@ function CardBotaoLinha({
       <div
         title={motivoBloqueio || "Bloqueada"}
         aria-disabled="true"
-        className="block w-full text-left rounded-xl border border-dashed border-amber-400/30 bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
+        className="block w-full text-left rounded-xl border border-dashed border-white/[0.10] bg-muted/20 p-3 opacity-60 cursor-not-allowed select-none"
       >
         <div className="flex items-center gap-2 mb-1.5">
           <Lock className="h-3 w-3 text-amber-400 shrink-0" />

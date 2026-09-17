@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   pedeReajuizamento, separarComarcaUf, demandaDeReajuizamento, temReajuizamentoAberto,
-  ETAPA_REAJUIZAMENTO, STATUS_PEDE_REAJUIZAMENTO,
+  ETAPA_REAJUIZAMENTO, STATUS_PEDE_REAJUIZAMENTO, textoDaCausa, faltaNaCausa,
 } from "./reajuizamento";
 
 /* DUAS PETIÇÕES DO MESMO PEDIDO NA FILA VIRAM LITISPENDÊNCIA NO FÓRUM.
@@ -134,4 +134,60 @@ test("a concluída continua travando", () => {
      mesmo pedido, que é o caso que vira litispendência. */
   const dem = [{ etapa: ETAPA_REAJUIZAMENTO, status: "concluida", processo_id: "p1" }];
   expect(temReajuizamentoAberto(dem, "p1")).toBe(true);
+});
+
+/* ── por que a ação caiu ── */
+
+const rotulo = (k: string) => ({
+  comprovante_residencia: "Comprovante de residência no nome",
+  extratos_bancarios: "Extratos bancários",
+  personalizada: "Outro (personalizada)",
+}[k] ?? k);
+
+test("o motivo livre vai inteiro para a ficha", () => {
+  expect(textoDaCausa({ tipo: "motivo", texto: "  Extinto por ausência na audiência.  " }))
+    .toBe("Extinto por ausência na audiência.");
+});
+
+test("a pendência vira uma frase que diz o que buscar", () => {
+  /* Quem lê o banner seis meses depois precisa entender a causa sem abrir a
+     esteira, e "aguardando documentos" sozinho não diz quais. */
+  expect(textoDaCausa({ tipo: "pendencia", pendencias: ["comprovante_residencia", "extratos_bancarios"] }, rotulo))
+    .toBe("Aguardando documentos para reajuizar: Comprovante de residência no nome, Extratos bancários.");
+});
+
+test("o detalhe da pendência personalizada entra na frase", () => {
+  const t = textoDaCausa(
+    { tipo: "pendencia", pendencias: ["personalizada"], detalhe: "Declaração do INSS atualizada." },
+    rotulo,
+  );
+  expect(t).toContain("Declaração do INSS atualizada.");
+});
+
+test("motivo vazio não passa", () => {
+  expect(faltaNaCausa({ tipo: "motivo", texto: "   " })).toBe("Escreva o motivo do reajuizamento.");
+  expect(faltaNaCausa({ tipo: "motivo", texto: "caiu por isso" })).toBeNull();
+});
+
+test("pendência sem tipo escolhido não passa", () => {
+  expect(faltaNaCausa({ tipo: "pendencia", pendencias: [] })).toBe("Escolha ao menos uma pendência.");
+});
+
+test("personalizada sem descrição não passa: viraria uma pendência chamada 'Outro'", () => {
+  expect(faltaNaCausa({ tipo: "pendencia", pendencias: ["personalizada"] }))
+    .toBe("Descreva a pendência personalizada.");
+  expect(faltaNaCausa({ tipo: "pendencia", pendencias: ["personalizada"], detalhe: "x" })).toBeNull();
+});
+
+test("a causa é a primeira coisa depois do número, na demanda", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", "Extinto por ausência na audiência.");
+  const l = d.descricao.split("\n");
+  expect(l[0]).toContain("Reajuizamento de");
+  expect(l[1]).toBe("Motivo: Extinto por ausência na audiência.");
+});
+
+test("sem causa, a descrição continua válida", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", null);
+  expect(d.descricao).not.toContain("Motivo:");
+  expect(d.descricao.split("\n")[1]).toContain("Matéria:");
 });

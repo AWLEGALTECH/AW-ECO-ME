@@ -9,7 +9,8 @@ import {
 } from "@/lib/requeridos";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
 import { AvisoReajuizamento, type ProcessoLigado } from "@/components/AvisoReajuizamento";
-import { pedeReajuizamento, demandaDeReajuizamento, temReajuizamentoAberto, ETAPA_REAJUIZAMENTO, TIPO_REAJUIZAMENTO } from "@/lib/reajuizamento";
+import { pedeReajuizamento, demandaDeReajuizamento, temReajuizamentoAberto, textoDaCausa, faltaNaCausa, ETAPA_REAJUIZAMENTO, TIPO_REAJUIZAMENTO, type CausaDoReajuizamento } from "@/lib/reajuizamento";
+import { TIPOS_PENDENCIA, rotuloPendencia, criarPendencias, type TipoPendencia } from "@/lib/pendencias";
 import { valorPrevistoDoProcesso, ganhoDoProcesso } from "@/lib/baixaTracker";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
@@ -389,6 +390,19 @@ export default function ProcessoDetail() {
      cai numa fila que outra pessoa trabalha, e a petição pode sair antes de
      alguém perceber o engano. */
   const [confirmandoReajuiz, setConfirmandoReajuiz] = useState(false);
+  const [motivoReajuiz, setMotivoReajuiz] = useState<string | null>(null);
+  /* POR QUE CAIU, numa das duas formas. Começa em "motivo" porque é a saída sem
+     consequência: escrever um texto não trava ninguém, e marcar pendência trava
+     o cliente inteiro na esteira. O caminho que bloqueia tem que ser escolhido
+     de propósito, nunca ser o padrão. */
+  const [causaModo, setCausaModo] = useState<"motivo" | "pendencia">("motivo");
+  const [causaTexto, setCausaTexto] = useState("");
+  const [causaPends, setCausaPends] = useState<TipoPendencia[]>([]);
+  const [causaDetalhe, setCausaDetalhe] = useState("");
+  const causa: CausaDoReajuizamento = causaModo === "motivo"
+    ? { tipo: "motivo", texto: causaTexto }
+    : { tipo: "pendencia", pendencias: causaPends, detalhe: causaDetalhe };
+  const faltaCausa = faltaNaCausa(causa);
   // Etapas da timeline vivem aqui (estado elevado): alimentam o card de situação
   // e são carregadas/persistidas na coluna `linha_temporal` do banco.
   const [etapas, setEtapas] = useState<Etapa[]>([]);
@@ -477,13 +491,14 @@ export default function ProcessoDetail() {
       void (async () => {
         const [pai, filhos, dem] = await Promise.all([
           paiId
-            ? supabase.from("processos").select("id, numero_processo, fase_processual").eq("id", paiId).maybeSingle()
+            ? supabase.from("processos").select("id, numero_processo, fase_processual, reajuizamento_motivo").eq("id", paiId).maybeSingle()
             : Promise.resolve({ data: null }),
           supabase.from("processos").select("id, numero_processo, fase_processual")
             .eq("reajuizamento_de" as never, data.id as never),
           (supabase.from("demandas" as never) as never as any)
             .select("id, etapa, status, processo_id").eq("processo_id", data.id),
         ]);
+        setMotivoReajuiz((data as { reajuizamento_motivo?: string | null }).reajuizamento_motivo ?? null);
         setOrigemReajuiz((pai.data as ProcessoLigado | null) ?? null);
         setFilhosReajuiz(((filhos.data ?? []) as unknown as ProcessoLigado[]));
         setTemDemandaReajuiz(temReajuizamentoAberto(
@@ -853,8 +868,10 @@ export default function ProcessoDetail() {
 
   const gerarDemandaReajuizamento = async () => {
     if (!form.id || !form.cliente_id) return;
+    if (faltaCausa) { toast.error(faltaCausa); return; }
     setGerandoReajuiz(true);
     try {
+      const motivo = textoDaCausa(causa, rotuloPendencia);
       const d = demandaDeReajuizamento({
         id: form.id,
         numero_processo: form.numero_processo || null,
@@ -863,7 +880,7 @@ export default function ProcessoDetail() {
         vara_juizo_origem: form.vara_juizo_origem || null,
         valor_causa: form.valor_causa ? Number(form.valor_causa) : null,
         observacoes: form.observacoes || null,
-      }, clienteSelecionado?.nome ?? null);
+      }, clienteSelecionado?.nome ?? null, motivo);
 
       const { error } = await (supabase.from("demandas" as never) as never as any).insert({
         cliente_id: form.cliente_id,
@@ -883,6 +900,28 @@ export default function ProcessoDetail() {
         created_by: user?.id ?? null,
       });
       if (error) throw new Error(error.message);
+
+      /* O MOTIVO MORA NO PROCESSO, e não só na demanda. A demanda vive na
+         esteira e some de vista quando a peça é protocolada; quem abrir a ficha
+         em seis meses precisa continuar sabendo por que a ação caiu. */
+      await supabase.from("processos")
+        .update({ reajuizamento_motivo: motivo } as never).eq("id", form.id);
+      setMotivoReajuiz(motivo);
+
+      /* PENDÊNCIA É O FLUXO NORMAL DA CASA: a demanda de pendência trava TODAS
+         as demandas do cliente na esteira, inclusive esta de reajuizamento, e
+         destrava sozinha quando alguém marca como resolvida. Por isso ela é
+         criada aqui em vez de inventarmos um bloqueio próprio. */
+      if (causa.tipo === "pendencia") {
+        const r = await criarPendencias({
+          clienteId: form.cliente_id,
+          tipos: causa.pendencias as TipoPendencia[],
+          custom: causaDetalhe,
+          userId: user?.id ?? null,
+        });
+        if (r.error) toast.error("Demanda criada, mas a pendência falhou: " + r.error);
+      }
+
       setTemDemandaReajuiz(true);
       setConfirmandoReajuiz(false);
       toast.success("Demanda de reajuizamento criada.", {
@@ -921,7 +960,7 @@ export default function ProcessoDetail() {
           É informação que muda o que a pessoa vai fazer nos próximos dez
           segundos (cobrar um processo extinto, ou reajuizar o que já voltou),
           e informação assim não pode depender de rolagem. */}
-      <AvisoReajuizamento origem={origemReajuiz} reajuizadoEm={filhosReajuiz} />
+      <AvisoReajuizamento origem={origemReajuiz} reajuizadoEm={filhosReajuiz} motivo={motivoReajuiz} />
 
       {/* ── CHAMADA PARA GERAR A DEMANDA ──
           Fica junto do aviso, e não perdida na ficha, porque enquanto ela não é
@@ -969,6 +1008,74 @@ export default function ProcessoDetail() {
                   {" "}entra na fila de protocolo para ser ajuizado de novo.
                 </p>
 
+                {/* ── POR QUE CAIU ──
+                    Duas formas, e só uma por vez. Texto livre quando a causa
+                    não se repete e basta ficar registrada; pendência quando o
+                    reprotocolo depende de um documento, e aí vale o fluxo
+                    normal da casa: trava o cliente na esteira até sanar. */}
+                <div className="rounded-lg ring-1 ring-white/[0.08] bg-white/[0.02] px-3 py-2.5 space-y-2.5">
+                  <p className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Por que esta ação caiu</p>
+
+                  <div className="inline-flex rounded-full bg-white/[0.04] ring-1 ring-white/[0.07] p-0.5 gap-0.5">
+                    {([["motivo", "Motivo"], ["pendencia", "Pendência"]] as const).map(([k, rot]) => (
+                      <button
+                        key={k} type="button" onClick={() => setCausaModo(k)}
+                        className={cn("rounded-full px-3 py-1 text-[12px] transition-colors",
+                          causaModo === k ? "bg-white/[0.09] text-foreground font-medium" : "text-muted-foreground hover:text-foreground")}
+                      >
+                        {rot}
+                      </button>
+                    ))}
+                  </div>
+
+                  {causaModo === "motivo" ? (
+                    <div className="space-y-1">
+                      <Textarea
+                        value={causaTexto}
+                        onChange={(ev) => setCausaTexto(ev.target.value)}
+                        rows={3}
+                        placeholder="Extinto por ausência na audiência de conciliação."
+                        className="text-[12.5px] bg-transparent border-white/[0.08] resize-none leading-relaxed"
+                      />
+                      <p className="text-[10.5px] text-muted-foreground/70">
+                        Fica na ficha dos dois processos, para quem abrir depois.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {TIPOS_PENDENCIA.map((t) => {
+                          const on = causaPends.includes(t.key);
+                          return (
+                            <button
+                              key={t.key} type="button"
+                              onClick={() => setCausaPends((p) => on ? p.filter((x) => x !== t.key) : [...p, t.key])}
+                              className={cn("rounded-full px-2.5 py-1 text-[11.5px] ring-1 transition-colors",
+                                on ? "bg-amber-400/[0.14] text-amber-300 ring-amber-400/30"
+                                   : "bg-white/[0.03] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.06]")}
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {causaPends.includes("personalizada") && (
+                        <Textarea
+                          value={causaDetalhe}
+                          onChange={(ev) => setCausaDetalhe(ev.target.value)}
+                          rows={2}
+                          placeholder="Descreva o documento que está faltando."
+                          className="text-[12.5px] bg-transparent border-white/[0.08] resize-none leading-relaxed"
+                        />
+                      )}
+                      <p className="text-[10.5px] text-amber-300/80 leading-snug">
+                        Isto trava TODAS as demandas deste cliente na esteira, incluindo o reajuizamento,
+                        até alguém marcar a pendência como resolvida.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <div className="rounded-lg ring-1 ring-white/[0.08] bg-white/[0.02] px-3 py-2.5">
                   <p className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1.5">O que acontece</p>
                   <ul className="space-y-1 text-foreground/85">
@@ -996,7 +1103,8 @@ export default function ProcessoDetail() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={gerandoReajuiz}>Voltar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={gerandoReajuiz}
+              disabled={gerandoReajuiz || !!faltaCausa}
+              title={faltaCausa ?? undefined}
               onClick={(ev) => { ev.preventDefault(); void gerarDemandaReajuizamento(); }}
               className="gap-2"
             >

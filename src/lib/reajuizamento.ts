@@ -51,6 +51,51 @@ export interface ProcessoParaReajuizar {
   observacoes: string | null;
 }
 
+/**
+ * POR QUE A AÇÃO CAIU, em uma das duas formas que a casa usa.
+ *
+ * "motivo" é texto livre: o juiz extinguiu por algo que não se repete, alguém
+ * escreve o quê e a vida segue. "pendencia" é o fluxo normal de pendências: o
+ * reprotocolo depende de um documento que não está na mão, e enquanto ele não
+ * chega o cliente inteiro fica bloqueado na esteira, que é como a casa já trata
+ * documento faltando em qualquer outra fase.
+ *
+ * São excludentes de propósito. Uma extinção tem uma causa; oferecer as duas
+ * juntas produziria fichas com um motivo escrito e uma pendência que diz outra
+ * coisa, e ninguém saberia qual das duas é a verdadeira.
+ */
+export type CausaDoReajuizamento =
+  | { tipo: "motivo"; texto: string }
+  | { tipo: "pendencia"; pendencias: string[]; detalhe?: string | null };
+
+/** O que vai para `processos.reajuizamento_motivo`, e daí para os banners. */
+export function textoDaCausa(
+  causa: CausaDoReajuizamento,
+  rotuloDe: (chave: string) => string = (k) => k,
+): string {
+  if (causa.tipo === "motivo") return causa.texto.trim();
+  const nomes = causa.pendencias.map(rotuloDe).filter(Boolean);
+  const base = nomes.length > 0
+    ? `Aguardando documentos para reajuizar: ${nomes.join(", ")}.`
+    : "Aguardando documentos para reajuizar.";
+  const extra = causa.detalhe?.trim();
+  return extra ? `${base} ${extra}` : base;
+}
+
+/** A causa está preenchida o bastante para gravar? Devolve o que falta. */
+export function faltaNaCausa(causa: CausaDoReajuizamento): string | null {
+  if (causa.tipo === "motivo") {
+    return causa.texto.trim() ? null : "Escreva o motivo do reajuizamento.";
+  }
+  if (causa.pendencias.length === 0) return "Escolha ao menos uma pendência.";
+  /* A personalizada sem descrição vira uma pendência chamada "Outro", que não
+     diz a ninguém o que buscar. */
+  if (causa.pendencias.includes("personalizada") && !causa.detalhe?.trim()) {
+    return "Descreva a pendência personalizada.";
+  }
+  return null;
+}
+
 export interface DemandaDeReajuizamento {
   titulo: string;
   descricao: string;
@@ -88,6 +133,10 @@ export function separarComarcaUf(comarcaUf: string | null | undefined): { comarc
 export function demandaDeReajuizamento(
   proc: ProcessoParaReajuizar,
   clienteNome: string | null | undefined,
+  /* A causa vem PRIMEIRO na descrição, logo abaixo do número: é o que quem vai
+     reprotocolar precisa ler antes de qualquer outra coisa, porque é o que não
+     pode se repetir. */
+  causa?: string | null,
 ): DemandaDeReajuizamento {
   const nome = String(clienteNome ?? "").trim() || "cliente";
   const numero = String(proc.numero_processo ?? "").trim();
@@ -96,6 +145,7 @@ export function demandaDeReajuizamento(
   const linhas: string[] = [
     `Reajuizamento de ${numero || "processo sem número"}, extinto sem mérito.`,
   ];
+  if (causa?.trim()) linhas.push(`Motivo: ${causa.trim()}`);
   if (proc.materia) linhas.push(`Matéria: ${proc.materia}`);
   if (proc.vara_juizo_origem) linhas.push(`Corria em: ${proc.vara_juizo_origem}`);
   if (proc.comarca_uf) linhas.push(`Comarca: ${proc.comarca_uf}`);

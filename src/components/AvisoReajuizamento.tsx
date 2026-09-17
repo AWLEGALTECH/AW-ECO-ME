@@ -21,14 +21,18 @@ export interface ProcessoLigado {
   id: string;
   numero_processo: string | null;
   fase_processual?: string | null;
+  /** por que aquela ação caiu; mora sempre no processo ANTIGO do par */
+  reajuizamento_motivo?: string | null;
 }
 
 function Linha({
-  tom, titulo, frase, alvo, rotuloDoLink, seta,
+  tom, titulo, frase, motivo, alvo, rotuloDoLink, seta,
 }: {
   tom: "amber" | "primary";
   titulo: string;
   frase: string;
+  /** o motivo da extinção, quando alguém registrou */
+  motivo?: string | null;
   alvo: ProcessoLigado;
   rotuloDoLink: string;
   seta: "ida" | "volta";
@@ -46,6 +50,13 @@ function Linha({
       <div className="min-w-0 flex-1">
         <p className={`text-[11px] uppercase tracking-[0.14em] font-medium ${cor.texto}`}>{titulo}</p>
         <p className="text-[13px] text-foreground/90 mt-0.5 leading-snug">{frase}</p>
+        {/* O MOTIVO É A INFORMAÇÃO MAIS CARA DO PAR: é o que não pode se
+            repetir no reprotocolo. Fica inteiro, sem corte. */}
+        {motivo?.trim() && (
+          <p className="text-[12.5px] text-muted-foreground mt-1.5 leading-snug whitespace-pre-wrap">
+            <span className="text-muted-foreground/60">Motivo: </span>{motivo.trim()}
+          </p>
+        )}
         <Link
           to={`/processos/${alvo.id}`}
           className={`mt-1.5 inline-flex items-center gap-1.5 text-[12.5px] font-medium ${cor.texto} hover:underline underline-offset-2`}
@@ -70,9 +81,11 @@ function Linha({
  * longo dos anos, e esconder o segundo faria a tela mentir justamente no caso
  * em que mais importa não mentir.
  */
-export function AvisoReajuizamento({ origem, reajuizadoEm }: {
+export function AvisoReajuizamento({ origem, reajuizadoEm, motivo }: {
   origem?: ProcessoLigado | null;
   reajuizadoEm?: ProcessoLigado[];
+  /** o motivo gravado NESTE processo, que vale para o lado "foi reajuizado" */
+  motivo?: string | null;
 }) {
   const filhos = reajuizadoEm ?? [];
   if (!origem && filhos.length === 0) return null;
@@ -85,6 +98,7 @@ export function AvisoReajuizamento({ origem, reajuizadoEm }: {
           tom="amber"
           titulo="Este processo foi reajuizado"
           frase="Foi extinto sem mérito e o pedido voltou para o fórum com número novo. Acompanhe pelo processo novo."
+          motivo={motivo}
           alvo={f}
           rotuloDoLink="Abrir o processo novo"
           seta="ida"
@@ -94,7 +108,10 @@ export function AvisoReajuizamento({ origem, reajuizadoEm }: {
         <Linha
           tom="primary"
           titulo="Veio de reajuizamento"
-          frase="Esta ação é o reprotocolo de um processo extinto sem mérito. Vale conferir por que o anterior caiu."
+          frase="Esta ação é o reprotocolo de um processo extinto sem mérito."
+          /* Lido do PAI, e não copiado para cá: cópia envelhece, e a correção
+             feita de um lado não chegaria no outro. */
+          motivo={origem.reajuizamento_motivo}
           alvo={origem}
           rotuloDoLink="Abrir o processo de origem"
           seta="volta"
