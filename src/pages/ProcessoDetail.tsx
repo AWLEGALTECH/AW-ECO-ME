@@ -34,6 +34,10 @@ import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { ptBR } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
@@ -381,6 +385,10 @@ export default function ProcessoDetail() {
   const [filhosReajuiz, setFilhosReajuiz] = useState<ProcessoLigado[]>([]);
   const [temDemandaReajuiz, setTemDemandaReajuiz] = useState(false);
   const [gerandoReajuiz, setGerandoReajuiz] = useState(false);
+  /* A confirmação. Criar a demanda é barato de fazer e caro de desfazer: ela
+     cai numa fila que outra pessoa trabalha, e a petição pode sair antes de
+     alguém perceber o engano. */
+  const [confirmandoReajuiz, setConfirmandoReajuiz] = useState(false);
   // Etapas da timeline vivem aqui (estado elevado): alimentam o card de situação
   // e são carregadas/persistidas na coluna `linha_temporal` do banco.
   const [etapas, setEtapas] = useState<Etapa[]>([]);
@@ -876,6 +884,7 @@ export default function ProcessoDetail() {
       });
       if (error) throw new Error(error.message);
       setTemDemandaReajuiz(true);
+      setConfirmandoReajuiz(false);
       toast.success("Demanda de reajuizamento criada.", {
         description: "Está na esteira, na coluna Reajuizamentos, com o número do processo extinto.",
       });
@@ -933,12 +942,70 @@ export default function ProcessoDetail() {
               a vara, a comarca e as observações daqui.
             </p>
           </div>
-          <Button onClick={() => void gerarDemandaReajuizamento()} disabled={gerandoReajuiz} className="gap-2 shrink-0">
+          <Button onClick={() => setConfirmandoReajuiz(true)} disabled={gerandoReajuiz} className="gap-2 shrink-0">
             {gerandoReajuiz ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
             Gerar demanda na esteira
           </Button>
         </motion.div>
       )}
+
+      {/* ── CONFIRMAR O REAJUIZAMENTO ──
+          Diz o que VAI acontecer e o que NÃO vai, que é a metade que costuma
+          faltar: quem clica com medo não está com dúvida sobre o que o botão
+          faz, está com dúvida sobre o que ele estraga. Aqui ele não arquiva
+          nada, não mexe no processo atual e não avisa o cliente. */}
+      <AlertDialog open={confirmandoReajuiz} onOpenChange={(o) => { if (!o && !gerandoReajuiz) setConfirmandoReajuiz(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-4 w-4 text-amber-400" /> Mandar para a esteira de reajuizamento?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-[13px] leading-relaxed">
+                <p>
+                  O processo{" "}
+                  <span className="font-mono text-foreground/90">{form.numero_processo || "sem número"}</span>
+                  {clienteSelecionado?.nome ? <>, de <span className="text-foreground/90">{clienteSelecionado.nome}</span>,</> : null}
+                  {" "}entra na fila de protocolo para ser ajuizado de novo.
+                </p>
+
+                <div className="rounded-lg ring-1 ring-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                  <p className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1.5">O que acontece</p>
+                  <ul className="space-y-1 text-foreground/85">
+                    <li>Uma demanda aparece na esteira, na coluna <strong className="font-medium">Reajuizamentos</strong>.</li>
+                    <li>Ela leva o número deste processo, a matéria, a vara, a comarca e as observações daqui.</li>
+                    <li>Quem protocolar vai criar um processo <strong className="font-medium">novo</strong>, já amarrado a este.</li>
+                  </ul>
+                </div>
+
+                <div className="rounded-lg ring-1 ring-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                  <p className="text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70 mb-1.5">O que NÃO acontece</p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    <li>Este processo não é arquivado nem alterado.</li>
+                    <li>Nada é protocolado agora, e nenhuma mensagem vai para o cliente.</li>
+                  </ul>
+                </div>
+
+                <p className="text-amber-300/90">
+                  Enquanto essa demanda existir, o botão some. É proposital: duas petições do mesmo
+                  pedido na fila viram litispendência. Para desfazer, cancele a demanda na esteira.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={gerandoReajuiz}>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={gerandoReajuiz}
+              onClick={(ev) => { ev.preventDefault(); void gerarDemandaReajuizamento(); }}
+              className="gap-2"
+            >
+              {gerandoReajuiz ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              Gerar demanda
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── HERO — identidade estática do processo ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
@@ -1400,7 +1467,7 @@ export default function ProcessoDetail() {
                    subir a página até o banner seria perder o gesto no meio. A
                    ação é uma só, a de cima. */
                 onGerarReajuizamento={podeGerarReajuiz || temDemandaReajuiz
-                  ? () => void gerarDemandaReajuizamento() : undefined}
+                  ? () => setConfirmandoReajuiz(true) : undefined}
                 reajuizamentoGerado={temDemandaReajuiz}
                 onPedirBaixa={(via) => setBaixa({
                   processoId: id!,
