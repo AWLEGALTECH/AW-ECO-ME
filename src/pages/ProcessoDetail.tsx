@@ -8,6 +8,8 @@ import {
   chaveDeRequerido, nomesDaLista, listaDosNomes, nomesDasChaves, mesmasChaves, fonteDoRequerido,
 } from "@/lib/requeridos";
 import { DialogBaixaTracker, type AlvoBaixa } from "@/components/DialogBaixaTracker";
+import { AvisoReajuizamento, type ProcessoLigado } from "@/components/AvisoReajuizamento";
+import { pedeReajuizamento, demandaDeReajuizamento, temReajuizamentoAberto, ETAPA_REAJUIZAMENTO, TIPO_REAJUIZAMENTO } from "@/lib/reajuizamento";
 import { valorPrevistoDoProcesso, ganhoDoProcesso } from "@/lib/baixaTracker";
 import { PinButton } from "@/components/PinButton";
 import { Button } from "@/components/ui/button";
@@ -36,7 +38,7 @@ import { toast } from "sonner";
 import { ptBR } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2,
+  ArrowLeft, Save, Check, ChevronsUpDown, Copy, Pencil, History, Loader2, RotateCcw,
   FileText, MapPin, User, SquareArrowOutUpRight, Package, X,
   Handshake, Activity, ListTodo, Paperclip, Landmark, Trophy, Scale,
   Building2, ArrowUpFromLine, UserRound, Gavel, Sparkles,
@@ -372,6 +374,13 @@ export default function ProcessoDetail() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(isNew);
   const [fichaOpen, setFichaOpen] = useState(isNew);
+  /* O PAR DO REAJUIZAMENTO. `origem` é de onde este veio; `filhos` são os que
+     nasceram deste. Carregados à parte da ficha porque são duas consultas por
+     id e não cabem no `select("*")` de um processo só. */
+  const [origemReajuiz, setOrigemReajuiz] = useState<ProcessoLigado | null>(null);
+  const [filhosReajuiz, setFilhosReajuiz] = useState<ProcessoLigado[]>([]);
+  const [temDemandaReajuiz, setTemDemandaReajuiz] = useState(false);
+  const [gerandoReajuiz, setGerandoReajuiz] = useState(false);
   // Etapas da timeline vivem aqui (estado elevado): alimentam o card de situação
   // e são carregadas/persistidas na coluna `linha_temporal` do banco.
   const [etapas, setEtapas] = useState<Etapa[]>([]);
@@ -451,6 +460,29 @@ export default function ProcessoDetail() {
       };
       setForm(f);
       setSaved(f);
+
+      /* O PAR DO REAJUIZAMENTO E A DEMANDA JÁ ABERTA.
+         Sem `await` na sequência da ficha: são informações de contexto, e
+         segurar o desenho do processo por causa delas faria a tela inteira
+         esperar por um banner que na maioria dos processos nem existe. */
+      const paiId = (data as { reajuizamento_de?: string | null }).reajuizamento_de ?? null;
+      void (async () => {
+        const [pai, filhos, dem] = await Promise.all([
+          paiId
+            ? supabase.from("processos").select("id, numero_processo, fase_processual").eq("id", paiId).maybeSingle()
+            : Promise.resolve({ data: null }),
+          supabase.from("processos").select("id, numero_processo, fase_processual")
+            .eq("reajuizamento_de" as never, data.id as never),
+          (supabase.from("demandas" as never) as never as any)
+            .select("id, etapa, status, processo_id").eq("processo_id", data.id),
+        ]);
+        setOrigemReajuiz((pai.data as ProcessoLigado | null) ?? null);
+        setFilhosReajuiz(((filhos.data ?? []) as unknown as ProcessoLigado[]));
+        setTemDemandaReajuiz(temReajuizamentoAberto(
+          ((dem as { data?: { etapa: string; status: string; processo_id: string | null }[] }).data ?? []),
+          data.id,
+        ));
+      })();
       const ltRaw = Array.isArray(data.linha_temporal) ? (data.linha_temporal as Etapa[]) : [];
       // Todo processo mostra as "Movimentações & demandas": se ainda não há uma
       // linha salva, monta a padrão a partir do status atual. O efeito de
@@ -803,6 +835,57 @@ export default function ProcessoDetail() {
   const nTarefas = allTasks.filter((t) => t.tipo !== "pendencia" && !t.desfecho).length;
   const nPendencias = allTasks.filter((t) => t.tipo === "pendencia" && !t.desfecho).length;
 
+  /* ── GERAR A DEMANDA DE REAJUIZAMENTO ──
+     Só aparece com o processo em "AG. REAJUIZAMENTO" ou "REAJUIZAR", e some
+     assim que existe uma demanda viva: duas petições do mesmo pedido na fila
+     viram litispendência no fórum, e o quadro não teria como avisar, porque as
+     duas pareceriam normais. */
+  const podeGerarReajuiz = !isNew && !!form.id
+    && pedeReajuizamento(form.fase_processual) && !temDemandaReajuiz;
+
+  const gerarDemandaReajuizamento = async () => {
+    if (!form.id || !form.cliente_id) return;
+    setGerandoReajuiz(true);
+    try {
+      const d = demandaDeReajuizamento({
+        id: form.id,
+        numero_processo: form.numero_processo || null,
+        materia: form.materia || null,
+        comarca_uf: form.comarca_uf || null,
+        vara_juizo_origem: form.vara_juizo_origem || null,
+        valor_causa: form.valor_causa ? Number(form.valor_causa) : null,
+        observacoes: form.observacoes || null,
+      }, clienteSelecionado?.nome ?? null);
+
+      const { error } = await (supabase.from("demandas" as never) as never as any).insert({
+        cliente_id: form.cliente_id,
+        /* O processo de ORIGEM. É o que amarra a demanda ao extinto e o que o
+           protocolo vai usar para ligar o processo novo ao antigo. */
+        processo_id: form.id,
+        numero_processo: form.numero_processo || null,
+        tipo: TIPO_REAJUIZAMENTO,
+        etapa: ETAPA_REAJUIZAMENTO,
+        status: "pendente",
+        titulo: d.titulo,
+        descricao: d.descricao,
+        desconto: d.desconto,
+        comarca: d.comarca,
+        uf: d.uf,
+        valor_causa: d.valor_causa,
+        created_by: user?.id ?? null,
+      });
+      if (error) throw new Error(error.message);
+      setTemDemandaReajuiz(true);
+      toast.success("Demanda de reajuizamento criada.", {
+        description: "Está na esteira, na coluna Reajuizamentos, com o número do processo extinto.",
+      });
+    } catch (e) {
+      toast.error("Não consegui criar a demanda: " + (e as Error).message);
+    } finally {
+      setGerandoReajuiz(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* ── Barra de ações ── */}
@@ -824,6 +907,38 @@ export default function ProcessoDetail() {
           </Button>
         </div>
       </div>
+
+      {/* ── O PAR DO REAJUIZAMENTO, ACIMA DE TUDO ──
+          É informação que muda o que a pessoa vai fazer nos próximos dez
+          segundos (cobrar um processo extinto, ou reajuizar o que já voltou),
+          e informação assim não pode depender de rolagem. */}
+      <AvisoReajuizamento origem={origemReajuiz} reajuizadoEm={filhosReajuiz} />
+
+      {/* ── CHAMADA PARA GERAR A DEMANDA ──
+          Fica junto do aviso, e não perdida na ficha, porque enquanto ela não é
+          gerada o processo está parado esperando alguém agir. */}
+      {podeGerarReajuiz && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: EASE }}
+          className="flex flex-wrap items-center gap-3 rounded-xl ring-1 ring-amber-400/30 bg-amber-400/[0.07] px-4 py-3"
+        >
+          <span className="h-8 w-8 shrink-0 grid place-items-center rounded-lg ring-1 ring-amber-400/30 bg-amber-400/[0.07]">
+            <RotateCcw className="h-4 w-4 text-amber-400" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-amber-300">Aguardando reajuizamento</p>
+            <p className="text-[13px] text-foreground/90 mt-0.5 leading-snug">
+              Gere a demanda para o protocolo reprotocolar. Ela leva o número deste processo, a matéria,
+              a vara, a comarca e as observações daqui.
+            </p>
+          </div>
+          <Button onClick={() => void gerarDemandaReajuizamento()} disabled={gerandoReajuiz} className="gap-2 shrink-0">
+            {gerandoReajuiz ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            Gerar demanda na esteira
+          </Button>
+        </motion.div>
+      )}
 
       {/* ── HERO — identidade estática do processo ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>

@@ -38,6 +38,8 @@ export interface ProcessoDaLista {
   valor_causa: number | null;
   comarca_uf: string | null;
   fixado_geral: boolean;
+  /** processo de origem, quando esta ação é o reajuizamento de uma extinta */
+  reajuizamento_de?: string | null;
   clientes?: { nome: string } | null;
 }
 
@@ -113,6 +115,18 @@ export function ProcessosLista({
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  /* QUEM FOI REAJUIZADO SE DEDUZ DA PRÓPRIA LISTA.
+     Um processo foi reajuizado quando ALGUM outro aponta para ele. Na ficha do
+     cliente isso é exato, porque os processos dele estão todos aqui. Na lista
+     geral pode faltar o filho se ele estiver fora da página filtrada, e nesse
+     caso a etiqueta só não aparece: some uma informação, nunca aparece uma
+     errada. */
+  const foiReajuizado = useMemo(() => {
+    const pais = new Set<string>();
+    for (const p of processos) if (p.reajuizamento_de) pais.add(p.reajuizamento_de);
+    return pais;
+  }, [processos]);
 
   const colunas = useMemo(
     () => COLS.filter((c) => mostrarCliente || c.key !== "cliente"),
@@ -251,6 +265,26 @@ export function ProcessosLista({
                           <FileText className="h-5 w-5 text-primary" />
                         </span>
                         {p.numero_processo}
+                        {/* REAJUIZAMENTO, NOS DOIS SENTIDOS. Quem varre a lista
+                            precisa saber que um processo não morreu (foi
+                            reprotocolado) e que outro não nasceu do nada (veio
+                            de um extinto), sem ter que abrir os dois. */}
+                        {foiReajuizado.has(p.id) && (
+                          <span
+                            title="Extinto sem mérito e reajuizado: existe um processo novo com o mesmo pedido."
+                            className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-wide ring-1 ring-amber-400/30 bg-amber-400/10 text-amber-300"
+                          >
+                            reajuizado
+                          </span>
+                        )}
+                        {p.reajuizamento_de && (
+                          <span
+                            title="Esta ação é o reprotocolo de um processo extinto sem mérito."
+                            className="shrink-0 rounded-full px-2 py-0.5 text-[9.5px] font-medium uppercase tracking-wide ring-1 ring-primary/30 bg-primary/10 text-primary"
+                          >
+                            reajuizamento
+                          </span>
+                        )}
                         {/* Abrir em outra guia sem perder o filtro montado aqui.
                             É um <a> de verdade, e não um navigate: assim o
                             ctrl+clique, o clique do meio e o "abrir em nova

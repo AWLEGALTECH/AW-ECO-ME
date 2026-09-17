@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   ScanSearch, GitBranch, Send, ArrowRight, Clock, User, PenSquare, Hammer, Building2,
-  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock, Tag, Pencil,
+  Workflow, RefreshCw, AlertTriangle, CheckCircle2, ExternalLink, X, ChevronDown, History, Search, Layers, Lock, Tag, Pencil, RotateCcw,
 } from "lucide-react";
 import { appConfig } from "@/config/app-config";
 import { EsteiraInicioDialog, TIPOS_PENDENCIA } from "@/components/EsteiraInicioDialog";
 import { DriveFolderButton } from "@/components/DriveFolderButton";
 import { AcaoCard } from "@/components/AcaoCard";
+import { ETAPA_REAJUIZAMENTO } from "@/lib/reajuizamento";
 import { EspelhoProtocoloDialog, type Cliente as ClienteCheia, type Demanda as DemandaCheia } from "@/pages/ClienteDetail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -36,6 +37,7 @@ const ETAPA_LABEL: Record<string, string> = {
   fluxo_artesanal: "Artesanal",
   pronta_para_protocolo: "Pronta",
   pendencia_documental: "Pendência",
+  reajuizamento: "Reajuizamento",
 };
 
 interface DemandaEsteira {
@@ -49,6 +51,10 @@ interface DemandaEsteira {
   analise_pai_id: string | null;
   peca_drive_url: string | null;
   protocolado_at: string | null;
+  /* Só o reajuizamento usa: o processo EXTINTO que originou esta demanda. É
+     por ele que o processo novo vai ficar amarrado ao antigo no protocolo. */
+  processo_id: string | null;
+  numero_processo: string | null;
   created_at: string;
   completed_at: string | null;
   cliente_id: string;
@@ -146,8 +152,8 @@ export default function Esteira() {
     queryFn: async (): Promise<DemandaEsteira[]> => {
       const { data, error } = await supabase
         .from("demandas" as any)
-        .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url, cadastrado_por)")
-        .in("etapa", ["pendencia_documental", "analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo"])
+        .select("id, etapa, status, titulo, desconto, descricao, pendencia_tipo, analise_pai_id, peca_drive_url, protocolado_at, processo_id, numero_processo, created_at, completed_at, cliente_id, cliente:clientes(id, nome, drive_folder_url, cadastrado_por)")
+        .in("etapa", ["pendencia_documental", "analise_vinculada", "fluxo_artesanal", "pronta_para_protocolo", ETAPA_REAJUIZAMENTO])
         .eq("status", "pendente")
         // FIFO: mais antigos no topo, recem-chegados ao final. Cada coluna
         // re-ordena pelo seu campo de entrada na fase (created_at na maioria,
@@ -290,12 +296,17 @@ export default function Esteira() {
   const normalizar = (s: string | null | undefined) =>
     (s || "").toString().normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-  const { pendencias, aguardando, vincs, artesanais, protos, totalSemFiltro } = useMemo(() => {
+  const { pendencias, aguardando, vincs, artesanais, protos, reajuizamentos, totalSemFiltro } = useMemo(() => {
     const dem = demRes.data || [];
     const pendenciasAll = dem.filter(d => d.etapa === "pendencia_documental");
     const vincsAll = dem.filter(d => d.etapa === "analise_vinculada");
     const artesanaisAll = dem.filter(d => d.etapa === "fluxo_artesanal");
     const protosAll = dem.filter(d => d.etapa === "pronta_para_protocolo");
+    /* Reajuizamento já nasce pronto para protocolar: a demanda é gerada a
+       partir de um processo que existe, com número, matéria e comarca dele. Não
+       passa por análise nem por confecção, então não tem de onde vir um
+       `analise_pai_id` para filtrar, como acontece nas outras colunas. */
+    const reajuizAll = dem.filter(d => d.etapa === ETAPA_REAJUIZAMENTO && !d.protocolado_at);
     const protoIds = new Set(protosAll.map(p => p.analise_pai_id).filter(Boolean));
     const vincsFil = vincsAll.filter(v => !protoIds.has(v.id));
     const artesFil = artesanaisAll.filter(a => !protoIds.has(a.id));
@@ -306,7 +317,7 @@ export default function Esteira() {
       .filter(p => !p.protocolado_at)
       .sort((a, b) => (a.completed_at || a.created_at || "").localeCompare(b.completed_at || b.created_at || ""));
     const aguarAll = cliRes.data || [];
-    const totalAntesFiltro = pendenciasAll.length + aguarAll.length + vincsFil.length + artesFil.length + protosFil.length;
+    const totalAntesFiltro = pendenciasAll.length + aguarAll.length + vincsFil.length + artesFil.length + protosFil.length + reajuizAll.length;
 
     const q = normalizar(busca).trim();
     if (!q) {
@@ -316,6 +327,7 @@ export default function Esteira() {
         vincs: vincsFil,
         artesanais: artesFil,
         protos: protosFil,
+        reajuizamentos: reajuizAll,
         totalSemFiltro: totalAntesFiltro,
       };
     }
@@ -323,7 +335,10 @@ export default function Esteira() {
       normalizar(d.cliente?.nome).includes(q) ||
       normalizar(d.titulo).includes(q) ||
       normalizar(d.desconto).includes(q) ||
-      normalizar(d.descricao).includes(q);
+      normalizar(d.descricao).includes(q) ||
+      /* Pelo número do processo extinto: quem procura um reajuizamento tem o
+         número velho na mão, e é por ele que a pessoa pergunta. */
+      normalizar(d.numero_processo).includes(q);
     const clienteBate = (c: ClienteEsteira) =>
       normalizar(c.nome).includes(q) ||
       normalizar(c.requerido).includes(q) ||
@@ -334,11 +349,12 @@ export default function Esteira() {
       vincs: vincsFil.filter(demandaBate),
       artesanais: artesFil.filter(demandaBate),
       protos: protosFil.filter(demandaBate),
+      reajuizamentos: reajuizAll.filter(demandaBate),
       totalSemFiltro: totalAntesFiltro,
     };
   }, [demRes.data, cliRes.data, busca]);
 
-  const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length;
+  const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length + reajuizamentos.length;
 
   // REGRA DE BLOQUEIO POR PENDÊNCIA:
   // Todo cliente que tem ao menos uma pendência documental EM ABERTO
@@ -633,7 +649,7 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
           <Coluna
             titulo="0. Pendências"
             descricao="Documentos faltando — bloqueia o avanço até resolver"
@@ -866,6 +882,64 @@ export default function Esteira() {
                           });
                           setNovaPauta((d.desconto || "").replace(/^ESPEC[ÍI]FICA\s*[—-]\s*/i, ""));
                         } : undefined}
+                      />
+                    ))}
+                  </ClienteAccordion>
+                );
+              })
+            )}
+          </Coluna>
+
+          {/* ── 5. REAJUIZAMENTOS ──
+              A ação extinta sem mérito que volta para a fila. Coluna própria, e
+              não misturada em "Peças prontas", porque o gesto é outro: aqui não
+              se confere uma peça nova, se reprotocola uma que já existiu, e o
+              que a pessoa precisa ter à mão é o NÚMERO DO PROCESSO EXTINTO, que
+              é o que se consulta para saber por que caiu. */}
+          <Coluna
+            titulo="5. Reajuizamentos"
+            descricao="Extintas sem mérito, voltando para protocolo com número novo"
+            icon={RotateCcw}
+            cor="amber"
+            count={reajuizamentos.length}
+          >
+            {reajuizamentos.length === 0 ? (
+              <Vazio />
+            ) : (
+              groupByCliente(reajuizamentos).map(g => {
+                const key = `reajuiz-${g.items[0].cliente?.id || g.nome}`;
+                const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
+                return (
+                  <ClienteAccordion
+                    key={key}
+                    nome={g.nome}
+                    count={g.items.length}
+                    accent="amber"
+                    expanded={expandidos.has(key)}
+                    onToggle={() => toggleExpand(key)}
+                    hint={g.items.length === 1
+                      ? (g.items[0].numero_processo || g.items[0].desconto || "reajuizar")
+                      : `${g.items.length} reajuizamentos`}
+                    locked={bloqueado}
+                    lockedHint={MOTIVO_BLOQUEIO}
+                  >
+                    {g.items.map(d => (
+                      <CardBotaoLinha
+                        key={d.id}
+                        onClick={() => abrirEspelho(d)}
+                        titulo={d.desconto || "Reajuizar"}
+                        /* O número velho vira o subtítulo do card: é a única
+                           informação que distingue dois reajuizamentos do mesmo
+                           cliente, e é o que se digita para consultar o motivo
+                           da extinção. */
+                        sub={d.numero_processo ? `extinto: ${d.numero_processo}` : undefined}
+                        data={d.created_at}
+                        acao="Abrir espelho"
+                        acaoIcon={Send}
+                        accent="amber"
+                        audit={lookupAudit(d.id)}
+                        bloqueada={bloqueado}
+                        motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
                   </ClienteAccordion>
@@ -1175,6 +1249,9 @@ function CardLinha({
         <User className="h-3 w-3 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold truncate">{titulo}</span>
       </div>
+      {/* Inteiro no `title`: número de processo se busca copiando, e cortar o
+          meio de um CNJ o torna inútil para quem vai consultar. */}
+      {sub && <p className="text-[10.5px] text-muted-foreground/80 truncate mb-1.5 tabular-nums" title={sub}>{sub}</p>}
       <p className="text-[12px] text-foreground/80 line-clamp-2 mb-2">{sub}</p>
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -1200,11 +1277,13 @@ const ehEspecifica = (d: DemandaEsteira) =>
   !d.desconto || /^ESPEC[ÍI]FICA\s*[—-]/i.test(d.desconto);
 
 function CardBotaoLinha({
-  onClick, titulo, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
+  onClick, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
   bloqueada = false, motivoBloqueio, onRenomear,
 }: {
   onClick: () => void;
   titulo: string;
+  /** uma linha a mais sob o título, quando o título sozinho não distingue */
+  sub?: string;
   data: string | null;
   acao: string;
   acaoIcon?: any;
@@ -1228,6 +1307,7 @@ function CardBotaoLinha({
           <Lock className="h-3 w-3 text-amber-400 shrink-0" />
           <span className="text-xs font-semibold truncate">{titulo}</span>
         </div>
+        {sub && <p className="text-[10.5px] text-muted-foreground/80 truncate mb-1.5 tabular-nums" title={sub}>{sub}</p>}
         <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
           <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
             <Clock className="h-2.5 w-2.5" />

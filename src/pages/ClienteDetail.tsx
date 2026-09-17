@@ -37,6 +37,7 @@ import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { DESFECHOS } from "@/components/ProcessoTimeline";
 import { achatarTarefas, salvarTarefaNoBanco, type ItemTarefa, type PatchTarefa } from "@/lib/tarefas";
 import { porPrazo } from "@/lib/prazos";
+import { ETAPA_REAJUIZAMENTO } from "@/lib/reajuizamento";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
@@ -346,7 +347,7 @@ export default function ClienteDetail() {
     const [cliRes, procRes, contRes, demRes] = await Promise.all([
       supabase.from("clientes").select("*").eq("id", id).single(),
       supabase.from("processos")
-        .select("id, numero_processo, materia, fase_processual, valor_causa, comarca_uf, data_ultimo_andamento, fixado_geral, linha_temporal")
+        .select("id, numero_processo, materia, fase_processual, valor_causa, comarca_uf, data_ultimo_andamento, fixado_geral, linha_temporal, reajuizamento_de")
         .eq("cliente_id", id).order("data_ultimo_andamento", { ascending: false, nullsFirst: false }),
       supabase.from("contratos" as any).select("*").eq("cliente_id", id).order("created_at", { ascending: false }),
       supabase.from("demandas" as any).select("*").eq("cliente_id", id).order("ordem", { ascending: true }).order("created_at", { ascending: true }),
@@ -1818,6 +1819,14 @@ export function EspelhoProtocoloDialog({
       (doTitulo && doTitulo.toUpperCase() !== (cliente.nome || "").toUpperCase()
         ? doTitulo
         : null);
+    /* REAJUIZAMENTO: O PROCESSO NOVO NASCE AMARRADO AO EXTINTO.
+       A demanda de reajuizamento carrega em `processo_id` o processo que foi
+       extinto sem mérito, e é aqui, no único ponto em que o processo novo é
+       criado, que o vínculo tem de ser gravado. Fazer isso depois, numa tela de
+       edição, seria depender de alguém lembrar, e quem protocola tem quinze
+       peças na fila. */
+    const veioDeReajuizamento = demanda.etapa === ETAPA_REAJUIZAMENTO ? demanda.processo_id : null;
+
     const { error: errProc } = await supabase.from("processos").insert({
       cliente_id: cliente.id,
       numero_processo: numeroProcesso.trim(),
@@ -1827,6 +1836,7 @@ export function EspelhoProtocoloDialog({
       vara_juizo_origem: localTramiteIn.trim() || null,
       comarca_uf: comarcaUf || null,
       valor_causa: valorFinal,
+      ...(veioDeReajuizamento ? { reajuizamento_de: veioDeReajuizamento } : {}),
     } as any);
     if (errProc && !/duplicate|unique/i.test(errProc.message)) {
       console.warn("[protocolo] aviso ao criar processo:", errProc);
