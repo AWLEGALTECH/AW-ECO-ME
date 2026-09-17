@@ -153,12 +153,13 @@ export default function Esteira() {
   // perfil do cliente, oferece tambem o atalho pra abrir a analise no Finder
   // (continuar a triagem) ou pular pra Writer (confeccionar a peca).
   const [vincAcoes, setVincAcoes] = useState<DemandaEsteira | null>(null);
-  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
-  const toggleExpand = (key: string) => setExpandidos(prev => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
+  /* UMA DEMANDA ABERTA POR VEZ, no quadro inteiro.
+     Era um Set, e abrir sem fechar acumulava: com quatro clientes expandidos em
+     colunas diferentes o quadro virava uma parede de cartão, e a coluna larga
+     deixava de dizer onde a pessoa está, porque havia várias largas ao mesmo
+     tempo. Um valor só, e clicar no que já está aberto fecha. */
+  const [aberto, setAberto] = useState<string | null>(null);
+  const toggleExpand = (key: string) => setAberto((atual) => (atual === key ? null : key));
 
   // Query 1: demandas PENDENTES em vinculadas/protocolo/pendencia.
   const demRes = useQuery({
@@ -372,8 +373,7 @@ export default function Esteira() {
      prefixo da coluna, então basta olhar o começo: `pend-`, `vinc-`, `art-`,
      `proto-`, `reajuiz-`. Sem isso, cada coluna teria que receber a lista dos
      próprios grupos só para se perguntar se alguém a abriu. */
-  const abertaEm = (prefixo: string) =>
-    [...expandidos].some((k) => k.startsWith(`${prefixo}-`));
+  const abertaEm = (prefixo: string) => !!aberto && aberto.startsWith(`${prefixo}-`);
 
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length + reajuizamentos.length;
 
@@ -701,7 +701,7 @@ export default function Esteira() {
                     nome={g.nome}
                     count={g.items.length}
                     accent="amber"
-                    expanded={expandidos.has(key)}
+                    expanded={aberto === key}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} pendências documentais`}
                   >
@@ -787,7 +787,7 @@ export default function Esteira() {
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
-                    expanded={expandidos.has(key)}
+                    expanded={aberto === key}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} análises vinculadas`}
                     locked={bloqueado}
@@ -847,7 +847,7 @@ export default function Esteira() {
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
-                    expanded={expandidos.has(key)}
+                    expanded={aberto === key}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? hint : `${g.items.length} peças artesanais`}
                     locked={bloqueado}
@@ -891,7 +891,7 @@ export default function Esteira() {
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
-                    expanded={expandidos.has(key)}
+                    expanded={aberto === key}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1 ? firstTitle : `${g.items.length} peças prontas`}
                     locked={bloqueado}
@@ -951,7 +951,7 @@ export default function Esteira() {
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
-                    expanded={expandidos.has(key)}
+                    expanded={aberto === key}
                     onToggle={() => toggleExpand(key)}
                     hint={g.items.length === 1
                       ? (g.items[0].numero_processo || g.items[0].desconto || "reajuizar")
