@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy, Minus, FileSearch, Link2 } from "lucide-react";
+import { Building2, ListPlus, ClipboardList, ChevronLeft, ChevronRight, Loader2, Check, Plus, X, Lock, FileSignature, AlertTriangle, LifeBuoy, Minus, FileSearch, Link2, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RUBRICAS_FECHAMENTO } from "@/lib/rubricasFechamento";
 import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
@@ -68,12 +68,38 @@ interface Grupo {
   analise_id: string | null;
   /** Leva reconstruída pelo backfill: é a que nasceu junto com o contrato. */
   inicial: boolean;
+  /**
+   * Leva SEM REGISTRO: as rubricas que não pertencem a grupo nenhum.
+   *
+   * Nascem quando a confirmação do pré-cliente copia a análise do Writer
+   * literalmente, sem criar `grupos[]`. Como o seletor lista `grupos[]`, elas
+   * eram invisíveis aqui: ninguém conseguia corrigi-las nem tirá-las, e ficavam
+   * somando com toda análise nova para sempre. Aparecem para poder ser
+   * APAGADAS; editar uma a uma continua não sendo possível, porque elas não têm
+   * identidade para o salvar mirar.
+   */
+  orfa: boolean;
   qtd: number;
 }
+
+/** O id de mentira da leva sem registro. Não vai ao banco: vira null no RPC. */
+const LEVA_ORFA = "__sem_registro__";
 
 function gruposDaAnalise(ac: any): Grupo[] {
   const gs = Array.isArray(ac?.grupos) ? ac.grupos : [];
   const rubs = Array.isArray(ac?.rubricas) ? ac.rubricas : [];
+  const orfas = rubs.filter((r: any) => !String(r?.grupo_id ?? "").trim()).length;
+  const semRegistro: Grupo[] = orfas === 0 ? [] : [{
+    id: LEVA_ORFA,
+    criado_em: null,
+    creditada_a: null,
+    contrato_id: (rubs.find((r: any) => !String(r?.grupo_id ?? "").trim() && r?.contrato_id)?.contrato_id ?? null),
+    fechamento_id: null,
+    analise_id: null,
+    inicial: false,
+    orfa: true,
+    qtd: orfas,
+  }];
   return gs
     .map((g: any) => ({
       id: String(g?.id ?? ""),
@@ -83,10 +109,14 @@ function gruposDaAnalise(ac: any): Grupo[] {
       fechamento_id: g?.fechamento_id ? String(g.fechamento_id) : null,
       analise_id: g?.analise_id ? String(g.analise_id) : null,
       inicial: g?.origem === "backfill_leva_inicial",
+      orfa: false,
       qtd: rubs.filter((r: any) => String(r?.grupo_id ?? "") === String(g?.id ?? "")).length,
     }))
     .filter((g: Grupo) => g.id)
-    .sort((a: Grupo, b: Grupo) => (b.criado_em ?? "").localeCompare(a.criado_em ?? ""));
+    .sort((a: Grupo, b: Grupo) => (b.criado_em ?? "").localeCompare(a.criado_em ?? ""))
+    /* A sem registro é sempre a mais antiga do cliente: é a que veio do kit,
+       antes de qualquer análise refeita. Fica no fim da lista. */
+    .concat(semRegistro);
 }
 
 const fmtDia = (d?: string | null) => {
@@ -155,7 +185,7 @@ interface Props {
 export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contratos = [], onSaved, editorId, editorNome }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [stage, setStage] = useState<"chooser" | "grupo" | "contrato" | "sem_contrato" | "manual" | "analise" | "conferir">("chooser");
+  const [stage, setStage] = useState<"chooser" | "grupo" | "contrato" | "sem_contrato" | "manual" | "analise" | "conferir" | "apagar">("chooser");
   // Por onde a pessoa escolheu montar a lista. A escolha do grupo é a mesma
   // pros dois caminhos — o que muda é só o que vem depois dela.
   const [rota, setRota] = useState<"manual" | "finder">("manual");
@@ -173,6 +203,12 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   // poderes). Editar exige escolher de qual contrato são as ações.
   const [contratoSel, setContratoSel] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  // A leva que está prestes a ser apagada, e por quê. O motivo vai para o
+  // histórico: seis meses depois, "sumiram sete ações" sem explicação é pior
+  // do que as sete ações erradas.
+  const [levaApagar, setLevaApagar] = useState<Grupo | null>(null);
+  const [motivoApagar, setMotivoApagar] = useState("");
+  const [apagando, setApagando] = useState(false);
 
   // Catálogo GLOBAL de ações (tabela acoes_ajuizaveis): o mesmo do Writer.
   const [catalogo, setCatalogo] = useState<string[]>([]);
@@ -524,6 +560,46 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
     onClose();
   };
 
+  /* APAGAR A LEVA INTEIRA.
+   *
+   * Existe porque analisar o mesmo cliente de novo não substitui a análise
+   * anterior: SOMA com ela. O Jefferson Wollace chegou a ter o mesmo contrato
+   * contra o mesmo banco em três levas, 24 ações onde havia nove, cada
+   * cobrança repetida com três grafias diferentes, e as três pagas no
+   * fechamento. Sem este botão, a única saída era tirar rubrica por rubrica,
+   * e as da leva sem registro não dava nem para alcançar. */
+  const apagarLeva = async () => {
+    if (!cliente || !levaApagar) return;
+    setApagando(true);
+    const { data, error } = await supabase.rpc("fn_excluir_leva_analise" as any, {
+      p_cliente_id: cliente.id,
+      p_grupo_id: levaApagar.orfa ? null : levaApagar.id,
+      p_editor: editorId,
+      p_motivo: motivoApagar.trim() || null,
+    } as any);
+    setApagando(false);
+    if (error) { toast.error("Erro ao apagar a leva: " + error.message); return; }
+    // Apagar leva mexe em fechamento. Sem invalidar, o quadro segue mostrando
+    // o valor antigo por até 30 segundos, que é tempo de sobra para alguém
+    // achar que não funcionou e apagar outra.
+    qc.invalidateQueries({ queryKey: ["fechamentos"] });
+    const r = (data as any) || {};
+    const doFech =
+      r.fechamento === "apagado" ? " O fechamento dela foi apagado: ficou sem ação nenhuma."
+      : r.fechamento === "recalculado" ? ` O fechamento dela agora conta ${r.acoes_no_fechamento} ${r.acoes_no_fechamento === 1 ? "ação" : "ações"}.`
+      /* Órfã cujo fechamento não deu para identificar com certeza. Melhor
+         dizer isso do que descontar do mês da pessoa errada. */
+      : " Não deu para identificar o fechamento dela: confira a aba de fechamentos.";
+    toast.success(
+      `${r.removidas} ${r.removidas === 1 ? "ação saiu" : "ações saíram"} da ficha, ${r.restantes} ${r.restantes === 1 ? "ficou" : "ficaram"}.${doFech}`,
+      { duration: 6000 },
+    );
+    setLevaApagar(null);
+    setMotivoApagar("");
+    onSaved();
+    onClose();
+  };
+
   const tituloChamado = cliente ? `Contrato faltante — ${cliente.nome}` : "";
 
   // Nenhuma das duas rotas abre a lista direto: primeiro se escolhe em qual
@@ -561,6 +637,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
   // Escolhido o grupo, o editor abre carregado só com o que é dele. Grupo novo
   // começa vazio e ainda precisa dizer de qual contrato as ações são.
   const abrirGrupo = (g: Grupo | null) => {
+    /* A leva sem registro não abre para edição: as rubricas dela não têm id
+       nem grupo, então o salvar não teria em que mirar e criaria uma leva nova
+       ao lado da velha, que é como esta bagunça começou. Ali só cabe apagar. */
+    if (g?.orfa) { setLevaApagar(g); setStage("apagar"); return; }
     setGrupoSel(g?.id ?? null);
     const doGrupo = g ? todasRubricas.filter((r) => r.grupo_id === g.id) : [];
     setSel(doGrupo);
@@ -619,7 +699,10 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             {stage !== "chooser" && (
-              <button onClick={() => setStage(stage === "conferir" || stage === "analise" ? "manual" : stage === "grupo" ? "chooser" : "grupo")} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
+              <button onClick={() => {
+                if (stage === "apagar") { setLevaApagar(null); setStage("grupo"); return; }
+                setStage(stage === "conferir" || stage === "analise" ? "manual" : stage === "grupo" ? "chooser" : "grupo");
+              }} className="text-muted-foreground hover:text-foreground" aria-label="Voltar">
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
@@ -630,7 +713,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
             {stage === "chooser"
               ? "Adicione ou edite as ações deste cliente. Escolha por onde."
               : stage === "grupo"
-              ? "A análise deste cliente é feita em levas. Escolha a leva que você vai mexer, ou comece uma nova."
+              ? "A análise deste cliente é feita em levas. Escolha a leva que você vai mexer, comece uma nova, ou apague uma que não deveria existir."
+              : stage === "apagar"
+              ? "Analisar de novo não substitui a análise anterior: soma com ela. Apagar a leva é como se desfaz isso."
               : stage === "sem_contrato"
               ? "Este cliente ainda não tem contrato cadastrado."
               : stage === "analise"
@@ -689,6 +774,18 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                 <span className="block text-[11px] text-muted-foreground mt-0.5 leading-snug">
                   Ações percebidas agora. Contam no fechamento de {mesCorrente()}, e você escolhe pra quem.
                 </span>
+                {/* O AVISO QUE FALTAVA. Refazer a análise de um cliente que já
+                    tem leva não troca uma pela outra: as duas passam a valer, e
+                    as mesmas cobranças aparecem duas vezes na ficha e duas
+                    vezes no fechamento. Quem quer refazer quer SUBSTITUIR, e
+                    descobria o contrário depois, olhando a ficha em dobro. */}
+                {grupos.length > 0 && (
+                  <span className="block text-[11px] text-amber-300/90 mt-1.5 leading-snug">
+                    Este cliente já tem {grupos.length === 1 ? "uma leva" : `${grupos.length} levas`}.
+                    A nova SOMA com {grupos.length === 1 ? "ela" : "elas"}, não substitui: se a ideia é
+                    refazer a análise, apague a antiga aqui embaixo.
+                  </span>
+                )}
               </span>
             </button>
 
@@ -704,17 +801,23 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                   // separa. Sem ele, escolher a leva errada é fácil demais.
                   const ct = contratos.find((c) => c.id === g.contrato_id);
                   return (
-                    <button
+                    /* O apagar é IRMÃO do abrir, e não um botão dentro dele:
+                       botão dentro de botão não é HTML válido, e o clique de
+                       um cai no outro. */
+                    <div
                       key={g.id}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04] flex items-stretch transition-colors"
+                    >
+                    <button
                       onClick={() => abrirGrupo(g)}
-                      className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-primary/40 hover:bg-white/[0.04] p-3.5 flex items-center gap-3 transition-colors"
+                      className="text-left p-3.5 flex items-center gap-3 flex-1 min-w-0"
                     >
                       <span className="h-9 w-9 rounded-lg bg-white/[0.05] ring-1 ring-white/10 text-muted-foreground grid place-items-center shrink-0">
                         <ClipboardList className="h-4 w-4" />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px] font-medium">
-                          Leva de {fmtDia(g.criado_em)}
+                          {g.orfa ? "Leva sem registro" : <>Leva de {fmtDia(g.criado_em)}</>}
                           {/* Correção feita no mesmo dia da leva original deixa duas
                               entradas com a mesma data. Sem essa marca, a única forma
                               de distinguir seria pelo nome de quem levou o crédito. */}
@@ -728,7 +831,9 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                           {g.qtd} {g.qtd === 1 ? "ação" : "ações"}{credito ? ` · ${credito}` : ""}
                         </span>
                         <span className="block text-[10.5px] text-muted-foreground/70 truncate mt-0.5">
-                          {ct
+                          {g.orfa
+                            ? <span className="text-amber-300/80">veio do kit, antes das levas. Só dá para apagar.</span>
+                            : ct
                             ? <>contrato {ct.modalidade ? `de ${ct.modalidade}` : ""} · {rotuloCt(ct)}</>
                             : <span className="text-amber-300/80">sem contrato definido</span>}
                         </span>
@@ -739,16 +844,109 @@ export function RefazerAnaliseComercialDialog({ open, onClose, cliente, contrato
                           </span>
                         )}
                       </span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                      {!g.orfa && <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />}
                     </button>
+                    <button
+                      onClick={() => { setLevaApagar(g); setMotivoApagar(""); setStage("apagar"); }}
+                      title="Apagar esta leva inteira"
+                      aria-label={`Apagar a leva de ${g.orfa ? "sem registro" : fmtDia(g.criado_em)}`}
+                      className="shrink-0 px-3 grid place-items-center text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/[0.07] rounded-r-xl border-l border-white/[0.06] transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                    </div>
                   );
                 })}
                 <p className="text-[11px] text-muted-foreground/70 leading-snug pt-0.5">
                   Tirar uma ação de uma leva antiga desconta ela do mês em que ela contou. Nenhuma
-                  outra leva é tocada.
+                  outra leva é tocada. Apagar a leva inteira tira todas de uma vez.
                 </p>
               </>
             )}
+          </div>
+        ) : stage === "apagar" ? (
+          /* A CONFIRMAÇÃO DIZ O QUE VAI ACONTECER E O QUE NÃO VAI.
+             Quem clica com medo raramente está em dúvida sobre o que o botão
+             faz; está em dúvida sobre o que ele estraga. Aqui o que estraga é
+             o fechamento de outra pessoa, então ele vem escrito com nome e
+             número. */
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 py-1 pr-1">
+            <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">
+                  Apagar {levaApagar?.orfa ? "a leva sem registro" : `a leva de ${fmtDia(levaApagar?.criado_em)}`}?
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-1 leading-snug">
+                  As {levaApagar?.qtd} {levaApagar?.qtd === 1 ? "ação sai" : "ações saem"} da ficha
+                  de {cliente?.nome} de uma vez. As outras levas não são tocadas.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 space-y-2">
+              <p className="text-[10.5px] uppercase tracking-[0.15em] text-muted-foreground">O que sai</p>
+              <div className="space-y-1">
+                {todasRubricas
+                  .filter((r) => levaApagar?.orfa ? !r.grupo_id : r.grupo_id === levaApagar?.id)
+                  .map((r) => (
+                    <p key={r._k} className="text-[12.5px] flex items-start gap-1.5">
+                      <Minus className="h-3 w-3 text-red-400/70 shrink-0 mt-1" />
+                      <span className="min-w-0">
+                        {r.rubrica}
+                        {r.requerido && <span className="text-muted-foreground"> · contra {r.requerido}</span>}
+                      </span>
+                    </p>
+                  ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-3.5">
+              <p className="text-[12px] text-foreground/90 leading-snug">
+                <strong>O fechamento acompanha.</strong>{" "}
+                {(() => {
+                  const cred = equipe.find((p2) => p2.id === levaApagar?.creditada_a)?.nome;
+                  const so = !!levaApagar && grupos.filter((g) => !g.orfa
+                    && g.fechamento_id && g.fechamento_id === levaApagar.fechamento_id).length <= 1;
+                  if (levaApagar?.orfa) {
+                    return "Esta leva não aponta para fechamento nenhum. Vamos procurar o que contou exatamente estas ações e apagá-lo; se houver dúvida, ele fica como está e o aviso diz isso.";
+                  }
+                  return so
+                    ? `O fechamento${cred ? ` de ${cred}` : ""} fica sem ação nenhuma e será apagado.`
+                    : `O fechamento${cred ? ` de ${cred}` : ""} é recalculado com as levas que sobrarem.`;
+                })()}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                Cada ação apagada fica registrada no histórico do cliente, com a data e com quem apagou.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[10.5px] uppercase tracking-[0.15em] text-muted-foreground">
+                Por que está apagando
+              </label>
+              <Input
+                value={motivoApagar}
+                onChange={(e) => setMotivoApagar(e.target.value)}
+                placeholder="Ex.: análise refeita em 17/09, esta ficou duplicada"
+                className="mt-1 h-9 text-[13px]"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="ghost" size="sm" onClick={() => { setLevaApagar(null); setStage("grupo"); }}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                onClick={apagarLeva}
+                disabled={apagando}
+                className="bg-red-500/90 hover:bg-red-500 text-white"
+              >
+                {apagando ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}
+                Apagar {levaApagar?.qtd} {levaApagar?.qtd === 1 ? "ação" : "ações"}
+              </Button>
+            </div>
           </div>
         ) : stage === "sem_contrato" ? (
           <div className="space-y-3 py-2">
