@@ -82,10 +82,25 @@ interface ClienteEsteira {
 // Design compartilhado com o Dashboard (SpotlightCard): superfícies "glassy".
 // GLASS_PANEL = painel de coluna; GLASS_CARD = card de item dentro da coluna.
 // Mantém a esteira visualmente coerente com o resto do sistema.
-/* A mola da casa. Duração fixa faz a coisa chegar ao fim e parar seco; o que
-   tem peso desacelera. */
-const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
+/* ─────────────────────────── o movimento da esteira ───────────────────────────
+ *
+ * A mola da casa (380/34) é levemente SUBAMORTECIDA: para não repicar, com
+ * stiffness 380 o damping teria que passar de 39. Aquele repique é o que dava
+ * ao quadro um ar plástico, de brinquedo, e num painel de trabalho que abre e
+ * fecha o dia inteiro ele cansa.
+ *
+ * Aqui o movimento é sóbrio: curva de saída, sem ultrapassar o destino, e
+ * curto. A régua é a percepção, não o relógio: o que a pessoa deve sentir é que
+ * a coisa se acomodou, e não que uma animação aconteceu.
+ */
 const CURVA = [0.22, 1, 0.36, 1] as const;
+
+/** Reordenar e crescer: rápido, sem repique. */
+const MOLA = { duration: 0.28, ease: CURVA };
+/** A abertura do accordion, um respiro mais longo por ser a maior distância. */
+const ABRE = { duration: 0.34, ease: CURVA };
+/** A largura da coluna, que é o movimento mais largo da tela. */
+const LARGURA = { duration: 0.42, ease: CURVA };
 
 const GLASS_PANEL =
   "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md " +
@@ -1142,25 +1157,26 @@ function ClienteAccordion({
      que ver o travamento sem ler. As outras colunas seguem o tema, senão metade
      do quadro grita ao mesmo tempo e nada se destaca.
 
-     A dose subiu de 5% para 12% porque a 5% o âmbar não chegava a existir: nos
-     prints o cartão parecia cinza, e "pintar de amarelo" que ninguém enxerga é
-     o mesmo que não pintar. */
+     A dose é 7%. A 5% o âmbar não chegava a existir e o cartão lia como cinza;
+     a 12% ele virava o assunto da tela inteira. O que fazia a pendência sumir
+     não era só a dose, era a cor ir embora ao abrir, e isso continua resolvido
+     logo abaixo. */
   const eAmbar = accent === "amber" || !!locked;
   const accentBorder = eAmbar
-    ? "border-amber-400/45 hover:border-amber-400/70"
+    ? "border-amber-400/30 hover:border-amber-400/50"
     : "border-white/[0.07] hover:border-primary/40";
   /* A COR NÃO SOME AO EXPANDIR. Antes o aberto virava `bg-white/[0.02]`, cinza,
      e a pendência deixava de parecer pendência justamente quando alguém estava
      olhando o conteúdo dela. */
   const accentBg = eAmbar
-    ? "bg-amber-400/[0.12] hover:bg-amber-400/[0.16]"
+    ? "bg-amber-400/[0.07] hover:bg-amber-400/[0.11]"
     : "bg-white/[0.03] hover:bg-white/[0.06]";
   const accentBadge = eAmbar ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
     <motion.div
       layout
       transition={MOLA}
-      className={`rounded-xl border transition-colors duration-200 ${accentBorder} ${accentBg} ${locked ? "opacity-80" : ""}`}
+      className={`rounded-xl border transition-colors duration-300 ${accentBorder} ${accentBg} ${locked ? "opacity-80" : ""}`}
       title={locked ? (lockedHint || "Bloqueado por pendência") : undefined}
     >
       <button
@@ -1197,7 +1213,13 @@ function ClienteAccordion({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={MOLA}
+            /* A opacidade entra DEPOIS da altura e sai antes: o conteúdo não
+               aparece antes de ter onde caber, que é o que faz a abertura
+               parecer um empurrão. */
+            transition={{
+              height: ABRE,
+              opacity: { duration: 0.2, ease: CURVA, delay: 0.08 },
+            }}
             className="overflow-hidden"
           >
             <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
@@ -1239,9 +1261,9 @@ function Coluna({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ ...MOLA, delay: Math.min(ordem, 6) * 0.05 }}
+      transition={{ layout: LARGURA, duration: 0.3, ease: CURVA, delay: Math.min(ordem, 6) * 0.04 }}
       className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
                   2xl:basis-0 2xl:grow ${expandida ? "2xl:grow-[2.6] z-10" : ""}`}
     >
@@ -1352,10 +1374,12 @@ function Entra({ i = 0, children }: { i?: number; children: React.ReactNode }) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
+      /* Sem `scale`: encolher ao sair é o gesto que mais lê como plástico, e
+         não acrescenta informação nenhuma ao que já está sumindo. */
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6, scale: 0.98 }}
-      transition={{ ...MOLA, delay: Math.min(i, 8) * 0.03 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ ...MOLA, delay: Math.min(i, 8) * 0.02 }}
     >
       {children}
     </motion.div>
@@ -1689,9 +1713,9 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
   return (
     <button
       onClick={onClick}
-      /* Mesma dose do accordion que o contém: a 5% o âmbar não chegava a
-         existir na tela e o cartão lia como cinza. */
-      className="w-full text-left rounded-xl border border-amber-400/45 bg-amber-400/[0.12] hover:border-amber-400/70 hover:bg-amber-400/[0.18] transition-colors duration-200 p-3 space-y-1.5"
+      /* Mesma dose do accordion que o contém, para o cartão de dentro não
+         brigar com a moldura de fora. */
+      className="w-full text-left rounded-xl border border-amber-400/30 bg-amber-400/[0.07] hover:border-amber-400/50 hover:bg-amber-400/[0.12] transition-colors duration-200 p-3 space-y-1.5"
     >
       <div className="flex items-start gap-1.5">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
@@ -1700,7 +1724,7 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
       {mostrarMateria && (
         <p className="text-[10px] text-muted-foreground line-clamp-1 pl-5">{materia}</p>
       )}
-      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/30">
+      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
           <Clock className="h-2.5 w-2.5" />
           <span>{tempoDecorrido(demanda.created_at)}</span>
