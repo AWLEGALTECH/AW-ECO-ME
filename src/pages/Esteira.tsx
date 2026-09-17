@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -84,24 +83,17 @@ interface ClienteEsteira {
 // Mantém a esteira visualmente coerente com o resto do sistema.
 /* ─────────────────────────── o movimento da esteira ───────────────────────────
  *
- * A mola da casa (380/34) é levemente SUBAMORTECIDA: para não repicar, com
- * stiffness 380 o damping teria que passar de 39. Aquele repique é o que dava
- * ao quadro um ar plástico, de brinquedo, e num painel de trabalho que abre e
- * fecha o dia inteiro ele cansa.
+ * NÃO TEM. Esta tela é um painel de trabalho que alguém abre e fecha dezenas de
+ * vezes por dia, e toda tentativa de dar vida a ela deu o resultado oposto:
+ * com framer-motion, entrada em cascata e deslizamento de cartão, o quadro
+ * ficou parecendo brinquedo. Um sistema de escritório não precisa se
+ * apresentar toda vez que é aberto.
  *
- * Aqui o movimento é sóbrio: curva de saída, sem ultrapassar o destino, e
- * curto. A régua é a percepção, não o relógio: o que a pessoa deve sentir é que
- * a coisa se acomodou, e não que uma animação aconteceu.
+ * O que sobrou são duas transições de CSS, ambas curtas e ambas sobre a CAIXA,
+ * nunca sobre o conteúdo: a altura do accordion e a largura da coluna. Nada de
+ * transform, nada de escala, nada de atraso escalonado. Se a mudança for
+ * percebida como animação, já é demais.
  */
-const CURVA = [0.22, 1, 0.36, 1] as const;
-
-/** Entrar, sair e deslizar para o lugar novo. */
-const MOLA = { duration: 0.28, ease: CURVA };
-/** A abertura do accordion, um respiro mais longo por ser a maior distância. */
-const ABRE = { duration: 0.34, ease: CURVA };
-/* A largura da coluna NÃO está aqui: ela é animada por `transition-[width]` do
-   CSS, porque o framer faria isso com `transform: scale` e distorceria o texto
-   de dentro. */
 
 const GLASS_PANEL =
   "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md " +
@@ -691,7 +683,6 @@ export default function Esteira() {
         >
           <Coluna
             titulo="0. Pendências"
-            ordem={0}
             expandida={abertaEm("pend")}
             descricao="Documentos faltando — bloqueia o avanço até resolver"
             icon={AlertTriangle}
@@ -701,11 +692,12 @@ export default function Esteira() {
             {pendencias.length === 0 ? (
               <Vazio />
             ) : (
-              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(pendencias).map((g, gi) => {
+              groupByCliente(pendencias).map((g, gi) => {
                 const key = `pend-${g.items[0].cliente?.id || g.nome}`;
                 const hint = pendenciaLabel(g.items[0]);
                 return (
-                  <Entra key={key} i={gi}><ClienteAccordion
+                  <ClienteAccordion
+                    key={key}
                     nome={g.nome}
                     count={g.items.length}
                     accent="amber"
@@ -716,15 +708,14 @@ export default function Esteira() {
                     {g.items.map(p => (
                       <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} audit={lookupAudit(p.id)} />
                     ))}
-                  </ClienteAccordion></Entra>
+                  </ClienteAccordion>
                 );
-              })}</AnimatePresence>
+              })
             )}
           </Coluna>
 
           <Coluna
             titulo="1. Análise primária"
-            ordem={1}
             descricao="Primeira análise do cliente. Só sai daqui quando o advogado clicar em 'Finalizar análise primária'."
             icon={ScanSearch}
             cor="primary"
@@ -777,7 +768,6 @@ export default function Esteira() {
 
           <Coluna
             titulo="2. Análise vinculada Bradesco"
-            ordem={2}
             expandida={abertaEm("vinc")}
             descricao="Aguardando confecção da peça no Writer"
             icon={GitBranch}
@@ -787,12 +777,13 @@ export default function Esteira() {
             {vincs.length === 0 ? (
               <Vazio />
             ) : (
-              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(vincs).map((g, gi) => {
+              groupByCliente(vincs).map((g, gi) => {
                 const key = `vinc-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <Entra key={key} i={gi}><ClienteAccordion
+                  <ClienteAccordion
+                    key={key}
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -829,15 +820,14 @@ export default function Esteira() {
                         Produzir em cadeia ({g.items.length})
                       </Button>
                     )}
-                  </ClienteAccordion></Entra>
+                  </ClienteAccordion>
                 );
-              })}</AnimatePresence>
+              })
             )}
           </Coluna>
 
           <Coluna
             titulo="3. Fluxo artesanal"
-            ordem={3}
             expandida={abertaEm("art")}
             descricao="Casos não-Bradesco — peça será confeccionada manualmente"
             icon={Hammer}
@@ -847,12 +837,13 @@ export default function Esteira() {
             {artesanais.length === 0 ? (
               <Vazio />
             ) : (
-              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(artesanais).map((g, gi) => {
+              groupByCliente(artesanais).map((g, gi) => {
                 const key = `art-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <Entra key={key} i={gi}><ClienteAccordion
+                  <ClienteAccordion
+                    key={key}
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -873,15 +864,14 @@ export default function Esteira() {
                         motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
-                  </ClienteAccordion></Entra>
+                  </ClienteAccordion>
                 );
-              })}</AnimatePresence>
+              })
             )}
           </Coluna>
 
           <Coluna
             titulo="4. Peças prontas"
-            ordem={4}
             expandida={abertaEm("proto")}
             descricao="Geradas no Writer, aguardando protocolo no tribunal"
             icon={Send}
@@ -891,12 +881,13 @@ export default function Esteira() {
             {protos.length === 0 ? (
               <Vazio />
             ) : (
-              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(protos).map((g, gi) => {
+              groupByCliente(protos).map((g, gi) => {
                 const key = `proto-${g.items[0].cliente?.id || g.nome}`;
                 const firstTitle = g.items[0].desconto || g.items[0].titulo.replace(/^Pronto pra protocolo — /, "");
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <Entra key={key} i={gi}><ClienteAccordion
+                  <ClienteAccordion
+                    key={key}
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -928,9 +919,9 @@ export default function Esteira() {
                         } : undefined}
                       />
                     ))}
-                  </ClienteAccordion></Entra>
+                  </ClienteAccordion>
                 );
-              })}</AnimatePresence>
+              })
             )}
           </Coluna>
 
@@ -942,7 +933,6 @@ export default function Esteira() {
               é o que se consulta para saber por que caiu. */}
           <Coluna
             titulo="5. Reajuizamentos"
-            ordem={5}
             expandida={abertaEm("reajuiz")}
             descricao="Extintas sem mérito, voltando para protocolo com número novo"
             icon={RotateCcw}
@@ -952,11 +942,12 @@ export default function Esteira() {
             {reajuizamentos.length === 0 ? (
               <Vazio />
             ) : (
-              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(reajuizamentos).map((g, gi) => {
+              groupByCliente(reajuizamentos).map((g, gi) => {
                 const key = `reajuiz-${g.items[0].cliente?.id || g.nome}`;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <Entra key={key} i={gi}><ClienteAccordion
+                  <ClienteAccordion
+                    key={key}
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -987,9 +978,9 @@ export default function Esteira() {
                         motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
-                  </ClienteAccordion></Entra>
+                  </ClienteAccordion>
                 );
-              })}</AnimatePresence>
+              })
             )}
           </Coluna>
         </div>
@@ -1209,36 +1200,28 @@ function ClienteAccordion({
           <p className="text-[11px] text-muted-foreground line-clamp-1">{hint}</p>
         </div>
       )}
-      {/* A EXPANSÃO CRESCE, NÃO APARECE. Sem isto o conteúdo surgia de uma vez e
-          empurrava a coluna inteira num piscar, e o olho perdia onde estava. */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="corpo"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            /* A opacidade entra DEPOIS da altura e sai antes: o conteúdo não
-               aparece antes de ter onde caber, que é o que faz a abertura
-               parecer um empurrão. */
-            transition={{
-              height: ABRE,
-              opacity: { duration: 0.2, ease: CURVA, delay: 0.08 },
-            }}
-            className="overflow-hidden"
-          >
-            <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* A ALTURA ABRE POR CSS, com `grid-template-rows` de 0fr a 1fr.
+          É o jeito de animar "altura automática" sem JavaScript e sem medir
+          nada: o navegador interpola a linha da grade, o conteúdo não é
+          escalado nem redesenhado, e não há biblioteca envolvida. 180ms, que é
+          curto o bastante para ler como a caixa se acomodando e não como uma
+          animação acontecendo. */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out
+                    ${expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+      >
+        <div className="overflow-hidden">
+          <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
+            {children}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function Coluna({
-  titulo, descricao, icon: Icon, cor, count, children, expandida, ordem = 0,
+  titulo, descricao, icon: Icon, cor, count, children, expandida,
 }: {
   titulo: string;
   descricao: string;
@@ -1251,8 +1234,6 @@ function Coluna({
      viravam "JOSE TRI…" e a data sumia. Enquanto estiver aberta, esta coluna
      toma o espaço das outras, e devolve ao fechar. */
   expandida?: boolean;
-  /** posição no quadro, para a entrada vir em cascata da esquerda para a direita */
-  ordem?: number;
 }) {
   /* Âmbar é de UMA coluna, a de pendências, porque ela é a única que avisa:
      enquanto houver pendência aberta, o cliente inteiro fica travado nas outras
@@ -1264,19 +1245,12 @@ function Coluna({
     ? "text-amber-400 bg-amber-400/15 border-amber-400/30"
     : "text-primary bg-primary/15 border-primary/30";
   return (
-    <motion.div
-      /* SEM `layout` AQUI, DE PROPÓSITO.
-         O `layout` do framer anima largura aplicando `transform: scale`, e
-         escala distorce tudo que está dentro: o título estica e volta, o número
-         entorta, e o quadro inteiro parece de borracha. A largura é animada
-         pelo CSS logo abaixo, que muda a CAIXA sem tocar no conteúdo. */
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: CURVA, delay: Math.min(ordem, 6) * 0.04 }}
-      /* `shrink-0` é o ponto: sem ele o flex volta a espremer todo mundo para
-         caber na tela, que é exatamente o que se quer evitar. */
+    <div
+      /* A largura é a única coisa que se move, e move por CSS: `transform` de
+         qualquer tipo distorce o texto de dentro. `shrink-0` impede o flex de
+         espremer as vizinhas para caber na tela. */
       className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
-                  2xl:shrink-0 2xl:transition-[width] 2xl:duration-[400ms] 2xl:ease-out
+                  2xl:shrink-0 2xl:transition-[width] 2xl:duration-200 2xl:ease-out
                   ${expandida ? "2xl:w-[34rem] z-10" : "2xl:w-[19.5rem]"}`}
     >
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
@@ -1292,7 +1266,7 @@ function Coluna({
       </div>
       <p className="text-[11px] text-muted-foreground leading-snug">{descricao}</p>
       <div className="space-y-2">{children}</div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -1378,27 +1352,6 @@ function CardLinha({
 // Finder (desconto nulo → título caiu no nome do cliente).
 const ehEspecifica = (d: DemandaEsteira) =>
   !d.desconto || /^ESPEC[ÍI]FICA\s*[—-]/i.test(d.desconto);
-
-/* Envelope de animação dos cards. `layout` é o que faz o vizinho DESLIZAR
-   quando um accordion abre acima dele, em vez de teleportar para a posição
-   nova, que é o que mais atrapalha o olho num quadro com seis colunas. */
-function Entra({ i = 0, children }: { i?: number; children: React.ReactNode }) {
-  return (
-    <motion.div
-      /* `position`, e não `layout` inteiro: assim o cartão DESLIZA para o lugar
-         novo quando um accordion abre acima dele, sem que sua caixa seja
-         escalada. Escala em cima de texto é o que faz a tela parecer de
-         borracha. */
-      layout="position"
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ ...MOLA, delay: Math.min(i, 8) * 0.02 }}
-    >
-      {children}
-    </motion.div>
-  );
-}
 
 function CardBotaoLinha({
   onClick, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
