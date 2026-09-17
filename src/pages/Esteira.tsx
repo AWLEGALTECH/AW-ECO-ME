@@ -626,8 +626,16 @@ export default function Esteira() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl">
-      <header className="flex items-end justify-between gap-4 flex-wrap">
+    /* TELA DE APLICATIVO, e não documento: a página ocupa a altura disponível
+       e a rolagem acontece por dentro. Quem rola para baixo é cada coluna;
+       quem rola para o lado é o trilho, e a barra dele fica sempre encostada
+       na borda de baixo, à vista.
+       O respiro vem daqui porque a moldura não põe padding nas telas deste
+       tipo (ver SidebarLayout). O cabeçalho e a busca ficam na largura de
+       leitura; o quadro usa a tela inteira, porque cada centímetro a mais é
+       uma coluna a menos de rolagem. */
+    <div className="flex-1 min-h-0 flex flex-col gap-6 px-3 py-3 sm:px-6 sm:py-6">
+      <header className="flex items-end justify-between gap-4 flex-wrap max-w-7xl shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Workflow className="h-6 w-6 text-primary" />
@@ -648,7 +656,7 @@ export default function Esteira() {
         </Button>
       </header>
 
-      <div className="relative">
+      <div className="relative max-w-7xl shrink-0">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Buscar por nome do cliente, requerido, desconto ou descrição…"
@@ -670,17 +678,25 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        /* Grade no médio, TRILHO ROLANTE no largo.
-           A primeira versão usava flex com `basis-0 grow`, e o espaço da coluna
-           que abria saía das vizinhas: com seis colunas, a de Análise ficava com
-           uns cinquenta pixels e os nomes viravam "VA…", "FA…". Ilegível, e o
-           pior é que estragava justamente as colunas que a pessoa NÃO estava
-           mexendo. Agora cada coluna tem largura própria e ninguém encolhe: o
-           quadro cresce para o lado e rola. */
-        <div
-          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start
-                     2xl:flex 2xl:flex-row 2xl:overflow-x-auto 2xl:pb-4 2xl:scrollbar-visivel"
-        >
+        /* UM TRILHO SÓ, SEMPRE PARA O LADO. EM QUALQUER TELA.
+           Antes isto era uma grade que virava trilho só a partir de 1536px.
+           Abaixo disso as colunas quebravam para a linha de baixo, e a 5 ficava
+           embaixo da 2: o quadro deixava de contar a ordem das etapas, que é a
+           única coisa que um kanban existe para contar. Quem olhava via a
+           "Fluxo artesanal" ao lado da "Peças prontas" sem que uma venha depois
+           da outra em lugar nenhum.
+           Agora é flex em toda largura, o excesso sai pela direita e a barra de
+           baixo leva o quadro inteiro. Vale igual no celular: ali a etapa
+           seguinte aparece pela borda, que é o que diz à pessoa que há mais
+           coisa para o lado sem precisar de nenhum aviso escrito.
+           A rolagem é do trilho, e não da página: o cabeçalho e a busca ficam
+           parados enquanto as etapas passam.
+           `basis-0 grow` já foi tentado aqui e foi pior: o espaço da coluna que
+           abria saía das vizinhas, a de Análise ficava com uns cinquenta pixels
+           e os nomes viravam "VA…", "FA…". Cada coluna tem largura própria e
+           ninguém encolhe. */
+        <div className="flex-1 min-h-0 flex flex-row gap-4 items-start
+                        overflow-x-auto overflow-y-hidden pb-3 scrollbar-visivel">
           <Coluna
             titulo="0. Pendências"
             expandida={abertaEm("pend")}
@@ -1248,10 +1264,19 @@ function Coluna({
     <div
       /* A largura é a única coisa que se move, e move por CSS: `transform` de
          qualquer tipo distorce o texto de dentro. `shrink-0` impede o flex de
-         espremer as vizinhas para caber na tela. */
-      className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
-                  2xl:shrink-0 2xl:transition-[width] 2xl:duration-200 2xl:ease-out
-                  ${expandida ? "2xl:w-[34rem] z-10" : "2xl:w-[19.5rem]"}`}
+         espremer as vizinhas para caber na tela: elas mantêm o tamanho e o
+         quadro cresce para fora.
+         A largura é a mesma em toda tela, 19.5rem, e só cede em celular
+         estreito, onde vira 82% da largura. Nunca 100%: a beirada da próxima
+         etapa aparecendo na borda é o que avisa que o quadro continua para o
+         lado. Coluna de tela cheia parece fim de fila.
+         Abrir uma demanda alarga a coluna a partir de 640px. Abaixo disso não
+         há para onde alargar, e o conteúdo cresce só para baixo. */
+      className={`relative ${GLASS_PANEL} p-4 space-y-3 shrink-0
+                  flex flex-col max-h-full
+                  w-[82vw] max-w-[19.5rem] sm:max-w-none
+                  transition-[width] duration-200 ease-out
+                  ${expandida ? "sm:w-[34rem] z-10" : "sm:w-[19.5rem]"}`}
     >
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
@@ -1264,8 +1289,14 @@ function Coluna({
           {count}
         </span>
       </div>
-      <p className="text-[11px] text-muted-foreground leading-snug">{descricao}</p>
-      <div className="space-y-2">{children}</div>
+      <p className="text-[11px] text-muted-foreground leading-snug shrink-0">{descricao}</p>
+      {/* A FILA ROLA AQUI DENTRO, e não na página. Assim o título da etapa e a
+          contagem ficam parados enquanto se procura um cliente no meio de
+          quarenta, e a barra que leva o quadro para o lado continua encostada
+          embaixo em vez de fugir para o fim do conteúdo.
+          O `-mr-2 pr-2` põe a barrinha na margem do cartão, sem roubar largura
+          das linhas. */}
+      <div className="space-y-2 overflow-y-auto min-h-0 scrollbar-thin -mr-2 pr-2">{children}</div>
     </div>
   );
 }
