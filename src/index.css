@@ -332,6 +332,35 @@ body {
     height: 0;
   }
 
+  /* BARRA DE ROLAGEM QUE SE VÊ.
+     Oposta à `scrollbar-thin`: existe para o caso em que a rolagem é a única
+     pista de que há mais conteúdo fora da tela. No quadro da esteira, sem ela
+     as colunas à direita simplesmente não existem para quem não pensou em
+     arrastar. Fina e discreta, mas presente. */
+  .scrollbar-visivel {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--primary) / 0.35) transparent;
+    overscroll-behavior-x: contain;
+  }
+  .scrollbar-visivel::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+  .scrollbar-visivel::-webkit-scrollbar-track {
+    background: hsl(var(--foreground) / 0.04);
+    border-radius: 999px;
+  }
+  .scrollbar-visivel::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary) / 0.32);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-visivel::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.55);
+    background-clip: content-box;
+  }
+
   .glass-panel {
     @apply bg-black/40 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)];
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -95,12 +95,13 @@ interface ClienteEsteira {
  */
 const CURVA = [0.22, 1, 0.36, 1] as const;
 
-/** Reordenar e crescer: rápido, sem repique. */
+/** Entrar, sair e deslizar para o lugar novo. */
 const MOLA = { duration: 0.28, ease: CURVA };
 /** A abertura do accordion, um respiro mais longo por ser a maior distância. */
 const ABRE = { duration: 0.34, ease: CURVA };
-/** A largura da coluna, que é o movimento mais largo da tela. */
-const LARGURA = { duration: 0.42, ease: CURVA };
+/* A largura da coluna NÃO está aqui: ela é animada por `transition-[width]` do
+   CSS, porque o framer faria isso com `transform: scale` e distorceria o texto
+   de dentro. */
 
 const GLASS_PANEL =
   "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md " +
@@ -684,11 +685,9 @@ export default function Esteira() {
            pior é que estragava justamente as colunas que a pessoa NÃO estava
            mexendo. Agora cada coluna tem largura própria e ninguém encolhe: o
            quadro cresce para o lado e rola. */
-        <LayoutGroup id="esteira">
-        <motion.div
-          layout
+        <div
           className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start
-                     2xl:flex 2xl:flex-row 2xl:overflow-x-auto 2xl:pb-3 scrollbar-thin"
+                     2xl:flex 2xl:flex-row 2xl:overflow-x-auto 2xl:pb-4 2xl:scrollbar-visivel"
         >
           <Coluna
             titulo="0. Pendências"
@@ -993,8 +992,7 @@ export default function Esteira() {
               })}</AnimatePresence>
             )}
           </Coluna>
-        </motion.div>
-        </LayoutGroup>
+        </div>
       )}
 
       <EsteiraInicioDialog
@@ -1182,9 +1180,7 @@ function ClienteAccordion({
     : "bg-white/[0.03] hover:bg-white/[0.06]";
   const accentBadge = eAmbar ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
-    <motion.div
-      layout
-      transition={MOLA}
+    <div
       className={`rounded-xl border transition-colors duration-300 ${accentBorder} ${accentBg} ${locked ? "opacity-80" : ""}`}
       title={locked ? (lockedHint || "Bloqueado por pendência") : undefined}
     >
@@ -1237,7 +1233,7 @@ function ClienteAccordion({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
 
@@ -1269,14 +1265,19 @@ function Coluna({
     : "text-primary bg-primary/15 border-primary/30";
   return (
     <motion.div
-      layout
+      /* SEM `layout` AQUI, DE PROPÓSITO.
+         O `layout` do framer anima largura aplicando `transform: scale`, e
+         escala distorce tudo que está dentro: o título estica e volta, o número
+         entorta, e o quadro inteiro parece de borracha. A largura é animada
+         pelo CSS logo abaixo, que muda a CAIXA sem tocar no conteúdo. */
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ layout: LARGURA, duration: 0.3, ease: CURVA, delay: Math.min(ordem, 6) * 0.04 }}
+      transition={{ duration: 0.3, ease: CURVA, delay: Math.min(ordem, 6) * 0.04 }}
       /* `shrink-0` é o ponto: sem ele o flex volta a espremer todo mundo para
          caber na tela, que é exatamente o que se quer evitar. */
       className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
-                  2xl:shrink-0 ${expandida ? "2xl:w-[34rem] z-10" : "2xl:w-[19.5rem]"}`}
+                  2xl:shrink-0 2xl:transition-[width] 2xl:duration-[400ms] 2xl:ease-out
+                  ${expandida ? "2xl:w-[34rem] z-10" : "2xl:w-[19.5rem]"}`}
     >
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
@@ -1290,7 +1291,7 @@ function Coluna({
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground leading-snug">{descricao}</p>
-      <motion.div layout className="space-y-2">{children}</motion.div>
+      <div className="space-y-2">{children}</div>
     </motion.div>
   );
 }
@@ -1384,9 +1385,11 @@ const ehEspecifica = (d: DemandaEsteira) =>
 function Entra({ i = 0, children }: { i?: number; children: React.ReactNode }) {
   return (
     <motion.div
-      layout
-      /* Sem `scale`: encolher ao sair é o gesto que mais lê como plástico, e
-         não acrescenta informação nenhuma ao que já está sumindo. */
+      /* `position`, e não `layout` inteiro: assim o cartão DESLIZA para o lugar
+         novo quando um accordion abre acima dele, sem que sua caixa seja
+         escalada. Escala em cima de texto é o que faz a tela parecer de
+         borracha. */
+      layout="position"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4 }}
