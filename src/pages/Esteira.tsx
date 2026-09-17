@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,11 @@ interface ClienteEsteira {
 // Design compartilhado com o Dashboard (SpotlightCard): superfícies "glassy".
 // GLASS_PANEL = painel de coluna; GLASS_CARD = card de item dentro da coluna.
 // Mantém a esteira visualmente coerente com o resto do sistema.
+/* A mola da casa. Duração fixa faz a coisa chegar ao fim e parar seco; o que
+   tem peso desacelera. */
+const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
+const CURVA = [0.22, 1, 0.36, 1] as const;
+
 const GLASS_PANEL =
   "rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md " +
   "shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.04)]";
@@ -353,6 +359,13 @@ export default function Esteira() {
       totalSemFiltro: totalAntesFiltro,
     };
   }, [demRes.data, cliRes.data, busca]);
+
+  /* QUAL COLUNA ESTÁ COM ALGUMA DEMANDA ABERTA. A chave do accordion carrega o
+     prefixo da coluna, então basta olhar o começo: `pend-`, `vinc-`, `art-`,
+     `proto-`, `reajuiz-`. Sem isso, cada coluna teria que receber a lista dos
+     próprios grupos só para se perguntar se alguém a abriu. */
+  const abertaEm = (prefixo: string) =>
+    [...expandidos].some((k) => k.startsWith(`${prefixo}-`));
 
   const total = pendencias.length + aguardando.length + vincs.length + artesanais.length + protos.length + reajuizamentos.length;
 
@@ -649,9 +662,14 @@ export default function Esteira() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-12 text-sm">Carregando…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
+        /* Grade no médio, FLEX no largo: só o flex deixa uma coluna tomar o
+           espaço das vizinhas sem quebrar a linha. */
+        <LayoutGroup id="esteira">
+        <motion.div layout className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:flex 2xl:flex-row gap-4 items-start">
           <Coluna
             titulo="0. Pendências"
+            ordem={0}
+            expandida={abertaEm("pend")}
             descricao="Documentos faltando — bloqueia o avanço até resolver"
             icon={AlertTriangle}
             cor="amber"
@@ -660,12 +678,11 @@ export default function Esteira() {
             {pendencias.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(pendencias).map(g => {
+              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(pendencias).map((g, gi) => {
                 const key = `pend-${g.items[0].cliente?.id || g.nome}`;
                 const hint = pendenciaLabel(g.items[0]);
                 return (
-                  <ClienteAccordion
-                    key={key}
+                  <Entra key={key} i={gi}><ClienteAccordion
                     nome={g.nome}
                     count={g.items.length}
                     accent="amber"
@@ -676,14 +693,15 @@ export default function Esteira() {
                     {g.items.map(p => (
                       <PendenciaCard key={p.id} demanda={p} onClick={() => setPendenciaOpen(p)} audit={lookupAudit(p.id)} />
                     ))}
-                  </ClienteAccordion>
+                  </ClienteAccordion></Entra>
                 );
-              })
+              })}</AnimatePresence>
             )}
           </Coluna>
 
           <Coluna
             titulo="1. Análise primária"
+            ordem={1}
             descricao="Primeira análise do cliente. Só sai daqui quando o advogado clicar em 'Finalizar análise primária'."
             icon={ScanSearch}
             cor="primary"
@@ -736,6 +754,8 @@ export default function Esteira() {
 
           <Coluna
             titulo="2. Análise vinculada Bradesco"
+            ordem={2}
+            expandida={abertaEm("vinc")}
             descricao="Aguardando confecção da peça no Writer"
             icon={GitBranch}
             cor="primary"
@@ -744,13 +764,12 @@ export default function Esteira() {
             {vincs.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(vincs).map(g => {
+              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(vincs).map((g, gi) => {
                 const key = `vinc-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <ClienteAccordion
-                    key={key}
+                  <Entra key={key} i={gi}><ClienteAccordion
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -787,14 +806,16 @@ export default function Esteira() {
                         Produzir em cadeia ({g.items.length})
                       </Button>
                     )}
-                  </ClienteAccordion>
+                  </ClienteAccordion></Entra>
                 );
-              })
+              })}</AnimatePresence>
             )}
           </Coluna>
 
           <Coluna
             titulo="3. Fluxo artesanal"
+            ordem={3}
+            expandida={abertaEm("art")}
             descricao="Casos não-Bradesco — peça será confeccionada manualmente"
             icon={Hammer}
             cor="primary"
@@ -803,13 +824,12 @@ export default function Esteira() {
             {artesanais.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(artesanais).map(g => {
+              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(artesanais).map((g, gi) => {
                 const key = `art-${g.items[0].cliente?.id || g.nome}`;
                 const hint = g.items[0].desconto || g.items[0].titulo;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <ClienteAccordion
-                    key={key}
+                  <Entra key={key} i={gi}><ClienteAccordion
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -830,14 +850,16 @@ export default function Esteira() {
                         motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
-                  </ClienteAccordion>
+                  </ClienteAccordion></Entra>
                 );
-              })
+              })}</AnimatePresence>
             )}
           </Coluna>
 
           <Coluna
             titulo="4. Peças prontas"
+            ordem={4}
+            expandida={abertaEm("proto")}
             descricao="Geradas no Writer, aguardando protocolo no tribunal"
             icon={Send}
             cor="primary"
@@ -846,13 +868,12 @@ export default function Esteira() {
             {protos.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(protos).map(g => {
+              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(protos).map((g, gi) => {
                 const key = `proto-${g.items[0].cliente?.id || g.nome}`;
                 const firstTitle = g.items[0].desconto || g.items[0].titulo.replace(/^Pronto pra protocolo — /, "");
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <ClienteAccordion
-                    key={key}
+                  <Entra key={key} i={gi}><ClienteAccordion
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -884,9 +905,9 @@ export default function Esteira() {
                         } : undefined}
                       />
                     ))}
-                  </ClienteAccordion>
+                  </ClienteAccordion></Entra>
                 );
-              })
+              })}</AnimatePresence>
             )}
           </Coluna>
 
@@ -898,6 +919,8 @@ export default function Esteira() {
               é o que se consulta para saber por que caiu. */}
           <Coluna
             titulo="5. Reajuizamentos"
+            ordem={5}
+            expandida={abertaEm("reajuiz")}
             descricao="Extintas sem mérito, voltando para protocolo com número novo"
             icon={RotateCcw}
             cor="primary"
@@ -906,12 +929,11 @@ export default function Esteira() {
             {reajuizamentos.length === 0 ? (
               <Vazio />
             ) : (
-              groupByCliente(reajuizamentos).map(g => {
+              <AnimatePresence initial={false} mode="popLayout">{groupByCliente(reajuizamentos).map((g, gi) => {
                 const key = `reajuiz-${g.items[0].cliente?.id || g.nome}`;
                 const bloqueado = clientesComPendencia.has(g.items[0].cliente_id);
                 return (
-                  <ClienteAccordion
-                    key={key}
+                  <Entra key={key} i={gi}><ClienteAccordion
                     nome={g.nome}
                     count={g.items.length}
                     accent="primary"
@@ -942,12 +964,13 @@ export default function Esteira() {
                         motivoBloqueio={MOTIVO_BLOQUEIO}
                       />
                     ))}
-                  </ClienteAccordion>
+                  </ClienteAccordion></Entra>
                 );
-              })
+              })}</AnimatePresence>
             )}
           </Coluna>
-        </div>
+        </motion.div>
+        </LayoutGroup>
       )}
 
       <EsteiraInicioDialog
@@ -1117,15 +1140,27 @@ function ClienteAccordion({
   /* O ÂMBAR É DA PENDÊNCIA, E SÓ DELA. Ela é a única coisa do quadro que
      bloqueia o resto, então o cartão inteiro se pinta: quem varre a esteira tem
      que ver o travamento sem ler. As outras colunas seguem o tema, senão metade
-     do quadro grita ao mesmo tempo e nada se destaca. */
-  const accentBorder = locked
-    ? "border-amber-400/40"
-    : accent === "amber" ? "border-amber-400/30 hover:border-amber-400/60" : "border-white/[0.07] hover:border-primary/40";
-  const accentBg = locked ? "bg-amber-400/[0.04]" : accent === "amber" ? "bg-amber-400/5 hover:bg-amber-400/10" : "bg-white/[0.03] hover:bg-white/[0.06]";
-  const accentBadge = accent === "amber" ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
+     do quadro grita ao mesmo tempo e nada se destaca.
+
+     A dose subiu de 5% para 12% porque a 5% o âmbar não chegava a existir: nos
+     prints o cartão parecia cinza, e "pintar de amarelo" que ninguém enxerga é
+     o mesmo que não pintar. */
+  const eAmbar = accent === "amber" || !!locked;
+  const accentBorder = eAmbar
+    ? "border-amber-400/45 hover:border-amber-400/70"
+    : "border-white/[0.07] hover:border-primary/40";
+  /* A COR NÃO SOME AO EXPANDIR. Antes o aberto virava `bg-white/[0.02]`, cinza,
+     e a pendência deixava de parecer pendência justamente quando alguém estava
+     olhando o conteúdo dela. */
+  const accentBg = eAmbar
+    ? "bg-amber-400/[0.12] hover:bg-amber-400/[0.16]"
+    : "bg-white/[0.03] hover:bg-white/[0.06]";
+  const accentBadge = eAmbar ? "text-amber-400 bg-amber-400/15 border-amber-400/30" : "text-primary bg-primary/15 border-primary/30";
   return (
-    <div
-      className={`rounded-xl border transition-all duration-200 ${accentBorder} ${expanded ? "bg-white/[0.02]" : accentBg} ${locked ? "opacity-80" : ""}`}
+    <motion.div
+      layout
+      transition={MOLA}
+      className={`rounded-xl border transition-colors duration-200 ${accentBorder} ${accentBg} ${locked ? "opacity-80" : ""}`}
       title={locked ? (lockedHint || "Bloqueado por pendência") : undefined}
     >
       <button
@@ -1153,17 +1188,30 @@ function ClienteAccordion({
           <p className="text-[11px] text-muted-foreground line-clamp-1">{hint}</p>
         </div>
       )}
-      {expanded && (
-        <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
-          {children}
-        </div>
-      )}
-    </div>
+      {/* A EXPANSÃO CRESCE, NÃO APARECE. Sem isto o conteúdo surgia de uma vez e
+          empurrava a coluna inteira num piscar, e o olho perdia onde estava. */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="corpo"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={MOLA}
+            className="overflow-hidden"
+          >
+            <div className="px-2 pb-2 space-y-1.5 border-t border-border/40 pt-2">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
 function Coluna({
-  titulo, descricao, icon: Icon, cor, count, children,
+  titulo, descricao, icon: Icon, cor, count, children, expandida, ordem = 0,
 }: {
   titulo: string;
   descricao: string;
@@ -1171,6 +1219,13 @@ function Coluna({
   cor: "primary" | "amber";
   count: number;
   children: React.ReactNode;
+  /* ALGUÉM ABRIU UMA DEMANDA AQUI DENTRO. Seis colunas numa tela cabem, mas o
+     conteúdo de uma demanda aberta não cabe em um sexto de tela: os títulos
+     viravam "JOSE TRI…" e a data sumia. Enquanto estiver aberta, esta coluna
+     toma o espaço das outras, e devolve ao fechar. */
+  expandida?: boolean;
+  /** posição no quadro, para a entrada vir em cascata da esquerda para a direita */
+  ordem?: number;
 }) {
   /* Âmbar é de UMA coluna, a de pendências, porque ela é a única que avisa:
      enquanto houver pendência aberta, o cliente inteiro fica travado nas outras
@@ -1182,7 +1237,14 @@ function Coluna({
     ? "text-amber-400 bg-amber-400/15 border-amber-400/30"
     : "text-primary bg-primary/15 border-primary/30";
   return (
-    <div className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0`}>
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...MOLA, delay: Math.min(ordem, 6) * 0.05 }}
+      className={`relative ${GLASS_PANEL} p-4 space-y-3 min-w-0
+                  2xl:basis-0 2xl:grow ${expandida ? "2xl:grow-[2.6] z-10" : ""}`}
+    >
       {/* Fio superior sutil — mesma assinatura do SpotlightCard do dash */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       <div className="flex items-center gap-2.5">
@@ -1195,8 +1257,8 @@ function Coluna({
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground leading-snug">{descricao}</p>
-      <div className="space-y-2">{children}</div>
-    </div>
+      <motion.div layout className="space-y-2">{children}</motion.div>
+    </motion.div>
   );
 }
 
@@ -1282,6 +1344,23 @@ function CardLinha({
 // Finder (desconto nulo → título caiu no nome do cliente).
 const ehEspecifica = (d: DemandaEsteira) =>
   !d.desconto || /^ESPEC[ÍI]FICA\s*[—-]/i.test(d.desconto);
+
+/* Envelope de animação dos cards. `layout` é o que faz o vizinho DESLIZAR
+   quando um accordion abre acima dele, em vez de teleportar para a posição
+   nova, que é o que mais atrapalha o olho num quadro com seis colunas. */
+function Entra({ i = 0, children }: { i?: number; children: React.ReactNode }) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+      transition={{ ...MOLA, delay: Math.min(i, 8) * 0.03 }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 function CardBotaoLinha({
   onClick, titulo, sub, data, acao, acaoIcon: AcaoIcon = ArrowRight, accent = "primary", audit,
@@ -1610,7 +1689,9 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-xl border border-amber-400/30 bg-amber-400/5 hover:border-amber-400/60 hover:bg-amber-400/10 transition-all duration-200 p-3 space-y-1.5"
+      /* Mesma dose do accordion que o contém: a 5% o âmbar não chegava a
+         existir na tela e o cartão lia como cinza. */
+      className="w-full text-left rounded-xl border border-amber-400/45 bg-amber-400/[0.12] hover:border-amber-400/70 hover:bg-amber-400/[0.18] transition-colors duration-200 p-3 space-y-1.5"
     >
       <div className="flex items-start gap-1.5">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
@@ -1619,7 +1700,7 @@ function PendenciaCard({ demanda, onClick, audit }: { demanda: DemandaEsteira; o
       {mostrarMateria && (
         <p className="text-[10px] text-muted-foreground line-clamp-1 pl-5">{materia}</p>
       )}
-      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/20">
+      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-400/30">
         <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
           <Clock className="h-2.5 w-2.5" />
           <span>{tempoDecorrido(demanda.created_at)}</span>
