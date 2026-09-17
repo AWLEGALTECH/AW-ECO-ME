@@ -23,12 +23,7 @@ export function SidebarLayout() {
      ocupam exatamente a altura disponível e cuidam da própria rolagem por
      dentro. Uma lista, e não uma propriedade da página, porque quem decide se
      a moldura rola é a moldura — a página não tem como alcançá-la. */
-  /* A Esteira entrou nesta lista quando virou kanban de verdade: as colunas
-     rolam por dentro e a barra que leva o quadro para o lado precisa ficar
-     parada na borda de baixo da tela. Numa caixa que rola, essa barra fica no
-     fim do quadro, que é sempre abaixo da dobra, e ninguém a encontra. */
-  const telaDeAplicativo = location.pathname.startsWith("/atendimento")
-    || location.pathname.startsWith("/esteira");
+  const telaDeAplicativo = location.pathname.startsWith("/atendimento");
 
   // Guard de sessão: se a sessão expirou enquanto o user estava em uma rota
   // protegida, redireciona pra "/" (que mostra a tela de login). Antes,
