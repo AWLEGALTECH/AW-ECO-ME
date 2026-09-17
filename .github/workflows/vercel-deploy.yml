@@ -1,69 +1,107 @@
-name: Vercel Deploy (bypass webhook)
+name: Vercel Deploy
 
-# Contorna o webhook Vercel<->GitHub que para de funcionar de tempos
-# em tempos. Cada push em main dispara um Vercel Deploy Hook (URL
-# publica configurada no proprio dashboard do Vercel apontando pra
-# branch main).
+# POR QUE ESTE ARQUIVO MUDOU DE ESTRATÉGIA.
 #
-# Pra ativar:
-#   1. Vercel -> projeto aw-eco-me -> Settings -> Git -> Deploy Hooks
-#      Create: nome "main-prod", branch "main" -> copia a URL
-#   2. GitHub -> repo Settings -> Secrets and variables -> Actions
-#      Nova secret: VERCEL_DEPLOY_HOOK_MAIN = <URL copiada>
+# A versão anterior fazia um POST num Deploy Hook da Vercel. O problema é que
+# esse POST responde 200 mesmo quando a Vercel não cria build nenhum: em
+# 17/09/2026 três pushes seguidos ficaram VERDES no Actions e nenhum virou
+# deploy, com produção parada por quase uma hora sem ninguém perceber. Um
+# alarme que só sabe dizer "tudo bem" é pior que nenhum alarme.
+#
+# Agora o build acontece AQUI, pela CLI da Vercel, e o passo falha de verdade
+# quando o deploy falha: o Actions fica vermelho e chega notificação.
+#
+# ── para ligar (uma vez só) ──────────────────────────────────────────────────
+#   1. Vercel -> Account Settings -> Tokens -> Create Token
+#      Escopo: a conta "awlegaltech-5909's projects". Validade: sem expiração.
+#   2. GitHub -> repo Settings -> Secrets and variables -> Actions -> New secret
+#      Nome:  VERCEL_TOKEN
+#      Valor: o token copiado
+#
+# Os dois IDs abaixo não são segredo (aparecem na URL do dashboard), então
+# ficam no arquivo e não há uma terceira secret para esquecer.
+#
+# Enquanto a secret não existir, o passo de fallback ainda dispara o hook
+# antigo, para não ficar sem deploy nenhum no meio da troca.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+env:
+  VERCEL_ORG_ID: team_aYcRugarEplOJzjmfZT3H3Nf
+  VERCEL_PROJECT_ID: prj_r5FwlEGbybDk7hhFQSr8CQ7mzvp1
+
 jobs:
-  trigger-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Vercel deploy (3 tentativas)
+      - uses: actions/checkout@v4
+
+      - name: Tem token?
+        id: cfg
+        run: |
+          if [ -n "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "tem=sim" >> "$GITHUB_OUTPUT"
+          else
+            echo "tem=nao" >> "$GITHUB_OUTPUT"
+            echo "::warning::VERCEL_TOKEN nao configurada. Caindo no deploy hook antigo, que nao avisa quando falha. Veja o cabecalho deste arquivo."
+          fi
+
+      # ── caminho bom: build e deploy de verdade ─────────────────────────────
+      - name: Instalar a CLI da Vercel
+        if: steps.cfg.outputs.tem == 'sim'
+        run: npm install --global vercel@latest
+
+      - name: Puxar as variaveis do projeto
+        if: steps.cfg.outputs.tem == 'sim'
+        run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Buildar
+        if: steps.cfg.outputs.tem == 'sim'
+        run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+      # `--prebuilt` sobe o que acabou de ser compilado acima. Se o build tivesse
+      # quebrado, o passo anterior ja teria derrubado o workflow, que e
+      # exatamente o comportamento que faltava.
+      - name: Publicar em producao
+        if: steps.cfg.outputs.tem == 'sim'
+        run: |
+          URL=$(vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}")
+          echo "Deploy: $URL"
+          echo "### Deploy publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── fallback: o hook antigo, enquanto a secret nao existir ─────────────
+      - name: Deploy hook (fallback)
+        if: steps.cfg.outputs.tem == 'nao'
         run: |
           if [ -z "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}" ]; then
-            echo "::error::VERCEL_DEPLOY_HOOK_MAIN secret nao configurada."
+            echo "::error::Sem VERCEL_TOKEN e sem VERCEL_DEPLOY_HOOK_MAIN: nao ha como publicar."
             exit 1
           fi
-          # Vercel hook as vezes aceita o POST (200) mas nao processa o job.
-          # Disparamos 3 vezes com delay pra aumentar chance de pegar.
           for tentativa in 1 2 3; do
             echo "=== Tentativa $tentativa ==="
-            RESPONSE=$(curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}" || echo "ERRO no curl")
-            echo "Vercel respondeu: $RESPONSE"
-            if [ "$tentativa" -lt 3 ]; then
-              echo "Aguardando 30s antes da proxima tentativa..."
-              sleep 30
-            fi
+            curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MAIN }}" || echo "ERRO no curl"
+            [ "$tentativa" -lt 3 ] && sleep 30
           done
+          echo "::warning::O hook aceita o POST mesmo sem criar build. Confira na Vercel se o deploy nasceu."
 
-      # Deploy hooks das landings dos advogados (matheusenes.vercel.app,
-      # diegoismael.vercel.app). Sao projetos Vercel SEPARADOS do app
-      # principal — sem isso, mudar landing/ ou landing-di/ no main nao
-      # atualizava o que o cliente final ve.
-      #
-      # Pra ativar:
-      #   1. Vercel -> projeto "matheusenes" -> Settings -> Git -> Deploy
-      #      Hooks -> Create -> branch main -> copia URL
-      #      Idem pro "diegoismael"
-      #   2. GitHub -> Settings -> Secrets and variables -> Actions:
-      #      VERCEL_DEPLOY_HOOK_MATHEUS = <URL>
-      #      VERCEL_DEPLOY_HOOK_DIEGO   = <URL>
-      #
-      # Se as secrets nao estiverem configuradas, esse step apenas avisa
-      # e segue (nao falha o workflow).
-      - name: Trigger landings dos advogados
+      # ── landings dos advogados, projetos Vercel separados ─────────────────
+      # Continuam por hook: sao sites estaticos pequenos, e uma falha ali nao
+      # para o escritorio como parar o app principal.
+      - name: Landings dos advogados
         run: |
           if [ -n "${{ secrets.VERCEL_DEPLOY_HOOK_MATHEUS }}" ]; then
-            echo "=== Disparando matheusenes ==="
+            echo "=== matheusenes ==="
             curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_MATHEUS }}" || echo "Falhou"
           else
-            echo "::warning::VERCEL_DEPLOY_HOOK_MATHEUS nao configurada — landing do Matheus nao sera atualizada automaticamente."
+            echo "::warning::VERCEL_DEPLOY_HOOK_MATHEUS nao configurada."
           fi
           if [ -n "${{ secrets.VERCEL_DEPLOY_HOOK_DIEGO }}" ]; then
-            echo "=== Disparando diegoismael ==="
+            echo "=== diegoismael ==="
             curl -fsSL -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_DIEGO }}" || echo "Falhou"
           else
-            echo "::warning::VERCEL_DEPLOY_HOOK_DIEGO nao configurada — landing do Diego nao sera atualizada automaticamente."
+            echo "::warning::VERCEL_DEPLOY_HOOK_DIEGO nao configurada."
           fi
