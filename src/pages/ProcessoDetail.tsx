@@ -1395,6 +1395,13 @@ export default function ProcessoDetail() {
               <ProcessoTimeline
                 etapas={etapas} setEtapas={setEtapas} onRegistrarSentenca={registrarSentenca}
                 antesDeStatus={interceptarStatus}
+                /* O MESMO BOTÃO, NO LUGAR ONDE A PESSOA ESTÁ. Ela acabou de
+                   marcar "AG. REAJUIZAMENTO" no seletor da milestone; mandá-la
+                   subir a página até o banner seria perder o gesto no meio. A
+                   ação é uma só, a de cima. */
+                onGerarReajuizamento={podeGerarReajuiz || temDemandaReajuiz
+                  ? () => void gerarDemandaReajuizamento() : undefined}
+                reajuizamentoGerado={temDemandaReajuiz}
                 onPedirBaixa={(via) => setBaixa({
                   processoId: id!,
                   clienteId: form.cliente_id || null,

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock, Handshake, Landmark } from "lucide-react";
+import { Check, Plus, Zap, Eye, Paperclip, CalendarDays, CheckCircle2, XCircle, Ban, X, ArrowRight, AlertTriangle, CornerDownRight, Trophy, Scale, Coins, Gavel, Pencil, CalendarClock, Handshake, Landmark, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { viaDeBaixa, ehStatusDeBaixa, type ViaBaixa } from "@/lib/baixaTracker";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { aplicarNaLinha } from "@/lib/tarefas";
+import { pedeReajuizamento } from "@/lib/reajuizamento";
 import {
   PASSO_PULADA, cadeiaDoPulso, acendeEm as acendeNoPasso, fimDaCascata, temFita,
 } from "@/lib/cascataSalto";
@@ -486,6 +487,8 @@ export function ProcessoTimeline({
   badge,
   onRegistrarSentenca,
   onPedirBaixa,
+  onGerarReajuizamento,
+  reajuizamentoGerado,
   antesDeStatus,
 }: {
   etapas: Etapa[];
@@ -497,6 +500,15 @@ export function ProcessoTimeline({
      timeline não grava sozinha — avisa quem a montou, que abre a confirmação e
      só então a baixa acontece, tudo numa transação. */
   onPedirBaixa?: (via: ViaBaixa) => void;
+  /* REAJUIZAMENTO. Mesmo arranjo da baixa: a timeline não cria a demanda, só
+     avisa quem a montou, que sabe do cliente e da esteira. Aqui aparece porque
+     é ONDE a pessoa está quando marca o status: ela acabou de escolher "AG.
+     REAJUIZAMENTO" no seletor logo acima, e mandá-la subir a página para achar
+     o botão é perder o gesto no meio. */
+  onGerarReajuizamento?: () => void;
+  /* Já existe demanda viva: o botão some, porque duas petições do mesmo pedido
+     na fila viram litispendência. */
+  reajuizamentoGerado?: boolean;
   /* Quem monta a timeline pode segurar uma troca de status para perguntar algo
      antes (acórdão sem câmara ou turma gravada, por exemplo). Devolve true
      quando segurou: aí a troca não acontece aqui, e volta por quem perguntou. */
@@ -1240,6 +1252,41 @@ export function ProcessoTimeline({
                       {e.titulo === ETAPA_ACORDO ? "Acordo pago" : "Alvará pago"}
                       <span className="text-emerald-300/60 font-normal">· dar baixa</span>
                     </Button>
+                  </motion.div>
+                )}
+
+                {/* ATALHO DO REAJUIZAMENTO.
+                    Aparece na etapa atual quando o status é "AG. REAJUIZAMENTO"
+                    ou "REAJUIZAR", que é o momento exato em que alguém acabou
+                    de marcá-lo no seletor acima. Some quando a demanda já
+                    existe, e no lugar dela fica a frase dizendo onde ela está,
+                    porque "sumiu o botão" sem explicação parece defeito. */}
+                {e.status === "atual" && onGerarReajuizamento && pedeReajuizamento(e.statusProcessual) && (
+                  <motion.div
+                    className="mt-6 flex justify-center"
+                    initial={recemAvancado?.nova === e.id ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, delay: recemAvancado?.nova === e.id ? cascata + 0.6 : 0 }}
+                  >
+                    {reajuizamentoGerado ? (
+                      <p className="flex items-center gap-1.5 text-[11.5px] text-amber-300/80">
+                        <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                        Demanda de reajuizamento na esteira, aguardando protocolo.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          className="gap-1.5 bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30 hover:bg-amber-500/25 hover:text-amber-200 shadow-none"
+                          onClick={onGerarReajuizamento}
+                        >
+                          <RotateCcw className="h-4 w-4" /> Gerar demanda de reajuizamento
+                        </Button>
+                        <p className="text-[11px] text-muted-foreground">
+                          Vai para a esteira com o número deste processo, a matéria e a vara.
+                        </p>
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
