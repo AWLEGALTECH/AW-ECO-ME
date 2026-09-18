@@ -93,6 +93,14 @@ export interface MensagemRow {
   /** só nas nossas: enviada → entregue → lida → tocada */
   status: string | null;
   criada_em: string;
+  /** a chave da mensagem lá no WhatsApp; sem ela não há o que revogar nem editar */
+  id_whatsapp?: string | null;
+  /** revogada no WhatsApp. A bolha ganha tarja; o conteúdo continua à vista */
+  apagada_em?: string | null;
+  /** apagada só do nosso lado; no WhatsApp do cliente ela continua intacta */
+  so_para_mim_em?: string | null;
+  /** a bolha mostra "editada", como no WhatsApp */
+  editada_em?: string | null;
 }
 
 /** (92) 98812-4471 a partir de 5592988124471. Fora do formato, devolve como veio. */

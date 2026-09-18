@@ -45,8 +45,10 @@ import {
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
-  Scale, ExternalLink, ListChecks, Workflow,
+  Scale, ExternalLink, ListChecks, Workflow, Ban,
 } from "lucide-react";
+import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
+import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
 import { Link } from "react-router-dom";
 import Automacoes from "@/components/atendimento/Automacoes";
 import Bases from "@/components/atendimento/Bases";
@@ -3938,12 +3940,33 @@ export default function AtendimentoPage() {
                     {/* O padding encolhe quando a bolha é só imagem ou vídeo:
                         moldura larga em volta de foto vira porta-retrato, e a
                         foto é o conteúdo, não o enfeite dentro dele. */}
-                    <div className={cn("max-w-[70%] rounded-2xl text-[12.5px] leading-snug",
+                    <div className={cn("group/bolha relative max-w-[70%] rounded-2xl text-[12.5px] leading-snug",
                       msg.midiaPath && (msg.tipo === "imagem" || msg.tipo === "video" || msg.tipo === "sticker")
                         ? "p-1" : "px-3 py-2",
                       msg.de === "lead"
                         ? "self-start bg-white/[0.05] rounded-tl-sm"
-                        : "self-end bg-white/[0.08] rounded-tr-sm ring-1 ring-white/[0.10]")}>
+                        : "self-end bg-white/[0.08] rounded-tr-sm ring-1 ring-white/[0.10]",
+                      /* O VERMELHO É LEVE DE PROPÓSITO: ele marca a bolha sem
+                         disputar a leitura com o texto, que continua sendo o
+                         que importa ali. Vermelho forte numa conversa longa
+                         vira alarme, e apagar mensagem não é emergência.
+                         Só para todos ganha cor; "só para mim" é decisão
+                         nossa, sem nada de errado do outro lado, e leva
+                         apenas a tarja. */
+                      msg.apagada && "bg-rose-500/[0.07] ring-1 ring-rose-400/25")}>
+                      {/* O MENU FICA NO CANTO E SÓ APARECE NO PONTEIRO, como no
+                          WhatsApp Web. Aceso o tempo todo, seriam dezenas de
+                          setinhas numa conversa longa, e a leitura é o que essa
+                          coluna existe para fazer. No toque não há hover, então
+                          ali ele fica sempre visível. */}
+                      {msg.id && (
+                        <AcoesDaMensagem
+                          msg={msg}
+                          aoMudar={invalidarWa}
+                          className={cn("absolute top-1 right-1 z-10 opacity-0 group-hover/bolha:opacity-100 focus-visible:opacity-100",
+                            ehMobile && "opacity-100")}
+                        />
+                      )}
                       {msg.midiaPath && (
                         <MidiaMensagem
                           id={msg.id ?? msg.chave}
@@ -3976,8 +3999,23 @@ export default function AtendimentoPage() {
                           )}
                         </span>
                       )}
+                      {/* A TARJA DO QUE FOI APAGADO.
+                          A mensagem continua inteira acima dela, de propósito:
+                          essa conversa é prova. Cliente que manda um valor e
+                          apaga trinta segundos depois apagou do aparelho dele,
+                          não do que foi dito, e quem atende precisa poder ler
+                          aquilo amanhã.
+                          As três frases são diferentes porque as três
+                          situações são diferentes para quem atende, e o
+                          detalhe embaixo diz o que o outro lado está vendo
+                          agora, que é a pergunta que a tarja levanta. */}
+                      <TarjaDeApagada msg={msg} />
                       <span className={cn("flex items-center justify-end gap-1 text-[9.5px] text-muted-foreground/70 mt-1 tabular-nums",
                         msg.midiaPath && "px-2 pb-0.5")}>
+                        {/* "editada" vem ANTES da hora, como no WhatsApp: a
+                            hora é o fim da linha em toda bolha, e um sufixo
+                            depois dela faria o olho reler a linha inteira. */}
+                        {msg.editada && <span className="italic">editada</span>}
                         {msg.hora}
                         {msg.de === "nos" && <VistoDaMensagem status={msg.status} />}
                       </span>
@@ -6428,6 +6466,40 @@ export default function AtendimentoPage() {
       </Dialog>
     </div>
     </ProvedorDeAudio>
+  );
+}
+
+/* ── A TARJA DA MENSAGEM APAGADA ──────────────────────────────────────────
+   Fica no RODAPÉ da bolha, embaixo do conteúdo, e nunca no lugar dele. A
+   mensagem apagada continua inteira na tela porque essa conversa é prova: o
+   cliente que manda um valor e apaga trinta segundos depois apagou do
+   aparelho dele, não do que foi dito.
+
+   Três frases para três situações que não podem se confundir, porque cada
+   uma muda o que fazer em seguida: se ele ainda vê a mensagem, se não vê
+   mais, ou se nunca deixou de ver. O detalhe embaixo responde exatamente
+   isso, que é a pergunta que a tarja levanta em quem está lendo. */
+function TarjaDeApagada({ msg }: { msg: Mensagem }) {
+  const estado = estadoDaApagada(msg);
+  if (!estado) return null;
+  const doCliente = estado === "cliente";
+  const soAqui = estado === "so_para_mim";
+  return (
+    <span className={cn("mt-1.5 flex flex-col gap-0.5 rounded-lg px-2 py-1 ring-1",
+      msg.midiaPath && "mx-2",
+      soAqui
+        ? "bg-white/[0.04] ring-white/[0.08] text-muted-foreground"
+        : "bg-rose-500/[0.10] ring-rose-400/25 text-rose-200/90")}>
+      <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium">
+        <Ban className="h-3 w-3 shrink-0" />
+        {textoDaTarja(estado)}
+      </span>
+      <span className={cn("text-[10px] leading-snug",
+        soAqui ? "text-muted-foreground/70" : "text-rose-200/60")}>
+        {detalheDaTarja(estado)}
+        {doCliente && " Ele não sabe que ainda está aqui."}
+      </span>
+    </span>
   );
 }
 

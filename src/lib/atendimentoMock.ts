@@ -100,6 +100,19 @@ export interface Mensagem {
   duracao?: number | null;
   /** só nas nossas: enviada → entregue → lida → tocada */
   status?: string | null;
+  /* O que dá para FAZER com ela depois de enviada. Apagar e editar dependem
+     de quando a mensagem saiu e de ela existir no WhatsApp, e as duas janelas
+     são do WhatsApp, não nossas (ver src/lib/mensagemAcoes.ts). */
+  criadaEm?: string | null;
+  idWhatsapp?: string | null;
+  /* As três situações de apagada. Nenhuma delas esconde a mensagem daqui: o
+     conteúdo fica e a bolha ganha uma tarja no rodapé. */
+  /** revogada no WhatsApp: por nós, na nossa; pelo contato, na dele */
+  apagada?: boolean;
+  /** tirada só do nosso lado; no WhatsApp do cliente ela continua */
+  soParaMim?: boolean;
+  /** editada depois de enviada: a bolha marca, como no WhatsApp */
+  editada?: boolean;
 }
 
 export interface Lead {

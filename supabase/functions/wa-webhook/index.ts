@@ -252,6 +252,25 @@ Deno.serve(async (req: Request) => {
 
     const fromMe = !!d.key.fromMe;
     const msg = d.message ?? {};
+
+    /* O CLIENTE APAGOU UMA MENSAGEM DELE.
+       O WhatsApp não manda uma mensagem nova avisando: manda um PROTOCOLO
+       REVOKE apontando para a chave da mensagem que sumiu. Sem tratar isto, a
+       mensagem desaparecia do aparelho dele e continuava aqui, inteira, e
+       quem estivesse atendendo responderia a algo que, do outro lado, não
+       existe mais.
+       Vale também para o eco do nosso próprio apagar, e por isso o update é
+       condicionado a `apagada_em is null`: a wa-apagar já marcou, e marcar de
+       novo só trocaria o carimbo por um segundo depois. */
+    const proto = (msg as { protocolMessage?: { type?: string | number; key?: { id?: string } } }).protocolMessage;
+    if (proto && (proto.type === "REVOKE" || proto.type === 0) && proto.key?.id) {
+      const { error: eRev } = await sb.from("wa_mensagens")
+        .update({ apagada_em: new Date().toISOString() })
+        .eq("id_whatsapp", proto.key.id).is("apagada_em", null);
+      if (eRev) console.error("[wa-webhook] revoke:", eRev.message);
+      continue;
+    }
+
     const tipo = tipoDe(msg);
     const texto = textoDe(msg);
     const midia = midiaDe(msg);

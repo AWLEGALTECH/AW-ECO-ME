@@ -203,7 +203,7 @@ export function useMensagens(conversaId: string | null, grupoId?: string | null)
     enabled: !!conversaId,
     refetchInterval: 5_000,
     queryFn: async (): Promise<MensagemRow[]> => {
-      const colunas = "id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, criada_em";
+      const colunas = "id, conversa_id, direcao, tipo, texto, midia_path, midia_mime, midia_nome, duracao, status, criada_em, id_whatsapp, apagada_em, so_para_mim_em, editada_em";
 
       /* SEM GRUPO, uma consulta só, como sempre foi. O caminho de duas etapas
          abaixo custa uma ida a mais ao banco, e conversa nunca repassada — que
@@ -367,6 +367,39 @@ async function pedirEnvio(body: Record<string, unknown>) {
   if (error) throw new Error(error.message);
   if (data && data.ok === false) throw new Error(String(data.error || "Falha no envio"));
   return data as { ok: true; aviso?: string };
+}
+
+/* ── O QUE SE FAZ COM UMA MENSAGEM JÁ ENVIADA ─────────────────────────────
+ *
+ * Apagar para todos e editar acontecem NO WHATSAPP antes de acontecerem aqui:
+ * quem fala com a Evolution é a edge function, e só depois do OK dela a linha
+ * muda. É a mesma regra do envio, e pelo mesmo motivo: a tela não pode mostrar
+ * um estado que o cliente não tem.
+ *
+ * "Apagar para mim" é o contrário: não há nada para pedir ao WhatsApp, então
+ * não passa por função nenhuma, é um update direto.
+ */
+
+/** Revoga no WhatsApp do cliente. Só as nossas, e só dentro da janela dele. */
+export async function apagarParaTodos(mensagemId: string) {
+  const { data, error } = await supabase.functions.invoke("wa-apagar", { body: { mensagem_id: mensagemId } });
+  if (error) throw new Error(error.message);
+  if (data && data.ok === false) throw new Error(String(data.error || "Não consegui apagar"));
+  return data as { ok: true; ja?: boolean; aviso?: string };
+}
+
+/** Marca como apagada só do nosso lado. No WhatsApp do cliente ela continua. */
+export async function apagarSoParaMim(mensagemId: string) {
+  const { error } = await supabase.rpc("fn_wa_mensagem_so_para_mim" as never, { p_mensagem: mensagemId } as never);
+  if (error) throw new Error(error.message);
+}
+
+/** Edita a mensagem no WhatsApp. Só texto nosso, e só na janela de 15 minutos. */
+export async function editarMensagem(mensagemId: string, texto: string) {
+  const { data, error } = await supabase.functions.invoke("wa-editar", { body: { mensagem_id: mensagemId, texto } });
+  if (error) throw new Error(error.message);
+  if (data && data.ok === false) throw new Error(String(data.error || "Não consegui editar"));
+  return data as { ok: true; ja?: boolean; aviso?: string };
 }
 
 /**
@@ -750,6 +783,9 @@ export function conversaParaLead(
   const conversa: Mensagem[] = [];
   let anterior: string | null = null;
   for (const m of msgs) {
+    /* NENHUMA MENSAGEM É PULADA AQUI, nem a apagada, nem a tirada só do nosso
+       lado. A conversa é prova, e prova não perde linha porque alguém apagou
+       do próprio celular. O que muda é a tarja na bolha. */
     const dia = separadorDeDia(m.criada_em, anterior, agora);
     anterior = m.criada_em;
     conversa.push({
@@ -767,6 +803,11 @@ export function conversaParaLead(
       midiaNome: m.midia_nome,
       duracao: m.duracao,
       status: m.status,
+      criadaEm: m.criada_em,
+      idWhatsapp: m.id_whatsapp ?? null,
+      apagada: !!m.apagada_em,
+      soParaMim: !!m.so_para_mim_em,
+      editada: !!m.editada_em,
     });
   }
 
