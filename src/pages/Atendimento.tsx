@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
 import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
+import { compararNaCaixa, recemChegada } from "@/lib/recemChegada";
 import { Link } from "react-router-dom";
 import Automacoes from "@/components/atendimento/Automacoes";
 import Bases from "@/components/atendimento/Bases";
@@ -1030,13 +1031,14 @@ export default function AtendimentoPage() {
          causa de um clique — e é o que todo aplicativo de mensagem usa.
          "Esperando resposta nossa" continua existindo: virou filtro e etiqueta,
          que é onde uma urgência deve estar, sem embaralhar a ordem. */
-      .sort((a, b) => {
-        // As fixadas ficam em cima, a última fixada primeiro: pilha de papel.
-        const fa = a.fixadaEm ? Date.parse(a.fixadaEm) : 0;
-        const fb = b.fixadaEm ? Date.parse(b.fixadaEm) : 0;
-        if (fa !== fb) return fb - fa;
-        return (b.ultimaEm ? Date.parse(b.ultimaEm) : 0) - (a.ultimaEm ? Date.parse(a.ultimaEm) : 0);
-      });
+      /* A EXCEÇÃO É A CONVERSA RECÉM REPASSADA, que sobe para logo abaixo das
+         fixadas. Ela é o único caso em que ordenar pela última mensagem
+         esconde a conversa: repassada, ela ainda não tem mensagem NAQUELE
+         número, `ultima_em` é nulo, e o nulo joga a linha para o fim de uma
+         fila de setenta. Foi o que aconteceu com a Ediene em 18/09, e de
+         fora parecia que o repasse não tinha funcionado.
+         A regra e os testes moram em src/lib/recemChegada.ts. */
+      .sort(compararNaCaixa);
   }, [filtroEtapa, filtroExtra, filtroRodada, filtroBase, followUpPorLead, busca, leadsBase, estagios]);
 
   /* Ao vivo os lembretes vêm de `wa_tasks` e sobrevivem ao recarregar; na
@@ -3398,8 +3400,24 @@ export default function AtendimentoPage() {
                           ativa, porque as duas dizem a mesma categoria de coisa:
                           "olha esta linha aqui". A marca some sozinha quando o
                           lead responde — a última mensagem passa a ser dele. */}
-                      {l.ultimaAutomatica && !ativo && (
+                      {l.ultimaAutomatica && !ativo && !recemChegada(l) && (
                         <span className="absolute left-0 inset-y-0 w-[2px] bg-emerald-400/80" />
+                      )}
+
+                      {/* ACABOU DE CHEGAR DE OUTRO NÚMERO.
+                          Mesma barra da esquerda das outras duas, em azul,
+                          porque as três dizem a mesma categoria de coisa:
+                          "olha esta linha aqui". O azul é o mesmo da setinha
+                          de recebida que já existe no cartão, então a barra e
+                          o símbolo se leem como uma informação só, e não como
+                          duas.
+                          Ela some sozinha quando alguém responder, junto com o
+                          lugar no topo: as duas marcas contam a mesma coisa e
+                          precisam acabar na mesma hora, senão sobra uma barra
+                          azul numa conversa que já foi trabalhada. */}
+                      {recemChegada(l) && !ativo && (
+                        <span className="absolute left-0 inset-y-0 w-[2px] bg-sky-400/90"
+                          aria-label="acabou de chegar de outro número" />
                       )}
 
                       {/* FIXAR. Aparece no hover, ou o tempo todo se já estiver
