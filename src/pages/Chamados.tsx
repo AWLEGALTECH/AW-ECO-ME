@@ -684,7 +684,10 @@ function AbrirChamadoDialog({
 
             <BarraDeMensagem
               ocupado={salvando}
-              placeholder="O que aconteceu, o passo a passo, o que você esperava…"
+              /* Curto o bastante para caber numa linha entre o clipe e o
+                 microfone. O texto longo de antes quebrava em duas e deixava
+                 a barra com cara de campo cortado. */
+              placeholder="Descreva, cole um print, grave um áudio…"
               onItem={(item) => setItens((v) => [...v, item])}
             />
           </div>

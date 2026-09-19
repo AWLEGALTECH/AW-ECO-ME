@@ -124,6 +124,8 @@ export function BarraDeMensagem({ onItem, placeholder, ocupado, autoFoco }: {
         </div>
       )}
 
+      {/* `items-end` e não `items-center`: quando o campo cresce, os botões
+          ficam alinhados com a ÚLTIMA linha, que é onde o cursor está. */}
       <div className="flex items-end gap-1 p-1.5">
         <input ref={seletor} type="file" className="hidden"
           accept="image/*,application/pdf,audio/*,.doc,.docx,.xls,.xlsx,.csv,.txt"
@@ -152,7 +154,12 @@ export function BarraDeMensagem({ onItem, placeholder, ocupado, autoFoco }: {
               mandar();
             }}
             placeholder={placeholder || "Escreva, cole um print, grave um áudio…"}
-            className="min-h-8 border-0 bg-transparent px-1.5 py-1.5 text-[12.5px] resize-none scrollbar-thin
+            /* `flex-1 min-w-0` é o que impede a barra de ficar cortada: sem
+               ele o campo não cede largura para os botões, o texto quebra em
+               duas linhas com quatro palavras cada e a barra vira um bloco
+               apertado no meio de dois ícones. */
+            className="flex-1 min-w-0 min-h-8 border-0 bg-transparent px-1.5 py-[0.4rem]
+                       text-[12.5px] leading-snug resize-none scrollbar-thin
                        focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none"
           />
         )}

@@ -138,7 +138,7 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
       <div className="mt-2">
         <BarraDeMensagem
           ocupado={mandando}
-          placeholder="Explique melhor, cole um print…"
+          placeholder="Responda, cole um print, grave um áudio…"
           onItem={async (item) => {
             setMandando(true);
             try {
