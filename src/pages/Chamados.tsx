@@ -18,6 +18,7 @@ import {
   LayoutDashboard, Users, FileSignature, Workflow, Newspaper, Briefcase,
   ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, type LucideIcon,
 } from "lucide-react";
+import { ConversaDoChamado } from "@/components/chamados/ConversaDoChamado";
 
 // ── Catálogos ────────────────────────────────────────────────────────────────
 const TIPOS = [
@@ -583,6 +584,15 @@ function DetalheDialog({
                 placeholder="O que foi feito / decidido" />
             </div>
           )}
+        </div>
+
+        {/* A CONVERSA FICA FORA DA CAIXA QUE ROLA, colada na barra de escrever.
+            Dentro dela, mandar um recado empurraria o campo de digitar para
+            fora da vista junto com o resto — e a barra é o lugar onde a pessoa
+            está com a mão. Mesma razão de a barra do Atendimento não rolar
+            junto com as bolhas. */}
+        <div className="border-t border-white/[0.07] pt-3">
+          <ConversaDoChamado chamadoId={chamado.id} meuId={meuId} meuNome={meuNome} />
         </div>
 
         {podeResolver && (
