@@ -99,7 +99,6 @@ const TABS = [
 
 // Abas/áreas do sistema com o ícone de cada uma (mesmos da barra lateral).
 const SISTEMAS: { label: string; icon: LucideIcon }[] = [
-  { label: "Geral / não sei", icon: LayoutGrid },
   { label: "Dashboard",       icon: LayoutDashboard },
   { label: "Clientes",        icon: Users },
   { label: "Pré-clientes",    icon: FileSignature },
@@ -470,9 +469,12 @@ function AbrirChamadoDialog({
 }) {
   const [titulo, setTitulo] = useState("");
   const [tipo, setTipo] = useState<string>("bug");
-  const [sistema, setSistema] = useState<string>(SISTEMAS[0].label);
+  /* NASCE VAZIO. Com uma opção já escolhida, ela é o que a pressa marca, e a
+     aba do chamado deixa de dizer onde o problema está. */
+  const [sistema, setSistema] = useState<string>("");
   const [referencia, setReferencia] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [chacoalhar, setChacoalhar] = useState(false);
   /* O QUE A PESSOA JÁ COMPÔS, na ordem em que compôs.
      Texto, print e áudio entram todos aqui, misturados, quantos ela quiser:
      é o mesmo gesto do WhatsApp, onde ninguém pensa em "campo de observação"
@@ -483,8 +485,8 @@ function AbrirChamadoDialog({
 
   useEffect(() => {
     if (open) {
-      setTitulo(""); setTipo("bug"); setSistema(SISTEMAS[0].label);
-      setReferencia("");
+      setTitulo(""); setTipo("bug"); setSistema("");
+      setReferencia(""); setChacoalhar(false);
       setItens((v) => { v.forEach((i) => i.url && URL.revokeObjectURL(i.url)); return []; });
     }
   }, [open]);
@@ -501,6 +503,11 @@ function AbrirChamadoDialog({
 
   const criar = async () => {
     if (!titulo.trim()) { toast.error("Dá um título pro chamado."); return; }
+    if (!sistema) {
+      setChacoalhar(true);
+      toast.error("Escolha em qual aba do sistema aconteceu.");
+      return;
+    }
     setSalvando(true);
 
     /* A PRIMEIRA MENSAGEM DE TEXTO TAMBÉM VIRA `observacoes`.
@@ -595,9 +602,11 @@ function AbrirChamadoDialog({
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
               <LayoutGrid className="h-3 w-3" /> Onde (aba do sistema)
             </label>
-            <Select value={sistema} onValueChange={setSistema}>
-              <SelectTrigger className="bg-white/[0.03] border-white/10">
-                <SelectValue />
+            <Select value={sistema} onValueChange={(v) => { setSistema(v); setChacoalhar(false); }}>
+              <SelectTrigger
+                onAnimationEnd={() => setChacoalhar(false)}
+                className={`bg-white/[0.03] ${chacoalhar ? "chacoalha border-red-400/60" : "border-white/10"}`}>
+                <SelectValue placeholder="Escolha a aba" />
               </SelectTrigger>
               <SelectContent className="max-h-72">
                 {SISTEMAS.map((s) => (

@@ -391,6 +391,20 @@ body {
     100% { transform: scale(1) rotate(0); }
   }
 
+  /* CHACOALHADA DE CAMPO OBRIGATÓRIO.
+     Curta e lateral, sem rotação: é um "não, aqui" e não uma comemoração. O
+     deslocamento pequeno é de propósito — o suficiente para o olho voltar ao
+     campo, pouco o bastante para não parecer defeito na tela. */
+  @keyframes chacoalha {
+    0%, 100% { transform: translateX(0); }
+    15%, 45%, 75% { transform: translateX(-5px); }
+    30%, 60%, 90% { transform: translateX(5px); }
+  }
+  .chacoalha { animation: chacoalha 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+  @media (prefers-reduced-motion: reduce) {
+    .chacoalha { animation: none; }
+  }
+
   /* Fechamentos gamificados — pulso de brilho pro multiplicador especial ativo */
   @keyframes fech-glow {
     0%, 100% { box-shadow: 0 0 0 0 hsla(38,92%,50%,0.45); }
