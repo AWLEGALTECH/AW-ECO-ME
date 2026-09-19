@@ -14,15 +14,20 @@ import {
 } from "@/components/ui/select";
 import {
   Ticket, Plus, Bug, Sparkles, Lightbulb, HelpCircle, MoreHorizontal,
-  CircleDot, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
+  CircleDot, CircleDashed, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
   LayoutDashboard, Users, FileSignature, Workflow, Newspaper, Briefcase,
-  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, Paperclip, type LucideIcon,
+  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, Paperclip, Mic, type LucideIcon,
 } from "lucide-react";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { ConversaDoChamado } from "@/components/chamados/ConversaDoChamado";
+import { BarraDeMensagem, type ItemDaBarra } from "@/components/chamados/BarraDeMensagem";
 import { SpotlightCard } from "@/components/SpotlightCard";
-import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
-import { mandarAnexo } from "@/hooks/useChamadoMensagens";
+import { mandarAnexo, mandarRecado } from "@/hooks/useChamadoMensagens";
 import { tamanhoBonito } from "@/lib/comprimirAnexo";
+
+/* A CURVA DA CASA. Mesma de todas as telas: sai rápido, chega devagar, que é
+   como as coisas com peso se movem. */
+const CURVA = [0.22, 1, 0.36, 1] as const;
 
 /* ── Catálogos ───────────────────────────────────────────────────────────────
  *
@@ -43,24 +48,51 @@ import { tamanhoBonito } from "@/lib/comprimirAnexo";
 const CHIP = "text-primary bg-primary/[0.12] ring-primary/25";
 const CHIP_APAGADO = "text-muted-foreground bg-white/[0.04] ring-white/10";
 
+/* DOIS TIPOS, e não cinco.
+ *
+ * "Ideia", "Dúvida" e "Outro" saíram: na prática todo chamado é uma de duas
+ * coisas, alguma coisa está quebrada ou alguma coisa podia ser melhor, e as
+ * outras três só faziam a pessoa parar para escolher antes de conseguir
+ * descrever o problema. Ideia é melhoria; dúvida vira mensagem na conversa do
+ * chamado, que agora existe.
+ *
+ * Os antigos continuam sendo LIDOS, porque existem 7 chamados assim no
+ * quadro. Eles só não podem mais ser escolhidos. Apagar o rótulo faria o
+ * chamado "Outro" do Diego aparecer como Bug, que é pior que manter uma
+ * categoria que ninguém escolhe mais.
+ */
 const TIPOS = [
-  { key: "bug",      label: "Bug",      icon: Bug,            cls: CHIP },
-  { key: "melhoria", label: "Melhoria", icon: Sparkles,       cls: CHIP },
-  { key: "ideia",    label: "Ideia",    icon: Lightbulb,      cls: CHIP },
-  { key: "duvida",   label: "Dúvida",   icon: HelpCircle,     cls: CHIP },
-  { key: "outro",    label: "Outro",    icon: MoreHorizontal, cls: CHIP },
+  { key: "bug",      label: "Bug",      icon: Bug,      cls: CHIP },
+  { key: "melhoria", label: "Melhoria", icon: Sparkles, cls: CHIP },
 ] as const;
 
+const TIPOS_ANTIGOS = [
+  { key: "ideia",  label: "Ideia",  icon: Lightbulb,      cls: CHIP },
+  { key: "duvida", label: "Dúvida", icon: HelpCircle,     cls: CHIP },
+  { key: "outro",  label: "Outro",  icon: MoreHorizontal, cls: CHIP },
+] as const;
+
+/** Para filtro e leitura: tudo o que pode aparecer num chamado já gravado. */
+const TODOS_OS_TIPOS = [...TIPOS, ...TIPOS_ANTIGOS];
+
+/* O ÍCONE DE "EM ANDAMENTO" NÃO RODA MAIS.
+ * Era um Loader2 girando sem parar em cada cartão. Rodopio é a marca universal
+ * de "espere, estou carregando", e ali não havia nada carregando: o chamado
+ * está sendo trabalhado por uma pessoa, que é outra coisa. Numa grade com
+ * vários, a tela inteira parecia estar carregando para sempre. O círculo
+ * tracejado diz o mesmo, parado. */
 const STATUS = {
-  aberto:       { label: "Aberto",       icon: CircleDot,    cls: CHIP },
-  // O rodopio do ícone já diz "andando". Era ele que informava; o azul era enfeite.
-  em_andamento: { label: "Em andamento", icon: Loader2,      cls: CHIP },
-  resolvido:    { label: "Resolvido",    icon: CheckCircle2, cls: CHIP_APAGADO },
+  aberto:       { label: "Aberto",       icon: CircleDot,     cls: CHIP },
+  em_andamento: { label: "Em andamento", icon: CircleDashed,  cls: CHIP },
+  resolvido:    { label: "Resolvido",    icon: CheckCircle2,  cls: CHIP_APAGADO },
 } as const;
 
+/* EM ANDAMENTO VEM PRIMEIRO. É o que está na mão de alguém agora, e portanto o
+   que tem dono e prazo; "aberto" é fila, e fila espera. Quem entra na tela
+   quer saber antes de tudo o que já começou. */
 const TABS = [
-  { key: "aberto",       label: "Abertos" },
   { key: "em_andamento", label: "Em andamento" },
+  { key: "aberto",       label: "Abertos" },
   { key: "resolvido",    label: "Resolvidos" },
   { key: "todos",        label: "Todos" },
 ] as const;
@@ -117,7 +149,7 @@ function tempoAtras(iso: string): string {
   if (d < 30) return `${d} d`;
   return new Date(iso).toLocaleDateString("pt-BR");
 }
-const tipoMeta = (t: string) => TIPOS.find((x) => x.key === t) || TIPOS[0];
+const tipoMeta = (t: string) => TODOS_OS_TIPOS.find((x) => x.key === t) || TIPOS[0];
 
 export default function Chamados() {
   useEffect(() => { document.title = `Chamados · ${appConfig.name}`; }, []);
@@ -125,7 +157,7 @@ export default function Chamados() {
   const { user, profile, isAdmin } = useAuth();
   const [abrir, setAbrir] = useState(false);
   const [detalhe, setDetalhe] = useState<Chamado | null>(null);
-  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("aberto");
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("em_andamento");
   const [filtroTipo, setFiltroTipo] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
 
@@ -184,24 +216,42 @@ export default function Chamados() {
         </Button>
       </header>
 
-      {/* Abas de status (estilo pré-clientes) */}
-      <div className="inline-flex rounded-xl bg-white/[0.03] border border-white/[0.07] p-1">
-        {TABS.map((t) => {
-          const on = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5 ${
-                on ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t.label}
-              <span className={`tabular-nums text-[10px] ${on ? "opacity-80" : "opacity-60"}`}>{countTab(t.key)}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* ── ABAS DE STATUS ─────────────────────────────────────────────────
+          UM ÚNICO FUNDO QUE DESLIZA, e não um que acende numa aba e apaga na
+          outra. É a diferença entre a marca ir de "Em andamento" para
+          "Abertos" na frente do olho, que diz de onde para onde você foi, e
+          dois piscares que não dizem nada. `layoutId` é o que faz o framer
+          entender que são o MESMO elemento em lugares diferentes. */}
+      <LayoutGroup id="abas-chamados">
+        <div className="inline-flex rounded-xl bg-white/[0.03] border border-white/[0.07] p-1">
+          {TABS.map((t) => {
+            const on = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className="relative px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5"
+              >
+                {on && (
+                  <motion.span
+                    layoutId="aba-ativa"
+                    className="absolute inset-0 rounded-lg bg-primary/15"
+                    /* MOLA, e não duração fixa: o que tem peso desacelera ao
+                       chegar, em vez de parar seco no fim do percurso. */
+                    transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                  />
+                )}
+                <span className={`relative z-10 transition-colors ${on ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  {t.label}
+                </span>
+                <span className={`relative z-10 tabular-nums text-[10px] ${on ? "text-primary/80" : "text-muted-foreground/60"}`}>
+                  {countTab(t.key)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </LayoutGroup>
 
       {/* Busca */}
       <div className="relative">
@@ -214,9 +264,10 @@ export default function Chamados() {
         />
       </div>
 
-      {/* Filtro por tipo */}
+      {/* Filtro por tipo. Os tipos aposentados só entram na fila quando ainda
+          existe chamado deles: some sozinho quando o último for resolvido. */}
       <div className="flex flex-wrap items-center gap-2">
-        {TIPOS.map((t) => {
+        {TODOS_OS_TIPOS.filter((t) => TIPOS.some((x) => x.key === t.key) || countTipo(t.key) > 0).map((t) => {
           const on = filtroTipo === t.key;
           const n = countTipo(t.key);
           return (
@@ -252,11 +303,27 @@ export default function Chamados() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-          {lista.map((c) => (
-            <ChamadoCard key={c.id} c={c} onClick={() => setDetalhe(c)} />
+        /* A TROCA DE ABA É UMA TROCA DE CONTEÚDO, e o conteúdo entra em vez de
+           aparecer. A chave é a aba: sem ela o React reaproveitaria os mesmos
+           nós e a lista nova nasceria já montada, sem movimento nenhum.
+           O escalonamento para no décimo cartão de propósito: com quarenta, o
+           último entraria dois segundos depois do primeiro, e aí não é mais
+           animação, é espera. */
+        <motion.div
+          key={`${tab}-${filtroTipo ?? ""}`}
+          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"
+        >
+          {lista.map((c, i) => (
+            <motion.div
+              key={c.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22, ease: CURVA, delay: Math.min(i, 9) * 0.03 }}
+            >
+              <ChamadoCard c={c} onClick={() => setDetalhe(c)} />
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       <AbrirChamadoDialog
@@ -302,7 +369,7 @@ function ChamadoCard({ c, onClick }: { c: Chamado; onClick: () => void }) {
           <t.icon className="h-3 w-3" /> {t.label}
         </span>
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] ring-1 shrink-0 ${st.cls}`}>
-          <st.icon className={`h-3 w-3 ${c.status === "em_andamento" ? "animate-spin" : ""}`} /> {st.label}
+          <st.icon className="h-3 w-3" /> {st.label}
         </span>
       </div>
 
@@ -405,46 +472,28 @@ function AbrirChamadoDialog({
   const [tipo, setTipo] = useState<string>("bug");
   const [sistema, setSistema] = useState<string>(SISTEMAS[0].label);
   const [referencia, setReferencia] = useState("");
-  const [observacoes, setObservacoes] = useState("");
   const [salvando, setSalvando] = useState(false);
-  /* Os anexos esperam AQUI até o chamado existir: sem id não há pasta para
-     onde subir, e criar o chamado antes de a pessoa confirmar deixaria
-     chamado vazio no quadro toda vez que alguém desistisse no meio. */
-  const [anexos, setAnexos] = useState<{ arquivo: File | Blob; nome: string; duracao?: number | null; url?: string }[]>([]);
-  const seletor = useRef<HTMLInputElement>(null);
+  /* O QUE A PESSOA JÁ COMPÔS, na ordem em que compôs.
+     Texto, print e áudio entram todos aqui, misturados, quantos ela quiser:
+     é o mesmo gesto do WhatsApp, onde ninguém pensa em "campo de observação"
+     e "campo de anexo". Eles esperam na memória porque sem chamado não há id,
+     e criar o chamado antes da confirmação deixaria chamado vazio no quadro
+     toda vez que alguém desistisse no meio. */
+  const [itens, setItens] = useState<ItemDaBarra[]>([]);
 
   useEffect(() => {
     if (open) {
       setTitulo(""); setTipo("bug"); setSistema(SISTEMAS[0].label);
-      setReferencia(""); setObservacoes("");
-      setAnexos((v) => { v.forEach((a) => a.url && URL.revokeObjectURL(a.url)); return []; });
+      setReferencia("");
+      setItens((v) => { v.forEach((i) => i.url && URL.revokeObjectURL(i.url)); return []; });
     }
   }, [open]);
 
-  const juntarAnexos = (lista: FileList | null) => {
-    const novos = Array.from(lista || []).map((f) => ({
-      arquivo: f, nome: f.name,
-      url: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
-    }));
-    if (novos.length) setAnexos((v) => [...v, ...novos]);
-  };
-
-  const tirarAnexo = (i: number) => setAnexos((v) => {
-    v[i]?.url && URL.revokeObjectURL(v[i].url!);
+  const tirarItem = (i: number) => setItens((v) => {
+    const alvo = v[i];
+    if (alvo?.url) URL.revokeObjectURL(alvo.url);
     return v.filter((_, j) => j !== i);
   });
-
-  const colarPrint = (e: React.ClipboardEvent) => {
-    const img = Array.from(e.clipboardData?.items || [])
-      .find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
-    if (!img) return;
-    e.preventDefault();
-    const nome = img.name && img.name !== "image.png"
-      ? img.name
-      : `print-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-    const arquivo = new File([img], nome, { type: img.type });
-    setAnexos((v) => [...v, { arquivo, nome, url: URL.createObjectURL(arquivo) }]);
-  };
 
   // Referência (busca na base de processos) só faz sentido em Processos.
   const ehProcessos = sistema === "Processos";
@@ -453,35 +502,52 @@ function AbrirChamadoDialog({
   const criar = async () => {
     if (!titulo.trim()) { toast.error("Dá um título pro chamado."); return; }
     setSalvando(true);
+
+    /* A PRIMEIRA MENSAGEM DE TEXTO TAMBÉM VIRA `observacoes`.
+       Não é duplicação à toa: `observacoes` é o que o cartão da grade mostra
+       como prévia e o que a busca vasculha, e os dois precisam de texto puro,
+       sem ir buscar a conversa de cada chamado. Ela nunca é editada, então as
+       duas cópias não têm como divergir. */
+    const primeiroTexto = itens.find((i) => i.texto.trim() && !i.arquivo)?.texto.trim()
+      || itens.find((i) => i.texto.trim())?.texto.trim()
+      || null;
+
     const { data, error } = await (supabase.from("chamados" as any) as any).insert({
       titulo: titulo.trim(),
       tipo, sistema,
       referencia: ehProcessos ? (referencia.trim() || null) : null,
-      observacoes: observacoes.trim() || null,
+      observacoes: primeiroTexto,
       created_by: userId,
       autor_nome: autorNome,
     }).select("id").single();
     if (error) { setSalvando(false); toast.error("Erro ao abrir: " + error.message); return; }
 
-    /* OS ANEXOS SOBEM DEPOIS, com o chamado já criado.
-       Um que falhe não derruba o chamado: o texto já está gravado e é o que
-       menos pode se perder. O aviso diz quantos ficaram de fora, e eles podem
-       ser remandados na conversa do chamado. */
+    /* O QUE FOI COMPOSTO SOBE DEPOIS, com o chamado já criado e na mesma
+       ordem em que foi escrito. Um item que falhe não derruba o chamado: o
+       título e a primeira observação já estão gravados, e o aviso diz quantos
+       ficaram de fora — eles podem ser remandados na conversa do chamado. */
+    const id = (data as { id: string }).id;
     let falharam = 0;
-    for (const a of anexos) {
+    for (const item of itens) {
       try {
-        await mandarAnexo({
-          chamadoId: (data as { id: string }).id,
-          arquivo: a.arquivo, nome: a.nome, duracao: a.duracao ?? null,
-          autorId: userId, autorNome: autorNome,
-        });
+        if (item.arquivo) {
+          await mandarAnexo({
+            chamadoId: id, arquivo: item.arquivo, nome: item.nome || "arquivo",
+            legenda: item.texto, duracao: item.duracao ?? null,
+            autorId: userId, autorNome: autorNome,
+          });
+        } else {
+          await mandarRecado({
+            chamadoId: id, texto: item.texto, autorId: userId, autorNome: autorNome,
+          });
+        }
       } catch { falharam++; }
     }
     setSalvando(false);
     if (falharam > 0) {
-      toast.warning(`Chamado aberto, mas ${falharam} ${falharam === 1 ? "anexo não subiu" : "anexos não subiram"}. Dá pra mandar de novo abrindo o chamado.`);
+      toast.warning(`Chamado aberto, mas ${falharam} ${falharam === 1 ? "item não subiu" : "itens não subiram"}. Dá pra mandar de novo abrindo o chamado.`);
     } else {
-      toast.success(anexos.length ? `Chamado aberto com ${anexos.length} ${anexos.length === 1 ? "anexo" : "anexos"}` : "Chamado aberto");
+      toast.success("Chamado aberto");
     }
     onOpenChange(false);
     onCriado();
@@ -555,81 +621,70 @@ function AbrirChamadoDialog({
             </div>
           )}
 
-          {/* Observações */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Observações</label>
-            {/* COLAR O PRINT AQUI DENTRO. É o gesto mais curto que existe:
-                Cmd+Shift+4, Cmd+V. Quem já está descrevendo o problema tem o
-                print na área de transferência naquele exato segundo. */}
-            <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={4}
-              onPaste={colarPrint}
-              className={`${inputCls} resize-y`}
-              placeholder="O que aconteceu, o passo a passo pra reproduzir, o que você esperava… (dá pra colar print aqui)" />
-          </div>
-
-          {/* ── PRINT E ÁUDIO NA ABERTURA ───────────────────────────────────
-              Estavam só dentro do chamado já criado, e esse era o lugar
-              errado: quem abre o chamado tem o print na mão AGORA, e obrigar
-              a criar, reabrir e então anexar é o atrito que faz o print nunca
-              ser mandado. Aqui os anexos esperam na memória e sobem junto
-              assim que o chamado nasce e ganha um id. */}
-          <div className="space-y-1.5">
+          {/* ── AS OBSERVAÇÕES SÃO A CONVERSA ───────────────────────────────
+              Antes eram duas coisas: um campo de texto e, embaixo, um bloco de
+              anexo. Dois lugares para dizer a mesma coisa, e quem está
+              descrevendo um problema não quer decidir em qual dos dois a
+              próxima frase entra. Agora é uma barra só, igual à do
+              Atendimento: escreve, cola, grava, manda, quantas vezes quiser.
+              O que já foi mandado sobe aqui como bolha, e o chamado nasce com
+              tudo isso dentro. */}
+          <div className="space-y-2">
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Print, áudio ou arquivo
+              Observações
             </label>
-            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
-              Uma imagem explica em dois segundos o que três parágrafos não explicam. Imagem grande
-              encolhe sozinha antes de subir.
-            </p>
 
-            {anexos.length > 0 && (
-              <div className="space-y-1.5 pt-0.5">
-                {anexos.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.04] ring-1 ring-white/[0.07] p-2">
-                    {a.url
-                      ? <img src={a.url} alt="" className="h-10 w-10 rounded object-cover shrink-0" />
-                      : <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />}
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] truncate">{a.nome}</span>
-                      <span className="block text-[10px] text-muted-foreground">
-                        {tamanhoBonito(a.arquivo.size)}
-                        {a.arquivo.type.startsWith("image/") && a.arquivo.size > 200 * 1024 && " · vai encolher"}
-                      </span>
+            <AnimatePresence initial={false}>
+              {itens.map((item, i) => (
+                <motion.div
+                  key={`${i}-${item.nome || item.texto.slice(0, 12)}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  transition={{ duration: 0.18, ease: CURVA }}
+                  className="group flex items-start gap-2 rounded-xl bg-primary/[0.08] ring-1 ring-primary/15 p-2"
+                >
+                  {item.url && <img src={item.url} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
+                  {!item.url && item.arquivo && (
+                    <span className="h-11 w-11 rounded-lg bg-white/[0.05] grid place-items-center shrink-0">
+                      {item.duracao != null
+                        ? <Mic className="h-4 w-4 text-muted-foreground" />
+                        : <Paperclip className="h-4 w-4 text-muted-foreground" />}
                     </span>
-                    <button type="button" onClick={() => tirarAnexo(i)}
-                      className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-white/[0.06]">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+                  )}
+                  <span className="min-w-0 flex-1 pt-0.5">
+                    {item.texto && (
+                      <span className="block text-[12.5px] whitespace-pre-wrap break-words">{item.texto}</span>
+                    )}
+                    {item.arquivo && (
+                      <span className="block text-[10px] text-muted-foreground mt-0.5">
+                        {item.duracao != null
+                          ? `áudio de ${item.duracao}s`
+                          : `${item.nome} · ${tamanhoBonito(item.arquivo.size)}`}
+                        {item.arquivo.type.startsWith("image/") && item.arquivo.size > 200 * 1024 && " · vai encolher"}
+                      </span>
+                    )}
+                  </span>
+                  <button type="button" onClick={() => tirarItem(i)} title="Tirar"
+                    className="h-6 w-6 shrink-0 grid place-items-center rounded-md text-muted-foreground/50 hover:text-red-400 hover:bg-white/[0.06] transition-colors">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
 
-            <div className="flex items-center gap-1.5 pt-0.5">
-              <input ref={seletor} type="file" className="hidden" multiple
-                accept="image/*,application/pdf,audio/*,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                onChange={(e) => { juntarAnexos(e.target.files); e.target.value = ""; }} />
-              <Button type="button" size="sm" variant="outline" className="h-9 gap-1.5"
-                onClick={() => seletor.current?.click()} disabled={salvando}>
-                <Paperclip className="h-3.5 w-3.5" /> Anexar
-              </Button>
-              {/* O mesmo gravador do Atendimento: aqui ele não manda, guarda. */}
-              <GravadorDeAudio
-                onEnviar={async (blob, seg) => {
-                  setAnexos((v) => [...v, {
-                    arquivo: blob, nome: `audio-${Date.now()}.webm`, duracao: seg,
-                  }]);
-                }}
-                disabled={salvando}
-              />
-            </div>
+            <BarraDeMensagem
+              ocupado={salvando}
+              placeholder="O que aconteceu, o passo a passo, o que você esperava…"
+              onItem={(item) => setItens((v) => [...v, item])}
+            />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={salvando}>Cancelar</Button>
           <Button onClick={criar} disabled={salvando}>
-            {salvando ? (anexos.length ? "Subindo anexos…" : "Abrindo…") : "Abrir chamado"}
+            {salvando ? (itens.some((i) => i.arquivo) ? "Subindo anexos…" : "Abrindo…") : "Abrir chamado"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -687,7 +742,7 @@ function DetalheDialog({
               <t.icon className="h-3 w-3" /> {t.label}
             </span>
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${st.cls}`}>
-              <st.icon className={`h-3 w-3 ${chamado.status === "em_andamento" ? "animate-spin" : ""}`} /> {st.label}
+              <st.icon className="h-3 w-3" /> {st.label}
             </span>
           </div>
           <DialogTitle className="text-left mt-2">{chamado.titulo}</DialogTitle>

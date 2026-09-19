@@ -1,14 +1,9 @@
 /* A CONVERSA DENTRO DO CHAMADO: print, áudio e recado.
  *
- * A barra de baixo é a mesma do Atendimento, na mesma ordem e com os mesmos
- * gestos: clipe, campo que cresce até cinco linhas, microfone, enviar. Enter
- * manda, Shift+Enter quebra linha, e dá para COLAR um print direto no campo,
- * que é como noventa por cento dos prints vão entrar aqui: a pessoa dá
- * Cmd+Shift+4, Cmd+V e pronto. O gravador é literalmente o mesmo componente.
- *
- * Isso não é economia de código, é economia de aprendizado: quem já responde
- * lead o dia inteiro não devia precisar descobrir como se manda um áudio num
- * lugar diferente do sistema.
+ * A barra de baixo é a MESMA peça da abertura do chamado (BarraDeMensagem),
+ * que por sua vez é a do Atendimento: clipe, campo que cresce, microfone,
+ * enviar. Uma peça só nos três lugares, senão elas divergem na primeira
+ * correção e a pessoa aprende três barras parecidas.
  *
  * O ANEXO ENCOLHE ANTES DE SUBIR, e a tela conta isso ("2,4 MB → 240 KB").
  * Sem essa frase ninguém percebe que a compressão existe, e alguém acabaria
@@ -16,11 +11,9 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Paperclip, Send, Loader2, Trash2, FileText, Play, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Trash2, FileText, Play, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
+import { BarraDeMensagem } from "@/components/chamados/BarraDeMensagem";
 import { tamanhoBonito } from "@/lib/comprimirAnexo";
 import {
   useChamadoMensagens, useInvalidarChamadoMensagens, useAnexoUrl,
@@ -82,88 +75,11 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
   const { data: mensagens = [], isLoading } = useChamadoMensagens(chamadoId);
   const invalidar = useInvalidarChamadoMensagens();
 
-  const [rascunho, setRascunho] = useState("");
-  const [anexo, setAnexo] = useState<{ arquivo: File; url: string } | null>(null);
   const [mandando, setMandando] = useState(false);
-  const [gravando, setGravando] = useState(false);
-  const campo = useRef<HTMLTextAreaElement>(null);
-  const seletor = useRef<HTMLInputElement>(null);
   const fim = useRef<HTMLDivElement>(null);
 
   // A conversa abre no fim, onde está o que acabou de ser dito.
   useEffect(() => { fim.current?.scrollIntoView({ block: "end" }); }, [mensagens.length]);
-  // A prévia do anexo é um object URL; sem soltar, cada print colado vaza.
-  useEffect(() => () => { if (anexo) URL.revokeObjectURL(anexo.url); }, [anexo]);
-
-  const escolher = (f: File | null | undefined) => {
-    if (!f) return;
-    if (anexo) URL.revokeObjectURL(anexo.url);
-    setAnexo({ arquivo: f, url: URL.createObjectURL(f) });
-    campo.current?.focus();
-  };
-
-  const tirarAnexo = () => {
-    if (anexo) URL.revokeObjectURL(anexo.url);
-    setAnexo(null);
-  };
-
-  /* COLAR O PRINT É O CAMINHO PRINCIPAL. Cmd+Shift+4, Cmd+V, enviar. Obrigar a
-     salvar no disco e procurar pelo clipe transformaria dois gestos em cinco,
-     e é nesse tipo de atrito que o print deixa de ser mandado. */
-  const colar = (e: React.ClipboardEvent) => {
-    const arquivo = Array.from(e.clipboardData?.items || [])
-      .find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
-    if (!arquivo) return;
-    e.preventDefault();
-    const nome = arquivo.name && arquivo.name !== "image.png"
-      ? arquivo.name
-      : `print-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-    escolher(new File([arquivo], nome, { type: arquivo.type }));
-  };
-
-  const enviar = async () => {
-    if (mandando) return;
-    const texto = rascunho.trim();
-    if (!anexo && !texto) return;
-    setMandando(true);
-    try {
-      if (anexo) {
-        const { antes, depois } = await mandarAnexo({
-          chamadoId, arquivo: anexo.arquivo, nome: anexo.arquivo.name,
-          legenda: texto, autorId: meuId, autorNome: meuNome,
-        });
-        // Só conta quando encolheu de verdade: "240 KB → 240 KB" seria ruído.
-        if (depois < antes * 0.9) {
-          toast.success(`Anexo enviado · ${tamanhoBonito(antes)} → ${tamanhoBonito(depois)}`);
-        } else {
-          toast.success("Anexo enviado.");
-        }
-        tirarAnexo();
-      } else {
-        await mandarRecado({ chamadoId, texto, autorId: meuId, autorNome: meuNome });
-      }
-      setRascunho("");
-      invalidar(chamadoId);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setMandando(false);
-    }
-  };
-
-  const enviarAudio = async (blob: Blob, segundos: number) => {
-    try {
-      await mandarAnexo({
-        chamadoId, arquivo: blob,
-        nome: `audio-${Date.now()}.webm`,
-        duracao: segundos, autorId: meuId, autorNome: meuNome,
-      });
-      invalidar(chamadoId);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
   const apagar = async (m: ChamadoMensagem) => {
     if (!window.confirm("Apagar este recado? O anexo sai junto.")) return;
     try { await apagarRecado(m); invalidar(chamadoId); }
@@ -218,72 +134,36 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
         <div ref={fim} />
       </div>
 
-      {/* ── a prévia do que vai junto ─────────────────────────────────────── */}
-      {anexo && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/[0.04] ring-1 ring-white/[0.07] p-2">
-          {anexo.arquivo.type.startsWith("image/")
-            ? <img src={anexo.url} alt="" className="h-12 w-12 rounded object-cover shrink-0" />
-            : <FileText className="h-5 w-5 text-muted-foreground shrink-0" />}
-          <span className="min-w-0 flex-1">
-            <span className="block text-[12px] truncate">{anexo.arquivo.name}</span>
-            <span className="block text-[10px] text-muted-foreground">
-              {tamanhoBonito(anexo.arquivo.size)}
-              {/* A promessa aparece ANTES do envio: quem vê "vai encolher"
-                  manda sem medo de entupir o sistema. */}
-              {anexo.arquivo.type.startsWith("image/") && anexo.arquivo.size > 200 * 1024 && " · vai encolher no envio"}
-            </span>
-          </span>
-          <button type="button" onClick={tirarAnexo}
-            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-white/[0.06]">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* ── a barra, na mesma ordem da do Atendimento ─────────────────────── */}
-      <div className="mt-2 flex items-end gap-1.5">
-        <input ref={seletor} type="file" className="hidden"
-          accept="image/*,application/pdf,audio/*,.doc,.docx,.xls,.xlsx,.csv,.txt"
-          onChange={(e) => { escolher(e.target.files?.[0]); e.target.value = ""; }} />
-
-        {!gravando && (
-          <Button size="sm" variant="ghost" title="Anexar print ou arquivo"
-            className="h-9 w-9 p-0 shrink-0" onClick={() => seletor.current?.click()}
-            disabled={mandando}>
-            <Paperclip className="h-4 w-4" />
-          </Button>
-        )}
-
-        {!gravando && (
-          <Textarea
-            ref={campo}
-            value={rascunho}
-            rows={1}
-            onChange={(e) => setRascunho(e.target.value)}
-            onPaste={colar}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              if (e.shiftKey || e.ctrlKey || e.metaKey) return;
-              e.preventDefault();
-              enviar();
-            }}
-            placeholder={anexo ? "Legenda (opcional)…" : "Explique melhor, cole um print…"}
-            className="min-h-9 max-h-[7.5rem] py-[0.45rem] text-[12.5px] resize-none scrollbar-thin"
-          />
-        )}
-
-        {/* Áudio não anda junto com anexo: são duas mensagens diferentes, e o
-            gravador ocupa a barra inteira enquanto grava. */}
-        {!anexo && (
-          <GravadorDeAudio onEnviar={enviarAudio} onGravandoChange={setGravando} disabled={mandando} />
-        )}
-
-        {!gravando && (
-          <Button size="sm" className="h-9 w-9 p-0 shrink-0" onClick={enviar}
-            disabled={mandando || (!rascunho.trim() && !anexo)}>
-            {mandando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
-        )}
+      {/* ── a barra, a MESMA peça da abertura do chamado ──────────────────── */}
+      <div className="mt-2">
+        <BarraDeMensagem
+          ocupado={mandando}
+          placeholder="Explique melhor, cole um print…"
+          onItem={async (item) => {
+            setMandando(true);
+            try {
+              if (item.arquivo) {
+                const { antes, depois } = await mandarAnexo({
+                  chamadoId, arquivo: item.arquivo, nome: item.nome || "arquivo",
+                  legenda: item.texto, duracao: item.duracao ?? null,
+                  autorId: meuId, autorNome: meuNome,
+                });
+                // Só conta quando encolheu de verdade: "240 KB → 240 KB" é ruído.
+                if (depois < antes * 0.9) {
+                  toast.success(`Enviado · ${tamanhoBonito(antes)} → ${tamanhoBonito(depois)}`);
+                }
+              } else {
+                await mandarRecado({ chamadoId, texto: item.texto, autorId: meuId, autorNome: meuNome });
+              }
+              invalidar(chamadoId);
+            } catch (e) {
+              toast.error((e as Error).message);
+            } finally {
+              setMandando(false);
+              if (item.url) URL.revokeObjectURL(item.url);
+            }
+          }}
+        />
       </div>
     </div>
   );
