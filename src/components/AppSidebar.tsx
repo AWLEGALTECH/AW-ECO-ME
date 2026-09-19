@@ -42,7 +42,11 @@ import {
 
 interface NavItem { title: string; url: string; icon: LucideIcon; badgeKey?: string; module?: ModuleKey; beta?: boolean; alwaysVisible?: boolean }
 
-const navItems: NavItem[] = [
+/* EXPORTADOS porque a lista de áreas do sistema é UMA SÓ.
+   O seletor de "onde aconteceu" do chamado lê daqui: aba nova na barra
+   lateral passa a aparecer lá sozinha, e ninguém precisa lembrar de
+   acrescentar em dois lugares — que é o tipo de coisa que ninguém lembra. */
+export const navItems: NavItem[] = [
   { title: "Dashboard",     url: "/dashboard",     icon: LayoutDashboard, module: "dashboard" },
   { title: "Clientes",      url: "/clientes",      icon: Users,           module: "clientes" },
   { title: "Atendimento",   url: "/atendimento",   icon: MessagesSquare,  module: "atendimento",  beta: true },
@@ -63,7 +67,7 @@ const navItems: NavItem[] = [
   { title: "Marketing",     url: "/marketing",     icon: Megaphone,       module: "marketing",    beta: true },
 ];
 
-const adminItems: NavItem[] = [
+export const adminItems: NavItem[] = [
   { title: "Usuários", url: "/admin/usuarios", icon: UserCog },
   { title: "Logs",     url: "/admin/logs",     icon: Activity },
 ];

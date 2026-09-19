@@ -11,10 +11,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, FileText, Play, Download } from "lucide-react";
+import { Trash2, FileText, Play, Pause, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BarraDeMensagem } from "@/components/chamados/BarraDeMensagem";
 import { tamanhoBonito } from "@/lib/comprimirAnexo";
+import { barrasDoAudio, progressoDoAudio, duracaoExibida } from "@/lib/midiaMensagem";
+import { duracaoCurta } from "@/lib/wa";
 import {
   useChamadoMensagens, useInvalidarChamadoMensagens, useAnexoUrl,
   mandarRecado, mandarAnexo, apagarRecado, type ChamadoMensagem,
@@ -23,8 +25,85 @@ import {
 const hora = (iso: string) =>
   new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
-const mmss = (s?: number | null) =>
-  s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+/* ── O PLAYER DE ÁUDIO, com a cara do Atendimento ─────────────────────────
+ *
+ * O `<audio controls>` do navegador chegava aqui branco, com a barra e os
+ * botões do Chrome, no meio de uma tela escura: parecia um pedaço de outro
+ * programa colado dentro do chamado. E não era só feio — aquele controle tem
+ * altura própria, menu de três pontos e um volume que ninguém usa.
+ *
+ * Aqui é a mesma bolha do Atendimento: botão redondo, as barrinhas servindo de
+ * progresso (clicáveis para pular) e o tempo. As barras são as MESMAS,
+ * sorteadas a partir do id da mensagem, então o desenho de um áudio é sempre
+ * igual — o que faz duas bolhas diferentes parecerem coisas diferentes.
+ *
+ * O `<audio>` é local, e não o tocador global do Atendimento: ali ele existe
+ * para o som sobreviver à troca de conversa; aqui a conversa mora num diálogo
+ * que fecha, e trazer o provedor junto seria arrastar meia tela para ganhar
+ * nada.
+ */
+function PlayerDeAudio({ url, id, duracao }: { url: string | null; id: string; duracao: number | null }) {
+  const el = useRef<HTMLAudioElement | null>(null);
+  const [tocando, setTocando] = useState(false);
+  const [tempo, setTempo] = useState(0);
+  const [lida, setLida] = useState<number | null>(null);
+
+  const barras = barrasDoAudio(id);
+  const pct = progressoDoAudio(tempo, lida, duracao);
+  const total = duracaoExibida(lida, duracao);
+
+  return (
+    <span className="flex items-center gap-2.5 min-w-[190px] max-w-[250px] py-0.5">
+      <audio
+        ref={el}
+        src={url ?? undefined}
+        preload="metadata"
+        onPlay={() => setTocando(true)}
+        onPause={() => setTocando(false)}
+        onEnded={() => { setTocando(false); setTempo(0); }}
+        onTimeUpdate={(e) => setTempo(e.currentTarget.currentTime)}
+        /* O webm gravado pelo navegador não traz a duração no cabeçalho e
+           chega como Infinity; nesse caso vale o número que o gravador mediu. */
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration;
+          setLida(Number.isFinite(d) ? d : null);
+        }}
+        className="hidden"
+      />
+      <button
+        type="button"
+        disabled={!url}
+        onClick={() => { const a = el.current; if (!a) return; a.paused ? a.play() : a.pause(); }}
+        aria-label={tocando ? "Pausar áudio" : "Tocar áudio"}
+        className="h-8 w-8 rounded-full grid place-items-center shrink-0 transition-colors
+                   bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-50"
+      >
+        {tocando ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 ml-[1px]" />}
+      </button>
+
+      <span className="flex-1 min-w-0">
+        {/* As barrinhas SÃO a barra de progresso: as que já passaram acendem.
+            Uma barra lisa por cima seria o mesmo dado desenhado duas vezes. */}
+        <span className="flex items-end gap-[2px] h-6 cursor-pointer"
+          onClick={(e) => {
+            const a = el.current;
+            if (!a || !Number.isFinite(a.duration)) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            a.currentTime = ((e.clientX - r.left) / r.width) * a.duration;
+          }}>
+          {barras.map((altura, i) => (
+            <span key={i} style={{ height: `${Math.round(altura * 100)}%` }}
+              className={cn("flex-1 rounded-full transition-colors",
+                (i / barras.length) * 100 <= pct ? "bg-primary/70" : "bg-white/20")} />
+          ))}
+        </span>
+        <span className="block text-right text-[9.5px] tabular-nums text-muted-foreground/70 mt-0.5">
+          {tocando || tempo > 0 ? duracaoCurta(Math.round(tempo)) : (total ?? "")}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 /* ── o anexo dentro da bolha ─────────────────────────────────────────────── */
 function Anexo({ m }: { m: ChamadoMensagem }) {
@@ -43,16 +122,7 @@ function Anexo({ m }: { m: ChamadoMensagem }) {
     );
   }
 
-  if (m.tipo === "audio") {
-    return (
-      <span className="flex items-center gap-2 min-w-[12rem]">
-        {url
-          ? <audio controls src={url} className="h-8 max-w-[15rem]" />
-          : <Play className="h-4 w-4 text-muted-foreground animate-pulse" />}
-        {m.duracao ? <span className="text-[10px] text-muted-foreground tabular-nums">{mmss(m.duracao)}</span> : null}
-      </span>
-    );
-  }
+  if (m.tipo === "audio") return <PlayerDeAudio url={url ?? null} id={m.id} duracao={m.duracao} />;
 
   return (
     <a href={url} target="_blank" rel="noreferrer"

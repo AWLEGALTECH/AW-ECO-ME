@@ -14,11 +14,11 @@ import {
 } from "@/components/ui/select";
 import {
   Ticket, Plus, Bug, Sparkles, Lightbulb, HelpCircle, MoreHorizontal,
-  CircleDot, CircleDashed, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
-  LayoutDashboard, Users, FileSignature, Workflow, Newspaper, Briefcase,
-  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, Paperclip, Mic, type LucideIcon,
+  CircleDot, Hammer, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
+  Briefcase, Paperclip, Mic, type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { navItems, adminItems } from "@/components/AppSidebar";
 import { ConversaDoChamado } from "@/components/chamados/ConversaDoChamado";
 import { BarraDeMensagem, type ItemDaBarra } from "@/components/chamados/BarraDeMensagem";
 import { SpotlightCard } from "@/components/SpotlightCard";
@@ -75,15 +75,13 @@ const TIPOS_ANTIGOS = [
 /** Para filtro e leitura: tudo o que pode aparecer num chamado já gravado. */
 const TODOS_OS_TIPOS = [...TIPOS, ...TIPOS_ANTIGOS];
 
-/* O ÍCONE DE "EM ANDAMENTO" NÃO RODA MAIS.
- * Era um Loader2 girando sem parar em cada cartão. Rodopio é a marca universal
- * de "espere, estou carregando", e ali não havia nada carregando: o chamado
- * está sendo trabalhado por uma pessoa, que é outra coisa. Numa grade com
- * vários, a tela inteira parecia estar carregando para sempre. O círculo
- * tracejado diz o mesmo, parado. */
+/* O ÍCONE DE "EM ANDAMENTO" É UM MARTELO.
+ * Era um Loader2 girando, e rodopio quer dizer "espere, carregando" — ali não
+ * havia nada carregando. Virou círculo tracejado, que era pior ainda: bola
+ * pontilhada não quer dizer nada. Martelo quer: tem gente batendo nisso. */
 const STATUS = {
   aberto:       { label: "Aberto",       icon: CircleDot,     cls: CHIP },
-  em_andamento: { label: "Em andamento", icon: CircleDashed,  cls: CHIP },
+  em_andamento: { label: "Em andamento", icon: Hammer,       cls: CHIP },
   resolvido:    { label: "Resolvido",    icon: CheckCircle2,  cls: CHIP_APAGADO },
 } as const;
 
@@ -97,25 +95,21 @@ const TABS = [
   { key: "todos",        label: "Todos" },
 ] as const;
 
-// Abas/áreas do sistema com o ícone de cada uma (mesmos da barra lateral).
+/* AS ÁREAS SÃO AS DA BARRA LATERAL, lidas de lá.
+ *
+ * Antes era uma cópia escrita à mão, e ela já tinha divergido: faltavam
+ * Atendimento, Wallet, Projetos, Spy, Sheets e Marketing, e sobravam três que
+ * não existem como aba ("Prospecção", "Notificações", "Login / acesso"). Quem
+ * abria um chamado do Atendimento não achava o Atendimento na lista.
+ *
+ * Lendo do mesmo array que desenha o menu, aba nova aparece aqui sozinha no
+ * dia em que nasce. Administração entra junto porque Usuários e Logs também
+ * são telas onde algo pode quebrar. */
 const SISTEMAS: { label: string; icon: LucideIcon }[] = [
-  { label: "Dashboard",       icon: LayoutDashboard },
-  { label: "Clientes",        icon: Users },
-  { label: "Pré-clientes",    icon: FileSignature },
-  { label: "Esteira",         icon: Workflow },
-  { label: "Publicações",     icon: Newspaper },
-  { label: "Processos",       icon: Briefcase },
-  { label: "Tarefas",         icon: ListTodo },
-  { label: "Writer",          icon: PenSquare },
-  { label: "Finder",          icon: ScanSearch },
-  { label: "Prospecção",      icon: Target },
-  { label: "Fechamentos",     icon: Trophy },
-  { label: "Tracker",         icon: Eye },
-  { label: "Notificações",    icon: Bell },
-  { label: "Chamados",        icon: Ticket },
-  { label: "Login / acesso",  icon: LogIn },
-  { label: "Outros",          icon: MoreHorizontal },
+  ...navItems.map((i) => ({ label: i.title, icon: i.icon })),
+  ...adminItems.map((i) => ({ label: i.title, icon: i.icon })),
 ];
+
 const sistemaIcon = (nome: string | null): LucideIcon =>
   SISTEMAS.find((s) => s.label === nome)?.icon || LayoutGrid;
 
@@ -608,7 +602,7 @@ function AbrirChamadoDialog({
                 className={`bg-white/[0.03] ${chacoalhar ? "chacoalha border-red-400/60" : "border-white/10"}`}>
                 <SelectValue placeholder="Escolha a aba" />
               </SelectTrigger>
-              <SelectContent className="max-h-72">
+              <SelectContent>
                 {SISTEMAS.map((s) => (
                   <SelectItem key={s.label} value={s.label}>
                     <span className="flex items-center gap-2">

@@ -75,11 +75,18 @@ const SelectContent = React.forwardRef<
       {...props}
     >
       <SelectScrollUpButton />
+      {/* A ALTURA DO GATILHO NÃO PODE SER A ALTURA DA LISTA.
+          O shadcn vem com `h-[var(--radix-select-trigger-height)]` aqui, e
+          isso trava o miolo rolável na altura do campo fechado: com vinte
+          opções, a lista abre cortada, rola errado e engole itens no meio.
+          Foi o que apareceu no seletor de área do chamado.
+          A largura continua vindo do gatilho, que é o que alinha a lista com
+          o campo; a altura passa a ser a do conteúdo, limitada pelo `max-h`
+          do Content, que é para onde a rolagem existe. */}
       <SelectPrimitive.Viewport
         className={cn(
           "p-1",
-          position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]",
+          position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]",
         )}
       >
         {children}
