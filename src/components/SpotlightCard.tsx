@@ -13,10 +13,17 @@ interface SpotlightCardProps {
   sutil?: boolean;
   /** âncora do cartão, para um link de fora conseguir rolar até ele */
   id?: string;
+  /* CARTÃO QUE É BOTÃO. Com `onClick` ele já reage ao mouse, e só a ele: um
+     `div` não recebe foco nem responde a Enter. Onde o cartão inteiro é o
+     gesto (a grade de chamados), isto o devolve ao teclado e ao leitor de
+     tela, sem transformar em botão o cartão do painel que só mostra número. */
+  comoBotao?: boolean;
+  /** o que o leitor de tela anuncia quando `comoBotao` */
+  rotulo?: string;
 }
 
 export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
-  ({ children, className, onClick, sutil = false, id }, forwardedRef) => {
+  ({ children, className, onClick, sutil = false, id, comoBotao = false, rotulo }, forwardedRef) => {
     const internalRef = useRef<HTMLDivElement>(null);
     const ref = (forwardedRef as React.RefObject<HTMLDivElement>) || internalRef;
     const [coords, setCoords] = useState({ x: 0, y: 0 });
@@ -41,12 +48,20 @@ export const SpotlightCard = forwardRef<HTMLDivElement, SpotlightCardProps>(
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={onClick}
+        role={comoBotao && onClick ? "button" : undefined}
+        tabIndex={comoBotao && onClick ? 0 : undefined}
+        aria-label={comoBotao ? rotulo : undefined}
+        onKeyDown={comoBotao && onClick ? (e) => {
+          // Espaço também rola a página; num cartão que é botão, o gesto ganha.
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); }
+        } : undefined}
         className={cn(
           "spotlight-card group relative rounded-2xl border border-white/[0.07] p-6",
           "bg-white/[0.03] backdrop-blur-md",
           "shadow-[0_8px_32px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.05)]",
           "transition-all duration-300",
           onClick && "cursor-pointer",
+          comoBotao && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
           className
         )}
         style={

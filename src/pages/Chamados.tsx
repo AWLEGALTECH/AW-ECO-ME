@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,23 +16,46 @@ import {
   Ticket, Plus, Bug, Sparkles, Lightbulb, HelpCircle, MoreHorizontal,
   CircleDot, Loader2, CheckCircle2, LayoutGrid, Link2, Clock, User, Search, X,
   LayoutDashboard, Users, FileSignature, Workflow, Newspaper, Briefcase,
-  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, type LucideIcon,
+  ListTodo, PenSquare, ScanSearch, Target, Trophy, Eye, Bell, LogIn, Paperclip, type LucideIcon,
 } from "lucide-react";
 import { ConversaDoChamado } from "@/components/chamados/ConversaDoChamado";
+import { SpotlightCard } from "@/components/SpotlightCard";
+import { GravadorDeAudio } from "@/components/atendimento/GravadorDeAudio";
+import { mandarAnexo } from "@/hooks/useChamadoMensagens";
+import { tamanhoBonito } from "@/lib/comprimirAnexo";
 
-// ── Catálogos ────────────────────────────────────────────────────────────────
+/* ── Catálogos ───────────────────────────────────────────────────────────────
+ *
+ * UMA COR SÓ, a do tema de quem está usando. O que separa uma categoria da
+ * outra é o SÍMBOLO e o NOME, que é o que a pessoa lê de qualquer jeito.
+ *
+ * A versão anterior dava uma cor a cada coisa: bug vermelho, melhoria azul,
+ * ideia âmbar, dúvida violeta, em andamento azul de novo. Com cinco tipos e
+ * três status na mesma tela, a grade virava um mostruário, e nenhuma daquelas
+ * cores significava nada: vermelho num bug não quer dizer urgente, e azul em
+ * "melhoria" não quer dizer coisa nenhuma. Cor que não carrega informação
+ * rouba a atenção de quem carrega.
+ *
+ * A ÚNICA EXCEÇÃO É O RESOLVIDO, e ela não é uma segunda cor: é a ausência
+ * dela. O chamado fechado sai de cena, e apagá-lo é o que faz os abertos
+ * saltarem numa lista onde os dois convivem.
+ */
+const CHIP = "text-primary bg-primary/[0.12] ring-primary/25";
+const CHIP_APAGADO = "text-muted-foreground bg-white/[0.04] ring-white/10";
+
 const TIPOS = [
-  { key: "bug",      label: "Bug",      icon: Bug,            cls: "text-rose-400 bg-rose-500/12 ring-rose-500/25" },
-  { key: "melhoria", label: "Melhoria", icon: Sparkles,       cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
-  { key: "ideia",    label: "Ideia",    icon: Lightbulb,      cls: "text-amber-400 bg-amber-400/12 ring-amber-400/25" },
-  { key: "duvida",   label: "Dúvida",   icon: HelpCircle,     cls: "text-violet-400 bg-violet-500/12 ring-violet-500/25" },
-  { key: "outro",    label: "Outro",    icon: MoreHorizontal, cls: "text-muted-foreground bg-white/[0.05] ring-white/10" },
+  { key: "bug",      label: "Bug",      icon: Bug,            cls: CHIP },
+  { key: "melhoria", label: "Melhoria", icon: Sparkles,       cls: CHIP },
+  { key: "ideia",    label: "Ideia",    icon: Lightbulb,      cls: CHIP },
+  { key: "duvida",   label: "Dúvida",   icon: HelpCircle,     cls: CHIP },
+  { key: "outro",    label: "Outro",    icon: MoreHorizontal, cls: CHIP },
 ] as const;
 
 const STATUS = {
-  aberto:       { label: "Aberto",       icon: CircleDot,    cls: "text-emerald-400 bg-emerald-500/12 ring-emerald-500/25" },
-  em_andamento: { label: "Em andamento", icon: Loader2,      cls: "text-sky-400 bg-sky-500/12 ring-sky-500/25" },
-  resolvido:    { label: "Resolvido",    icon: CheckCircle2, cls: "text-muted-foreground bg-white/[0.04] ring-white/10" },
+  aberto:       { label: "Aberto",       icon: CircleDot,    cls: CHIP },
+  // O rodopio do ícone já diz "andando". Era ele que informava; o azul era enfeite.
+  em_andamento: { label: "Em andamento", icon: Loader2,      cls: CHIP },
+  resolvido:    { label: "Resolvido",    icon: CheckCircle2, cls: CHIP_APAGADO },
 } as const;
 
 const TABS = [
@@ -263,9 +286,15 @@ function ChamadoCard({ c, onClick }: { c: Chamado; onClick: () => void }) {
   const st = STATUS[c.status];
   const SisIcon = sistemaIcon(c.sistema);
   return (
-    <button
+    /* O MESMO CARTÃO DO PAINEL, com o brilho que segue o ponteiro. A grade de
+       chamados é uma tela de escolher: a pessoa passa o mouse procurando o
+       dela, e o cartão que acende sob o cursor é o que diz "é este que você
+       vai abrir". A borda dura de antes não dizia nada até o clique. */
+    <SpotlightCard
       onClick={onClick}
-      className="h-full text-left rounded-xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-colors p-4 flex flex-col"
+      comoBotao
+      rotulo={`Abrir chamado ${c.titulo}`}
+      className="h-full p-4 rounded-xl flex flex-col text-left"
     >
       {/* topo: tipo + status */}
       <div className="flex items-center justify-between gap-2">
@@ -298,7 +327,7 @@ function ChamadoCard({ c, onClick }: { c: Chamado; onClick: () => void }) {
           <span className="inline-flex items-center gap-1 shrink-0"><Clock className="h-3 w-3" /> {tempoAtras(c.created_at)}</span>
         </div>
       </div>
-    </button>
+    </SpotlightCard>
   );
 }
 
@@ -378,13 +407,44 @@ function AbrirChamadoDialog({
   const [referencia, setReferencia] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [salvando, setSalvando] = useState(false);
+  /* Os anexos esperam AQUI até o chamado existir: sem id não há pasta para
+     onde subir, e criar o chamado antes de a pessoa confirmar deixaria
+     chamado vazio no quadro toda vez que alguém desistisse no meio. */
+  const [anexos, setAnexos] = useState<{ arquivo: File | Blob; nome: string; duracao?: number | null; url?: string }[]>([]);
+  const seletor = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setTitulo(""); setTipo("bug"); setSistema(SISTEMAS[0].label);
       setReferencia(""); setObservacoes("");
+      setAnexos((v) => { v.forEach((a) => a.url && URL.revokeObjectURL(a.url)); return []; });
     }
   }, [open]);
+
+  const juntarAnexos = (lista: FileList | null) => {
+    const novos = Array.from(lista || []).map((f) => ({
+      arquivo: f, nome: f.name,
+      url: f.type.startsWith("image/") ? URL.createObjectURL(f) : undefined,
+    }));
+    if (novos.length) setAnexos((v) => [...v, ...novos]);
+  };
+
+  const tirarAnexo = (i: number) => setAnexos((v) => {
+    v[i]?.url && URL.revokeObjectURL(v[i].url!);
+    return v.filter((_, j) => j !== i);
+  });
+
+  const colarPrint = (e: React.ClipboardEvent) => {
+    const img = Array.from(e.clipboardData?.items || [])
+      .find((i) => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
+    if (!img) return;
+    e.preventDefault();
+    const nome = img.name && img.name !== "image.png"
+      ? img.name
+      : `print-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+    const arquivo = new File([img], nome, { type: img.type });
+    setAnexos((v) => [...v, { arquivo, nome, url: URL.createObjectURL(arquivo) }]);
+  };
 
   // Referência (busca na base de processos) só faz sentido em Processos.
   const ehProcessos = sistema === "Processos";
@@ -393,17 +453,36 @@ function AbrirChamadoDialog({
   const criar = async () => {
     if (!titulo.trim()) { toast.error("Dá um título pro chamado."); return; }
     setSalvando(true);
-    const { error } = await (supabase.from("chamados" as any) as any).insert({
+    const { data, error } = await (supabase.from("chamados" as any) as any).insert({
       titulo: titulo.trim(),
       tipo, sistema,
       referencia: ehProcessos ? (referencia.trim() || null) : null,
       observacoes: observacoes.trim() || null,
       created_by: userId,
       autor_nome: autorNome,
-    });
+    }).select("id").single();
+    if (error) { setSalvando(false); toast.error("Erro ao abrir: " + error.message); return; }
+
+    /* OS ANEXOS SOBEM DEPOIS, com o chamado já criado.
+       Um que falhe não derruba o chamado: o texto já está gravado e é o que
+       menos pode se perder. O aviso diz quantos ficaram de fora, e eles podem
+       ser remandados na conversa do chamado. */
+    let falharam = 0;
+    for (const a of anexos) {
+      try {
+        await mandarAnexo({
+          chamadoId: (data as { id: string }).id,
+          arquivo: a.arquivo, nome: a.nome, duracao: a.duracao ?? null,
+          autorId: userId, autorNome: autorNome,
+        });
+      } catch { falharam++; }
+    }
     setSalvando(false);
-    if (error) { toast.error("Erro ao abrir: " + error.message); return; }
-    toast.success("Chamado aberto");
+    if (falharam > 0) {
+      toast.warning(`Chamado aberto, mas ${falharam} ${falharam === 1 ? "anexo não subiu" : "anexos não subiram"}. Dá pra mandar de novo abrindo o chamado.`);
+    } else {
+      toast.success(anexos.length ? `Chamado aberto com ${anexos.length} ${anexos.length === 1 ? "anexo" : "anexos"}` : "Chamado aberto");
+    }
     onOpenChange(false);
     onCriado();
   };
@@ -479,15 +558,79 @@ function AbrirChamadoDialog({
           {/* Observações */}
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Observações</label>
+            {/* COLAR O PRINT AQUI DENTRO. É o gesto mais curto que existe:
+                Cmd+Shift+4, Cmd+V. Quem já está descrevendo o problema tem o
+                print na área de transferência naquele exato segundo. */}
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={4}
+              onPaste={colarPrint}
               className={`${inputCls} resize-y`}
-              placeholder="O que aconteceu, o passo a passo pra reproduzir, o que você esperava…" />
+              placeholder="O que aconteceu, o passo a passo pra reproduzir, o que você esperava… (dá pra colar print aqui)" />
+          </div>
+
+          {/* ── PRINT E ÁUDIO NA ABERTURA ───────────────────────────────────
+              Estavam só dentro do chamado já criado, e esse era o lugar
+              errado: quem abre o chamado tem o print na mão AGORA, e obrigar
+              a criar, reabrir e então anexar é o atrito que faz o print nunca
+              ser mandado. Aqui os anexos esperam na memória e sobem junto
+              assim que o chamado nasce e ganha um id. */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Print, áudio ou arquivo
+            </label>
+            <p className="text-[10.5px] text-muted-foreground/70 leading-snug">
+              Uma imagem explica em dois segundos o que três parágrafos não explicam. Imagem grande
+              encolhe sozinha antes de subir.
+            </p>
+
+            {anexos.length > 0 && (
+              <div className="space-y-1.5 pt-0.5">
+                {anexos.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.04] ring-1 ring-white/[0.07] p-2">
+                    {a.url
+                      ? <img src={a.url} alt="" className="h-10 w-10 rounded object-cover shrink-0" />
+                      : <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] truncate">{a.nome}</span>
+                      <span className="block text-[10px] text-muted-foreground">
+                        {tamanhoBonito(a.arquivo.size)}
+                        {a.arquivo.type.startsWith("image/") && a.arquivo.size > 200 * 1024 && " · vai encolher"}
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => tirarAnexo(i)}
+                      className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-red-400 hover:bg-white/[0.06]">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <input ref={seletor} type="file" className="hidden" multiple
+                accept="image/*,application/pdf,audio/*,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                onChange={(e) => { juntarAnexos(e.target.files); e.target.value = ""; }} />
+              <Button type="button" size="sm" variant="outline" className="h-9 gap-1.5"
+                onClick={() => seletor.current?.click()} disabled={salvando}>
+                <Paperclip className="h-3.5 w-3.5" /> Anexar
+              </Button>
+              {/* O mesmo gravador do Atendimento: aqui ele não manda, guarda. */}
+              <GravadorDeAudio
+                onEnviar={async (blob, seg) => {
+                  setAnexos((v) => [...v, {
+                    arquivo: blob, nome: `audio-${Date.now()}.webm`, duracao: seg,
+                  }]);
+                }}
+                disabled={salvando}
+              />
+            </div>
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={criar} disabled={salvando}>{salvando ? "Abrindo…" : "Abrir chamado"}</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={salvando}>Cancelar</Button>
+          <Button onClick={criar} disabled={salvando}>
+            {salvando ? (anexos.length ? "Subindo anexos…" : "Abrindo…") : "Abrir chamado"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
