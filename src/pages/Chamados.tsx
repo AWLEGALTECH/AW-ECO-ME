@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { navItems, adminItems } from "@/components/AppSidebar";
-import { ConversaDoChamado } from "@/components/chamados/ConversaDoChamado";
+import { ConversaDoChamado, BarraDaConversa } from "@/components/chamados/ConversaDoChamado";
 import { BarraDeMensagem, type ItemDaBarra } from "@/components/chamados/BarraDeMensagem";
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { mandarAnexo, mandarRecado } from "@/hooks/useChamadoMensagens";
@@ -558,14 +558,16 @@ function AbrirChamadoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      {/* Mesma coluna de altura fixa do detalhe: cabeçalho parado em cima,
+          barra e ações paradas embaixo, e só o meio rolando. */}
+      <DialogContent className="max-w-lg max-h-[88dvh] p-0 gap-0 flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-4 w-4 text-primary" /> Abrir chamado
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 max-h-[65vh] overflow-y-auto scrollbar-thin pr-1">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-6 pb-3 space-y-4">
           {/* Tipo */}
           <div className="space-y-1.5">
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground">O que é</label>
@@ -676,23 +678,28 @@ function AbrirChamadoDialog({
               ))}
             </AnimatePresence>
 
-            <BarraDeMensagem
-              ocupado={salvando}
-              /* Curto o bastante para caber numa linha entre o clipe e o
-                 microfone. O texto longo de antes quebrava em duas e deixava
-                 a barra com cara de campo cortado. */
-              placeholder="Descreva, cole um print, grave um áudio…"
-              onItem={(item) => setItens((v) => [...v, item])}
-            />
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={salvando}>Cancelar</Button>
-          <Button onClick={criar} disabled={salvando}>
-            {salvando ? (itens.some((i) => i.arquivo) ? "Subindo anexos…" : "Abrindo…") : "Abrir chamado"}
-          </Button>
-        </DialogFooter>
+        {/* A BARRA FICA COM A PESSOA. Dentro da caixa que rola, cada item
+            mandado empurrava o campo de digitar para baixo e sumia com ele
+            justo quando se ia escrever o próximo. */}
+        <div className="shrink-0 border-t border-white/[0.07] bg-background/80 backdrop-blur-sm px-6 py-3 space-y-2.5">
+          <BarraDeMensagem
+            ocupado={salvando}
+            /* Curto o bastante para caber numa linha entre o clipe e o
+               microfone. O texto longo de antes quebrava em duas e deixava
+               a barra com cara de campo cortado. */
+            placeholder="Descreva, cole um print, grave um áudio…"
+            onItem={(item) => setItens((v) => [...v, item])}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={salvando}>Cancelar</Button>
+            <Button size="sm" onClick={criar} disabled={salvando}>
+              {salvando ? (itens.some((i) => i.arquivo) ? "Subindo anexos…" : "Abrindo…") : "Abrir chamado"}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -741,8 +748,14 @@ function DetalheDialog({
 
   return (
     <Dialog open={!!chamado} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      {/* ── UMA COLUNA DE ALTURA FIXA, e um só lugar que rola ──────────────
+          O diálogo crescia com o conteúdo: com conversa longa ele passava da
+          tela e empurrava "Em andamento" e "Marcar resolvido" para fora, onde
+          não havia como chegar. Agora o cabeçalho fica no topo, a barra de
+          escrever e as ações ficam ancoradas embaixo, e só o miolo rola. O que
+          decide o que fazer com o chamado está sempre à mão. */}
+      <DialogContent className="max-w-lg max-h-[88dvh] p-0 gap-0 flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
           <div className="flex items-center gap-2 flex-wrap pr-6">
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] ring-1 ${t.cls}`}>
               <t.icon className="h-3 w-3" /> {t.label}
@@ -754,7 +767,7 @@ function DetalheDialog({
           <DialogTitle className="text-left mt-2">{chamado.titulo}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-thin pr-1 text-sm">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-6 pb-3 space-y-3 text-sm">
           <div className="grid grid-cols-2 gap-2 text-[12px]">
             <Info icon={SisIcon} label="Onde" value={chamado.sistema || "Geral"} />
             <Info icon={User} label="Aberto por" value={chamado.autor_nome || "Alguém"} />
@@ -788,40 +801,46 @@ function DetalheDialog({
                 placeholder="O que foi feito / decidido" />
             </div>
           )}
+
+          <div className="pt-1">
+            <ConversaDoChamado chamadoId={chamado.id} meuId={meuId} meuNome={meuNome} />
+          </div>
         </div>
 
-        {/* A CONVERSA FICA FORA DA CAIXA QUE ROLA, colada na barra de escrever.
-            Dentro dela, mandar um recado empurraria o campo de digitar para
-            fora da vista junto com o resto — e a barra é o lugar onde a pessoa
-            está com a mão. Mesma razão de a barra do Atendimento não rolar
-            junto com as bolhas. */}
-        <div className="border-t border-white/[0.07] pt-3">
-          <ConversaDoChamado chamadoId={chamado.id} meuId={meuId} meuNome={meuNome} />
-        </div>
+        {/* ── O RODAPÉ ANCORADO ─────────────────────────────────────────────
+            Barra de escrever e ações no mesmo bloco, parados. O fio de cima é
+            o que diz que o conteúdo passa por baixo: sem ele, o rodapé parece
+            o fim do documento e a pessoa não procura mais nada acima.
+            As ações ficam na MESMA LINHA da conversa, e não numa faixa
+            separada, porque decidir o status e responder são o mesmo momento:
+            se lê, se pergunta, se resolve. */}
+        <div className="shrink-0 border-t border-white/[0.07] bg-background/80 backdrop-blur-sm px-6 py-3 space-y-2.5">
+          <BarraDaConversa chamadoId={chamado.id} meuId={meuId} meuNome={meuNome} />
 
-        {podeResolver && (
-          <DialogFooter className="flex-wrap gap-2">
-            {chamado.status === "aberto" && (
-              <Button variant="outline" onClick={() => mudarStatus("em_andamento")} disabled={salvando} className="gap-1.5">
-                <Loader2 className="h-3.5 w-3.5" /> Em andamento
-              </Button>
-            )}
-            {chamado.status === "em_andamento" && (
-              <Button variant="outline" onClick={() => mudarStatus("aberto")} disabled={salvando} className="gap-1.5">
-                <CircleDot className="h-3.5 w-3.5" /> Voltar p/ aberto
-              </Button>
-            )}
-            {chamado.status === "resolvido" ? (
-              <Button variant="outline" onClick={() => mudarStatus("aberto")} disabled={salvando} className="gap-1.5">
-                <X className="h-3.5 w-3.5" /> Reabrir
-              </Button>
-            ) : (
-              <Button onClick={() => mudarStatus("resolvido")} disabled={salvando} className="gap-1.5">
-                <CheckCircle2 className="h-4 w-4" /> {salvando ? "Salvando…" : "Marcar resolvido"}
-              </Button>
-            )}
-          </DialogFooter>
-        )}
+          {podeResolver && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {chamado.status === "aberto" && (
+                <Button variant="outline" size="sm" onClick={() => mudarStatus("em_andamento")} disabled={salvando} className="gap-1.5">
+                  <Hammer className="h-3.5 w-3.5" /> Em andamento
+                </Button>
+              )}
+              {chamado.status === "em_andamento" && (
+                <Button variant="outline" size="sm" onClick={() => mudarStatus("aberto")} disabled={salvando} className="gap-1.5">
+                  <CircleDot className="h-3.5 w-3.5" /> Voltar p/ aberto
+                </Button>
+              )}
+              {chamado.status === "resolvido" ? (
+                <Button variant="outline" size="sm" onClick={() => mudarStatus("aberto")} disabled={salvando} className="gap-1.5">
+                  <X className="h-3.5 w-3.5" /> Reabrir
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => mudarStatus("resolvido")} disabled={salvando} className="gap-1.5">
+                  <CheckCircle2 className="h-4 w-4" /> {salvando ? "Salvando…" : "Marcar resolvido"}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -137,6 +137,12 @@ function Anexo({ m }: { m: ChamadoMensagem }) {
   );
 }
 
+/* A LISTA E A BARRA SÃO DUAS PEÇAS, e não uma.
+ *
+ * Elas moram em lugares diferentes do diálogo: a lista rola junto com o resto
+ * do chamado, a barra fica ancorada embaixo, ao lado dos botões de status.
+ * Juntas num componente só, o diálogo inteiro tinha que rolar — e foi assim
+ * que "Em andamento" e "Marcar resolvido" saíram da tela. */
 export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
   chamadoId: string;
   meuId: string | null;
@@ -144,8 +150,6 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
 }) {
   const { data: mensagens = [], isLoading } = useChamadoMensagens(chamadoId);
   const invalidar = useInvalidarChamadoMensagens();
-
-  const [mandando, setMandando] = useState(false);
   const fim = useRef<HTMLDivElement>(null);
 
   // A conversa abre no fim, onde está o que acabou de ser dito.
@@ -162,7 +166,11 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
         Conversa
       </p>
 
-      <div className="flex-1 min-h-0 max-h-[32vh] overflow-y-auto scrollbar-thin space-y-2 pr-1">
+      {/* SEM CAIXA DE ROLAGEM PRÓPRIA. Uma lista que rola dentro de um
+          diálogo que também rola é o jeito conhecido de a roda do mouse
+          parecer quebrada: ela move a de dentro quando se queria a de fora.
+          Aqui a conversa é parte do documento e rola com ele. */}
+      <div className="space-y-2">
         {isLoading && <p className="text-[12px] text-muted-foreground">Carregando…</p>}
         {!isLoading && mensagens.length === 0 && (
           <p className="text-[12px] text-muted-foreground/70 italic">
@@ -204,37 +212,47 @@ export function ConversaDoChamado({ chamadoId, meuId, meuNome }: {
         <div ref={fim} />
       </div>
 
-      {/* ── a barra, a MESMA peça da abertura do chamado ──────────────────── */}
-      <div className="mt-2">
-        <BarraDeMensagem
-          ocupado={mandando}
-          placeholder="Responda, cole um print, grave um áudio…"
-          onItem={async (item) => {
-            setMandando(true);
-            try {
-              if (item.arquivo) {
-                const { antes, depois } = await mandarAnexo({
-                  chamadoId, arquivo: item.arquivo, nome: item.nome || "arquivo",
-                  legenda: item.texto, duracao: item.duracao ?? null,
-                  autorId: meuId, autorNome: meuNome,
-                });
-                // Só conta quando encolheu de verdade: "240 KB → 240 KB" é ruído.
-                if (depois < antes * 0.9) {
-                  toast.success(`Enviado · ${tamanhoBonito(antes)} → ${tamanhoBonito(depois)}`);
-                }
-              } else {
-                await mandarRecado({ chamadoId, texto: item.texto, autorId: meuId, autorNome: meuNome });
-              }
-              invalidar(chamadoId);
-            } catch (e) {
-              toast.error((e as Error).message);
-            } finally {
-              setMandando(false);
-              if (item.url) URL.revokeObjectURL(item.url);
-            }
-          }}
-        />
-      </div>
     </div>
+  );
+}
+
+/** A barra do chamado, para o diálogo ancorar embaixo. */
+export function BarraDaConversa({ chamadoId, meuId, meuNome }: {
+  chamadoId: string;
+  meuId: string | null;
+  meuNome: string | null;
+}) {
+  const invalidar = useInvalidarChamadoMensagens();
+  const [mandando, setMandando] = useState(false);
+
+  return (
+    <BarraDeMensagem
+      ocupado={mandando}
+      placeholder="Responda, cole um print, grave um áudio…"
+      onItem={async (item) => {
+        setMandando(true);
+        try {
+          if (item.arquivo) {
+            const { antes, depois } = await mandarAnexo({
+              chamadoId, arquivo: item.arquivo, nome: item.nome || "arquivo",
+              legenda: item.texto, duracao: item.duracao ?? null,
+              autorId: meuId, autorNome: meuNome,
+            });
+            // Só conta quando encolheu de verdade: "240 KB → 240 KB" é ruído.
+            if (depois < antes * 0.9) {
+              toast.success(`Enviado · ${tamanhoBonito(antes)} → ${tamanhoBonito(depois)}`);
+            }
+          } else {
+            await mandarRecado({ chamadoId, texto: item.texto, autorId: meuId, autorNome: meuNome });
+          }
+          invalidar(chamadoId);
+        } catch (e) {
+          toast.error((e as Error).message);
+        } finally {
+          setMandando(false);
+          if (item.url) URL.revokeObjectURL(item.url);
+        }
+      }}
+    />
   );
 }
