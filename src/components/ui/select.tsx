@@ -66,12 +66,28 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "relative z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        /* O TETO É O ESPAÇO QUE EXISTE, e não um número fixo.
+           Com `max-h-96` cravado, uma lista de vinte itens abria com 384px
+           mesmo quando só havia 200px entre o campo e a borda da janela: ela
+           vazava pelo topo, os primeiros itens ficavam fora da tela e a
+           rolagem começava no meio do nada.
+           `--radix-select-content-available-height` é o Radix dizendo quanto
+           cabe de verdade naquela posição; o `min` mantém o limite de 24rem
+           quando sobra espaço, para a lista não virar uma coluna de tela
+           inteira num monitor grande. */
+        /* O 24rem repetido é a reserva: fora do modo popper o Radix não
+           publica a variável, e `min()` com valor ausente invalidaria a
+           regra inteira — a lista ficaria sem teto nenhum. */
+        "max-h-[min(24rem,var(--radix-select-content-available-height,24rem))]",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className,
       )}
       position={position}
+      /* Sem folga, a lista encosta na borda da janela e parece cortada mesmo
+         quando está inteira. */
+      collisionPadding={10}
       {...props}
     >
       <SelectScrollUpButton />
