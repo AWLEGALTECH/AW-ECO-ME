@@ -760,6 +760,37 @@ export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desc
  */
 export const reiniciarInstancia = (nome: string) => pedirConexao({ acao: "reiniciar", instancia: nome });
 
+/* ── A FOTO DE PERFIL DO NÚMERO ───────────────────────────────────────────
+ *
+ * Mesmo caminho do anexo de mensagem: a imagem sobe pelo navegador, já
+ * comprimida para WebP, e a `wa-perfil` assina um link de uma hora para a
+ * Evolution baixar. A compressão aqui não é economia de disco (a imagem é
+ * apagada depois de aplicada), é o WhatsApp: ele recusa foto de perfil grande,
+ * e um print de 4 MB direto da câmera é justamente o que a pessoa vai escolher.
+ */
+export async function trocarFotoDaInstancia(nome: string, arquivo: File | Blob) {
+  const { comprimirImagem } = await import("@/lib/comprimirAnexo");
+  const { arquivo: pronta } = await comprimirImagem(arquivo, (arquivo as File).name || "perfil.jpg");
+  const mime = pronta.type || "image/jpeg";
+  const ext = mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : "jpg";
+  const path = `perfil/${nome.replace(/[^\w.-]+/g, "_")}/${Date.now()}.${ext}`;
+  const { error: eUp } = await supabase.storage.from("wa-midia").upload(path, pronta, { contentType: mime, upsert: false });
+  if (eUp) throw new Error(`Não consegui subir a foto: ${eUp.message}`);
+  const { data, error } = await supabase.functions.invoke("wa-perfil", {
+    body: { acao: "foto", instancia: nome, midia_path: path },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || data.ok === false) throw new Error(String(data?.error || "A Evolution não aceitou a foto"));
+  return data as { ok: true; foto_url: string | null; aviso: string | null };
+}
+
+export async function removerFotoDaInstancia(nome: string) {
+  const { data, error } = await supabase.functions.invoke("wa-perfil", { body: { acao: "remover", instancia: nome } });
+  if (error) throw new Error(error.message);
+  if (!data || data.ok === false) throw new Error(String(data?.error || "A Evolution não aceitou remover"));
+  return data as { ok: true };
+}
+
 export function useInvalidarWa() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["wa"] });

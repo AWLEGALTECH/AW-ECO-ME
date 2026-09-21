@@ -45,7 +45,7 @@ import {
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
-  Scale, ExternalLink, ListChecks, Workflow, Ban,
+  Scale, ExternalLink, ListChecks, Workflow, Ban, Camera,
 } from "lucide-react";
 import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
 import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
@@ -72,6 +72,7 @@ import {
   moverConversaDeInstancia, descartarLeadDaConversa, virarCliente, useMensagensBoasVindas,
   mudarSituacao, useProcessosDoCliente, usePendenciasDoCliente,
   diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
+  trocarFotoDaInstancia, removerFotoDaInstancia,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
@@ -2097,6 +2098,38 @@ export default function AtendimentoPage() {
   const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
   const [diagnosticando, setDiagnosticando] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
+  const [trocandoFoto, setTrocandoFoto] = useState(false);
+  const seletorDeFoto = useRef<HTMLInputElement>(null);
+
+  /* A FOTO DE PERFIL DO NÚMERO, trocada daqui (chefe, 21/09). Antes era pegar
+     o celular pareado ou abrir o painel da Evolution, que nem todo mundo tem. */
+  const trocarFoto = async (nome: string, arquivo: File | null | undefined) => {
+    if (!arquivo) return;
+    setTrocandoFoto(true);
+    const t = toast.loading(`Trocando a foto de ${nomeDe(nome)}…`);
+    try {
+      const r = await trocarFotoDaInstancia(nome, arquivo);
+      invalidarWa();
+      toast.success(`Foto de ${nomeDe(nome)} trocada.`, { id: t, description: r.aviso ?? undefined, duration: 8_000 });
+    } catch (e) {
+      toast.error((e as Error).message, { id: t, duration: 12_000 });
+    } finally {
+      setTrocandoFoto(false);
+    }
+  };
+  const removerFoto = async (nome: string) => {
+    if (!window.confirm(`Tirar a foto de perfil de ${nomeDe(nome)}? O número fica sem foto no WhatsApp.`)) return;
+    setTrocandoFoto(true);
+    try {
+      await removerFotoDaInstancia(nome);
+      invalidarWa();
+      toast.success(`Foto de ${nomeDe(nome)} removida.`);
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 12_000 });
+    } finally {
+      setTrocandoFoto(false);
+    }
+  };
 
   /* AS TRÊS AÇÕES DE MANUTENÇÃO recebem o número em vez de assumir o principal:
      com a engrenagem aberta num número, "reconfigurar eventos" tem que
@@ -5888,6 +5921,46 @@ export default function AtendimentoPage() {
                       {alvo.jid}
                     </p>
                   )}
+                </div>
+
+                {/* ── A FOTO, DO OUTRO LADO ──
+                    É o que o cliente vê no celular dele quando este número
+                    escreve. Fica ao lado da foto atual, e não escondida num
+                    menu, porque a pergunta "que foto está lá agora?" e a ação
+                    "trocar" são a mesma coisa para quem cuida do número. */}
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 flex items-center gap-3">
+                  <span className="relative h-12 w-12 shrink-0 rounded-full overflow-hidden grid place-items-center
+                                   text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
+                    {alvo?.fotoUrl
+                      ? <img src={alvo.fotoUrl} alt="" className="h-full w-full object-cover"
+                             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                      : (alvo?.avatar ?? "?")}
+                    {trocandoFoto && (
+                      <span className="absolute inset-0 grid place-items-center bg-black/50">
+                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium">Foto de perfil no WhatsApp</span>
+                    <span className="block text-[10.5px] text-muted-foreground leading-snug">
+                      Quadrada fica melhor. Imagem grande encolhe sozinha antes de subir.
+                    </span>
+                  </span>
+                  <input ref={seletorDeFoto} type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { trocarFoto(marcaDe_, e.target.files?.[0]); e.target.value = ""; }} />
+                  <span className="flex flex-col gap-1 shrink-0">
+                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
+                      disabled={trocandoFoto} onClick={() => seletorDeFoto.current?.click()}>
+                      <Camera className="h-3.5 w-3.5" /> Trocar foto
+                    </Button>
+                    {alvo?.fotoUrl && (
+                      <button type="button" disabled={trocandoFoto} onClick={() => removerFoto(marcaDe_)}
+                        className="text-[10.5px] text-muted-foreground/70 hover:text-red-400 transition-colors">
+                        remover
+                      </button>
+                    )}
+                  </span>
                 </div>
 
                 {/* ── MANUTENÇÃO, deste número ──
