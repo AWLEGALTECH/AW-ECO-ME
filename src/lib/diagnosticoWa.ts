@@ -43,10 +43,30 @@ export type EntradaDiagnostico = {
   recebidos: { evento: string; criado_em: string }[];
   conversas: number;
   exigidos: string[];
+  /** desde quando duas sessões deste número se derrubam (statusReason 440) */
+  conflitoDesde?: string | null;
 };
 
 export function acharProblemas(d: EntradaDiagnostico): Achado[] {
   const achados: Achado[] = [];
+
+  // O CASO EM QUE "CONECTADO" MENTE. Em 21/09 a troca de foto fez a Evolution
+  // abrir um segundo socket do mesmo número sem fechar o primeiro; o WhatsApp
+  // passou a derrubar um quando o outro entrava (440), cem vezes por minuto,
+  // por horas. O estado declarado era "open" quase sempre, e nada saía. Vem
+  // antes de tudo porque os outros achados perdem o sentido enquanto isso
+  // durar, e porque o conserto óbvio (reiniciar) é o que piora.
+  if (d.conflitoDesde) {
+    achados.push({
+      nivel: "erro",
+      titulo: "Duas sessões deste número estão se derrubando na Evolution (código 440).",
+      conserto:
+        "O painel diz conectado, mas nada sai: a cada dois segundos uma sessão derruba a outra. Reiniciar o número recomeça a briga. "
+        + "Saída: no celular do número, WhatsApp, Dispositivos conectados, sair da sessão da Evolution; depois conectar de novo pelo QR aqui. "
+        + "Ou reiniciar o servidor da Evolution.",
+    });
+    return achados;
+  }
 
   if (d.estado !== "conectado") {
     achados.push({

@@ -26,6 +26,19 @@ describe("acharProblemas", () => {
     expect(a[0].conserto).toContain("URL e token funcionam");
   });
 
+  // 21/09: duas sessões do PORTAL 2 se derrubando (440) com o painel dizendo
+  // "conectado" e a configuração toda certa. O achado tem que vir sozinho, em
+  // primeiro, e mandar parear de novo, porque reiniciar é o que piora.
+  it("o conflito de sessão (440) vem antes de tudo e manda parear de novo, não reiniciar", () => {
+    const a = acharProblemas(bom({ conflitoDesde: "2026-09-21T20:00:31Z" }));
+    expect(a).toHaveLength(1);
+    expect(a[0].nivel).toBe("erro");
+    expect(a[0].titulo).toContain("440");
+    expect(a[0].conserto).toContain("Reiniciar o número recomeça a briga");
+    expect(a[0].conserto).toContain("QR");
+    expect(resumoDoDiagnostico(a)).toBe("Achei 1 problema.");
+  });
+
   // O caso real: PDA 2 entregou connection.update e nunca mensagem nenhuma.
   it("aponta MESSAGES_UPSERT desmarcado como a causa da caixa parada", () => {
     const a = acharProblemas(bom({

@@ -2110,6 +2110,15 @@ export default function AtendimentoPage() {
      o celular pareado ou abrir o painel da Evolution, que nem todo mundo tem. */
   const trocarFoto = async (nome: string, arquivo: File | null | undefined) => {
     if (!arquivo) return;
+    /* A TROCA PELA API RECRIA A CONEXÃO DO NÚMERO, e nesta versão da Evolution
+       isso já derrubou o PORTAL DIREITO ABERTO 2 por horas (21/09, conflito de
+       sessão 440). Quem vai trocar precisa saber disso ANTES, e ter o caminho
+       seguro à mão: o próprio celular do número. */
+    if (!window.confirm(
+      `Trocar a foto de ${nomeDe(nome)} pela plataforma?\n\n`
+      + "Atenção: a Evolution recria a conexão do número para aplicar a foto, e isso já derrubou um número por horas. "
+      + "O caminho seguro é trocar a foto pelo próprio celular do número.\n\nContinuar mesmo assim?",
+    )) return;
     setTrocandoFoto(true);
     const t = toast.loading(`Trocando a foto de ${nomeDe(nome)}…`);
     try {
@@ -3629,7 +3638,9 @@ export default function AtendimentoPage() {
                     <div>
                       <p className="text-[14px] font-medium">Nenhuma conversa em {instancia.nome}</p>
                       <p className="text-[12px] text-muted-foreground leading-snug mt-1">
-                        {instancia.status === "conectado"
+                        {instancia.conflitoDesde
+                          ? "Esse número está em conflito de sessão na Evolution: duas sessões se derrubando. Nada sai nem chega direito até sair da sessão no celular e ler o QR de novo (detalhes na engrenagem)."
+                          : instancia.status === "conectado"
                           ? "O número está conectado. As conversas aparecem aqui assim que alguém escrever — o sistema só conhece quem passa por ele daqui pra frente."
                           : "Esse número está desconectado na Evolution. Enquanto ele estiver fora, nenhuma mensagem chega."}
                       </p>
@@ -5906,20 +5917,44 @@ export default function AtendimentoPage() {
                     <LinhaTecnica rotulo="Número" valor={alvo?.telefone ?? "sem número"} />
                     <LinhaTecnica
                       rotulo="Sessão"
-                      valor={alvo?.status === "conectado"
+                      valor={alvo?.conflitoDesde
+                        ? `em conflito ${tempoNaEtapa(alvo.conflitoDesde)}`
+                        : alvo?.status === "conectado"
                         ? (alvo?.conectadaDesde
                             ? `de pé ${tempoNaEtapa(alvo.conectadaDesde)}`
                             : "de pé")
                         : "desconectada"}
-                      tom={alvo?.status === "conectado" ? "text-emerald-300" : "text-rose-300"} />
+                      tom={alvo?.conflitoDesde ? "text-amber-300"
+                        : alvo?.status === "conectado" ? "text-emerald-300" : "text-rose-300"} />
                     <LinhaTecnica rotulo="Conferido" valor={alvo?.sincronizadoEm ?? "—"} />
                     <LinhaTecnica rotulo="Perfil no WhatsApp" valor={alvo?.perfilNome || "sem nome"} />
                     <LinhaTecnica rotulo="Conversas do aparelho" valor={String(alvo?.conversas ?? 0)} />
                   </div>
-                  {alvo?.conectadaDesde && alvo.status === "conectado" && (
+                  {alvo?.conectadaDesde && alvo.status === "conectado" && !alvo.conflitoDesde && (
                     <p className="text-[10px] text-muted-foreground/50 tabular-nums">
                       Conectado desde {quandoDaPassagem(alvo.conectadaDesde)}.
                     </p>
+                  )}
+                  {/* O CASO EM QUE "CONECTADO" MENTE (21/09). A troca de foto fez a
+                      Evolution abrir um segundo socket deste número sem fechar o
+                      primeiro; o WhatsApp derruba um quando o outro entra (código
+                      440), cem vezes por minuto, e nada sai. Reiniciar recomeça a
+                      briga. O caminho de saída fica escrito aqui, no lugar em que
+                      quem está com o problema vai olhar. */}
+                  {alvo?.conflitoDesde && (
+                    <div className="rounded-lg bg-amber-400/[0.08] ring-1 ring-amber-400/25 p-2.5 text-[11px] leading-snug">
+                      <p className="font-medium text-amber-200">
+                        Conflito de sessão desde {quandoDaPassagem(alvo.conflitoDesde)}.
+                      </p>
+                      <p className="mt-1 text-amber-100/80">
+                        Duas sessões deste número estão se derrubando na Evolution (código 440). O painel diz
+                        conectado, mas nada sai. Reiniciar o número recomeça a briga.
+                      </p>
+                      <p className="mt-1 text-amber-100/80">
+                        Saída: no celular do número, WhatsApp, Dispositivos conectados, sair da sessão da
+                        Evolution. Depois, conectar de novo pelo QR aqui. Ou reiniciar o servidor da Evolution.
+                      </p>
+                    </div>
                   )}
                   {alvo?.jid && (
                     <p className="text-[9.5px] text-muted-foreground/40 font-mono truncate" title={alvo.jid}>
@@ -6065,7 +6100,7 @@ export default function AtendimentoPage() {
                       </span>
                       <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         <span className={cn("h-1 w-1 rounded-full",
-                          i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
+                          i.conflitoDesde ? "bg-amber-400" : i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
                         <span className="tabular-nums">{i.telefone}</span>
                       </span>
                     </span>
@@ -7775,11 +7810,11 @@ function PainelAjustes({
                       ? "bg-primary/12 ring-1 ring-primary/30"
                       : "hover:bg-white/[0.05] ring-1 ring-transparent")}>
                   <span className={cn("h-1.5 w-1.5 rounded-full shrink-0",
-                    i.status === "conectado" ? "bg-emerald-400" : "bg-muted-foreground/40")} />
+                    i.conflitoDesde ? "bg-amber-400" : i.status === "conectado" ? "bg-emerald-400" : "bg-muted-foreground/40")} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[11.5px] truncate">{nomeDe(i.nome)}</span>
                     <span className="block text-[10px] text-muted-foreground/70 tabular-nums">
-                      {telefoneBonito(i.telefone)} · {i.status === "conectado" ? "conectado" : "desconectado"}
+                      {telefoneBonito(i.telefone)} · {i.conflitoDesde ? "em conflito" : i.status === "conectado" ? "conectado" : "desconectado"}
                     </span>
                   </span>
                   {i.id === instanciaId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
@@ -8104,6 +8139,10 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
 }) {
   const [aberto, setAberto] = useState(false);
   const on = instancia.status === "conectado";
+  /* "Conectado" mente durante um conflito de sessão (440): duas sessões do
+     mesmo número se derrubando na Evolution, com o último `open` sempre
+     recém-chegado e nada saindo. O selo diz o que está acontecendo de fato. */
+  const conflito = !!instancia.conflitoDesde;
   const varios = selecao.length > 1;
   return (
     /* SEM CARTÃO. A instância não é uma ferramenta da bancada — é o CONTEXTO
@@ -8166,9 +8205,10 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
           )}
           {!varios && (
           <span className={cn("rounded-full px-1.5 py-[1px] text-[9.5px] ring-1 shrink-0",
-            on ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25"
+            conflito ? "bg-amber-400/10 text-amber-300 ring-amber-400/25"
+            : on ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25"
                : "bg-rose-400/10 text-rose-300 ring-rose-400/25")}>
-            {on ? "conectado" : "desconectado"}
+            {conflito ? "em conflito" : on ? "conectado" : "desconectado"}
           </span>
           )}
           {/* O selo de maquete perdeu a casa quando o título saiu, e veio pra
@@ -8205,13 +8245,27 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
                   </span>
                   <span className="truncate max-w-[9rem]">{nomeDe(i.nome)}</span>
                   <span className={cn("h-1 w-1 rounded-full shrink-0",
-                    i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
+                    i.conflitoDesde ? "bg-amber-400" : i.status === "conectado" ? "bg-emerald-400" : "bg-rose-400")} />
                 </span>
               );
             })}
           </span>
         ) : (
-          <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
+          <span className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-[10.5px] text-muted-foreground tabular-nums">{instancia.telefone}</span>
+            {/* O aviso entra e sai com a mola da casa: ele aparece no meio do
+                trabalho, e um texto que pisca sem transição parece erro de tela. */}
+            <AnimatePresence initial={false}>
+              {conflito && (
+                <motion.span key="conflito"
+                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                  className="text-[10.5px] text-amber-200/90 leading-snug">
+                  Conflito de sessão na Evolution: nada sai por este número. O caminho de saída está na engrenagem.
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </span>
         )}
       </div>
 
@@ -8245,6 +8299,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
               const marcada = selecao.some((x) => x.id === i.id);
               const principal = i.id === instancia.id;
               const iOn = i.status === "conectado";
+              const iConflito = !!i.conflitoDesde;
               const cor = corDe(i.nome);
               return (
                 <div key={i.id}
@@ -8286,7 +8341,7 @@ function CardInstancia({ instancia, todas, maquete, abas, selecao, apelidos, cor
                         <span className="block text-[12px] font-medium truncate">{nomeDe(i.nome)}</span>
                       </span>
                       <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                        <span className={cn("h-1 w-1 rounded-full", iOn ? "bg-emerald-400" : "bg-rose-400")} />
+                        <span className={cn("h-1 w-1 rounded-full", iConflito ? "bg-amber-400" : iOn ? "bg-emerald-400" : "bg-rose-400")} />
                         <span className="tabular-nums">{i.telefone}</span>
                         {i.naoLidas > 0 && (
                           <span className="text-foreground/70 tabular-nums">· {i.naoLidas} não lidas</span>

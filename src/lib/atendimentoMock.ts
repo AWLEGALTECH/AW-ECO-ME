@@ -65,6 +65,9 @@ export interface Instancia {
   mensagens?: number;
   /** quando a sessão subiu; null quando o número não está de pé */
   conectadaDesde?: string | null;
+  /** desde quando duas sessões deste número se derrubam na Evolution (440);
+      enquanto estiver preenchido, "conectado" é mentira e nada sai */
+  conflitoDesde?: string | null;
 }
 
 export const INSTANCIAS: Instancia[] = [

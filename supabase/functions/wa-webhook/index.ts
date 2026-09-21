@@ -234,7 +234,31 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, status: mexidas });
   }
 
-  // Conexão, chamada, etc. Ignorar com 200 — devolver erro faria a Evolution
+  // ── CONEXÃO: caiu, voltou, e a BRIGA DE SESSÕES ──
+  //
+  // Este evento era ignorado ("sem tratamento"), e o status da tela vinha só
+  // da sincronização com o fetchInstances. Em 21/09 isso cegou todo mundo: a
+  // troca de foto do PORTAL DIREITO ABERTO 2 fez a Evolution abrir um segundo
+  // socket sem fechar o primeiro, os dois com a mesma credencial, e o WhatsApp
+  // passou a derrubar um quando o outro entrava (`close` com `statusReason
+  // 440`, "conexão substituída"), cem vezes por minuto, por horas. O painel
+  // dizia "conectado" porque o último `open` sempre tinha acabado de chegar, e
+  // nada saía ("Connection Closed"). A regra do que é conflito e de quando ele
+  // acaba mora no banco (fn_wa_conexao), que também passa a manter o status
+  // em tempo real. Ver a migration 20260921230000.
+  if (evento === "connection.update") {
+    const d = corpo?.data ?? {};
+    const estado = String(d.state ?? d.connection ?? "").toLowerCase();
+    const motivo = Number(d.statusReason ?? d.lastDisconnect?.error?.output?.statusCode ?? 0) || null;
+    const { data: r, error } = await sb.rpc("fn_wa_conexao", {
+      p_instancia: instancia, p_state: estado, p_status_reason: motivo,
+    });
+    if (error) console.error("[wa-webhook] conexao:", error.message);
+    else if (r?.conflito_desde) console.log(`[wa-webhook] ${instancia}: conflito de sessão (440) desde ${r.conflito_desde}`);
+    return json({ ok: true, conexao: estado, motivo, conflito: r?.conflito_desde ?? null });
+  }
+
+  // Chamada, contatos, etc. Ignorar com 200 — devolver erro faria a Evolution
   // reentregar pra sempre. Mas ANOTAR o nome: é a única forma de descobrir que
   // ela começou a mandar algo que a gente ainda não trata, e o silêncio aqui
   // seria mais um caso de "a tela não mostra e ninguém sabe por quê".

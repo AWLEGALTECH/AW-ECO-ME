@@ -316,11 +316,15 @@ Deno.serve(async (req: Request) => {
         .eq("instancia", nome).order("criado_em", { ascending: false }).limit(10);
       const { count: mensagens } = await sb
         .from("wa_conversas").select("id", { count: "exact", head: true }).eq("instancia", nome);
+      // O conflito de sessão (440) é o caso em que "conectado" mente; ver
+      // fn_wa_conexao. O diagnóstico é o lugar de dizer isso.
+      const { data: instConf } = await sb.from("wa_instancias").select("conflito_desde").eq("nome", nome).maybeSingle();
 
       return json({
         ok: true,
         instancia: nome,
         estado,
+        conflitoDesde: instConf?.conflito_desde ?? null,
         webhook: erroWebhook ? null : {
           configurado: !!urlLa,
           ativo: w.enabled !== false,
@@ -478,6 +482,20 @@ Deno.serve(async (req: Request) => {
      * que nem todo mundo que atende tem, e ninguém tem às onze da noite.
      */
     if (acao === "reiniciar") {
+      /* MAS NÃO DURANTE UM CONFLITO DE SESSÃO. Em 21/09 o restart foi pedido
+         com o PORTAL DIREITO ABERTO 2 já em briga de sockets (440) e reacendeu
+         a briga por horas: o restart cria um socket novo e o velho continua
+         lá. O que resolve nesse quadro é derrubar todas as sessões e parear
+         de novo, e é isso que a recusa diz. Ver fn_wa_conexao. */
+      const { data: inst } = await sb.from("wa_instancias").select("conflito_desde").eq("nome", nome).maybeSingle();
+      if (inst?.conflito_desde) {
+        return json({
+          ok: false,
+          error: "Este número está em conflito de sessão na Evolution (duas sessões se derrubando, código 440), e reiniciar recomeça a briga. "
+            + "Saída: no celular do número, WhatsApp, Dispositivos conectados, sair da sessão da Evolution; depois conectar de novo pelo QR aqui. Ou reiniciar o servidor da Evolution.",
+          conflito: true,
+        });
+      }
       /* Duas formas conhecidas entre versões da v2. Custa um request e evita um
          "não deu nada" que ninguém liga ao verbo HTTP. Mesmo raciocínio do
          `apontarWebhook` logo acima. */

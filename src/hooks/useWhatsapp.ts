@@ -36,6 +36,9 @@ export interface InstanciaRow {
   /* Quando a sessão subiu. Diferente de `sincronizado_em`, que é "quando a tela
      conferiu isto" — quase sempre "há um minuto", e não explica nada. */
   conectada_desde: string | null;
+  /* Desde quando duas sessões deste número se derrubam na Evolution (440).
+     Enquanto estiver preenchido, "conectado" é mentira: nada sai. */
+  conflito_desde?: string | null;
 }
 
 /** Iniciais como reserva: instância sem foto não pode virar círculo vazio. */
@@ -66,6 +69,7 @@ export function instanciaParaCard(i: InstanciaRow, agora = new Date()): Instanci
     contatos: i.contatos ?? 0,
     mensagens: i.mensagens ?? 0,
     conectadaDesde: i.conectada_desde,
+    conflitoDesde: i.conflito_desde ?? null,
   };
 }
 
@@ -87,7 +91,7 @@ export function useInstancias() {
     refetchInterval: 60_000,
     queryFn: async (): Promise<InstanciaRow[]> => {
       const { data, error } = await tabela("wa_instancias")
-        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em, conectada_desde")
+        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em, conectada_desde, conflito_desde")
         .eq("ativa", true)
         .order("nome");
       if (error) throw error;
@@ -708,6 +712,8 @@ export type Diagnostico = {
   ok: true;
   instancia: string;
   estado: string;
+  /** desde quando duas sessões deste número se derrubam na Evolution (440) */
+  conflitoDesde?: string | null;
   webhook: {
     configurado: boolean; ativo: boolean; url: string;
     apontaPraCa: boolean; tokenConfere: boolean; porEvento: boolean;
