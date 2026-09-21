@@ -48,6 +48,7 @@ import {
   Scale, ExternalLink, ListChecks, Workflow, Ban, Camera,
 } from "lucide-react";
 import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
+import { RecorteDeFoto } from "@/components/atendimento/RecorteDeFoto";
 import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
 import { compararNaCaixa, recemChegada } from "@/lib/recemChegada";
 import { Link } from "react-router-dom";
@@ -2100,6 +2101,10 @@ export default function AtendimentoPage() {
   const [reiniciando, setReiniciando] = useState(false);
   const [trocandoFoto, setTrocandoFoto] = useState(false);
   const seletorDeFoto = useRef<HTMLInputElement>(null);
+  /* A FOTO ESCOLHIDA ESPERA O RECORTE. Ela não sobe direto: o WhatsApp corta
+     no centro, sempre, e o rosto raramente está no centro de uma foto tirada
+     para outra coisa. A primeira foto que subiu entrou torta por isso. */
+  const [fotoParaRecortar, setFotoParaRecortar] = useState<{ nome: string; arquivo: File } | null>(null);
 
   /* A FOTO DE PERFIL DO NÚMERO, trocada daqui (chefe, 21/09). Antes era pegar
      o celular pareado ou abrir o painel da Evolution, que nem todo mundo tem. */
@@ -5948,7 +5953,11 @@ export default function AtendimentoPage() {
                     </span>
                   </span>
                   <input ref={seletorDeFoto} type="file" accept="image/*" className="hidden"
-                    onChange={(e) => { trocarFoto(marcaDe_, e.target.files?.[0]); e.target.value = ""; }} />
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setFotoParaRecortar({ nome: marcaDe_, arquivo: f });
+                      e.target.value = "";
+                    }} />
                   <span className="flex flex-col gap-1 shrink-0">
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
                       disabled={trocandoFoto} onClick={() => seletorDeFoto.current?.click()}>
@@ -5997,6 +6006,17 @@ export default function AtendimentoPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      <RecorteDeFoto
+        arquivo={fotoParaRecortar?.arquivo ?? null}
+        ocupado={trocandoFoto}
+        onCancelar={() => setFotoParaRecortar(null)}
+        onConfirmar={async (recortada) => {
+          if (!fotoParaRecortar) return;
+          await trocarFoto(fotoParaRecortar.nome, new File([recortada], "perfil.jpg", { type: "image/jpeg" }));
+          setFotoParaRecortar(null);
+        }}
+      />
 
       {/* ── PASSAR A CONVERSA PRA OUTRO NÚMERO ──
           O aviso do meio é o motivo de isto ser um diálogo e não um clique
