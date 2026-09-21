@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "@/components/ui/card";
-import { Hash, ChevronLeft, ChevronRight, Sparkles, Clapperboard } from "lucide-react";
+import { Hash, ChevronLeft, ChevronRight, Sparkles, Clapperboard, Megaphone, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CounterStudio } from "@/components/marketing/CounterStudio";
+import { MetaAds } from "@/components/marketing/MetaAds";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -12,6 +13,23 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 // a próxima seção do marketing não vai ser animação, e sem essa divisão ela
 // cairia no meio do acervo de vídeo como se fosse mais uma peça.
 const SECOES = [
+  /* META ADS PRIMEIRO. É a seção que responde à pergunta que o dono faz todo
+     dia ("quanto gastei e o que voltou?"), e a que grita quando uma campanha
+     ativa para de rodar. O material de vídeo é acervo; isto é operação. */
+  {
+    chave: "meta",
+    nome: "Meta Ads",
+    resumo: "Investimento, leads e custo por lead das campanhas, dia a dia, e o aviso quando uma campanha ativa para.",
+    icone: Megaphone,
+    animacoes: [
+      {
+        chave: "meta-numeros",
+        nome: "Campanhas",
+        resumo: "Os números da conta de anúncios, atualizados de hora em hora.",
+        icone: BarChart3,
+      },
+    ],
+  },
   {
     chave: "video",
     nome: "Material para edição de vídeo",
@@ -68,13 +86,23 @@ export default function Marketing() {
   // níveis, e serve de volta em qualquer ponto.
   const trilha: { rotulo: string; voltar?: () => void }[] = [
     { rotulo: "Marketing", voltar: secao ? () => { setSecao(null); setAnimacao(null); } : undefined },
-    ...(secao ? [{ rotulo: secao.nome, voltar: animacao ? () => setAnimacao(null) : undefined }] : []),
-    ...(animacao ? [{ rotulo: animacao.nome }] : []),
+    ...(secao ? [{
+      rotulo: secao.nome,
+      voltar: animacao && secao.animacoes.length > 1 ? () => setAnimacao(null) : undefined,
+    }] : []),
+    ...(animacao && secao && secao.animacoes.length > 1 ? [{ rotulo: animacao.nome }] : []),
   ];
 
   const voltarUmNivel = () => {
-    if (animacao) setAnimacao(null);
-    else setSecao(null);
+    if (animacao && secao && secao.animacoes.length > 1) setAnimacao(null);
+    else { setAnimacao(null); setSecao(null); }
+  };
+
+  /* A SEÇÃO DE UMA PEÇA SÓ ABRE A PEÇA. Meta Ads tem um painel; passar por um
+     acervo com um cartão dentro seria um clique para ver um cartão. */
+  const abrirSecao = (s: Secao) => {
+    setSecao(s);
+    if (s.animacoes.length === 1) setAnimacao(s.animacoes[0]);
   };
 
   return (
@@ -113,6 +141,7 @@ export default function Marketing() {
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.3, ease: EASE }}>
             {animacao.chave === "counter" && <CounterStudio />}
+            {animacao.chave === "meta-numeros" && <MetaAds />}
           </motion.div>
 
         /* Nível 2: o acervo da seção */
@@ -141,8 +170,9 @@ export default function Marketing() {
             className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {SECOES.map((s) => (
               <CardEntrada key={s.chave} icone={s.icone} nome={s.nome} resumo={s.resumo}
-                rodape={`${s.animacoes.length} ${s.animacoes.length === 1 ? "animação disponível" : "animações disponíveis"}`}
-                onClick={() => setSecao(s)} />
+                rodape={s.chave === "meta" ? "Atualizado de hora em hora"
+                  : `${s.animacoes.length} ${s.animacoes.length === 1 ? "animação disponível" : "animações disponíveis"}`}
+                onClick={() => abrirSecao(s)} />
             ))}
           </motion.div>
         )}
