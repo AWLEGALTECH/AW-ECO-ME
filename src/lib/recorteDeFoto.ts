@@ -4,18 +4,22 @@
  * aproximar até encaixar. O que torna isso "encaixar" e não "bagunçar" são
  * duas regras, e as duas moram aqui, fora da tela, com teste:
  *
- *   1. a foto nunca fica MENOR que o círculo: zoom mínimo é o que cobre o
- *      quadro por inteiro, senão aparece fundo vazio dentro da bola;
- *   2. a foto nunca DESGRUDA da borda: arrastar para no ponto em que a última
- *      faixa da imagem ainda toca o quadro.
+ *   1. a foto pode RECUAR, mas até um limite: o zoom vai de metade do quadro
+ *      (a foto inteira dentro do círculo, com fundo escuro em volta) até quatro
+ *      vezes. Sem o recuo, uma foto quadrada nascia já colada no círculo e não
+ *      havia o que personalizar, que foi a primeira queixa;
+ *   2. a foto nunca DESGRUDA da borda: maior que o quadro, ela para quando a
+ *      última faixa ainda toca a borda; menor, ela para quando encosta por
+ *      dentro. É a mesma conta com o valor absoluto.
  *
  * Tudo em coordenadas do QUADRO (o quadrado de tela onde o círculo mora). A
- * saída é um retângulo em pixels da imagem ORIGINAL, que é o que o canvas
- * recorta; a tela é só uma janela para escolher esse retângulo.
+ * tela desenha a imagem na posição que `posicaoNoQuadro` devolve, e o canvas
+ * da saída repete essa posição multiplicada pela razão saída/quadro: uma conta
+ * só para os dois, porque o que a pessoa alinhou tem que ser o que sai.
  */
 
 export interface Enquadramento {
-  /** fator sobre a escala mínima: 1 = cobre o quadro exatamente, 2 = dobro */
+  /** fator sobre a escala de cobertura: 1 = cobre o quadro exatamente, 0.5 = metade, 2 = dobro */
   zoom: number;
   /** deslocamento do centro da imagem em relação ao centro do quadro, em px do quadro */
   dx: number;
@@ -28,58 +32,57 @@ export function escalaDeCobertura(largura: number, altura: number, quadro: numbe
   return Math.max(quadro / largura, quadro / altura);
 }
 
-/** Quanto a imagem mede no quadro, para um zoom. */
-export function tamanhoNoQuadro(largura: number, altura: number, quadro: number, zoom: number) {
-  const s = escalaDeCobertura(largura, altura, quadro) * Math.max(1, zoom);
-  return { w: largura * s, h: altura * s, escala: s };
-}
-
-/**
- * O deslocamento permitido: a imagem pode andar até a borda dela encostar na
- * borda do quadro, e não mais. Com a imagem exatamente do tamanho do quadro
- * numa dimensão, o deslocamento nessa dimensão é zero.
- */
-export function limitarDeslocamento(
-  largura: number, altura: number, quadro: number, e: Enquadramento,
-): Enquadramento {
-  const { w, h } = tamanhoNoQuadro(largura, altura, quadro, e.zoom);
-  const maxX = Math.max(0, (w - quadro) / 2);
-  const maxY = Math.max(0, (h - quadro) / 2);
-  // `|| 0` apaga o zero negativo que `Math.max(-0, x)` devolve quando a
-  // folga é zero: ele vira "-0px" no transform e "-0" no teste, e nenhum
-  // dos dois é o que a conta quer dizer.
-  return {
-    zoom: Math.max(1, e.zoom),
-    dx: Math.min(maxX, Math.max(-maxX, e.dx)) || 0,
-    dy: Math.min(maxY, Math.max(-maxY, e.dy)) || 0,
-  };
-}
-
-/**
- * O retângulo da imagem original que o quadro está mostrando.
- *
- * É o que vai para `drawImage(img, sx, sy, sw, sh, 0, 0, saida, saida)`. Sai
- * em pixels da imagem, já limitado às bordas dela, porque o que a tela mostra
- * e o que o canvas recorta têm que ser a MESMA coisa: a pessoa alinhou o olho
- * do cliente no centro do círculo, e é ali que ele tem que sair.
- */
-export function recorteNaImagem(
-  largura: number, altura: number, quadro: number, e: Enquadramento,
-): { sx: number; sy: number; sw: number; sh: number } {
-  const seguro = limitarDeslocamento(largura, altura, quadro, e);
-  const { escala } = tamanhoNoQuadro(largura, altura, quadro, seguro.zoom);
-  // lado do quadro, em pixels da imagem
-  const lado = quadro / escala;
-  // o centro do quadro cai em (centro da imagem - deslocamento), na imagem
-  const cx = largura / 2 - seguro.dx / escala;
-  const cy = altura / 2 - seguro.dy / escala;
-  const sx = Math.min(Math.max(0, cx - lado / 2), Math.max(0, largura - lado));
-  const sy = Math.min(Math.max(0, cy - lado / 2), Math.max(0, altura - lado));
-  return { sx, sy, sw: Math.min(lado, largura), sh: Math.min(lado, altura) };
-}
+/** Zoom mínimo: a foto inteira cabe no círculo com folga. Abaixo disto ela vira um selo. */
+export const ZOOM_MINIMO = 0.5;
 
 /** Zoom máximo: além disto a foto vira pixel, e o WhatsApp também para por aí. */
 export const ZOOM_MAXIMO = 4;
 
 /** O lado da imagem final, em pixels. 640 é o que o WhatsApp usa para perfil. */
 export const LADO_DA_SAIDA = 640;
+
+export const zoomValido = (z: number) => Math.min(ZOOM_MAXIMO, Math.max(ZOOM_MINIMO, z));
+
+/** Quanto a imagem mede no quadro, para um zoom. */
+export function tamanhoNoQuadro(largura: number, altura: number, quadro: number, zoom: number) {
+  const s = escalaDeCobertura(largura, altura, quadro) * zoomValido(zoom);
+  return { w: largura * s, h: altura * s, escala: s };
+}
+
+/**
+ * O deslocamento permitido. Imagem maior que o quadro anda até a borda dela
+ * encostar na borda do quadro; imagem menor anda até encostar por dentro. Nos
+ * dois casos a folga é |lado - quadro| / 2, e exatamente do tamanho do quadro
+ * a folga é zero.
+ */
+export function limitarDeslocamento(
+  largura: number, altura: number, quadro: number, e: Enquadramento,
+): Enquadramento {
+  const { w, h } = tamanhoNoQuadro(largura, altura, quadro, e.zoom);
+  const maxX = Math.abs(w - quadro) / 2;
+  const maxY = Math.abs(h - quadro) / 2;
+  // `|| 0` apaga o zero negativo que `Math.max(-0, x)` devolve quando a
+  // folga é zero: ele vira "-0px" no transform e "-0" no teste, e nenhum
+  // dos dois é o que a conta quer dizer.
+  return {
+    zoom: zoomValido(e.zoom),
+    dx: Math.min(maxX, Math.max(-maxX, e.dx)) || 0,
+    dy: Math.min(maxY, Math.max(-maxY, e.dy)) || 0,
+  };
+}
+
+/**
+ * Onde a imagem fica dentro do quadro: canto superior esquerdo e tamanho, em
+ * px do quadro. É exatamente o que o `<img>` da tela desenha, e é exatamente o
+ * que o canvas repete na saída, multiplicado pela razão saída/quadro. Uma
+ * conta só para os dois, porque o que a pessoa alinhou no círculo tem que ser
+ * o que sai: ela pôs o olho do cliente no centro, e é ali que ele fica.
+ * Quando a imagem é menor que o quadro, o que sobra em volta é fundo escuro.
+ */
+export function posicaoNoQuadro(
+  largura: number, altura: number, quadro: number, e: Enquadramento,
+): { x: number; y: number; w: number; h: number } {
+  const seguro = limitarDeslocamento(largura, altura, quadro, e);
+  const { w, h } = tamanhoNoQuadro(largura, altura, quadro, seguro.zoom);
+  return { x: quadro / 2 - w / 2 + seguro.dx, y: quadro / 2 - h / 2 + seguro.dy, w, h };
+}

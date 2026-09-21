@@ -8,9 +8,13 @@
 //   foto      aplica a imagem que a tela subiu para o bucket (perfil/…)
 //   remover   tira a foto do perfil
 //
-// O MESMO DESENHO DA wa-enviar: a imagem já está no bucket quando esta função
-// é chamada; aqui só se assina um link de uma hora e a Evolution baixa. Base64
-// atravessando a função é o caminho que já estourou o AW-ECO.
+// A IMAGEM VAI EM BASE64, e não por link. É a exceção à regra da wa-enviar (lá
+// a mídia vai por URL assinada porque um áudio de três minutos não pode
+// atravessar a função). Aqui a imagem já chega recortada em 640x640 JPEG, uns
+// cem quilobytes, e a URL introduzia uma variável a mais: a Evolution tinha
+// que conseguir baixar do Supabase, e a segunda troca de foto do chefe voltou
+// com "Error updating profile picture 1006". Passando os bytes direto, o que
+// a Evolution entrega ao WhatsApp é exatamente o que a tela gerou.
 //
 // DEPOIS DE APLICAR, RELÊ A FOTO DA PRÓPRIA INSTÂNCIA na Evolution e grava em
 // `wa_instancias.foto_url`. Sem isso a tela continuaria mostrando a foto antiga
@@ -29,6 +33,26 @@ const cors = {
 };
 const json = (b: unknown) =>
   new Response(JSON.stringify(b), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
+
+/* O WhatsApp devolve códigos, e "1006" não diz nada a quem está tentando
+   trocar a foto. O que se sabe dele na prática: aparece quando o WhatsApp
+   recusa a imagem ou quando a foto foi trocada várias vezes em pouco tempo.
+   Dizer isso é melhor que repetir o número. */
+function traduzirRecusa(status: number, corpo: string): string {
+  if (corpo.includes("1006")) {
+    return "O WhatsApp recusou a foto (código 1006). Costuma acontecer quando a foto foi trocada várias vezes seguidas; espere alguns minutos e tente de novo. Se persistir, tente outra imagem.";
+  }
+  return `A Evolution não aceitou a foto (${status}). ${corpo.slice(0, 200)}`;
+}
+
+function paraBase64(bytes: Uint8Array): string {
+  let s = "";
+  const bloco = 0x8000;
+  for (let i = 0; i < bytes.length; i += bloco) {
+    s += String.fromCharCode(...bytes.subarray(i, i + bloco));
+  }
+  return btoa(s);
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -64,7 +88,7 @@ Deno.serve(async (req: Request) => {
 
     if (acao === "remover") {
       const r = await fetch(`${base}/chat/removeProfilePicture/${encodeURIComponent(nome)}`, { method: "DELETE", headers: cab });
-      if (!r.ok) return json({ ok: false, error: `A Evolution não aceitou remover (${r.status}). ${(await r.text()).slice(0, 200)}` });
+      if (!r.ok) return json({ ok: false, error: traduzirRecusa(r.status, await r.text()) });
       await sb.from("wa_instancias").update({ foto_url: null, sincronizado_em: new Date().toISOString() }).eq("nome", nome);
       return json({ ok: true, instancia: nome, foto_url: null });
     }
@@ -74,8 +98,13 @@ Deno.serve(async (req: Request) => {
     const midiaPath = String(body.midia_path || "");
     if (!midiaPath.startsWith("perfil/")) return json({ ok: false, error: "midia_path precisa estar em perfil/" });
 
-    const { data: assinada, error: eUrl } = await sb.storage.from("wa-midia").createSignedUrl(midiaPath, 3600);
-    if (eUrl || !assinada?.signedUrl) return json({ ok: false, error: `Não consegui assinar a imagem: ${eUrl?.message ?? "sem URL"}` });
+    // Baixa do bucket e manda os bytes. Ver o cabeçalho: aqui base64 é a
+    // escolha certa, e não a exceção que estourou o AW-ECO.
+    const { data: arquivo, error: eDown } = await sb.storage.from("wa-midia").download(midiaPath);
+    if (eDown || !arquivo) return json({ ok: false, error: `Não consegui ler a imagem: ${eDown?.message ?? "sem arquivo"}` });
+    const bytes = new Uint8Array(await arquivo.arrayBuffer());
+    if (bytes.length === 0) return json({ ok: false, error: "A imagem veio vazia." });
+    const picture = paraBase64(bytes);
 
     /* Duas formas conhecidas entre versões da v2 (PUT e POST), mesmo cuidado
        da wa-conectar: custa um request e evita um "não deu nada" que ninguém
@@ -84,10 +113,10 @@ Deno.serve(async (req: Request) => {
     let aplicou = false;
     for (const metodo of ["PUT", "POST"]) {
       const r = await fetch(`${base}/chat/updateProfilePicture/${encodeURIComponent(nome)}`, {
-        method: metodo, headers: cab, body: JSON.stringify({ picture: assinada.signedUrl }),
+        method: metodo, headers: cab, body: JSON.stringify({ picture }),
       });
       if (r.ok) { aplicou = true; break; }
-      ultimo = `A Evolution não aceitou a foto (${r.status}). ${(await r.text()).slice(0, 200)}`;
+      ultimo = traduzirRecusa(r.status, await r.text());
     }
     if (!aplicou) return json({ ok: false, error: ultimo });
 
@@ -109,8 +138,8 @@ Deno.serve(async (req: Request) => {
       await sb.from("wa_instancias").update({ foto_url: fotoNova, sincronizado_em: new Date().toISOString() }).eq("nome", nome);
     }
 
-    // A imagem no bucket já cumpriu o papel: a Evolution baixou. Tirar evita
-    // acumular uma foto por tentativa.
+    // A imagem no bucket já cumpriu o papel. Tirar evita acumular uma foto
+    // por tentativa.
     await sb.storage.from("wa-midia").remove([midiaPath]).catch(() => { /* fica, e tudo bem */ });
 
     return json({

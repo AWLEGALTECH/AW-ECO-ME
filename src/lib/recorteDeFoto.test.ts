@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test";
 import {
-  escalaDeCobertura, tamanhoNoQuadro, limitarDeslocamento, recorteNaImagem,
+  escalaDeCobertura, tamanhoNoQuadro, limitarDeslocamento, posicaoNoQuadro,
+  ZOOM_MINIMO, ZOOM_MAXIMO,
 } from "./recorteDeFoto";
 
-/* AS DUAS REGRAS DO ENCAIXE: a foto nunca fica menor que o círculo, e nunca
-   desgruda da borda. Sem elas, "arrastar e dar zoom" vira fundo vazio dentro
-   da bola de perfil. */
+/* AS DUAS REGRAS DO ENCAIXE: a foto recua até um limite (metade do quadro), e
+   nunca desgruda da borda. A primeira queixa real foi uma foto quadrada que
+   nascia colada no círculo, sem nada para personalizar. */
 
 const Q = 300; // o quadro da tela
 
@@ -23,10 +24,20 @@ test("zoom 1 cobre o quadro exatamente; zoom 2 dobra", () => {
   expect(tamanhoNoQuadro(1200, 600, Q, 2)).toEqual({ w: 1200, h: 600, escala: 1 });
 });
 
-test("zoom abaixo de 1 é levado a 1: a foto nunca fica menor que a bola", () => {
-  const e = limitarDeslocamento(1200, 600, Q, { zoom: 0.4, dx: 0, dy: 0 });
-  expect(e.zoom).toBe(1);
-  expect(tamanhoNoQuadro(1200, 600, Q, e.zoom).h).toBe(Q);
+test("a foto recua até metade do quadro, e não mais que isso", () => {
+  /* Recuar é o que faltava; recuar sem limite viraria um selo no meio do
+     círculo. Meio quadro é o ponto em que a foto inteira cabe com folga. */
+  expect(limitarDeslocamento(1200, 600, Q, { zoom: 0.1, dx: 0, dy: 0 }).zoom).toBe(ZOOM_MINIMO);
+  expect(limitarDeslocamento(1200, 600, Q, { zoom: 99, dx: 0, dy: 0 }).zoom).toBe(ZOOM_MAXIMO);
+  // foto quadrada recuada a 0.5 mede metade do quadro
+  expect(tamanhoNoQuadro(900, 900, Q, 0.5).w).toBe(Q / 2);
+});
+
+test("menor que o quadro, a foto anda até encostar por DENTRO", () => {
+  // quadrada em 0.5: mede 150 num quadro de 300, pode andar 75 para cada lado
+  const e = limitarDeslocamento(900, 900, Q, { zoom: 0.5, dx: 999, dy: -999 });
+  expect(e.dx).toBe(75);
+  expect(e.dy).toBe(-75);
 });
 
 test("a foto para quando a borda dela encosta na borda do quadro", () => {
@@ -47,41 +58,35 @@ test("com zoom, sobra folga para andar nas duas direções", () => {
   expect(e.dy).toBe(-150);
 });
 
-/* ── o recorte que sai para o canvas ── */
+/* ── a posição que a tela desenha e o canvas repete ── */
 
-test("centrado e sem zoom, o recorte é o quadrado central da imagem", () => {
-  const r = recorteNaImagem(1200, 600, Q, { zoom: 1, dx: 0, dy: 0 });
-  // lado = 300 / 0.5 = 600 px da imagem, centrado em x: começa em 300
-  expect(r).toEqual({ sx: 300, sy: 0, sw: 600, sh: 600 });
+test("centrada e sem zoom, a foto paisagem fica encostada em cima e centrada em x", () => {
+  const p = posicaoNoQuadro(1200, 600, Q, { zoom: 1, dx: 0, dy: 0 });
+  expect(p).toEqual({ x: -150, y: 0, w: 600, h: 300 });
 });
 
-test("arrastar a foto para a DIREITA mostra o lado ESQUERDO dela", () => {
-  /* É o gesto do WhatsApp: você puxa a foto, e o que entra no círculo é o
-     que estava do outro lado. Errar o sinal aqui faz o rosto sair do quadro
-     no momento em que a pessoa achou que tinha encaixado. */
-  const r = recorteNaImagem(1200, 600, Q, { zoom: 1, dx: 150, dy: 0 });
-  expect(r.sx).toBe(0);
-  const l = recorteNaImagem(1200, 600, Q, { zoom: 1, dx: -150, dy: 0 });
-  expect(l.sx).toBe(600);
+test("arrastar para a DIREITA move a foto para a direita, e é o lado esquerdo dela que entra no círculo", () => {
+  /* É o gesto do WhatsApp. O que se testa é o sinal: com dx positivo a borda
+     esquerda da foto (x) aproxima-se de zero, ou seja, o começo da foto entra
+     no quadro. Errar o sinal faria o rosto sair no instante em que a pessoa
+     achou que tinha encaixado. */
+  const p = posicaoNoQuadro(1200, 600, Q, { zoom: 1, dx: 150, dy: 0 });
+  expect(p.x).toBe(0);
+  const l = posicaoNoQuadro(1200, 600, Q, { zoom: 1, dx: -150, dy: 0 });
+  expect(l.x).toBe(-300);
 });
 
-test("com zoom, o recorte encolhe na imagem e segue o centro do quadro", () => {
-  const r = recorteNaImagem(1200, 600, Q, { zoom: 2, dx: 0, dy: 0 });
-  // escala 1: lado = 300 px da imagem, centrado em (600, 300)
-  expect(r).toEqual({ sx: 450, sy: 150, sw: 300, sh: 300 });
+test("com zoom, a foto cresce em volta do centro", () => {
+  const p = posicaoNoQuadro(1200, 600, Q, { zoom: 2, dx: 0, dy: 0 });
+  expect(p).toEqual({ x: -450, y: -150, w: 1200, h: 600 });
 });
 
-test("o recorte nunca sai da imagem, mesmo com deslocamento absurdo", () => {
-  const r = recorteNaImagem(1200, 600, Q, { zoom: 1, dx: 99999, dy: -99999 });
-  expect(r.sx).toBeGreaterThanOrEqual(0);
-  expect(r.sy).toBeGreaterThanOrEqual(0);
-  expect(r.sx + r.sw).toBeLessThanOrEqual(1200);
-  expect(r.sy + r.sh).toBeLessThanOrEqual(600);
+test("recuada, a foto fica inteira dentro do quadro, com fundo em volta", () => {
+  const p = posicaoNoQuadro(900, 900, Q, { zoom: 0.5, dx: 0, dy: 0 });
+  expect(p).toEqual({ x: 75, y: 75, w: 150, h: 150 });
 });
 
 test("imagem menor que o quadro é ampliada em vez de deixar fundo vazio", () => {
   const { w, h } = tamanhoNoQuadro(100, 80, Q, 1);
   expect(Math.min(w, h)).toBe(Q);
-  const r = recorteNaImagem(100, 80, Q, { zoom: 1, dx: 0, dy: 0 });
-  expect(r.sh).toBe(80);
 });

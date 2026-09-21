@@ -18,7 +18,7 @@ import { ZoomIn, ZoomOut, Check, Loader2, Move } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
-  limitarDeslocamento, recorteNaImagem, tamanhoNoQuadro, ZOOM_MAXIMO, LADO_DA_SAIDA,
+  limitarDeslocamento, posicaoNoQuadro, zoomValido, ZOOM_MINIMO, ZOOM_MAXIMO, LADO_DA_SAIDA,
   type Enquadramento,
 } from "@/lib/recorteDeFoto";
 
@@ -53,7 +53,7 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
   const largura = img?.naturalWidth ?? 1;
   const altura = img?.naturalHeight ?? 1;
   const aplicar = (n: Enquadramento) => setE(limitarDeslocamento(largura, altura, QUADRO, n));
-  const { w, h } = tamanhoNoQuadro(largura, altura, QUADRO, e.zoom);
+  const pos = posicaoNoQuadro(largura, altura, QUADRO, e);
 
   /* ARRASTAR: o ponteiro segura a foto e ela vai junto. Pointer events cobrem
      mouse e dedo com o mesmo código, e `setPointerCapture` faz o arraste
@@ -74,7 +74,7 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
   const roda = (ev: React.WheelEvent) => {
     ev.preventDefault();
     const fator = ev.deltaY < 0 ? 1.08 : 1 / 1.08;
-    const zoomNovo = Math.min(ZOOM_MAXIMO, Math.max(1, e.zoom * fator));
+    const zoomNovo = zoomValido(e.zoom * fator);
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     const px = ev.clientX - r.left - QUADRO / 2;
     const py = ev.clientY - r.top - QUADRO / 2;
@@ -88,7 +88,7 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
     const [a, b] = [ev.touches[0], ev.touches[1]];
     const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     if (beliscao.current != null) {
-      const zoomNovo = Math.min(ZOOM_MAXIMO, Math.max(1, e.zoom * (d / beliscao.current)));
+      const zoomNovo = zoomValido(e.zoom * (d / beliscao.current));
       aplicar({ ...e, zoom: zoomNovo });
     }
     beliscao.current = d;
@@ -98,12 +98,20 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
     if (!img) return;
     setGerando(true);
     try {
-      const r = recorteNaImagem(largura, altura, QUADRO, e);
+      /* O canvas repete a tela: a mesma posição, multiplicada pela razão
+         saída/quadro. Fundo escuro primeiro, porque com a foto recuada sobra
+         quadro em volta, e JPEG não tem transparência para deixar aquilo
+         "vazio": ficaria preto de qualquer jeito, então que seja de propósito
+         e da mesma cor que a pessoa viu no recorte. */
+      const k = LADO_DA_SAIDA / QUADRO;
       const tela = document.createElement("canvas");
       tela.width = LADO_DA_SAIDA;
       tela.height = LADO_DA_SAIDA;
       const ctx = tela.getContext("2d")!;
-      ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, LADO_DA_SAIDA, LADO_DA_SAIDA);
+      ctx.fillStyle = "#0b0d10";
+      ctx.fillRect(0, 0, LADO_DA_SAIDA, LADO_DA_SAIDA);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, pos.x * k, pos.y * k, pos.w * k, pos.h * k);
       // JPEG, e não WebP: é o que o WhatsApp aceita sem discutir para perfil.
       const blob = await new Promise<Blob | null>((ok) => tela.toBlob(ok, "image/jpeg", 0.9));
       if (!blob) throw new Error("Não consegui gerar a imagem recortada.");
@@ -123,8 +131,8 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
             <Move className="h-4 w-4 text-primary" /> Encaixar a foto
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            Arraste para posicionar e aproxime com a roda, o beliscão ou o controle. O que estiver dentro
-            do círculo é o que vai para o WhatsApp.
+            Arraste para posicionar; a roda, o beliscão e o controle aproximam ou recuam. O que estiver
+            dentro do círculo é o que vai para o WhatsApp, e o que sobrar em volta fica escuro.
           </DialogDescription>
         </DialogHeader>
 
@@ -133,15 +141,12 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
             onPointerDown={iniciar} onPointerMove={mover} onPointerUp={soltar} onPointerCancel={soltar}
             onWheel={roda} onTouchMove={toque} onTouchEnd={() => { beliscao.current = null; }}
             style={{ width: QUADRO, height: QUADRO }}
-            className="relative overflow-hidden rounded-xl bg-black/60 ring-1 ring-white/10 cursor-grab active:cursor-grabbing touch-none select-none"
+            className="relative overflow-hidden rounded-xl bg-[#0b0d10] ring-1 ring-white/10 cursor-grab active:cursor-grabbing touch-none select-none"
           >
             {url && img && (
               <img
                 src={url} alt="" draggable={false}
-                style={{
-                  width: w, height: h,
-                  transform: `translate(${QUADRO / 2 - w / 2 + e.dx}px, ${QUADRO / 2 - h / 2 + e.dy}px)`,
-                }}
+                style={{ width: pos.w, height: pos.h, transform: `translate(${pos.x}px, ${pos.y}px)` }}
                 className="absolute left-0 top-0 max-w-none pointer-events-none"
               />
             )}
@@ -157,7 +162,7 @@ export function RecorteDeFoto({ arquivo, onConfirmar, onCancelar, ocupado }: {
         <div className="flex items-center gap-2 px-1">
           <ZoomOut className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <input
-            type="range" min={1} max={ZOOM_MAXIMO} step={0.01} value={e.zoom}
+            type="range" min={ZOOM_MINIMO} max={ZOOM_MAXIMO} step={0.01} value={e.zoom}
             onChange={(ev) => aplicar({ ...e, zoom: Number(ev.target.value) })}
             className="flex-1 accent-[hsl(var(--primary))]"
             aria-label="Zoom"
