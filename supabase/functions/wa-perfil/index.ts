@@ -23,16 +23,26 @@
 // Evolution usa para ENVIAR estava morto. Toda tentativa seguinte, de foto ou
 // de mensagem, voltava "Connection Closed" (ou "1006", que é o código do
 // WebSocket para fechamento anormal). A presença do número parou às 17:01 e
-// nunca mais voltou. É o mesmo quadro que já pediu o botão "Reiniciar o
-// número" da wa-conectar: painel verde, envio morto, e só o restart conserta.
+// nunca mais voltou. Parece o quadro que já pediu o botão "Reiniciar o
+// número" da wa-conectar (painel verde, envio morto), mas aqui o restart
+// piora, e o motivo está logo abaixo.
+//
+// O QUE ESTÁ POR TRÁS, lido no `wa_eventos`: o `close` vem com `statusReason
+// 440`, "conexão substituída". O reload da Evolution cria um socket novo SEM
+// fechar o velho; os dois têm a mesma credencial, e o WhatsApp derruba um
+// quando o outro entra. Cada queda dispara outra reconexão, e é isso o loop.
+// Quando ele cansa, sobra um socket vivo recebendo eventos e outro, morto, na
+// mão de quem envia. `instance/restart` faz a MESMA coisa (a versão 3 desta
+// função tentou, às 17:51, e a briga recomeçou na hora), então reiniciar não
+// é remédio aqui: é a doença de novo. O que resolve é derrubar todas as
+// sessões (sair do dispositivo no celular, ou desconectar pela engrenagem) e
+// parear de novo pelo QR, ou reiniciar o servidor da Evolution.
 //
 // Então esta função não confia no "conectado" do painel. Antes de qualquer
 // coisa ela SONDA o socket com uma consulta barata (`chat/whatsappNumbers` com
 // o próprio telefone do número): se voltar "Connection Closed", o número está
-// travado, e ela mesma o reinicia e pede para tentar de novo em meio minuto.
-// Depois de aplicar a foto, sonda de novo, e reinicia se a troca
-// deixou o socket morto. Reiniciar é o que o botão da wa-conectar faz, e o que
-// resolveu das outras vezes.
+// nesse estado, e ela para ali e explica o caminho, em vez de gastar mais uma
+// tentativa que só voltaria "1006".
 //
 // DEPOIS DE APLICAR, RELÊ A FOTO DA PRÓPRIA INSTÂNCIA na Evolution e grava em
 // `wa_instancias.foto_url`. Sem isso a tela continuaria mostrando a foto antiga
@@ -113,21 +123,12 @@ async function sondarSocket(ev: Evolution, nome: string, telefone: string | null
   } catch { return "desconhecido"; }
 }
 
-/** O mesmo restart do botão "Reiniciar o número" da wa-conectar: POST, e PUT se a versão pedir. */
-async function reiniciar(ev: Evolution, nome: string): Promise<boolean> {
-  for (const metodo of ["POST", "PUT"]) {
-    try {
-      const r = await fetch(`${ev.base}/instance/restart/${encodeURIComponent(nome)}`, {
-        method: metodo, headers: ev.cab, signal: AbortSignal.timeout(10_000),
-      });
-      if (r.ok) return true;
-    } catch { /* tenta o outro verbo */ }
-  }
-  return false;
-}
-
-const PEDE_PARA_TENTAR_DE_NOVO =
-  "Reiniciei o número agora. Espere uns 30 segundos, confira que ele voltou a aparecer conectado e tente de novo.";
+/* O caminho para sair do conflito de sessões. Ver o cabeçalho: reiniciar pela
+   Evolution recomeça a briga, então o que se pede é derrubar todas as sessões
+   e parear de novo. */
+const COMO_SAIR_DO_CONFLITO =
+  "A conexão desse número está em conflito na Evolution: duas sessões do mesmo número se derrubando (código 440), e o painel mostra conectado mesmo assim. Reiniciar não resolve. " +
+  "Saída: no celular desse número, abra WhatsApp, Dispositivos conectados, e saia da sessão da Evolution; depois conecte de novo pelo QR, na engrenagem. Ou peça para reiniciarem o servidor da Evolution.";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -184,24 +185,14 @@ Deno.serve(async (req: Request) => {
     const sondaAntes = await sondarSocket(ev, nome, inst.telefone);
     if (sondaAntes === "morto") {
       await limparBucket();
-      const reiniciou = await reiniciar(ev, nome);
-      return json({
-        ok: false,
-        error: reiniciou
-          ? `A conexão desse número estava travada na Evolution (o painel dizia conectado, mas nada saía). ${PEDE_PARA_TENTAR_DE_NOVO}`
-          : "A conexão desse número está travada na Evolution e não consegui reiniciá-la daqui. Use \"Reiniciar o número\" no diagnóstico da engrenagem e tente de novo.",
-        reiniciada: reiniciou,
-      });
+      return json({ ok: false, error: COMO_SAIR_DO_CONFLITO, conflito: true });
     }
 
     if (acao === "remover") {
       const r = await fetch(`${base}/chat/removeProfilePicture/${encodeURIComponent(nome)}`, { method: "DELETE", headers: ev.cab });
       if (!r.ok) {
         const corpo = await r.text();
-        if (socketFechado(corpo)) {
-          const reiniciou = await reiniciar(ev, nome);
-          return json({ ok: false, error: `${traduzirRecusa(r.status, corpo)} ${reiniciou ? PEDE_PARA_TENTAR_DE_NOVO : "Reinicie o número pelo diagnóstico e tente de novo."}` });
-        }
+        if (socketFechado(corpo)) return json({ ok: false, error: COMO_SAIR_DO_CONFLITO, conflito: true });
         return json({ ok: false, error: `A Evolution não aceitou remover (${r.status}). ${corpo.slice(0, 200)}` });
       }
       await sb.from("wa_instancias").update({ foto_url: null, sincronizado_em: new Date().toISOString() }).eq("nome", nome);
@@ -232,24 +223,16 @@ Deno.serve(async (req: Request) => {
     }
     await limparBucket();
     if (!aplicou) {
-      if (socketFechado(ultimo)) {
-        const reiniciou = await reiniciar(ev, nome);
-        return json({
-          ok: false,
-          error: `${traduzirRecusa(500, ultimo)} ${reiniciou ? PEDE_PARA_TENTAR_DE_NOVO : "Reinicie o número pelo diagnóstico e tente de novo."}`,
-          reiniciada: reiniciou,
-        });
-      }
+      if (socketFechado(ultimo)) return json({ ok: false, error: COMO_SAIR_DO_CONFLITO, conflito: true });
       return json({ ok: false, error: ultimo });
     }
 
     /* A FOTO ENTROU. Agora a parte que quebrou da primeira vez: a Evolution
        recriou o socket por conta própria. Dá alguns segundos para ele assentar
-       e sonda de novo; se ficou morto, reinicia, que é o conserto conhecido. */
+       e sonda de novo. Se ficou morto, não há o que esta função possa fazer
+       além de avisar, e avisar ALTO: o número parou de enviar. */
     await espera(4_000);
-    let reiniciada = false;
     const sondaDepois = await sondarSocket(ev, nome, inst.telefone);
-    if (sondaDepois === "morto") reiniciada = await reiniciar(ev, nome);
 
     /* Relê a foto nova de onde a wa-instancia já lê. Se a Evolution ainda não
        tiver a URL nova (o WhatsApp leva alguns segundos, e o socket pode estar
@@ -273,11 +256,11 @@ Deno.serve(async (req: Request) => {
     }
 
     const avisos: string[] = [];
-    if (reiniciada) avisos.push("A troca deixou a conexão do número travada e eu o reiniciei; ele volta em alguns segundos.");
+    if (sondaDepois === "morto") avisos.push(`ATENÇÃO: a foto entrou, mas a troca deixou a conexão do número em conflito e ele parou de enviar. ${COMO_SAIR_DO_CONFLITO}`);
     else if (sondaDepois === "vivo") avisos.push("A troca reinicia a conexão do número por alguns segundos; ele já respondeu de novo.");
     if (!fotoNova) avisos.push("A foto nova aparece aqui na próxima atualização.");
 
-    return json({ ok: true, instancia: nome, foto_url: fotoNova, reiniciada, aviso: avisos.join(" ") || null });
+    return json({ ok: true, instancia: nome, foto_url: fotoNova, conflito: sondaDepois === "morto", aviso: avisos.join(" ") || null });
   } catch (e) {
     console.error("[wa-perfil]", e);
     return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
