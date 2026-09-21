@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
 import { RecorteDeFoto } from "@/components/atendimento/RecorteDeFoto";
+import { FotoTrocadaPop, type FotoTrocada } from "@/components/atendimento/FotoTrocadaPop";
 import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
 import { compararNaCaixa, recemChegada } from "@/lib/recemChegada";
 import { Link } from "react-router-dom";
@@ -642,7 +643,32 @@ export default function AtendimentoPage() {
   /* As instâncias vêm da Evolution (nome, status, número e FOTO do perfil); a
      maquete só assume quando ela não respondeu ainda. */
   const { data: instRows = [] } = useInstancias();
-  const instancias: Instancia[] = instRows.length > 0 ? instRows.map((i) => instanciaParaCard(i)) : INSTANCIAS;
+  /* A FOTO QUE ACABOU DE SER TROCADA aparece na hora, da imagem do recorte, e
+     não da URL do WhatsApp: essa leva segundos para existir e a sincronização
+     leva mais um minuto para buscar. Sem isto, quem trocou via a foto antiga
+     durante um minuto e achava que não tinha funcionado. `antes` guarda a URL
+     que estava lá na hora da troca; quando o servidor devolver uma diferente,
+     a imagem local sai de cena e a de lá assume. */
+  const [fotoLocal, setFotoLocal] = useState<Record<string, { url: string; antes: string | null }>>({});
+  useEffect(() => {
+    const vencidas = Object.entries(fotoLocal).filter(([nome, f]) => {
+      const row = instRows.find((r) => r.nome === nome);
+      return !!row?.foto_url && row.foto_url !== f.antes;
+    });
+    if (vencidas.length === 0) return;
+    setFotoLocal((prev) => {
+      const prox = { ...prev };
+      for (const [nome, f] of vencidas) { URL.revokeObjectURL(f.url); delete prox[nome]; }
+      return prox;
+    });
+  }, [instRows, fotoLocal]);
+  const instancias: Instancia[] = instRows.length > 0
+    ? instRows.map((i) => {
+        const c = instanciaParaCard(i);
+        const local = fotoLocal[i.nome];
+        return local ? { ...c, fotoUrl: local.url } : c;
+      })
+    : INSTANCIAS;
   /* A PRINCIPAL é a primeira da seleção que existe de verdade. Se a lista
      guardada aponta pra um número que saiu do ar, cai na primeira disponível em
      vez de deixar a tela sem instância nenhuma. */
@@ -2108,23 +2134,34 @@ export default function AtendimentoPage() {
 
   /* A FOTO DE PERFIL DO NÚMERO, trocada daqui (chefe, 21/09). Antes era pegar
      o celular pareado ou abrir o painel da Evolution, que nem todo mundo tem. */
+  /* A TROCA PELA API RECRIA A CONEXÃO DO NÚMERO. Está no código da Evolution
+     (whatsapp.baileys.service.ts: `updateProfilePicture` e `removeProfilePicture`
+     chamam `reloadConnection`, que abre um socket novo sem fechar o velho), e
+     em 21/09 isso derrubou o PORTAL DIREITO ABERTO 2 por horas (conflito de
+     sessão 440). Enquanto a Evolution não for corrigida (ver
+     docs/evolution-conflito-440.md), quem vai trocar precisa saber disso ANTES
+     de escolher a imagem, e ter o caminho seguro à mão: o celular do número. */
+  const confirmarMexerNaFoto = (nome: string, acao: "trocar" | "remover") => window.confirm(
+    `${acao === "trocar" ? "Trocar" : "Tirar"} a foto de ${nomeDe(nome)} pela plataforma?\n\n`
+    + "Atenção: a Evolution recria a conexão do número para aplicar a mudança, e isso já derrubou um número por horas. "
+    + "O caminho seguro é mexer na foto pelo próprio celular do número.\n\nContinuar mesmo assim?",
+  );
+  const [fotoPop, setFotoPop] = useState<FotoTrocada | null>(null);
+  const fecharFotoPop = useCallback(() => setFotoPop(null), []);
   const trocarFoto = async (nome: string, arquivo: File | null | undefined) => {
     if (!arquivo) return;
-    /* A TROCA PELA API RECRIA A CONEXÃO DO NÚMERO, e nesta versão da Evolution
-       isso já derrubou o PORTAL DIREITO ABERTO 2 por horas (21/09, conflito de
-       sessão 440). Quem vai trocar precisa saber disso ANTES, e ter o caminho
-       seguro à mão: o próprio celular do número. */
-    if (!window.confirm(
-      `Trocar a foto de ${nomeDe(nome)} pela plataforma?\n\n`
-      + "Atenção: a Evolution recria a conexão do número para aplicar a foto, e isso já derrubou um número por horas. "
-      + "O caminho seguro é trocar a foto pelo próprio celular do número.\n\nContinuar mesmo assim?",
-    )) return;
     setTrocandoFoto(true);
     const t = toast.loading(`Trocando a foto de ${nomeDe(nome)}…`);
     try {
       const r = await trocarFotoDaInstancia(nome, arquivo);
+      toast.dismiss(t);
+      /* A tela mostra a imagem do recorte NA HORA, em todo lugar em que a foto
+         do número aparece, e o pop confirma com ela no centro. */
+      const url = URL.createObjectURL(arquivo);
+      const antes = instRows.find((i) => i.nome === nome)?.foto_url ?? null;
+      setFotoLocal((prev) => ({ ...prev, [nome]: { url, antes } }));
+      setFotoPop({ nome: nomeDe(nome), foto: url, aviso: r.aviso ?? null });
       invalidarWa();
-      toast.success(`Foto de ${nomeDe(nome)} trocada.`, { id: t, description: r.aviso ?? undefined, duration: 8_000 });
     } catch (e) {
       toast.error((e as Error).message, { id: t, duration: 12_000 });
     } finally {
@@ -2132,7 +2169,7 @@ export default function AtendimentoPage() {
     }
   };
   const removerFoto = async (nome: string) => {
-    if (!window.confirm(`Tirar a foto de perfil de ${nomeDe(nome)}? O número fica sem foto no WhatsApp.`)) return;
+    if (!confirmarMexerNaFoto(nome, "remover")) return;
     setTrocandoFoto(true);
     try {
       await removerFotoDaInstancia(nome);
@@ -5995,7 +6032,8 @@ export default function AtendimentoPage() {
                     }} />
                   <span className="flex flex-col gap-1 shrink-0">
                     <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
-                      disabled={trocandoFoto} onClick={() => seletorDeFoto.current?.click()}>
+                      disabled={trocandoFoto}
+                      onClick={() => { if (confirmarMexerNaFoto(marcaDe_, "trocar")) seletorDeFoto.current?.click(); }}>
                       <Camera className="h-3.5 w-3.5" /> Trocar foto
                     </Button>
                     {alvo?.fotoUrl && (
@@ -6052,6 +6090,7 @@ export default function AtendimentoPage() {
           setFotoParaRecortar(null);
         }}
       />
+      <FotoTrocadaPop item={fotoPop} onFechar={fecharFotoPop} />
 
       {/* ── PASSAR A CONVERSA PRA OUTRO NÚMERO ──
           O aviso do meio é o motivo de isto ser um diálogo e não um clique

@@ -234,22 +234,39 @@ Deno.serve(async (req: Request) => {
     await espera(4_000);
     const sondaDepois = await sondarSocket(ev, nome, inst.telefone);
 
-    /* Relê a foto nova de onde a wa-instancia já lê. Se a Evolution ainda não
-       tiver a URL nova (o WhatsApp leva alguns segundos, e o socket pode estar
-       voltando), a tela fica com a antiga até a próxima sincronização, e o
-       aviso diz isso. */
+    /* RELÊ A FOTO NOVA, e pergunta AO VIVO primeiro. O `fetchInstances` devolve
+       a URL que a Evolution guardou quando a sessão abriu, ou seja, a foto
+       ANTIGA; foi por isso que a tela seguia mostrando a foto velha depois de
+       uma troca que deu certo. O `fetchProfilePictureUrl` vai ao WhatsApp
+       perguntar a foto atual do próprio número. O `fetchInstances` fica como
+       reserva, e a tela ainda tem a imagem do recorte para mostrar na hora. */
     let fotoNova: string | null = null;
-    try {
-      const r = await fetch(`${base}/instance/fetchInstances?instanceName=${encodeURIComponent(nome)}`, {
-        headers: ev.cab, signal: AbortSignal.timeout(8_000),
-      });
-      if (r.ok) {
-        const lista = await r.json();
-        const item = (Array.isArray(lista) ? lista : [lista]).find((x: any) => (x?.instance?.instanceName ?? x?.name ?? x?.instanceName) === nome) ?? (Array.isArray(lista) ? lista[0] : lista);
-        const i = item?.instance ?? item ?? {};
-        fotoNova = i.profilePicUrl ?? i.profilePictureUrl ?? null;
-      }
-    } catch { /* fica sem a URL nova; a sincronização da tela pega depois */ }
+    if (inst.telefone) {
+      try {
+        const r = await fetch(`${base}/chat/fetchProfilePictureUrl/${encodeURIComponent(nome)}`, {
+          method: "POST", headers: ev.cab, body: JSON.stringify({ number: inst.telefone }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          const u = d?.profilePictureUrl ?? d?.url ?? null;
+          if (typeof u === "string" && u.startsWith("http")) fotoNova = u;
+        }
+      } catch { /* cai na reserva */ }
+    }
+    if (!fotoNova) {
+      try {
+        const r = await fetch(`${base}/instance/fetchInstances?instanceName=${encodeURIComponent(nome)}`, {
+          headers: ev.cab, signal: AbortSignal.timeout(8_000),
+        });
+        if (r.ok) {
+          const lista = await r.json();
+          const item = (Array.isArray(lista) ? lista : [lista]).find((x: any) => (x?.instance?.instanceName ?? x?.name ?? x?.instanceName) === nome) ?? (Array.isArray(lista) ? lista[0] : lista);
+          const i = item?.instance ?? item ?? {};
+          fotoNova = i.profilePicUrl ?? i.profilePictureUrl ?? null;
+        }
+      } catch { /* fica sem a URL nova; a sincronização da tela pega depois */ }
+    }
 
     if (fotoNova) {
       await sb.from("wa_instancias").update({ foto_url: fotoNova, sincronizado_em: new Date().toISOString() }).eq("nome", nome);
