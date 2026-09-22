@@ -12,6 +12,7 @@
 // a cada 10s — de sobra pra um atendimento humano, e sem peça nova.
 
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { juntarPorRecente, listaDeInstancias, somenteDasInstancias } from "@/lib/instancias";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -96,7 +97,17 @@ const tabela = (nome: string) => (supabase.from(nome as never) as never as any);
  * no que está gravado de ontem daria imagem quebrada. Se a Evolution não
  * responder, a tela segue com o que está no banco — degradar é melhor que
  * mostrar erro por causa de uma foto.
+ *
+ * E A SINCRONIZAÇÃO SE REPETE, de dez em dez minutos, enquanto a tela estiver
+ * aberta. Ela era uma vez só, na montagem, e isso bastava quando o trabalho
+ * dela era buscar foto. Deixou de bastar quando ela passou a conferir o
+ * webhook de cada número (ver wa-instancia): quem deixa o Atendimento aberto o
+ * dia inteiro — que é como se usa — ficaria com a conferência de quando abriu.
+ * Foi assim que a PDA OUT passou um dia inteiro enviando sem receber, com a
+ * tela aberta na frente de quem podia consertar em um clique.
  */
+const DE_QUANTO_EM_QUANTO_SINCRONIZA = 10 * 60_000;
+
 export function useInstancias() {
   const qc = useQueryClient();
   const q = useQuery({
@@ -114,11 +125,30 @@ export function useInstancias() {
 
   useEffect(() => {
     let vivo = true;
-    supabase.functions
-      .invoke("wa-instancia", { body: {} })
-      .then(() => { if (vivo) qc.invalidateQueries({ queryKey: ["wa", "instancias"] }); })
-      .catch(() => {});
-    return () => { vivo = false; };
+    const sincronizar = () => {
+      supabase.functions
+        .invoke("wa-instancia", { body: {} })
+        .then(({ data }) => {
+          if (!vivo) return;
+          /* O conserto do webhook é silencioso por desenho, mas não invisível:
+             quem está atendendo precisa saber que aquele número passou um tempo
+             sem receber e acabou de voltar. */
+          const voltaram: string[] = Array.isArray(data?.reapontados) ? data.reapontados : [];
+          if (voltaram.length > 0) {
+            toast.success(
+              voltaram.length === 1
+                ? `${voltaram[0]} voltou a receber mensagens.`
+                : `${voltaram.length} números voltaram a receber mensagens.`,
+              { description: "O webhook deles não estava apontando para cá. Já reconfigurei.", duration: 10_000 },
+            );
+          }
+          qc.invalidateQueries({ queryKey: ["wa", "instancias"] });
+        })
+        .catch(() => {});
+    };
+    sincronizar();
+    const t = setInterval(sincronizar, DE_QUANTO_EM_QUANTO_SINCRONIZA);
+    return () => { vivo = false; clearInterval(t); };
   }, [qc]);
 
   return q;
