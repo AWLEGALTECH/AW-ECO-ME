@@ -37,7 +37,8 @@ import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { DESFECHOS } from "@/components/ProcessoTimeline";
 import { achatarTarefas, salvarTarefaNoBanco, type ItemTarefa, type PatchTarefa } from "@/lib/tarefas";
 import { porPrazo } from "@/lib/prazos";
-import { ETAPA_REAJUIZAMENTO } from "@/lib/reajuizamento";
+import { ETAPA_REAJUIZAMENTO, partesDaDemanda } from "@/lib/reajuizamento";
+import { PorQueCaiu } from "@/components/PorQueCaiu";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
   ClipboardList, FileText, CheckCircle2, Circle, Clock, AlertCircle, AlertTriangle,
@@ -1605,6 +1606,30 @@ export function EspelhoProtocoloDialog({
   const [pendTipos, setPendTipos] = useState<Set<TP>>(new Set());
   const [pendCustom, setPendCustom] = useState("");
   const [salvandoPend, setSalvandoPend] = useState(false);
+  /* O PROCESSO EXTINTO, quando esta demanda é um reajuizamento. É de lá que
+     sai o motivo vivo: o da descrição é o retrato de quando a demanda nasceu,
+     e quem corrigiu o motivo na ficha depois espera ver a correção aqui. */
+  const [extinto, setExtinto] = useState<{ numero_processo: string | null; reajuizamento_motivo: string | null; observacoes: string | null } | null>(null);
+  const ehReajuizamento = demanda?.etapa === ETAPA_REAJUIZAMENTO;
+
+  useEffect(() => {
+    setExtinto(null);
+    if (!ehReajuizamento || !demanda?.processo_id) return;
+    let vivo = true;
+    void (async () => {
+      /* `as never as any` porque `reajuizamento_motivo` ainda não existe no
+         types.ts gerado — é o mesmo passivo que o resto deste arquivo
+         contorna assim, e não um atalho novo. */
+      const { data } = await (supabase.from("processos") as never as any)
+        .select("numero_processo, reajuizamento_motivo, observacoes")
+        .eq("id", demanda.processo_id!)
+        .maybeSingle();
+      if (vivo && data) {
+        setExtinto(data as { numero_processo: string | null; reajuizamento_motivo: string | null; observacoes: string | null });
+      }
+    })();
+    return () => { vivo = false; };
+  }, [ehReajuizamento, demanda?.processo_id]);
 
   useEffect(() => {
     if (demanda) {
@@ -1867,11 +1892,29 @@ export function EspelhoProtocoloDialog({
                 {cliente.nome}
               </DialogTitle>
               <DialogDescription>
-                Peça pronta no Drive. Escolha o próximo passo.
+                {ehReajuizamento
+                  /* Dizer "peça pronta no Drive" num reajuizamento é mentira:
+                     não há peça nova, há uma ação extinta para reprotocolar. */
+                  ? "Ação extinta sem mérito, voltando para o fórum com número novo."
+                  : "Peça pronta no Drive. Escolha o próximo passo."}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 pt-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+              {/* POR QUE ESTA AÇÃO CAIU, antes de tudo. É a única informação que
+                  a demanda de reajuizamento existe para carregar, e ela estava
+                  chegando na esteira e morrendo aqui sem ser mostrada. */}
+              {ehReajuizamento && (() => {
+                const doTexto = partesDaDemanda(demanda.descricao);
+                return (
+                  <PorQueCaiu
+                    numero={extinto?.numero_processo ?? demanda.numero_processo ?? doTexto.numero}
+                    motivo={extinto?.reajuizamento_motivo ?? doTexto.motivo}
+                    observacoes={extinto?.observacoes ?? doTexto.observacoes}
+                  />
+                );
+              })()}
+
               {/* BRIEFING + CADASTRAL, lado a lado — mesmo bloco da Análise
                   Primária: à esquerda os dados de leitura da peça, à direita
                   os atalhos (perfil / Drive). No mobile colapsa pra coluna. */}
@@ -1891,9 +1934,14 @@ export function EspelhoProtocoloDialog({
                     <div className="flex items-start gap-2.5">
                       <CalendarDays className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                       <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">Finalizada em</p>
+                        {/* A demanda de reajuizamento não tem peça para
+                            finalizar: o que existe é a data em que alguém
+                            mandou a ação de volta para a fila. */}
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                          {ehReajuizamento ? "Mandada de volta em" : "Finalizada em"}
+                        </p>
                         <p className="text-sm text-foreground/90 break-words">
-                          {fmtDateTime(demanda.completed_at)}
+                          {fmtDateTime(ehReajuizamento ? demanda.created_at : demanda.completed_at)}
                         </p>
                       </div>
                     </div>
@@ -1927,17 +1975,34 @@ export function EspelhoProtocoloDialog({
 
               {/* ── A PEÇA — o arquivo e o que pode travá-lo ─────────────── */}
               <div className="space-y-2.5">
-                <SectionLabel>A peça</SectionLabel>
+                <SectionLabel>{ehReajuizamento ? "A ação que caiu" : "A peça"}</SectionLabel>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <ActionRow
-                    icon={Download}
-                    title="Baixar peça (.docx)"
-                    subtitle={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
-                    href={demanda.peca_drive_url || undefined}
-                    external
-                    disabled={!demanda.peca_drive_url}
-                    trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
-                  />
+                  {ehReajuizamento ? (
+                    /* Num reajuizamento não existe peça para baixar, e o botão
+                       desabilitado dizendo "peça não foi gerada" só confundia.
+                       O que a pessoa quer daqui é a ficha do extinto: é lá que
+                       está a história inteira e o que mais se consulta antes de
+                       reprotocolar. */
+                    <ActionRow
+                      icon={FileText}
+                      title="Abrir o processo extinto"
+                      subtitle={demanda.processo_id ? "Histórico, partes e documentos" : "Demanda sem processo vinculado"}
+                      href={demanda.processo_id ? `/processos/${demanda.processo_id}` : undefined}
+                      disabled={!demanda.processo_id}
+                      tone="amber"
+                      trailing={<ArrowRight className="h-4 w-4 text-amber-400/70 shrink-0" />}
+                    />
+                  ) : (
+                    <ActionRow
+                      icon={Download}
+                      title="Baixar peça (.docx)"
+                      subtitle={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
+                      href={demanda.peca_drive_url || undefined}
+                      external
+                      disabled={!demanda.peca_drive_url}
+                      trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
+                    />
+                  )}
                   <ActionRow
                     icon={AlertTriangle}
                     title="Relatar pendência"

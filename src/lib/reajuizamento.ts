@@ -166,6 +166,74 @@ export function demandaDeReajuizamento(
   };
 }
 
+/* Os rótulos que `demandaDeReajuizamento` escreve, na ordem em que ela escreve.
+   Ficam ao lado da função que os gera: separar os dois faria a leitura parar de
+   entender a escrita na primeira vez que alguém mexesse num texto. */
+const ROTULOS = [
+  "Motivo:",
+  "Matéria:",
+  "Corria em:",
+  "Comarca:",
+  "Valor da causa anterior:",
+  "Observações do processo anterior:",
+] as const;
+
+export interface PartesDaDemanda {
+  /** o número do processo extinto, lido da primeira linha */
+  numero: string | null;
+  /** por que a ação caiu */
+  motivo: string | null;
+  /** as observações que o processo extinto carregava */
+  observacoes: string | null;
+}
+
+/**
+ * LÊ DE VOLTA o que `demandaDeReajuizamento` escreveu.
+ *
+ * A descrição da demanda é um texto redigido para gente, e é o RETRATO do
+ * momento em que a demanda nasceu. O motivo também mora em
+ * `processos.reajuizamento_motivo`, que é a fonte viva — mas a demanda pode ser
+ * aberta por quem não tem o processo carregado, e o retrato serve enquanto o
+ * vivo não chega (ou quando o processo foi apagado).
+ *
+ * O motivo é o campo que mais justifica este parser: ele é texto livre e pode
+ * ter QUEBRAS DE LINHA, então não dá para ler "a linha que começa com Motivo:".
+ * Aqui cada rótulo conhecido abre um campo, e tudo que vem depois pertence a
+ * ele até o próximo rótulo — que é como a pessoa leria.
+ */
+export function partesDaDemanda(descricao: string | null | undefined): PartesDaDemanda {
+  const linhas = String(descricao ?? "").split("\n");
+  const campos = new Map<string, string[]>();
+  let atual: string | null = null;
+
+  for (const linha of linhas) {
+    const rotulo = ROTULOS.find((r) => linha.trimStart().startsWith(r));
+    if (rotulo) {
+      atual = rotulo;
+      const resto = linha.trimStart().slice(rotulo.length).trim();
+      campos.set(rotulo, resto ? [resto] : []);
+      continue;
+    }
+    if (atual) campos.get(atual)!.push(linha);
+  }
+
+  const junta = (r: typeof ROTULOS[number]): string | null => {
+    const t = (campos.get(r) ?? []).join("\n").trim();
+    return t || null;
+  };
+
+  // "Reajuizamento de 0800000-00.2024.8.04.0001, extinto sem mérito."
+  const primeira = linhas[0] ?? "";
+  const m = primeira.match(/^Reajuizamento de (.+?), extinto sem m/i);
+  const numero = m?.[1]?.trim();
+
+  return {
+    numero: numero && numero !== "processo sem número" ? numero : null,
+    motivo: junta("Motivo:"),
+    observacoes: junta("Observações do processo anterior:"),
+  };
+}
+
 /**
  * Já existe demanda de reajuizamento viva para este processo?
  *

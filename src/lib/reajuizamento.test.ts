@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   pedeReajuizamento, separarComarcaUf, demandaDeReajuizamento, temReajuizamentoAberto,
   ETAPA_REAJUIZAMENTO, STATUS_PEDE_REAJUIZAMENTO, textoDaCausa, faltaNaCausa,
+  partesDaDemanda,
 } from "./reajuizamento";
 
 /* DUAS PETIÇÕES DO MESMO PEDIDO NA FILA VIRAM LITISPENDÊNCIA NO FÓRUM.
@@ -190,4 +191,59 @@ test("sem causa, a descrição continua válida", () => {
   const d = demandaDeReajuizamento(proc(), "Fulano", null);
   expect(d.descricao).not.toContain("Motivo:");
   expect(d.descricao.split("\n")[1]).toContain("Matéria:");
+});
+
+/* LER DE VOLTA O QUE A DEMANDA ESCREVEU.
+ *
+ * O defeito que isto conserta (chefe, 22/09): a demanda chegava na esteira com
+ * o motivo escrito na descrição, e a tela que abre ao clicar no cartão não
+ * mostrava nada disso. Quem ia reprotocolar não tinha como saber o que não
+ * podia repetir, que é a única informação que essa demanda existe para
+ * carregar. */
+
+test("lê de volta o motivo e as observações que a própria demanda escreveu", () => {
+  const d = demandaDeReajuizamento(
+    proc({ observacoes: "Cliente mudou de endereço em 2025." }),
+    "Fulano",
+    "Extinto por ausência na audiência de conciliação.",
+  );
+  const p = partesDaDemanda(d.descricao);
+  expect(p.numero).toBe("0066720-60.2026.8.04.1000");
+  expect(p.motivo).toBe("Extinto por ausência na audiência de conciliação.");
+  expect(p.observacoes).toBe("Cliente mudou de endereço em 2025.");
+});
+
+/* O motivo é textarea: quem escreve três linhas quer as três. Ler "a linha que
+   começa com Motivo:" devolveria só a primeira, e a parte que importa costuma
+   estar no fim. */
+test("motivo com várias linhas volta inteiro, sem engolir o campo seguinte", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", "Não juntou o extrato.\nO juiz deu 15 dias e o prazo correu.");
+  const p = partesDaDemanda(d.descricao);
+  expect(p.motivo).toBe("Não juntou o extrato.\nO juiz deu 15 dias e o prazo correu.");
+  expect(p.motivo).not.toContain("Matéria");
+});
+
+test("a causa por pendência também volta legível", () => {
+  const causa = textoDaCausa({ tipo: "pendencia", pendencias: ["rg", "comprovante"] }, (k) => k.toUpperCase());
+  const d = demandaDeReajuizamento(proc(), "Fulano", causa);
+  expect(partesDaDemanda(d.descricao).motivo).toBe("Aguardando documentos para reajuizar: RG, COMPROVANTE.");
+});
+
+test("demanda antiga, sem motivo nenhum, não inventa texto", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", null);
+  const p = partesDaDemanda(d.descricao);
+  expect(p.motivo).toBeNull();
+  expect(p.observacoes).toBeNull();
+  expect(p.numero).toBe("0066720-60.2026.8.04.1000");
+});
+
+test("descrição vazia ou de outra etapa não quebra nem inventa", () => {
+  expect(partesDaDemanda(null)).toEqual({ numero: null, motivo: null, observacoes: null });
+  expect(partesDaDemanda("Confecção da peça a partir da análise vinculada."))
+    .toEqual({ numero: null, motivo: null, observacoes: null });
+});
+
+test("processo sem número não vira um número chamado 'processo sem número'", () => {
+  const d = demandaDeReajuizamento(proc({ numero_processo: null }), "Fulano", "Motivo qualquer.");
+  expect(partesDaDemanda(d.descricao).numero).toBeNull();
 });
