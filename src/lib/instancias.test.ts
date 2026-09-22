@@ -181,8 +181,8 @@ describe("a etiqueta escolhida a mão", () => {
 
 describe("a cor escolhida a mão", () => {
   it("vence o sorteio", () => {
-    expect(corDaInstancia("qualquer nome", "rose")).toEqual(CORES_DE_INSTANCIA.rose);
-    expect(nomeDaCorEmUso("qualquer nome", "rose")).toBe("rose");
+    expect(corDaInstancia("qualquer nome", "pink")).toEqual(CORES_DE_INSTANCIA.pink);
+    expect(nomeDaCorEmUso("qualquer nome", "pink")).toBe("pink");
   });
 
   it("cor inválida cai no sorteio em vez de quebrar", () => {
@@ -190,14 +190,28 @@ describe("a cor escolhida a mão", () => {
     expect(corDaInstancia("PDA", null)).toEqual(corDaInstancia("PDA"));
   });
 
-  /* Âmbar, verde e vermelho já significam atraso, automação e falha nesta tela.
-     Escolher uma delas é legítimo; o SORTEIO entregar uma não é. */
-  it("o sorteio nunca entrega uma cor que já quer dizer outra coisa", () => {
-    const reservadas = [CORES_DE_INSTANCIA.amber, CORES_DE_INSTANCIA.emerald, CORES_DE_INSTANCIA.rose];
-    for (let i = 0; i < 300; i++) {
-      const c = corDaInstancia(`instancia numero ${i}`);
-      expect(reservadas).not.toContain(c);
+  /* As cores que saíram da paleta em 21/09 (indigo, slate, emerald, amber,
+     rose) ainda podem estar gravadas no banco. Elas caem no sorteio, e não
+     num selo sem cor. */
+  it("cor que saiu da paleta cai no sorteio", () => {
+    for (const antiga of ["indigo", "slate", "emerald", "amber", "rose"]) {
+      expect(corDaInstancia("PDA", antiga)).toEqual(corDaInstancia("PDA"));
     }
+  });
+
+  /* Seis famílias, nenhuma repetida, nenhuma com significado de estado. Se
+     alguém acrescentar um segundo roxo ou um verde de estado, este teste
+     conta, e a pessoa vê a etiqueta deixando de distinguir. */
+  it("a paleta tem seis cores exclusivas e o sorteio usa todas", () => {
+    const nomes = Object.keys(CORES_DE_INSTANCIA);
+    expect(nomes).toHaveLength(6);
+    expect(new Set(Object.values(CORES_DE_INSTANCIA).map((c) => c.fundo)).size).toBe(6);
+    for (const proibida of ["amber", "emerald", "rose", "red", "green", "yellow"]) {
+      expect(nomes).not.toContain(proibida);
+    }
+    const saidas = new Set<string>();
+    for (let i = 0; i < 300; i++) saidas.add(nomeDaCorEmUso(`instancia numero ${i}`));
+    expect(saidas.size).toBe(6);
   });
 
   it("o nome da cor em uso acompanha o sorteio quando ninguém escolheu", () => {
@@ -226,9 +240,9 @@ describe("as cores de um conjunto", () => {
   /* Discordar de uma decisão explícita não é papel da tela: quem pintou os dois
      de teal quis os dois de teal. O desvio existe pra salvar o SORTEIO. */
   it("duas escolhas iguais a mão continuam iguais", () => {
-    const m = coresDeInstancias(["A", "B"], new Map([["A", "rose"], ["B", "rose"]]));
-    expect(m.get("A")).toBe("rose");
-    expect(m.get("B")).toBe("rose");
+    const m = coresDeInstancias(["A", "B"], new Map([["A", "pink"], ["B", "pink"]]));
+    expect(m.get("A")).toBe("pink");
+    expect(m.get("B")).toBe("pink");
   });
 
   it("mais números que cores livres não deixa ninguém sem cor", () => {

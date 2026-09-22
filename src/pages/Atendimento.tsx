@@ -5859,9 +5859,7 @@ export default function AtendimentoPage() {
                     })}
                   </div>
                   <p className="text-[10px] text-muted-foreground/60 leading-snug">
-                    As apagadas já são de outro número. Âmbar, verde e vermelho
-                    querem dizer atraso, automação e falha nesta tela — use se
-                    quiser, é bom saber antes.
+                    As apagadas já são de outro número.
                   </p>
                 </div>
 
@@ -5940,8 +5938,7 @@ export default function AtendimentoPage() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12px] font-medium">Foto de perfil no WhatsApp</span>
                     <span className="block text-[10.5px] text-muted-foreground leading-snug">
-                      É a que o cliente vê. Para trocar, use o próprio celular do número: pela
-                      Evolution a troca derruba a conexão.
+                      É a que o cliente vê quando este número escreve.
                     </span>
                   </span>
                 </div>
