@@ -3,6 +3,7 @@ import {
   listaDeInstancias, mesmaInstancia, contemInstancia, juntarPorRecente,
   apelidoDeInstancia, apelidosDeInstancias, corDaInstancia, rotuloDaSelecao,
   nomeDaCorEmUso, coresDeInstancias, CORES_DE_INSTANCIA,
+  somenteDasInstancias, selecaoViva,
 } from "./instancias";
 
 describe("a lista de números escolhidos", () => {
@@ -19,6 +20,73 @@ describe("a lista de números escolhidos", () => {
 
   it("mantém a ordem em que foram escolhidos", () => {
     expect(listaDeInstancias(["Z", "A", "M"])).toEqual(["Z", "A", "M"]);
+  });
+});
+
+/* O DEFEITO DE 21/09: com o número do escritório escolhido, a caixa mostrava
+   as conversas dos três. A seleção guardada no navegador apontava para nomes
+   que a Evolution não tinha mais (a instância fora renomeada), a lista de
+   números pedidos chegava vazia, e "vazio" queria dizer "todos". */
+describe("só as conversas dos números pedidos", () => {
+  const linhas = [
+    { id: "1", instancia: "PDA IN" },
+    { id: "2", instancia: "Dr. Matheus Enes Corporativo" },
+    { id: "3", instancia: "PDA OUT" },
+    { id: "4", instancia: "pda in" },
+  ];
+
+  it("um número escolhido traz só o dele, sem olhar a caixa alta", () => {
+    expect(somenteDasInstancias(linhas, ["PDA IN"]).map((l) => l.id)).toEqual(["1", "4"]);
+  });
+
+  it("vários escolhidos trazem os deles, e só", () => {
+    expect(somenteDasInstancias(linhas, ["PDA IN", "PDA OUT"]).map((l) => l.id))
+      .toEqual(["1", "3", "4"]);
+  });
+
+  it("nenhum número resolvido devolve VAZIO, e não a caixa de todo mundo", () => {
+    expect(somenteDasInstancias(linhas, [])).toEqual([]);
+  });
+
+  /* ILIKE casa curinga: `_` vale por qualquer caractere. Sem esta conferência,
+     um número chamado "PDA_IN" arrastaria "PDA IN" junto — e ninguém liga uma
+     caixa misturada a um sublinhado no nome. */
+  it("nome que o curinga do ILIKE casaria não entra", () => {
+    expect(somenteDasInstancias(linhas, ["PDA_IN"])).toEqual([]);
+    expect(somenteDasInstancias(linhas, ["PDA%"])).toEqual([]);
+  });
+
+  it("conversa sem número não entra em caixa nenhuma", () => {
+    expect(somenteDasInstancias([{ id: "x", instancia: null }], ["PDA IN"])).toEqual([]);
+  });
+});
+
+describe("a seleção guardada quando um número é renomeado", () => {
+  const vivos = ["Dr. Matheus Enes Corporativo", "PDA IN", "PDA OUT"];
+
+  it("nome que não existe mais cai no primeiro número vivo", () => {
+    expect(selecaoViva(["PORTAL DIREITO ABERTO"], vivos)).toEqual(["Dr. Matheus Enes Corporativo"]);
+  });
+
+  it("o que ainda existe fica, na ordem em que foi escolhido", () => {
+    expect(selecaoViva(["PDA OUT", "PDA IN"], vivos)).toEqual(["PDA OUT", "PDA IN"]);
+  });
+
+  it("numa caixa cruzada, só o morto sai", () => {
+    expect(selecaoViva(["PDA IN", "PORTAL DIREITO ABERTO 2"], vivos)).toEqual(["PDA IN"]);
+  });
+
+  /* Apagar a escolha de alguém por causa de uma resposta que ainda não chegou
+     seria trocar um problema raro por um garantido. */
+  it("enquanto não se sabe quem existe, não mexe", () => {
+    expect(selecaoViva(["PORTAL DIREITO ABERTO"], [])).toEqual(["PORTAL DIREITO ABERTO"]);
+  });
+
+  /* A tela procura o número por igualdade exata: devolver o que estava
+     guardado faria "pda in" passar como vivo e não achar número nenhum lá na
+     frente — uma caixa vazia por causa de uma letra. */
+  it("devolve o nome como a Evolution escreve, e não como estava guardado", () => {
+    expect(selecaoViva(["pda in"], vivos)).toEqual(["PDA IN"]);
   });
 });
 

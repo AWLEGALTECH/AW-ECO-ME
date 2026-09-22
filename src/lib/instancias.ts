@@ -53,6 +53,55 @@ export const contemInstancia = (nomes: string[], alvo: string | null | undefined
   nomes.some((n) => mesmaInstancia(n, alvo));
 
 /**
+ * SÓ AS CONVERSAS DOS NÚMEROS PEDIDOS.
+ *
+ * Rede de segurança do lado de cá, e ela existe por um caso real (chefe,
+ * 21/09): com o número do escritório escolhido, a caixa mostrava as conversas
+ * dos três. O filtro do servidor é ILIKE, e ILIKE tem dois curingas — `%` e,
+ * sobretudo, `_`, que casa qualquer caractere. Um número chamado "PDA_IN"
+ * arrastaria "PDA IN" junto, e ninguém liga uma caixa misturada a um sublinhado
+ * no nome. Filtrar de novo aqui, comparando nome com nome, torna a mistura
+ * impossível pelo caminho que for.
+ *
+ * Lista vazia devolve VAZIO, e não tudo: "não consegui resolver quais números"
+ * não é "mostre todos". Era assim que a caixa se misturava sem ninguém pedir.
+ */
+export function somenteDasInstancias<T extends { instancia?: string | null }>(
+  linhas: T[], nomes: string[],
+): T[] {
+  const lista = listaDeInstancias(nomes);
+  if (lista.length === 0) return [];
+  return linhas.filter((l) => contemInstancia(lista, l.instancia));
+}
+
+/**
+ * A SELEÇÃO QUE AINDA EXISTE.
+ *
+ * O navegador guarda a seleção pelo NOME da instância, e o nome pode mudar do
+ * lado da Evolution: em 21/09 "PORTAL DIREITO ABERTO" virou "PDA IN" e
+ * "PORTAL DIREITO ABERTO 2" virou "PDA OUT". Quem tinha o nome antigo guardado
+ * ficou com uma seleção que não resolve para número nenhum — e uma seleção
+ * vazia não é um estado útil, é uma caixa que não sabe de quem é.
+ *
+ * Então: fica quem ainda existe, na ordem em que foi escolhido; se não sobrou
+ * ninguém, o primeiro número vivo. Enquanto não se sabe quais existem (lista
+ * vazia), não se mexe — apagar a escolha de alguém por causa de uma resposta
+ * que ainda não chegou seria trocar um problema raro por um garantido.
+ *
+ * SAI O NOME VIVO, e não o que estava guardado: a tela procura o número por
+ * igualdade exata, e um "pda in" guardado contra um "PDA IN" vivo passaria
+ * por aqui como vivo e não acharia número nenhum lá na frente — uma caixa
+ * vazia por causa de uma letra.
+ */
+export function selecaoViva(guardados: string[], vivos: string[]): string[] {
+  if (vivos.length === 0) return guardados;
+  const sobrou = guardados
+    .map((g) => vivos.find((v) => mesmaInstancia(v, g)))
+    .filter((v): v is string => !!v);
+  return sobrou.length > 0 ? sobrou : [vivos[0]];
+}
+
+/**
  * Junta listas de conversas de vários números numa só, mais recente primeiro.
  *
  * NULO VAI PRO FIM, sempre. Conversa sem data é conversa que nunca teve

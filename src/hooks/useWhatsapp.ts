@@ -12,7 +12,7 @@
 // a cada 10s — de sobra pra um atendimento humano, e sem peça nova.
 
 import { useEffect } from "react";
-import { juntarPorRecente, listaDeInstancias } from "@/lib/instancias";
+import { juntarPorRecente, listaDeInstancias, somenteDasInstancias } from "@/lib/instancias";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -156,11 +156,15 @@ export function useConversas(instancia: string | string[] | null) {
         .order("ultima_em", { ascending: false, nullsFirst: false })
         .limit(200);
 
-      if (nomes.length === 0) {
-        const { data, error } = await base();
-        if (error) throw error;
-        return (data || []) as ConversaRow[];
-      }
+      /* SEM NÚMERO RESOLVIDO, CAIXA VAZIA — e nunca a caixa de todo mundo.
+         Aqui devolvia TUDO, e foi o defeito que o chefe viu em 21/09: depois
+         de a instância ser renomeada na Evolution, a seleção guardada no
+         navegador não resolvia mais para número nenhum, esta lista vinha vazia,
+         e a caixa passava a mostrar as conversas dos três números com o nome de
+         um só no cabeçalho (o cabeçalho cai no primeiro da lista). "Não sei de
+         quem é a caixa" não pode significar "mostre a de todos": responder pelo
+         número errado é erro que o cliente vê e a gente não. */
+      if (nomes.length === 0) return [];
 
       const partes = await Promise.all(nomes.map(async (nome) => {
         // ILIKE e não EQ: o nome da instância na Evolution é digitado à mão e
@@ -172,7 +176,10 @@ export function useConversas(instancia: string | string[] | null) {
         return (data || []) as ConversaRow[];
       }));
 
-      return juntarPorRecente(partes);
+      /* E CONFERE NOME POR NOME ANTES DE ENTREGAR. ILIKE casa curinga: `_` vale
+         por qualquer caractere, então um número chamado "PDA_IN" arrastaria
+         "PDA IN" junto. O servidor filtra pelo volume; a exatidão é aqui. */
+      return somenteDasInstancias(juntarPorRecente(partes), nomes);
     },
   });
 }

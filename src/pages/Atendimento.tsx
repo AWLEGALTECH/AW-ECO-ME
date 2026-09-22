@@ -95,7 +95,7 @@ import { baixarMidias } from "@/lib/anexosBucket";
 import { EMOJIS, MAX_RECENTES, comOEscolhido } from "@/lib/emojis";
 import {
   listaDeInstancias, apelidosDeInstancias, apelidoDeInstancia, corDaInstancia, rotuloDaSelecao,
-  mesmaInstancia, contemInstancia, nomeDaCorEmUso, coresDeInstancias, CORES_DE_INSTANCIA,
+  mesmaInstancia, contemInstancia, nomeDaCorEmUso, coresDeInstancias, CORES_DE_INSTANCIA, selecaoViva,
   type NomeDeCor,
 } from "@/lib/instancias";
 import {
@@ -645,6 +645,20 @@ export default function AtendimentoPage() {
      guardada aponta pra um número que saiu do ar, cai na primeira disponível em
      vez de deixar a tela sem instância nenhuma. */
   const instancia = instancias.find((i) => instanciaIds.includes(i.id)) ?? instancias[0];
+  /* A SELEÇÃO GUARDADA SE CONSERTA SOZINHA quando um número é renomeado.
+     O navegador guarda a seleção pelo NOME, e em 21/09 os nomes mudaram na
+     Evolution ("PORTAL DIREITO ABERTO" virou "PDA IN"). Quem tinha o nome
+     antigo guardado ficava com uma seleção que não resolvia para ninguém: a
+     caixa mostrava todos os números e o cabeçalho, que cai no primeiro da
+     lista, dizia o nome de um só. Aqui a escolha morta é trocada pela viva e
+     regravada, para o conserto valer também na próxima abertura. */
+  useEffect(() => {
+    if (instRows.length === 0) return; // ainda não sei quais números existem
+    const viva = selecaoViva(instanciaIds, instancias.map((i) => i.id));
+    if (viva.length === instanciaIds.length && viva.every((id, k) => id === instanciaIds[k])) return;
+    guardarSelecao(viva);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instRows.length, instancias, instanciaIds]);
   /* Os NOMES da seleção, na ordem em que a pessoa escolheu — é o que os hooks
      usam pra montar a caixa cruzada. Instância que sumiu da lista da Evolution
      simplesmente não entra. */
