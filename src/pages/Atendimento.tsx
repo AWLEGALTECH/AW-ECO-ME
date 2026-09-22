@@ -45,11 +45,9 @@ import {
   UserPlus, Phone, Clock, Table2, Trash2, Copy, MessageSquarePlus, Database,
   Columns3, ArrowUpRight, ArrowDownLeft, CheckCheck, Smartphone, Stethoscope,
   RotateCcw, Volume2, VolumeX, Info, Smile, ClipboardList, ScanSearch, PenSquare, Zap, User, MailOpen,
-  Scale, ExternalLink, ListChecks, Workflow, Ban, Camera,
+  Scale, ExternalLink, ListChecks, Workflow, Ban,
 } from "lucide-react";
 import { AcoesDaMensagem } from "@/components/atendimento/AcoesDaMensagem";
-import { RecorteDeFoto } from "@/components/atendimento/RecorteDeFoto";
-import { FotoTrocadaPop, type FotoTrocada } from "@/components/atendimento/FotoTrocadaPop";
 import { estadoDaApagada, textoDaTarja, detalheDaTarja } from "@/lib/mensagemAcoes";
 import { compararNaCaixa, recemChegada } from "@/lib/recemChegada";
 import { Link } from "react-router-dom";
@@ -74,7 +72,6 @@ import {
   moverConversaDeInstancia, descartarLeadDaConversa, virarCliente, useMensagensBoasVindas,
   mudarSituacao, useProcessosDoCliente, usePendenciasDoCliente,
   diagnosticarInstancia, reiniciarInstancia, assinarPresenca, type Diagnostico,
-  trocarFotoDaInstancia, removerFotoDaInstancia,
 } from "@/hooks/useWhatsapp";
 import { acharProblemas, resumoDoDiagnostico } from "@/lib/diagnosticoWa";
 import { idDaConversaAberta, telefoneBonito, horaDaLista } from "@/lib/wa";
@@ -643,32 +640,7 @@ export default function AtendimentoPage() {
   /* As instâncias vêm da Evolution (nome, status, número e FOTO do perfil); a
      maquete só assume quando ela não respondeu ainda. */
   const { data: instRows = [] } = useInstancias();
-  /* A FOTO QUE ACABOU DE SER TROCADA aparece na hora, da imagem do recorte, e
-     não da URL do WhatsApp: essa leva segundos para existir e a sincronização
-     leva mais um minuto para buscar. Sem isto, quem trocou via a foto antiga
-     durante um minuto e achava que não tinha funcionado. `antes` guarda a URL
-     que estava lá na hora da troca; quando o servidor devolver uma diferente,
-     a imagem local sai de cena e a de lá assume. */
-  const [fotoLocal, setFotoLocal] = useState<Record<string, { url: string; antes: string | null }>>({});
-  useEffect(() => {
-    const vencidas = Object.entries(fotoLocal).filter(([nome, f]) => {
-      const row = instRows.find((r) => r.nome === nome);
-      return !!row?.foto_url && row.foto_url !== f.antes;
-    });
-    if (vencidas.length === 0) return;
-    setFotoLocal((prev) => {
-      const prox = { ...prev };
-      for (const [nome, f] of vencidas) { URL.revokeObjectURL(f.url); delete prox[nome]; }
-      return prox;
-    });
-  }, [instRows, fotoLocal]);
-  const instancias: Instancia[] = instRows.length > 0
-    ? instRows.map((i) => {
-        const c = instanciaParaCard(i);
-        const local = fotoLocal[i.nome];
-        return local ? { ...c, fotoUrl: local.url } : c;
-      })
-    : INSTANCIAS;
+  const instancias: Instancia[] = instRows.length > 0 ? instRows.map((i) => instanciaParaCard(i)) : INSTANCIAS;
   /* A PRINCIPAL é a primeira da seleção que existe de verdade. Se a lista
      guardada aponta pra um número que saiu do ar, cai na primeira disponível em
      vez de deixar a tela sem instância nenhuma. */
@@ -2125,62 +2097,14 @@ export default function AtendimentoPage() {
   const [diagnostico, setDiagnostico] = useState<Diagnostico | null>(null);
   const [diagnosticando, setDiagnosticando] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
-  const [trocandoFoto, setTrocandoFoto] = useState(false);
-  const seletorDeFoto = useRef<HTMLInputElement>(null);
-  /* A FOTO ESCOLHIDA ESPERA O RECORTE. Ela não sobe direto: o WhatsApp corta
-     no centro, sempre, e o rosto raramente está no centro de uma foto tirada
-     para outra coisa. A primeira foto que subiu entrou torta por isso. */
-  const [fotoParaRecortar, setFotoParaRecortar] = useState<{ nome: string; arquivo: File } | null>(null);
 
-  /* A FOTO DE PERFIL DO NÚMERO, trocada daqui (chefe, 21/09). Antes era pegar
-     o celular pareado ou abrir o painel da Evolution, que nem todo mundo tem. */
-  /* A TROCA PELA API RECRIA A CONEXÃO DO NÚMERO. Está no código da Evolution
-     (whatsapp.baileys.service.ts: `updateProfilePicture` e `removeProfilePicture`
-     chamam `reloadConnection`, que abre um socket novo sem fechar o velho), e
-     em 21/09 isso derrubou o PORTAL DIREITO ABERTO 2 por horas (conflito de
-     sessão 440). Enquanto a Evolution não for corrigida (ver
-     docs/evolution-conflito-440.md), quem vai trocar precisa saber disso ANTES
-     de escolher a imagem, e ter o caminho seguro à mão: o celular do número. */
-  const confirmarMexerNaFoto = (nome: string, acao: "trocar" | "remover") => window.confirm(
-    `${acao === "trocar" ? "Trocar" : "Tirar"} a foto de ${nomeDe(nome)} pela plataforma?\n\n`
-    + "Atenção: a Evolution recria a conexão do número para aplicar a mudança, e isso já derrubou um número por horas. "
-    + "O caminho seguro é mexer na foto pelo próprio celular do número.\n\nContinuar mesmo assim?",
-  );
-  const [fotoPop, setFotoPop] = useState<FotoTrocada | null>(null);
-  const fecharFotoPop = useCallback(() => setFotoPop(null), []);
-  const trocarFoto = async (nome: string, arquivo: File | null | undefined) => {
-    if (!arquivo) return;
-    setTrocandoFoto(true);
-    const t = toast.loading(`Trocando a foto de ${nomeDe(nome)}…`);
-    try {
-      const r = await trocarFotoDaInstancia(nome, arquivo);
-      toast.dismiss(t);
-      /* A tela mostra a imagem do recorte NA HORA, em todo lugar em que a foto
-         do número aparece, e o pop confirma com ela no centro. */
-      const url = URL.createObjectURL(arquivo);
-      const antes = instRows.find((i) => i.nome === nome)?.foto_url ?? null;
-      setFotoLocal((prev) => ({ ...prev, [nome]: { url, antes } }));
-      setFotoPop({ nome: nomeDe(nome), foto: url, aviso: r.aviso ?? null });
-      invalidarWa();
-    } catch (e) {
-      toast.error((e as Error).message, { id: t, duration: 12_000 });
-    } finally {
-      setTrocandoFoto(false);
-    }
-  };
-  const removerFoto = async (nome: string) => {
-    if (!confirmarMexerNaFoto(nome, "remover")) return;
-    setTrocandoFoto(true);
-    try {
-      await removerFotoDaInstancia(nome);
-      invalidarWa();
-      toast.success(`Foto de ${nomeDe(nome)} removida.`);
-    } catch (e) {
-      toast.error((e as Error).message, { duration: 12_000 });
-    } finally {
-      setTrocandoFoto(false);
-    }
-  };
+  /* A TROCA DE FOTO DE PERFIL PELA PLATAFORMA FOI REMOVIDA em 21/09, a pedido
+     do chefe. Está no código da Evolution (whatsapp.baileys.service.ts):
+     `updateProfilePicture` e `removeProfilePicture` chamam `reloadConnection`,
+     que abre um socket novo sem fechar o velho. Dois sockets com a mesma
+     credencial, e o WhatsApp derruba um quando o outro entra (código 440), em
+     loop, por horas. Derrubou os dois números do Portal no mesmo dia. A foto
+     se troca pelo celular do número; ver docs/evolution-conflito-440.md. */
 
   /* AS TRÊS AÇÕES DE MANUTENÇÃO recebem o número em vez de assumir o principal:
      com a engrenagem aberta num número, "reconfigurar eventos" tem que
@@ -6001,10 +5925,10 @@ export default function AtendimentoPage() {
                 </div>
 
                 {/* ── A FOTO, DO OUTRO LADO ──
-                    É o que o cliente vê no celular dele quando este número
-                    escreve. Fica ao lado da foto atual, e não escondida num
-                    menu, porque a pergunta "que foto está lá agora?" e a ação
-                    "trocar" são a mesma coisa para quem cuida do número. */}
+                    Só leitura. O botão de trocar foi removido em 21/09: a
+                    Evolution recria a conexão do número para aplicar a foto e
+                    o derruba em conflito de sessão (440). A foto se troca pelo
+                    celular do número. Ver docs/evolution-conflito-440.md. */}
                 <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 flex items-center gap-3">
                   <span className="relative h-12 w-12 shrink-0 rounded-full overflow-hidden grid place-items-center
                                    text-[13px] font-semibold bg-white/[0.05] text-foreground/80 ring-1 ring-white/10">
@@ -6012,36 +5936,13 @@ export default function AtendimentoPage() {
                       ? <img src={alvo.fotoUrl} alt="" className="h-full w-full object-cover"
                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
                       : (alvo?.avatar ?? "?")}
-                    {trocandoFoto && (
-                      <span className="absolute inset-0 grid place-items-center bg-black/50">
-                        <Loader2 className="h-4 w-4 animate-spin text-white" />
-                      </span>
-                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[12px] font-medium">Foto de perfil no WhatsApp</span>
                     <span className="block text-[10.5px] text-muted-foreground leading-snug">
-                      Quadrada fica melhor. Imagem grande encolhe sozinha antes de subir.
+                      É a que o cliente vê. Para trocar, use o próprio celular do número: pela
+                      Evolution a troca derruba a conexão.
                     </span>
-                  </span>
-                  <input ref={seletorDeFoto} type="file" accept="image/*" className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) setFotoParaRecortar({ nome: marcaDe_, arquivo: f });
-                      e.target.value = "";
-                    }} />
-                  <span className="flex flex-col gap-1 shrink-0">
-                    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px]"
-                      disabled={trocandoFoto}
-                      onClick={() => { if (confirmarMexerNaFoto(marcaDe_, "trocar")) seletorDeFoto.current?.click(); }}>
-                      <Camera className="h-3.5 w-3.5" /> Trocar foto
-                    </Button>
-                    {alvo?.fotoUrl && (
-                      <button type="button" disabled={trocandoFoto} onClick={() => removerFoto(marcaDe_)}
-                        className="text-[10.5px] text-muted-foreground/70 hover:text-red-400 transition-colors">
-                        remover
-                      </button>
-                    )}
                   </span>
                 </div>
 
@@ -6079,18 +5980,6 @@ export default function AtendimentoPage() {
           })()}
         </DialogContent>
       </Dialog>
-
-      <RecorteDeFoto
-        arquivo={fotoParaRecortar?.arquivo ?? null}
-        ocupado={trocandoFoto}
-        onCancelar={() => setFotoParaRecortar(null)}
-        onConfirmar={async (recortada) => {
-          if (!fotoParaRecortar) return;
-          await trocarFoto(fotoParaRecortar.nome, new File([recortada], "perfil.jpg", { type: "image/jpeg" }));
-          setFotoParaRecortar(null);
-        }}
-      />
-      <FotoTrocadaPop item={fotoPop} onFechar={fecharFotoPop} />
 
       {/* ── PASSAR A CONVERSA PRA OUTRO NÚMERO ──
           O aviso do meio é o motivo de isto ser um diálogo e não um clique

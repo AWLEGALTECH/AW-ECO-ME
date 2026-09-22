@@ -39,6 +39,19 @@ export interface InstanciaRow {
   /* Desde quando duas sessões deste número se derrubam na Evolution (440).
      Enquanto estiver preenchido, "conectado" é mentira: nada sai. */
   conflito_desde?: string | null;
+  /* A última queda 440. O conflito só vale enquanto ela tiver menos de dez
+     minutos: quando a briga acaba em silêncio (sessão derrubada no celular e
+     pareada de novo), não chega evento nenhum para limpar a coluna, e o selo
+     apagaria só no próximo evento. Aqui ele apaga pelo relógio. */
+  ultima_queda_440_em?: string | null;
+}
+
+const DEZ_MINUTOS = 10 * 60_000;
+
+/** Em conflito AGORA: há marcação e a última queda 440 é de menos de dez minutos. */
+export function emConflito(i: Pick<InstanciaRow, "conflito_desde" | "ultima_queda_440_em">, agora = new Date()): boolean {
+  if (!i.conflito_desde || !i.ultima_queda_440_em) return false;
+  return agora.getTime() - new Date(i.ultima_queda_440_em).getTime() < DEZ_MINUTOS;
 }
 
 /** Iniciais como reserva: instância sem foto não pode virar círculo vazio. */
@@ -69,7 +82,7 @@ export function instanciaParaCard(i: InstanciaRow, agora = new Date()): Instanci
     contatos: i.contatos ?? 0,
     mensagens: i.mensagens ?? 0,
     conectadaDesde: i.conectada_desde,
-    conflitoDesde: i.conflito_desde ?? null,
+    conflitoDesde: emConflito(i, agora) ? (i.conflito_desde ?? null) : null,
   };
 }
 
@@ -91,7 +104,7 @@ export function useInstancias() {
     refetchInterval: 60_000,
     queryFn: async (): Promise<InstanciaRow[]> => {
       const { data, error } = await tabela("wa_instancias")
-        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em, conectada_desde, conflito_desde")
+        .select("nome, telefone, jid, perfil_nome, foto_url, status, contatos, conversas, mensagens, sincronizado_em, conectada_desde, conflito_desde, ultima_queda_440_em")
         .eq("ativa", true)
         .order("nome");
       if (error) throw error;
@@ -766,37 +779,9 @@ export const desconectarInstancia = (nome: string) => pedirConexao({ acao: "desc
  */
 export const reiniciarInstancia = (nome: string) => pedirConexao({ acao: "reiniciar", instancia: nome });
 
-/* ── A FOTO DE PERFIL DO NÚMERO ───────────────────────────────────────────
- *
- * Mesmo caminho do anexo de mensagem: a imagem sobe pelo navegador, já
- * comprimida para WebP, e a `wa-perfil` assina um link de uma hora para a
- * Evolution baixar. A compressão aqui não é economia de disco (a imagem é
- * apagada depois de aplicada), é o WhatsApp: ele recusa foto de perfil grande,
- * e um print de 4 MB direto da câmera é justamente o que a pessoa vai escolher.
- */
-export async function trocarFotoDaInstancia(nome: string, arquivo: File | Blob) {
-  const { comprimirImagem } = await import("@/lib/comprimirAnexo");
-  const { arquivo: pronta } = await comprimirImagem(arquivo, (arquivo as File).name || "perfil.jpg");
-  const mime = pronta.type || "image/jpeg";
-  const ext = mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : "jpg";
-  const path = `perfil/${nome.replace(/[^\w.-]+/g, "_")}/${Date.now()}.${ext}`;
-  const { error: eUp } = await supabase.storage.from("wa-midia").upload(path, pronta, { contentType: mime, upsert: false });
-  if (eUp) throw new Error(`Não consegui subir a foto: ${eUp.message}`);
-  const { data, error } = await supabase.functions.invoke("wa-perfil", {
-    body: { acao: "foto", instancia: nome, midia_path: path },
-  });
-  if (error) throw new Error(error.message);
-  if (!data || data.ok === false) throw new Error(String(data?.error || "A Evolution não aceitou a foto"));
-  return data as { ok: true; foto_url: string | null; aviso: string | null };
-}
-
-export async function removerFotoDaInstancia(nome: string) {
-  const { data, error } = await supabase.functions.invoke("wa-perfil", { body: { acao: "remover", instancia: nome } });
-  if (error) throw new Error(error.message);
-  if (!data || data.ok === false) throw new Error(String(data?.error || "A Evolution não aceitou remover"));
-  return data as { ok: true };
-}
-
+/* A troca de foto de perfil pela plataforma (wa-perfil) foi removida em 21/09:
+   a Evolution recria a conexão do número ao aplicar a foto e o derruba em
+   conflito de sessão (440). Ver docs/evolution-conflito-440.md. */
 export function useInvalidarWa() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: ["wa"] });

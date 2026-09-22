@@ -319,12 +319,13 @@ Deno.serve(async (req: Request) => {
       // O conflito de sessão (440) é o caso em que "conectado" mente; ver
       // fn_wa_conexao. O diagnóstico é o lugar de dizer isso.
       const { data: instConf } = await sb.from("wa_instancias").select("conflito_desde").eq("nome", nome).maybeSingle();
+      const { data: emConflitoAgora } = await sb.rpc("fn_wa_em_conflito", { p_nome: nome });
 
       return json({
         ok: true,
         instancia: nome,
         estado,
-        conflitoDesde: instConf?.conflito_desde ?? null,
+        conflitoDesde: emConflitoAgora === true ? (instConf?.conflito_desde ?? null) : null,
         webhook: erroWebhook ? null : {
           configurado: !!urlLa,
           ativo: w.enabled !== false,
@@ -487,8 +488,8 @@ Deno.serve(async (req: Request) => {
          a briga por horas: o restart cria um socket novo e o velho continua
          lá. O que resolve nesse quadro é derrubar todas as sessões e parear
          de novo, e é isso que a recusa diz. Ver fn_wa_conexao. */
-      const { data: inst } = await sb.from("wa_instancias").select("conflito_desde").eq("nome", nome).maybeSingle();
-      if (inst?.conflito_desde) {
+      const { data: emConflito } = await sb.rpc("fn_wa_em_conflito", { p_nome: nome });
+      if (emConflito === true) {
         return json({
           ok: false,
           error: "Este número está em conflito de sessão na Evolution (duas sessões se derrubando, código 440), e reiniciar recomeça a briga. "
