@@ -472,7 +472,7 @@ export default function AtendimentoPage() {
   const [marcaDe_, setMarcaDe_] = useState<string | null>(null);
   const [marcaApelido, setMarcaApelido] = useState("");
   const [marcaNome, setMarcaNome] = useState("");
-  const [marcaCor, setMarcaCor] = useState<NomeDeCor>("sky");
+  const [marcaCor, setMarcaCor] = useState<NomeDeCor>("azul");
   const [salvandoMarca, setSalvandoMarca] = useState(false);
 
   const abrirMarca = (nome: string) => {
@@ -673,10 +673,16 @@ export default function AtendimentoPage() {
 
   const { data: marcas } = useMarcasDeInstancia();
   const invalidarMarcas = useInvalidarMarcas();
+  /* SOBRE TODOS OS NÚMEROS, e não só os selecionados. Era só os selecionados,
+     e foi isso que fez a sigla "não gravar" (chefe, 21/09): a pessoa trocava
+     a sigla de um número que não estava na caixa, o mapa não tinha entrada
+     para ele, e o seletor de números, o mover e os ajustes caíam na sigla
+     derivada do nome, ignorando a escolhida. Com todos, cada lugar que mostra
+     a sigla lê a mesma resposta. */
   const apelidos = useMemo(() => apelidosDeInstancias(
-    nomesSelecionados,
-    new Map(nomesSelecionados.map((n) => [n, marcaDe(marcas, n)?.apelido])),
-  ), [nomesSelecionados, marcas]);
+    instancias.map((i) => i.nome),
+    new Map(instancias.map((i) => [i.nome, marcaDe(marcas, i.nome)?.apelido])),
+  ), [instancias, marcas]);
   /* AS CORES DE TODOS OS NÚMEROS, GARANTIDAMENTE DIFERENTES.
      Sortear por hash não garante coisa nenhuma: com três números e seis cores,
      a chance de dois saírem iguais passa de um terço — e saiu. Aqui elas são
@@ -5833,34 +5839,27 @@ export default function AtendimentoPage() {
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[11px] text-muted-foreground">Cor da etiqueta</span>
                   <div className="flex flex-wrap gap-1.5">
+                    {/* AS MESMAS SETE CORES, IGUAIS, PARA TODO NÚMERO. A versão
+                        anterior apagava a cor que outro número já usava, e o
+                        chefe leu isso como paletas diferentes por número. A
+                        cor do vizinho só aparece no título ao passar o mouse. */}
                     {(Object.keys(CORES_DE_INSTANCIA) as NomeDeCor[]).map((c) => {
-                      /* A COR JÁ USADA POR OUTRO NÚMERO APARECE MARCADA. Duas
-                         etiquetas da mesma cor é o defeito que esta tela existe
-                         pra evitar — e escolher a cor do vizinho sem saber é o
-                         jeito mais fácil de recriá-lo à mão. */
                       const dono = instancias.find((i) =>
                         !mesmaInstancia(i.nome, marcaDe_) && coresEmUso.get(i.nome) === c);
                       return (
                         <button key={c} onClick={() => setMarcaCor(c)}
-                          title={dono ? `Já é a cor de ${nomeNaTela(marcas, dono.nome)}` : c}
+                          title={dono ? `${c} (hoje é a cor de ${nomeNaTela(marcas, dono.nome)})` : c}
+                          aria-label={c}
                           className={cn("relative h-7 w-7 rounded-lg grid place-items-center transition-transform",
                             CORES_DE_INSTANCIA[c].fundo,
-                            marcaCor === c ? "ring-2 ring-white/70 scale-105"
-                                           : cn("hover:scale-105", dono ? "opacity-30" : "opacity-80"))}>
+                            marcaCor === c ? "ring-2 ring-white/70 scale-105" : "hover:scale-105 opacity-90")}>
                           {marcaCor === c && (
                             <Check className={cn("h-3.5 w-3.5", CORES_DE_INSTANCIA[c].texto)} strokeWidth={3} />
-                          )}
-                          {dono && marcaCor !== c && (
-                            <span className="absolute -bottom-1 -right-1 h-2 w-2 rounded-full bg-[#0e1013]
-                                             ring-1 ring-white/30" />
                           )}
                         </button>
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-muted-foreground/60 leading-snug">
-                    As apagadas já são de outro número.
-                  </p>
                 </div>
 
                 {/* ── O QUE ELE É, DO OUTRO LADO ──
@@ -6019,7 +6018,7 @@ export default function AtendimentoPage() {
                       <span className="flex items-center gap-1.5 min-w-0">
                         <span className={cn("rounded px-1 py-[1px] text-[8.5px] font-bold tracking-wide shrink-0",
                           cor.fundo, cor.texto)}>
-                          {apelidoDeInstancia(i.nome)}
+                          {apelidos.get(i.nome) ?? apelidoDeInstancia(i.nome)}
                         </span>
                         <span className="text-[12px] font-medium truncate">{nomeDe(i.nome)}</span>
                       </span>

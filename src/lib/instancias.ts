@@ -146,35 +146,35 @@ export function apelidosDeInstancias(
   return fora;
 }
 
-/* AS CORES DOS SELOS.
+/* AS CORES DOS SELOS: cores comuns, com nome de gente.
  *
- * Seis, e cada uma de uma família diferente: azul, roxo, verde-água, rosa,
- * laranja e limão. A paleta anterior tinha dez e o chefe viu o problema na
- * hora (21/09): dois roxos (violet e indigo), dois verdes (teal e emerald), um
- * cinza que não marcava nada, e âmbar e vermelho que já querem dizer atraso e
- * falha nesta tela. Etiqueta existe para distinguir números de longe; duas
- * cores parecidas na mesma paleta desfazem isso antes de a pessoa escolher.
- * Nenhuma das seis coincide com as cores de estado (âmbar, verde, vermelho).
+ * Vermelho, azul, verde, amarelo, rosa, roxo e laranja. O pedido do chefe
+ * (21/09) foi literal: "cores que são naturalmente diferentes uma da outra",
+ * as mesmas para todo número, sem tons parecidos. A paleta anterior tinha
+ * nomes de tema (sky, teal, indigo, lime...) e repetia família: dois roxos,
+ * dois verdes, um cinza. Etiqueta existe para distinguir números de longe, e
+ * a pessoa escolhe pelo nome que ela mesma daria à cor.
  *
- * O NOME DA COR É A CHAVE, e não o valor: o banco guarda "sky", e é aqui que
- * "sky" vira fundo, texto e anel. Guardar `#38bdf8` do outro lado espalharia
+ * O NOME DA COR É A CHAVE, e não o valor: o banco guarda "azul", e é aqui que
+ * "azul" vira fundo, texto e anel. Guardar `#3b82f6` do outro lado espalharia
  * decisão de tema pelo banco, e mexer no tema viraria migração de dado. Um nome
- * que saiu da paleta (indigo, slate, emerald, amber, rose) cai no sorteio pelo
- * `ehNomeDeCor`, sem quebrar nada. */
+ * antigo que ainda esteja em algum cache cai no sorteio pelo `ehNomeDeCor`,
+ * sem quebrar nada; no banco a migration 20260922020000 já traduziu todos. */
 export const CORES_DE_INSTANCIA = {
-  sky:    { anel: "ring-sky-400/50",    fundo: "bg-sky-500",    texto: "text-sky-50" },
-  violet: { anel: "ring-violet-400/50", fundo: "bg-violet-500", texto: "text-violet-50" },
-  teal:   { anel: "ring-teal-400/50",   fundo: "bg-teal-500",   texto: "text-teal-50" },
-  pink:   { anel: "ring-pink-400/50",   fundo: "bg-pink-500",   texto: "text-pink-50" },
-  orange: { anel: "ring-orange-400/50", fundo: "bg-orange-500", texto: "text-orange-50" },
-  lime:   { anel: "ring-lime-400/50",   fundo: "bg-lime-500",   texto: "text-lime-950" },
+  vermelho: { anel: "ring-red-400/50",    fundo: "bg-red-500",    texto: "text-red-50" },
+  azul:     { anel: "ring-blue-400/50",   fundo: "bg-blue-500",   texto: "text-blue-50" },
+  verde:    { anel: "ring-green-400/50",  fundo: "bg-green-500",  texto: "text-green-50" },
+  amarelo:  { anel: "ring-yellow-400/50", fundo: "bg-yellow-400", texto: "text-yellow-950" },
+  rosa:     { anel: "ring-pink-400/50",   fundo: "bg-pink-500",   texto: "text-pink-50" },
+  roxo:     { anel: "ring-purple-400/50", fundo: "bg-purple-500", texto: "text-purple-50" },
+  laranja:  { anel: "ring-orange-400/50", fundo: "bg-orange-500", texto: "text-orange-50" },
 } as const;
 
 export type NomeDeCor = keyof typeof CORES_DE_INSTANCIA;
 export type CorDeInstancia = (typeof CORES_DE_INSTANCIA)[NomeDeCor];
 
-/** Todas as seis podem sair no sorteio: nenhuma tem significado próprio na tela. */
-const SORTEAVEIS: NomeDeCor[] = ["sky", "violet", "teal", "pink", "orange", "lime"];
+/** Todas podem sair no sorteio. A ordem é a que a pessoa vê no seletor. */
+const SORTEAVEIS: NomeDeCor[] = ["azul", "verde", "roxo", "laranja", "rosa", "amarelo", "vermelho"];
 
 export const ehNomeDeCor = (x: unknown): x is NomeDeCor =>
   typeof x === "string" && x in CORES_DE_INSTANCIA;
