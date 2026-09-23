@@ -301,6 +301,41 @@ export function colunasEscolhiveis(cabecalho: string[]): string[] {
     .filter((c) => c.length > 0 && !JA_MOSTRADO.includes(chaveDeColuna(c)));
 }
 
+/**
+ * AS COLUNAS QUE O DOSSIÊ OFERECE PARA ESCOLHA: todas, e não só as "extras".
+ *
+ * O cartão da fila esconde nome, telefone, data e origem porque já mostra os
+ * quatro em cima. No dossiê a escolha é da pessoa: uma coluna ORIGEM que diz
+ * "Instagram · anúncio 3" é informação que o selo de Inbound/Outbound não dá,
+ * e escondê-la da lista seria decidir por quem pediu para decidir.
+ *
+ * A lista junta três fontes, nesta ordem, sem repetir:
+ *   1. o cabeçalho da planilha, quando deu para ler, na ordem da planilha;
+ *   2. as colunas que a linha deste lead tem e o cabeçalho não trouxe;
+ *   3. as já escolhidas que sumiram das duas, para poderem ser desmarcadas.
+ * A terceira existe porque coluna renomeada na planilha deixaria uma escolha
+ * fantasma que não aparece na lista, não aparece no dossiê e não sai nunca.
+ */
+export function opcoesDoDossie(
+  cabecalho: string[] | null | undefined,
+  bruto: Record<string, string> | null | undefined,
+  escolhidas: string[] | null | undefined,
+): string[] {
+  const saida: string[] = [];
+  const vistas = new Set<string>();
+  const poe = (c: string) => {
+    const limpa = String(c ?? "").trim();
+    const k = chaveDeColuna(limpa);
+    if (!limpa || !k || vistas.has(k)) return;
+    vistas.add(k);
+    saida.push(limpa);
+  };
+  (cabecalho ?? []).forEach(poe);
+  Object.keys(bruto ?? {}).forEach(poe);
+  (escolhidas ?? []).forEach(poe);
+  return saida;
+}
+
 /** A linha de baixo do cartão da fila: os dois primeiros campos que importam. */
 export function resumoDoDossie(
   bruto: Record<string, string> | null | undefined,

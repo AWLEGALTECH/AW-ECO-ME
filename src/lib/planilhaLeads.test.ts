@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   chaveDeColuna, mapearColunas, dataDaPlanilha, leadDaLinha, lerPlanilha, resumoDasRespostas,
-  dossieExtra, resumoDoDossie, colunasEscolhiveis, idDaPlanilha,
+  dossieExtra, resumoDoDossie, colunasEscolhiveis, idDaPlanilha, opcoesDoDossie,
 } from "./planilhaLeads";
 
 /* O cabeçalho real da planilha da LP (LEADS BANCARIOS): */
@@ -280,4 +280,66 @@ it("o que não é data continua devolvendo nulo", () => {
   expect(dataDaPlanilha("")).toBeNull();
   expect(dataDaPlanilha("ontem")).toBeNull();
   expect(dataDaPlanilha("2026-09-15")).toBeNull();
+});
+
+/* ── AS COLUNAS NO DOSSIÊ DA CONVERSA ──────────────────────────────────────
+   Pedido de 23/09: o dossiê do lead não mostrava nada da planilha. O cabeçalho
+   abaixo é o da base real do Bradesco. */
+
+const BRADESCO = [
+  "Carimbo de data/hora", "NOME", "WHATSAPP", "DATA", "HORA", "ORIGEM",
+  "DESCONTOS", "TEMPO DE CONTA", "USO DA CONTA", "APP BRADESCO", "SCORE",
+];
+
+describe("as colunas que o dossiê oferece", () => {
+  it("oferece a planilha inteira, na ordem dela, e não só as extras", () => {
+    /* O cartão da fila esconde ORIGEM porque o selo já diz de onde veio. No
+       dossiê a escolha é da pessoa: "Instagram · anúncio 3" é informação que
+       o selo não dá. */
+    expect(opcoesDoDossie(BRADESCO, null, null)).toEqual(BRADESCO);
+  });
+
+  it("sem cabeçalho (a planilha não abriu), usa as colunas da própria linha", () => {
+    expect(opcoesDoDossie(null, { DESCONTOS: "Seguro", SCORE: "700" }, null))
+      .toEqual(["DESCONTOS", "SCORE"]);
+  });
+
+  it("não repete coluna que só muda de acento ou de caixa", () => {
+    expect(opcoesDoDossie(["Tempo de conta"], { "TEMPO DE CONTA": "5 anos" }, ["tempo de conta"]))
+      .toEqual(["Tempo de conta"]);
+  });
+
+  /* Coluna renomeada na planilha deixaria uma escolha fantasma: não aparece na
+     lista, não aparece no dossiê, e não sai nunca. Ela continua na lista para
+     poder ser desmarcada. */
+  it("a escolhida que sumiu da planilha continua na lista, no fim", () => {
+    expect(opcoesDoDossie(["DESCONTOS"], null, ["COLUNA ANTIGA", "DESCONTOS"]))
+      .toEqual(["DESCONTOS", "COLUNA ANTIGA"]);
+  });
+
+  it("ignora cabeçalho vazio, que a planilha às vezes tem no fim", () => {
+    expect(opcoesDoDossie(["DESCONTOS", "", "  "], null, null)).toEqual(["DESCONTOS"]);
+  });
+});
+
+describe("o que o dossiê mostra", () => {
+  const linha = {
+    "NOME": "Maria", "WHATSAPP": "92999990000", "ORIGEM": "Instagram · anúncio 3",
+    "DESCONTOS": "Cesta, seguro", "SCORE": "640", "TEMPO DE CONTA": "8 anos",
+  };
+
+  it("escolhida a mão, até ORIGEM aparece, na ordem da escolha", () => {
+    expect(dossieExtra(linha, ["SCORE", "ORIGEM"])).toEqual([
+      { rotulo: "SCORE", valor: "640" },
+      { rotulo: "ORIGEM", valor: "Instagram · anúncio 3" },
+    ]);
+  });
+
+  it("sem escolha, mostra o que vai além do contato", () => {
+    expect(dossieExtra(linha).map((c) => c.rotulo)).toEqual(["DESCONTOS", "SCORE", "TEMPO DE CONTA"]);
+  });
+
+  it("coluna escolhida e vazia nesta linha não vira linha em branco", () => {
+    expect(dossieExtra(linha, ["USO DA CONTA", "SCORE"])).toEqual([{ rotulo: "SCORE", valor: "640" }]);
+  });
 });

@@ -225,15 +225,22 @@ export function useBaseCompleta(fonteId: string | null) {
  * discordar da primeira.
  */
 export async function lerColunas(planilhaId: string, aba?: string | null): Promise<string[]> {
+  return colunasEscolhiveis(await lerCabecalho(planilhaId, aba));
+}
+
+/**
+ * O cabeçalho INTEIRO, na ordem da planilha. O cartão da fila filtra o que já
+ * mostra em cima; o dossiê oferece tudo e deixa a pessoa decidir.
+ */
+export async function lerCabecalho(planilhaId: string, aba?: string | null): Promise<string[]> {
   const { data, error } = await supabase.functions.invoke("leads-planilha", {
     body: { planilha_id: planilhaId, aba: aba || null },
   });
   if (error) throw new Error(error.message);
   if (!data || data.ok === false) throw new Error(String(data?.error || "Não consegui ler a planilha"));
-  const cabecalho: string[] = data.csv
+  return data.csv
     ? csvParaPlanilha(String(data.csv)).cabecalho
     : ((data.cabecalho ?? []) as string[]);
-  return colunasEscolhiveis(cabecalho);
 }
 
 /**
@@ -271,6 +278,43 @@ export async function alternarAviso(fonteId: string, notificar: boolean) {
 export async function salvarColunas(fonteId: string, colunas: string[]) {
   const { error } = await tabela("leads_fontes")
     .update({ colunas_exibidas: colunas.length > 0 ? colunas : null })
+    .eq("id", fonteId);
+  if (error) throw new Error(error.message);
+}
+
+/* ── A PLANILHA DENTRO DO DOSSIÊ DA CONVERSA ──────────────────────────────
+   A conversa aponta para a linha da planilha por `lead_bruto_id`, e para a
+   base por `fonte_id`. As duas chaves estrangeiras existem, então uma consulta
+   só traz a linha, o nome da base e as colunas escolhidas para o dossiê. */
+
+export interface DaPlanilha {
+  fonte: { id: string; nome: string; planilha_id: string; aba: string | null; colunas_dossie: string[] | null } | null;
+  /** a linha inteira da planilha, coluna por coluna */
+  bruto: Record<string, string> | null;
+}
+
+export function useDaPlanilha(conversaId: string | null) {
+  return useQuery({
+    queryKey: ["wa", "da-planilha", conversaId],
+    enabled: !!conversaId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<DaPlanilha> => {
+      const { data, error } = await tabela("wa_conversas")
+        .select("fonte:leads_fontes!wa_conversas_fonte_id_fkey(id, nome, planilha_id, aba, colunas_dossie), linha:leads_brutos!wa_conversas_lead_bruto_id_fkey(bruto)")
+        .eq("id", conversaId)
+        .maybeSingle();
+      if (error) throw error;
+      return {
+        fonte: (data?.fonte ?? null) as DaPlanilha["fonte"],
+        bruto: (data?.linha?.bruto ?? null) as Record<string, string> | null,
+      };
+    },
+  });
+}
+
+export async function salvarColunasDoDossie(fonteId: string, colunas: string[]) {
+  const { error } = await tabela("leads_fontes")
+    .update({ colunas_dossie: colunas.length > 0 ? colunas : null })
     .eq("id", fonteId);
   if (error) throw new Error(error.message);
 }
