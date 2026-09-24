@@ -28,6 +28,8 @@ const PRIMARY_HSL: Record<string, string> = {
   vermelho: "hsl(0, 84%, 58%)",
   "space-gray": "hsl(215, 18%, 62%)",
   sei: "hsl(270, 100%, 62%)",
+  /* no branco, a linha do gráfico é tinta: grafite quase preto */
+  branco: "hsl(0, 0%, 15%)",
 };
 function ChartTip({ active, payload, label, render }: any) {
   if (!active || !payload?.length) return null;
@@ -1691,7 +1693,7 @@ function LogoBanco({ nome }: { nome: string }) {
     );
   }
   return (
-    <span className="h-9 w-9 rounded-lg bg-white ring-1 ring-white/15 flex items-center justify-center shrink-0 overflow-hidden">
+    <span className="h-9 w-9 rounded-lg bg-[#fff] ring-1 ring-white/15 flex items-center justify-center shrink-0 overflow-hidden">
       <img src={`https://www.google.com/s2/favicons?domain=${marca.dominio}&sz=64`} alt={nome} loading="lazy" className="h-[22px] w-[22px] object-contain" onError={() => setErro(true)} />
     </span>
   );

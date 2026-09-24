@@ -73,6 +73,17 @@ body {
     --accent-h: 270;
     --accent-s: 60%;
     --accent-l: 60%;
+
+    /* O branco e o preto das classes do Tailwind (ver tailwind.config.ts), no
+       valor de sempre. Só o tema branco mexe nisto. */
+    --aw-branco: 255 255 255;
+    --aw-branco-k: 1;
+    --aw-branco-teto: 1;
+    --aw-branco-kc: 1;
+    --aw-branco-teto-c: 1;
+    --aw-preto: 0 0 0;
+    --aw-preto-p: 1;
+    --aw-preto-q: 0;
   }
 
   /* MIDNIGHT BLUE — roxo vira azul meianoite. */
@@ -154,7 +165,66 @@ body {
     --accent-s: 67%;
     --accent-l: 47%;
   }
+
+  /* BRANCO: papel, grafite e tinta.
+     O avesso do AW escuro, e não uma versão clara dele. Nada de cor de marca:
+     a ação principal é PRETA, o apoio é cinza, e o que tem cor no sistema é
+     só o que carrega significado (verde deu certo, âmbar atenção, rosa
+     atrasado). Sem brilho, sem sombra, sem vidro: superfície chapada, borda
+     fina e cheia, contraste pelo tom e não pela luz. */
+  [data-theme="branco"] {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 15%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+    /* no escuro o accent é a cor da marca; aqui é o cinza do "passei o
+       ponteiro por cima", que é o uso dele nos menus e botões fantasmas */
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 89%;
+    --input: 0 0% 85%;
+    --ring: 0 0% 9%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 25%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 93%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 89%;
+    --sidebar-ring: 0 0% 9%;
+    --accent-h: 0;
+    --accent-s: 0%;
+    --accent-l: 12%;
+
+    /* O branco e o preto das classes do Tailwind (ver tailwind.config.ts).
+       Fundo: o véu claro vira véu cinza, um quinto mais forte e com teto
+       (um `bg-white` inteiro não pode virar uma placa cinza-escura).
+       Contorno: mais forte, porque borda a 6% no branco não existe, e com teto
+       menor, para nenhuma virar risco de caneta.
+       Preto: curva. Poço a 20% vira 3,6%, véu de diálogo a 80% vira 34%. */
+    --aw-branco: 0 0 0;
+    --aw-branco-k: 1.2;
+    --aw-branco-teto: 0.12;
+    --aw-branco-kc: 1.6;
+    --aw-branco-teto-c: 0.16;
+    --aw-preto: 0 0 0;
+    --aw-preto-p: 0.1;
+    --aw-preto-q: 0.4;
+    color-scheme: light;
+  }
 }
+
 
 /* ─────────────────────────────────────────────────────────────────────
    SEI THEME OVERRIDES — aplica vibe anos-2000 do governo BR:
@@ -261,6 +331,89 @@ body {
 /* Mesh blobs / efeitos de fundo escuro — invisibilizar em light */
 [data-theme="sei"] .mesh-blob {
   display: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   BRANCO: o que o tema desliga.
+   Os tokens estão lá em cima; aqui mora a parte que token nenhum alcança:
+   o brilho, a sombra, o vidro e os poucos cinzas escuros escritos à mão.
+   Tudo escopado em [data-theme="branco"]; os temas escuros não enxergam.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* SOMBRA NENHUMA. A variável da sombra do Tailwind é zerada em tudo, o que
+   apaga `shadow-*` e as sombras arbitrárias sem tocar nos anéis (`ring-*`
+   mora noutra variável e continua sendo o contorno de foco e de seleção).
+   O que vem escrito direto no `style` (o framer anima sombra assim) cai pelo
+   seletor de atributo. */
+[data-theme="branco"] *,
+[data-theme="branco"] *::before,
+[data-theme="branco"] *::after {
+  --tw-shadow: 0 0 #0000 !important;
+  --tw-shadow-colored: 0 0 #0000 !important;
+  --tw-drop-shadow: drop-shadow(0 0 #0000) !important;
+  text-shadow: none !important;
+}
+[data-theme="branco"] [style*="box-shadow"] { box-shadow: none !important; }
+[data-theme="branco"] [style*="drop-shadow"] { filter: none !important; }
+
+/* BRILHO NENHUM: os pulsos de luz, o reflexo que corre na barra cheia e as
+   manchas desfocadas de fundo. */
+[data-theme="branco"] .neon-glow-purple,
+[data-theme="branco"] .neon-glow-cyan { box-shadow: none !important; }
+[data-theme="branco"] .fech-glow,
+[data-theme="branco"] .fech-glow-exc { animation: none !important; box-shadow: none !important; }
+[data-theme="branco"] .fech-shimmer::after { display: none !important; }
+[data-theme="branco"] .mesh-blob,
+[data-theme="branco"] .blur-2xl,
+[data-theme="branco"] .blur-3xl { display: none !important; }
+
+/* O CARTÃO-HOLOFOTE (SpotlightCard) acende um círculo de luz que segue o
+   ponteiro e um fio brilhante no topo. No branco, passar por cima só firma a
+   borda e acinzenta o papel um tico, sem luz nenhuma. */
+[data-theme="branco"] .spotlight-card[style] {
+  background: hsl(var(--foreground) / 0.025) !important;
+  border-color: hsl(var(--foreground) / 0.2) !important;
+}
+[data-theme="branco"] .spotlight-card > .h-px:first-child { display: none; }
+
+/* A MARCA. O arquivo da logo é branco, feito para o fundo preto; no papel ela
+   vira tinta. */
+[data-theme="branco"] img[src="/aw-logo.png"] { filter: invert(1); }
+
+/* VIDRO VIRA PAPEL. O painel de vidro era preto translúcido com desfoque;
+   aqui é superfície branca, chapada, com borda. */
+[data-theme="branco"] .glass-panel {
+  background: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+  backdrop-filter: none !important;
+}
+
+/* OS CINZAS-CARVÃO ESCRITOS À MÃO. Cada um queria dizer "a cor do painel
+   onde eu estou" (cabeçalho fixo de tabela, gaveta, recorte em volta do
+   pontinho de status); no branco, isso é o fundo ou o cartão. */
+[data-theme="branco"] .bg-\[\#101014\],
+[data-theme="branco"] .bg-\[\#101216\],
+[data-theme="branco"] .bg-\[\#0b0d10\] { background-color: hsl(var(--background)) !important; }
+[data-theme="branco"] .bg-\[\#14161a\] { background-color: hsl(var(--muted)) !important; }
+[data-theme="branco"] .bg-\[\#14161a\]\/95 { background-color: hsl(var(--popover) / 0.97) !important; }
+[data-theme="branco"] .ring-\[\#0e1013\] { --tw-ring-color: hsl(var(--background)) !important; }
+[data-theme="branco"] .outline-\[\#0d0f12\] { outline-color: hsl(var(--background)) !important; }
+
+/* O QUE CONTINUA ESCURO. O visor de foto e vídeo é um quarto escuro em
+   qualquer tema: a imagem é a luz, e em volta dela é preto. Quem marca
+   `data-sempre-escuro` recupera, por dentro, o branco e o preto de sempre. */
+[data-theme="branco"] [data-sempre-escuro] {
+  --aw-branco: 255 255 255;
+  --aw-branco-k: 1;
+  --aw-branco-teto: 1;
+  --aw-branco-kc: 1;
+  --aw-branco-teto-c: 1;
+  --aw-preto: 0 0 0;
+  --aw-preto-p: 1;
+  --aw-preto-q: 0;
+  --foreground: 0 0% 98%;
+  --muted-foreground: 0 0% 65%;
+  color-scheme: dark;
 }
 
 @layer base {

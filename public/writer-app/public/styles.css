@@ -3205,6 +3205,63 @@ select:has(option[value=""]:checked) {
   border-color: hsl(0 0% 80%) !important;
 }
 
+/* =========================================================================
+   BRANCO — papel, grafite e tinta, como na shell do aw-eco-me.
+   O Writer tem cinza-carvão escrito à mão no CSS e no JS (as janelas de
+   "pasta criada", a cadeia de peças), então trocar token por token deixaria
+   pedaços escuros. A página inteira é INVERTIDA, e o giro de 180° no matiz
+   devolve o verde, o âmbar e o vermelho, agora escuros e legíveis no branco.
+   Os tokens daqui são escolhidos para que, DEPOIS de invertidos, o fundo dê
+   branco puro, a linha dê cinza fino e o destaque dê grafite. Foto, vídeo e
+   canvas invertem de novo para voltar ao natural. Sombra e brilho, nenhum.
+   ========================================================================= */
+html[data-theme="branco"] {
+  filter: invert(1) hue-rotate(180deg);
+  background: #000;
+  --accent-h: 0;
+  --accent-s: 0%;
+  --accent-l: 50%;
+  /* a cadeia e as janelas do done.js fixam a saturação em 75%; aqui ela zera */
+  --sat-destaque: 0%;
+  --violet-soft:  hsl(0 0% 78%);
+  --violet-deep:  hsl(0 0% 40%);
+  --violet-glow:  transparent;
+  --bg:          hsl(0 0% 0%);
+  --bg-modal:    hsl(0 0% 0% / 0.97);
+  --bg-card:     hsl(0 0% 2%);
+  --bg-glass:    hsl(0 0% 1% / 0.9);
+  --bg-row-hover: rgba(255, 255, 255, 0.035);
+  --line-dim:    rgba(255, 255, 255, 0.06);
+  --line:        hsl(0 0% 11%);
+  --line-bright: hsl(0 0% 20%);
+  --text:       hsl(0 0% 91%);
+  --text-dim:   hsl(0 0% 70%);
+  --text-mute:  hsl(0 0% 58%);
+  --text-faint: hsl(0 0% 44%);
+  --text-ghost: hsl(0 0% 30%);
+  --amber-glow: transparent;
+}
+html[data-theme="branco"] img:not([src$=".svg"]),
+html[data-theme="branco"] video,
+html[data-theme="branco"] canvas,
+html[data-theme="branco"] iframe {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* O selo do produto fica em cima da foto, e translúcido ele sumia nela:
+   aqui é uma etiqueta branca, chapada (preto antes de inverter). */
+html[data-theme="branco"] .product-chip {
+  background: hsl(0 0% 2%);
+  color: var(--text);
+  border-color: var(--line-bright);
+}
+html[data-theme="branco"] .product-chip.beta { color: var(--amber); border-color: hsla(38, 92%, 60%, 0.6); }
+html[data-theme="branco"] *,
+html[data-theme="branco"] *::before,
+html[data-theme="branco"] *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
 /* ============================================================
    SINALIZAÇÃO DE DESCONTOS AJUIZÁVEIS (tela kitDescontos)
    ============================================================ */

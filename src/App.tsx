@@ -78,10 +78,11 @@ const App = () => (
     <TooltipProvider>
       <AlturaDoApp />
       <Toaster />
-      <Sonner />
       <AuthProvider>
         <PreferenciasProvider>
         <ThemeProvider>
+          {/* dentro do tema, para o aviso saber se o fundo é claro ou escuro */}
+          <Sonner />
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />

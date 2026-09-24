@@ -214,7 +214,8 @@ function Imagem({ url, nome }: { url: string; nome: string }) {
       </button>
 
       <Dialog open={aberto} onOpenChange={setAberto}>
-        <DialogContent className="max-w-[94vw] w-[94vw] h-[88vh] p-0 gap-0 flex flex-col overflow-hidden bg-black/95 border-white/10">
+        {/* sempre escuro: é o visor, e em volta da foto é quarto escuro em qualquer tema */}
+        <DialogContent data-sempre-escuro className="max-w-[94vw] w-[94vw] h-[88vh] p-0 gap-0 flex flex-col overflow-hidden bg-black/95 border-white/10">
           <DialogTitle className="sr-only">{nome}</DialogTitle>
           <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 shrink-0 pr-12">
             <span className="text-[11px] text-white/60 tabular-nums w-12">{Math.round(zoom * 100)}%</span>

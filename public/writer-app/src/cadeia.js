@@ -30,7 +30,7 @@ function renderBarraCadeia() {
     background: hsla(var(--bg), 0.55);
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
-    border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
+    border-bottom: 1px solid hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.25);
     padding: 10px 20px;
     font-family: Inter, system-ui, sans-serif;
   `;
@@ -38,10 +38,10 @@ function renderBarraCadeia() {
     <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 14px;">
       <div style="
         height: 28px; width: 28px; border-radius: 8px;
-        background: hsla(var(--accent-h), 75%, 65%, 0.15);
-        border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
+        background: hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.15);
+        border: 1px solid hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.3);
         display: flex; align-items: center; justify-content: center;
-        color: hsl(var(--accent-h), 75%, 70%);
+        color: hsl(var(--accent-h), var(--sat-destaque, 75%), 70%);
         flex-shrink: 0;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
@@ -52,7 +52,7 @@ function renderBarraCadeia() {
             Produção em cadeia
           </span>
           <span style="font-size: 11px; color: var(--text-ghost, #999);">
-            Peça <strong style="color: hsl(var(--accent-h), 75%, 75%); font-variant-numeric: tabular-nums;">${pos}</strong>
+            Peça <strong style="color: hsl(var(--accent-h), var(--sat-destaque, 75%), 75%); font-variant-numeric: tabular-nums;">${pos}</strong>
             de <strong style="color: var(--text-strong, #ddd); font-variant-numeric: tabular-nums;">${total}</strong>
             · ${concluidas} concluída${concluidas === 1 ? '' : 's'}
           </span>
@@ -60,7 +60,7 @@ function renderBarraCadeia() {
         ${nomeAnalise ? `
           <div style="
             display: inline-flex; align-items: center; gap: 6px;
-            font-size: 12px; color: hsl(var(--accent-h), 75%, 80%);
+            font-size: 12px; color: hsl(var(--accent-h), var(--sat-destaque, 75%), 80%);
             font-weight: 600;
             margin-bottom: 6px;
             max-width: 100%;
@@ -75,7 +75,7 @@ function renderBarraCadeia() {
         ">
           <div style="
             height: 100%; width: ${pct}%;
-            background: linear-gradient(90deg, hsl(var(--accent-h), 75%, 65%), hsl(calc(var(--accent-h) + 10), 75%, 70%));
+            background: linear-gradient(90deg, hsl(var(--accent-h), var(--sat-destaque, 75%), 65%), hsl(calc(var(--accent-h) + 10), var(--sat-destaque, 75%), 70%));
             transition: width 0.4s ease;
           "></div>
         </div>
@@ -248,7 +248,7 @@ function renderBarraConfeccao() {
     background: hsla(var(--bg), 0.55);
     backdrop-filter: blur(18px) saturate(160%);
     -webkit-backdrop-filter: blur(18px) saturate(160%);
-    border-bottom: 1px solid hsla(var(--accent-h), 75%, 65%, 0.25);
+    border-bottom: 1px solid hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.25);
     padding: 10px 20px;
     font-family: Inter, system-ui, sans-serif;
   `;
@@ -256,10 +256,10 @@ function renderBarraConfeccao() {
     <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 14px;">
       <div style="
         height: 28px; width: 28px; border-radius: 8px;
-        background: hsla(var(--accent-h), 75%, 65%, 0.15);
-        border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
+        background: hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.15);
+        border: 1px solid hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.3);
         display: flex; align-items: center; justify-content: center;
-        color: hsl(var(--accent-h), 75%, 70%);
+        color: hsl(var(--accent-h), var(--sat-destaque, 75%), 70%);
         flex-shrink: 0;
       ">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
@@ -269,7 +269,7 @@ function renderBarraConfeccao() {
           Confeccionando peça da análise vinculada
         </div>
         <div style="
-          font-size: 13px; color: hsl(var(--accent-h), 75%, 80%);
+          font-size: 13px; color: hsl(var(--accent-h), var(--sat-destaque, 75%), 80%);
           font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         " title="${escapeHtml(ctx.desconto)}">${escapeHtml(ctx.desconto)}</div>
       </div>

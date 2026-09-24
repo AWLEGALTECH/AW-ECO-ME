@@ -6,11 +6,17 @@
  * salva se aplica a uma lista de itens que pode ter mudado desde que foi salva.
  */
 
-export const PALETAS = ["default", "midnight-blue", "vermelho", "space-gray", "sei"] as const;
+export const PALETAS = ["default", "midnight-blue", "vermelho", "space-gray", "sei", "branco"] as const;
 export type Paleta = (typeof PALETAS)[number];
 
 export function paletaValida(x: unknown): x is Paleta {
   return typeof x === "string" && (PALETAS as readonly string[]).includes(x);
+}
+
+/** As paletas de fundo claro. Todas as outras são escuras e ganham `.dark`. */
+export const PALETAS_CLARAS: readonly Paleta[] = ["sei", "branco"];
+export function paletaClara(p: Paleta): boolean {
+  return PALETAS_CLARAS.includes(p);
 }
 
 /**

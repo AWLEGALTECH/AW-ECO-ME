@@ -277,7 +277,7 @@ function Palco({ item, fonte }: { item: ItemDaPrevia; fonte: string | null }) {
     );
   }
   if (tipo === "pdf") {
-    return <iframe src={fonte} title={item.nome} className="h-full w-full rounded-lg border-0 bg-white" />;
+    return <iframe src={fonte} title={item.nome} className="h-full w-full rounded-lg border-0 bg-[#fff]" />;
   }
   return <CartaoGenerico item={item} />;
 }

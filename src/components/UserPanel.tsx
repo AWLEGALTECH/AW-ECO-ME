@@ -10,8 +10,45 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { LogOut, Upload, User, Save, Palette, Check, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import type { Paleta } from "@/lib/preferencias";
 import { toast } from "sonner";
 import { logEvent } from "@/lib/audit";
+
+const MOLA_DO_TEMA = { type: "spring", stiffness: 380, damping: 34 } as const;
+
+const faixa = (fundo: string) => (
+  <div className="h-6 w-full rounded-md mb-1.5" style={{ background: fundo }} />
+);
+
+/* Os temas do seletor. A amostra é o próprio tema em miniatura: a cor que ele
+   pinta, e não um nome para decorar. */
+const TEMAS: { id: Paleta; nome: string; dica: string; amostra: JSX.Element }[] = [
+  { id: "default", nome: "Padrão", dica: "Paleta padrão (roxo)",
+    amostra: faixa("linear-gradient(135deg, hsl(270 100% 62%), hsl(280 80% 55%))") },
+  { id: "midnight-blue", nome: "Midnight Blue", dica: "Midnight Blue: azul meianoite",
+    amostra: faixa("linear-gradient(135deg, hsl(222 85% 55%), hsl(232 75% 38%))") },
+  { id: "vermelho", nome: "Flame Red", dica: "Flame Red: vermelho vivo",
+    amostra: faixa("linear-gradient(135deg, hsl(0 85% 60%), hsl(352 75% 42%))") },
+  { id: "space-gray", nome: "Space Gray", dica: "Space Gray: prateado surfista",
+    amostra: faixa("linear-gradient(135deg, hsl(215 18% 72%), hsl(215 12% 45%))") },
+  { id: "sei", nome: "SEI", dica: "SEI: paleta do Sistema Eletrônico de Informações",
+    amostra: (
+      <div className="h-6 w-full rounded-md mb-1.5 overflow-hidden flex">
+        <div style={{ width: "30%", background: "white", borderRight: "1px solid hsl(200 15% 88%)" }} />
+        <div style={{ flex: 1, background: "hsl(199 75% 41%)" }} />
+      </div>
+    ) },
+  /* Papel, grafite e tinta: fundo branco, um traço cinza e o preto da ação. */
+  { id: "branco", nome: "Branco", dica: "Branco: claro, chapado, em cinza e preto",
+    amostra: (
+      <div className="h-6 w-full rounded-md mb-1.5 overflow-hidden flex items-center gap-1 px-1.5"
+        style={{ background: "#ffffff", border: "1px solid #e3e3e3" }}>
+        <div className="h-2 flex-1 rounded-full" style={{ background: "#e5e5e5" }} />
+        <div className="h-3 w-5 rounded" style={{ background: "#171717" }} />
+      </div>
+    ) },
+];
 
 export function UserPanel() {
   const { user, profile, signOut } = useAuth();
@@ -119,9 +156,9 @@ export function UserPanel() {
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetTrigger asChild>
         <button className="flex items-center gap-2 rounded-full hover:opacity-80 transition-opacity">
-          <Avatar className="h-10 w-10 md:h-8 md:w-8 cursor-pointer border-2 border-primary-foreground/30">
+          <Avatar className="h-10 w-10 md:h-8 md:w-8 cursor-pointer border-2 border-foreground/25">
             <AvatarImage src={avatarUrl || undefined} />
-            <AvatarFallback className="bg-primary-foreground/20 text-primary-foreground text-sm md:text-xs">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-foreground/15 text-foreground text-sm md:text-xs">{initials}</AvatarFallback>
           </Avatar>
         </button>
       </SheetTrigger>
@@ -194,88 +231,45 @@ export function UserPanel() {
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setPalette("default")}
-              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
-                palette === "default"
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                  : "border-border/60 hover:border-primary/40 bg-card/40"
-              }`}
-              title="Paleta padrão (roxo)"
-            >
-              {palette === "default" && (
-                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-              )}
-              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(270 100% 62%), hsl(280 80% 55%))" }} />
-              <span className="text-[11px] font-medium">Padrão</span>
-            </button>
-
-            <button
-              onClick={() => setPalette("midnight-blue")}
-              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
-                palette === "midnight-blue"
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                  : "border-border/60 hover:border-primary/40 bg-card/40"
-              }`}
-              title="Midnight Blue — azul meianoite"
-            >
-              {palette === "midnight-blue" && (
-                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-              )}
-              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(222 85% 55%), hsl(232 75% 38%))" }} />
-              <span className="text-[11px] font-medium">Midnight Blue</span>
-            </button>
-
-            <button
-              onClick={() => setPalette("vermelho")}
-              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
-                palette === "vermelho"
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                  : "border-border/60 hover:border-primary/40 bg-card/40"
-              }`}
-              title="Flame Red — vermelho vivo"
-            >
-              {palette === "vermelho" && (
-                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-              )}
-              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(0 85% 60%), hsl(352 75% 42%))" }} />
-              <span className="text-[11px] font-medium">Flame Red</span>
-            </button>
-
-            <button
-              onClick={() => setPalette("space-gray")}
-              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
-                palette === "space-gray"
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                  : "border-border/60 hover:border-primary/40 bg-card/40"
-              }`}
-              title="Space Gray — prateado surfista"
-            >
-              {palette === "space-gray" && (
-                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-              )}
-              <div className="h-6 w-full rounded-md mb-1.5" style={{ background: "linear-gradient(135deg, hsl(215 18% 72%), hsl(215 12% 45%))" }} />
-              <span className="text-[11px] font-medium">Space Gray</span>
-            </button>
-
-            <button
-              onClick={() => setPalette("sei")}
-              className={`relative rounded-xl border-2 p-3 text-left transition-all ${
-                palette === "sei"
-                  ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-                  : "border-border/60 hover:border-primary/40 bg-card/40"
-              }`}
-              title="SEI — paleta do Sistema Eletrônico de Informações"
-            >
-              {palette === "sei" && (
-                <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-              )}
-              <div className="h-6 w-full rounded-md mb-1.5 overflow-hidden flex">
-                <div style={{ width: "30%", background: "white", borderRight: "1px solid hsl(200 15% 88%)" }} />
-                <div style={{ flex: 1, background: "hsl(199 75% 41%)" }} />
-              </div>
-              <span className="text-[11px] font-medium">SEI</span>
-            </button>
+            {TEMAS.map((t) => {
+              const escolhido = palette === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setPalette(t.id)}
+                  className="relative rounded-xl border-2 border-border/60 hover:border-primary/40 bg-card/40 p-3 text-left transition-colors"
+                  title={t.dica}
+                >
+                  {/* UM SÓ contorno de escolhido, que desliza de um cartão para
+                      o outro, em vez de seis que acendem e apagam */}
+                  {escolhido && (
+                    <motion.span
+                      layoutId="tema-escolhido"
+                      transition={MOLA_DO_TEMA}
+                      className="pointer-events-none absolute -inset-[2px] rounded-xl border-2 border-primary bg-primary/10 ring-2 ring-primary/20"
+                    />
+                  )}
+                  <AnimatePresence initial={false}>
+                    {escolhido && (
+                      <motion.span
+                        key="marca"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                        className="absolute top-1.5 right-1.5"
+                      >
+                        <Check className="h-3.5 w-3.5 text-primary" />
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                  <div className="relative">
+                    {t.amostra}
+                    <span className="text-[11px] font-medium">{t.nome}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 

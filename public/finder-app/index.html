@@ -90,6 +90,56 @@
       [data-theme="sei"] #root > div > div > div {
         background: transparent;
       }
+      /* BRANCO no Finder. O Finder é um pacote compilado, com cinza-carvão
+         escrito à mão em centenas de lugares; trocar token por token deixaria
+         metade escura. Então a página inteira é INVERTIDA (o escuro vira
+         claro e o texto claro vira tinta) e o giro de 180° no matiz devolve a
+         cor certa ao verde, ao âmbar e ao vermelho, que voltam escuros e
+         legíveis sobre o branco. Os tokens abaixo são escolhidos para que,
+         DEPOIS de invertidos, o fundo dê branco puro, a borda dê cinza fino e
+         o destaque dê grafite. Foto, vídeo e canvas (a página do extrato)
+         invertem de novo para voltar ao natural. */
+      html[data-theme="branco"] {
+        filter: invert(1) hue-rotate(180deg);
+        background: #000;
+        --accent-h: 0 !important;
+        --accent-s: 0% !important;
+        --accent-l: 50% !important;
+        /* o pacote fixa 95% de saturação num tom claro do destaque (selos,
+           ícones); a variável foi posta no lugar do número, com 95% de reserva */
+        --sat-destaque: 0%;
+        --violet:             hsl(0 0% 50%) !important;
+        --violet-soft:        hsl(0 0% 78%) !important;
+        --violet-deep:        hsl(0 0% 40%) !important;
+        --violet-border:      hsla(0, 0%, 100%, 0.22) !important;
+        --violet-border-soft: hsla(0, 0%, 100%, 0.12) !important;
+        --violet-bg:          hsla(0, 0%, 100%, 0.06) !important;
+        --violet-glow:        transparent !important;
+        --aw-bg: hsl(0 0% 0%);
+        --aw-card: hsl(0 0% 2%);
+        --aw-card-2: hsl(0 0% 5%);
+        --aw-border: hsl(0 0% 11%);
+        --aw-border-soft: hsla(0, 0%, 100%, 0.08);
+        --aw-text: hsl(0 0% 91%);
+        --aw-text-muted: hsl(0 0% 60%);
+        --aw-text-dim: hsl(0 0% 45%);
+      }
+      /* o invólucro do App.jsx tem hsl(0 0% 3%) escrito à mão, que invertido
+         daria um branco sujo; aqui ele é preto puro, e vira papel */
+      html[data-theme="branco"] body,
+      html[data-theme="branco"] #root > div { background: #000 !important; }
+      html[data-theme="branco"] img:not([src$=".svg"]),
+      html[data-theme="branco"] video,
+      html[data-theme="branco"] canvas,
+      html[data-theme="branco"] iframe {
+        filter: invert(1) hue-rotate(180deg);
+      }
+      html[data-theme="branco"] *,
+      html[data-theme="branco"] *::before,
+      html[data-theme="branco"] *::after {
+        box-shadow: none !important;
+        text-shadow: none !important;
+      }
       html, body, #root, input, button, textarea, select, label, p, h1, h2, h3, h4, h5, h6, div, span, a {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
@@ -105,7 +155,7 @@
       (function(){
         try {
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue' || p === 'vermelho' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+          if (p === 'midnight-blue' || p === 'vermelho' || p === 'space-gray' || p === 'sei' || p === 'branco') document.documentElement.setAttribute('data-theme', p);
         } catch(e) {}
         window.addEventListener('message', function(e){
           if (e.origin !== window.location.origin) return;

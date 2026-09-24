@@ -1520,7 +1520,7 @@ function Celebracao({ nome, onDone }: { nome: string | null; onDone: () => void 
                 <CheckCircle2 className="h-12 w-12 text-emerald-400" />
               </motion.div>
               <div className="text-center">
-                <div className="text-3xl font-black tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
+                <div className="text-3xl font-black tracking-tight text-foreground drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
                   Cliente fechado!
                 </div>
                 <div className="text-sm text-emerald-300 font-semibold mt-1 uppercase tracking-wide">{nome}</div>

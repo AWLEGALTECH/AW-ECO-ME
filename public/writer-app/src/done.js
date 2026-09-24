@@ -111,13 +111,13 @@ function renderDone(view) {
         ${podeFinalizar ? `
           <div class="done-finalize-hint" style="
             margin-top: 24px; padding: 14px 18px;
-            border: 1px dashed hsla(var(--accent-h), 75%, 65%, 0.35);
-            background: hsla(var(--accent-h), 75%, 65%, 0.06);
+            border: 1px dashed hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.35);
+            background: hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.06);
             border-radius: 12px; max-width: 560px;
             font-size: 12px; color: var(--text-ghost, #aaa);
             line-height: 1.5;
           ">
-            <strong style="color: hsl(var(--accent-h), 75%, 75%); display: block; margin-bottom: 4px;">
+            <strong style="color: hsl(var(--accent-h), var(--sat-destaque, 75%), 75%); display: block; margin-bottom: 4px;">
               ${emCadeia ? 'Próximo passo' : 'Salvar no Drive'}
             </strong>
             Clique em <em>Salvar na pasta do cliente</em> — vamos criar uma subpasta
@@ -213,7 +213,7 @@ function abrirModalArrasteParaDrive(folderUrl, folderName, fileName) {
   overlay.innerHTML = `
     <div style="max-width:520px;width:100%;background:hsl(240,6%,10%);border:1px solid hsla(0,0%,100%,0.08);border-radius:16px;padding:24px;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-        <div style="width:40px;height:40px;border-radius:10px;background:hsla(var(--accent-h),75%,65%,0.15);border:1px solid hsla(var(--accent-h),75%,65%,0.3);display:flex;align-items:center;justify-content:center;color:hsl(var(--accent-h),75%,70%);">
+        <div style="width:40px;height:40px;border-radius:10px;background:hsla(var(--accent-h),var(--sat-destaque, 75%),65%,0.15);border:1px solid hsla(var(--accent-h),var(--sat-destaque, 75%),65%,0.3);display:flex;align-items:center;justify-content:center;color:hsl(var(--accent-h),var(--sat-destaque, 75%),70%);">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         </div>
         <div>
@@ -224,14 +224,14 @@ function abrirModalArrasteParaDrive(folderUrl, folderName, fileName) {
       <ol style="font-size:13px;color:#cfcfcf;line-height:1.7;padding-left:18px;margin:14px 0 18px;">
         <li>Já abrimos a pasta em outra aba do navegador</li>
         <li>Já baixamos o arquivo <code style="background:hsla(0,0%,100%,0.06);padding:1px 5px;border-radius:4px;font-size:11px;">${fileName}</code></li>
-        <li><strong style="color:hsl(var(--accent-h),75%,75%);">Arrasta o arquivo baixado pra dentro da pasta aberta</strong></li>
+        <li><strong style="color:hsl(var(--accent-h),var(--sat-destaque, 75%),75%);">Arrasta o arquivo baixado pra dentro da pasta aberta</strong></li>
         <li>Volte aqui e clique em finalizar</li>
       </ol>
       <p style="font-size:11.5px;color:#777;margin:0 0 18px;line-height:1.5;">
         Tivemos que adotar esse fluxo manual porque o Google não permite que nossa Service Account suba arquivos em pastas do Drive pessoal (limitação técnica de quota).
       </p>
       <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap;">
-        <a href="${folderUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;color:hsl(var(--accent-h),75%,75%);text-decoration:underline;text-underline-offset:3px;">Abrir pasta de novo</a>
+        <a href="${folderUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;color:hsl(var(--accent-h),var(--sat-destaque, 75%),75%);text-decoration:underline;text-underline-offset:3px;">Abrir pasta de novo</a>
         <button id="btnFinalizarArraste" style="
           padding:9px 18px;font-size:12.5px;font-weight:500;border-radius:9px;
           background:hsl(160,75%,38%);color:#fff;border:1px solid hsl(160,75%,45%);
@@ -309,10 +309,10 @@ function abrirModalFinalizarPeca() {
       <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
         <div style="
           width: 36px; height: 36px; border-radius: 10px;
-          background: hsla(var(--accent-h), 75%, 65%, 0.15);
-          border: 1px solid hsla(var(--accent-h), 75%, 65%, 0.3);
+          background: hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.15);
+          border: 1px solid hsla(var(--accent-h), var(--sat-destaque, 75%), 65%, 0.3);
           display: flex; align-items: center; justify-content: center;
-          color: hsl(var(--accent-h), 75%, 70%);
+          color: hsl(var(--accent-h), var(--sat-destaque, 75%), 70%);
         ">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </div>
@@ -322,7 +322,7 @@ function abrirModalFinalizarPeca() {
       </div>
       <p style="font-size: 13px; color: #999; margin: 8px 0 18px; line-height: 1.5;">
         Cole o link do arquivo (ou da pasta do cliente) no Google Drive. A peça
-        vai pros <strong style="color: hsl(var(--accent-h), 75%, 75%);">Espelhos de Protocolo</strong>
+        vai pros <strong style="color: hsl(var(--accent-h), var(--sat-destaque, 75%), 75%);">Espelhos de Protocolo</strong>
         do cliente${emCadeia ? ' e o writer carrega a próxima da fila.' : '.'}
       </p>
       <input id="drivePecaInput" type="text"
@@ -334,7 +334,7 @@ function abrirModalFinalizarPeca() {
           border-radius: 10px; color: #f0f0f0;
           font-family: inherit; outline: none; box-sizing: border-box;
         "
-        onfocus="this.style.borderColor='hsla(var(--accent-h),75%,65%,0.5)'"
+        onfocus="this.style.borderColor='hsla(var(--accent-h),var(--sat-destaque, 75%),65%,0.5)'"
         onblur="this.style.borderColor='hsla(0,0%,100%,0.12)'"
       >
       <div id="drivePecaErro" style="

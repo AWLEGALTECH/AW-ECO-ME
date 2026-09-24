@@ -38,6 +38,16 @@ const PALETTES: Record<string, string[]> = {
     "hsl(0, 0%, 55%)",
     "hsl(0, 0%, 38%)",
   ],
+  /* Branco: escala de tinta, do preto ao cinza-claro. Os vizinhos alternam
+     escuro e claro para duas fatias lado a lado nunca se confundirem. */
+  branco: [
+    "hsl(0, 0%, 12%)",
+    "hsl(0, 0%, 62%)",
+    "hsl(0, 0%, 32%)",
+    "hsl(0, 0%, 78%)",
+    "hsl(0, 0%, 47%)",
+    "hsl(0, 0%, 88%)",
+  ],
 };
 
 interface DonutChartProps {
@@ -159,7 +169,7 @@ export function DonutChart({ data, height = 280, emptyMessage = "Sem dados", onS
               className="flex items-center gap-2 text-sm cursor-pointer rounded-md px-2 py-1 transition-all duration-200"
               style={{
                 opacity: isDimmed ? 0.4 : 1,
-                background: isActive ? "rgba(255,255,255,0.04)" : "transparent",
+                background: isActive ? "hsl(var(--foreground) / 0.04)" : "transparent",
               }}
               onMouseEnter={() => setActiveIndex(i)}
               onMouseLeave={() => setActiveIndex(undefined)}

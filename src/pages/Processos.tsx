@@ -31,6 +31,8 @@ const PRIMARY_HSL: Record<string, string> = {
   vermelho: "hsl(0, 84%, 58%)",
   "space-gray": "hsl(215, 18%, 62%)",
   sei: "hsl(270, 100%, 62%)",
+  /* no branco, a linha do gráfico é tinta: grafite quase preto */
+  branco: "hsl(0, 0%, 15%)",
 };
 
 // As colunas da lista vêm do componente compartilhado; aqui ficam só os campos

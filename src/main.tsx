@@ -31,15 +31,20 @@ const rootEl = document.getElementById("root");
 const showFallback = (err: any) => {
   console.error("[boot] falha critica:", err);
   if (!rootEl) return;
+  // Segue o tema escolhido (o pré-pintura do index.html já pôs o data-theme).
+  const t = document.documentElement.getAttribute("data-theme");
+  const C = t === "branco" || t === "sei"
+    ? { fundo: "#ffffff", texto: "#171717", cartao: "#fafafa", borda: "#e3e3e3", apagado: "#666666", erro: "#b91c1c", botao: "#171717", botaoTexto: "#ffffff" }
+    : { fundo: "#0a0a0a", texto: "#fafafa", cartao: "#171717", borda: "#2a2a2a", apagado: "#a3a3a3", erro: "#fca5a5", botao: "#fafafa", botaoTexto: "#0a0a0a" };
   rootEl.innerHTML = `
-    <div style="min-height:100vh;background:#0a0a0a;color:#fafafa;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,-apple-system,sans-serif;">
-      <div style="max-width:560px;width:100%;background:#171717;border:1px solid #2a2a2a;border-radius:12px;padding:24px;">
+    <div style="min-height:100vh;background:${C.fundo};color:${C.texto};display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,-apple-system,sans-serif;">
+      <div style="max-width:560px;width:100%;background:${C.cartao};border:1px solid ${C.borda};border-radius:12px;padding:24px;">
         <h1 style="font-size:18px;font-weight:600;margin:0 0 8px;">Falha ao iniciar o app</h1>
-        <p style="font-size:13px;color:#a3a3a3;margin:0 0 16px;">Provavelmente cache antigo do navegador. Limpar resolve.</p>
-        <pre style="font-size:11px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:6px;padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0 0 16px;color:#fca5a5;">${String(err?.message || err)}</pre>
+        <p style="font-size:13px;color:${C.apagado};margin:0 0 16px;">Provavelmente cache antigo do navegador. Limpar resolve.</p>
+        <pre style="font-size:11px;background:${C.fundo};border:1px solid ${C.borda};border-radius:6px;padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:0 0 16px;color:${C.erro};">${String(err?.message || err)}</pre>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button onclick="window.location.reload()" style="padding:8px 14px;background:#fafafa;color:#0a0a0a;border:0;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;">Recarregar</button>
-          <button onclick="(function(){try{localStorage.clear()}catch(e){};try{sessionStorage.clear()}catch(e){};if('caches' in window){caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}).finally(function(){window.location.reload()})}else{window.location.reload()}})()" style="padding:8px 14px;background:transparent;color:#fafafa;border:1px solid #2a2a2a;border-radius:6px;font-size:13px;cursor:pointer;">Limpar cache e recarregar</button>
+          <button onclick="window.location.reload()" style="padding:8px 14px;background:${C.botao};color:${C.botaoTexto};border:0;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;">Recarregar</button>
+          <button onclick="(function(){try{localStorage.clear()}catch(e){};try{sessionStorage.clear()}catch(e){};if('caches' in window){caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}).finally(function(){window.location.reload()})}else{window.location.reload()}})()" style="padding:8px 14px;background:transparent;color:${C.texto};border:1px solid ${C.borda};border-radius:6px;font-size:13px;cursor:pointer;">Limpar cache e recarregar</button>
         </div>
       </div>
     </div>

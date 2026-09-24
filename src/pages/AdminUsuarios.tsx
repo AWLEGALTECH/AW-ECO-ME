@@ -306,7 +306,9 @@ function CardPessoa({ p, euMesmo, onAbrir }: { p: ProfileRow; euMesmo: boolean; 
                  transition-all hover:border-primary/40 hover:bg-white/[0.04] hover:-translate-y-0.5
                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
     >
-      <div className="relative">
+      {/* sempre escuro: o degradê preto sobre a foto é o que deixa o nome em
+          branco legível, e isso não depende do tema */}
+      <div className="relative" data-sempre-escuro>
         <AvatarUsuario nome={p.nome} email={p.email} avatarUrl={p.avatar_url} tamanho="xl" className="rounded-none ring-0" />
         {/* Degradê pro nome ficar legível por cima de qualquer foto. */}
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />

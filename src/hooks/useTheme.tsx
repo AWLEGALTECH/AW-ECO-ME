@@ -11,7 +11,7 @@
  */
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { usePreferencias } from "@/hooks/usePreferencias";
-import { paletaValida, type Paleta } from "@/lib/preferencias";
+import { paletaValida, paletaClara, type Paleta } from "@/lib/preferencias";
 
 export type Palette = Paleta;
 
@@ -53,8 +53,13 @@ function applyPalette(p: Palette) {
   } else {
     root.setAttribute("data-theme", p);
   }
-  // SEI eh light mode (fundo branco, sidebar branca); as outras continuam dark.
-  root.classList.toggle("dark", p !== "sei");
+  // SEI e Branco são de fundo claro; as outras continuam dark.
+  root.classList.toggle("dark", !paletaClara(p));
+  // A barra do navegador no celular acompanha o fundo: preta num tema
+  // escuro, branca no branco. Sem isto, o tema branco abria com uma faixa
+  // preta em cima, do lado de fora do aplicativo.
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", p === "branco" ? "#ffffff" : p === "sei" ? "#2894c7" : "#0a0a0a");
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

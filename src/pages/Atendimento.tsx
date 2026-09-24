@@ -5258,7 +5258,7 @@ export default function AtendimentoPage() {
               {/* Fundo branco atrás do QR: câmera não lê código escuro, e num
                   tema escuro é exatamente isso que ele vira. */}
               {qr ? (
-                <div className="rounded-xl bg-white p-3">
+                <div className="rounded-xl bg-[#fff] p-3">
                   <img src={qr} alt="QR code para conectar o WhatsApp" className="h-52 w-52" />
                 </div>
               ) : (
@@ -9056,7 +9056,8 @@ function RetratoDoLead({ foto, nome, legenda }: {
       </motion.div>
 
       <Dialog open={aberto} onOpenChange={setAberto}>
-        <DialogContent className="max-w-[92vw] w-auto p-0 gap-0 overflow-hidden bg-black/95 border-white/10">
+        {/* sempre escuro: é o visor, e em volta da foto é quarto escuro em qualquer tema */}
+        <DialogContent data-sempre-escuro className="max-w-[92vw] w-auto p-0 gap-0 overflow-hidden bg-black/95 border-white/10">
           <DialogTitle className="sr-only">Foto de {nome}</DialogTitle>
           {foto && (
             <img src={foto} alt={`Foto de ${nome}`}

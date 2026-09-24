@@ -30,10 +30,21 @@
     <script>
       // Aplica paleta de cor antes do primeiro paint (evita flash de cor errada).
       // Iframes do writer/finder leem o mesmo localStorage no init deles.
+      // A lista tem de ser a mesma de PALETAS (src/lib/preferencias.ts): o
+      // vermelho ficou de fora daqui por meses, e quem o usava via o roxo
+      // piscar a cada carregamento.
       (function(){
         try {
           var p = localStorage.getItem('aw-theme-palette');
-          if (p === 'midnight-blue' || p === 'space-gray' || p === 'sei') document.documentElement.setAttribute('data-theme', p);
+          var validas = ['midnight-blue', 'vermelho', 'space-gray', 'sei', 'branco'];
+          if (validas.indexOf(p) >= 0) document.documentElement.setAttribute('data-theme', p);
+          var clara = p === 'sei' || p === 'branco';
+          if (!clara) document.documentElement.classList.add('dark');
+          if (p === 'branco') {
+            document.documentElement.style.background = '#ffffff';
+            var m = document.querySelector('meta[name="theme-color"]');
+            if (m) m.setAttribute('content', '#ffffff');
+          }
         } catch(e) {}
       })();
     </script>
