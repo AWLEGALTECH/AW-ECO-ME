@@ -40,7 +40,7 @@ const TEMAS: { id: Paleta; nome: string; dica: string; amostra: JSX.Element }[] 
       </div>
     ) },
   /* Papel, grafite e tinta: fundo branco, um traço cinza e o preto da ação. */
-  { id: "branco", nome: "Branco", dica: "Branco: claro, chapado, em cinza e preto",
+  { id: "branco", nome: "Off-White", dica: "Off-White: claro, chapado, em cinza e preto",
     amostra: (
       <div className="h-6 w-full rounded-md mb-1.5 overflow-hidden flex items-center gap-1 px-1.5"
         style={{ background: "#ffffff", border: "1px solid #e3e3e3" }}>
