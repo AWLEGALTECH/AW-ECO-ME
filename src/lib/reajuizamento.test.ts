@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import {
   pedeReajuizamento, separarComarcaUf, demandaDeReajuizamento, temReajuizamentoAberto,
   ETAPA_REAJUIZAMENTO, STATUS_PEDE_REAJUIZAMENTO, textoDaCausa, faltaNaCausa,
-  partesDaDemanda,
+  partesDaDemanda, trocarMotivoNaDescricao,
 } from "./reajuizamento";
 
 /* DUAS PETIÇÕES DO MESMO PEDIDO NA FILA VIRAM LITISPENDÊNCIA NO FÓRUM.
@@ -246,4 +246,36 @@ test("descrição vazia ou de outra etapa não quebra nem inventa", () => {
 test("processo sem número não vira um número chamado 'processo sem número'", () => {
   const d = demandaDeReajuizamento(proc({ numero_processo: null }), "Fulano", "Motivo qualquer.");
   expect(partesDaDemanda(d.descricao).numero).toBeNull();
+});
+
+/* O LÁPIS DO MOTIVO (chefe, 24/09).
+ *
+ * O motivo vivo mora no processo, mas a descrição da demanda também o carrega.
+ * Trocar um e esquecer o outro faria a busca da esteira e o retrato da demanda
+ * contarem a história antiga. */
+
+test("troca o motivo e deixa o resto da descrição intacto", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", "REAJUIZAR NA VARA CÍVEL").descricao;
+  const nova = trocarMotivoNaDescricao(d, "Faltou procuração a próprio punho.");
+  expect(partesDaDemanda(nova).motivo).toBe("Faltou procuração a próprio punho.");
+  expect(nova).toContain("Matéria: PARCELA CRÉDITO PESSOAL");
+  expect(nova.split("\n")[0]).toBe("Reajuizamento de 0066720-60.2026.8.04.1000, extinto sem mérito.");
+});
+
+test("motivo antigo de várias linhas sai inteiro, e o novo pode ter várias", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", "linha um\nlinha dois").descricao;
+  const nova = trocarMotivoNaDescricao(d, "outro\ncom duas linhas");
+  expect(nova).not.toContain("linha dois");
+  expect(partesDaDemanda(nova).motivo).toBe("outro\ncom duas linhas");
+});
+
+test("demanda antiga sem motivo ganha a linha logo depois da primeira", () => {
+  const d = demandaDeReajuizamento(proc(), "Fulano", null).descricao;
+  const nova = trocarMotivoNaDescricao(d, "Extinto por inépcia.");
+  expect(nova.split("\n")[1]).toBe("Motivo: Extinto por inépcia.");
+  expect(partesDaDemanda(nova).motivo).toBe("Extinto por inépcia.");
+});
+
+test("descrição vazia vira só o motivo", () => {
+  expect(trocarMotivoNaDescricao(null, "  algo  ")).toBe("Motivo: algo");
 });

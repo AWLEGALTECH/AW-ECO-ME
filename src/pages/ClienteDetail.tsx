@@ -37,7 +37,7 @@ import { EditarTarefaDialog } from "@/components/EditarTarefaDialog";
 import { DESFECHOS } from "@/components/ProcessoTimeline";
 import { achatarTarefas, salvarTarefaNoBanco, type ItemTarefa, type PatchTarefa } from "@/lib/tarefas";
 import { porPrazo } from "@/lib/prazos";
-import { ETAPA_REAJUIZAMENTO, partesDaDemanda } from "@/lib/reajuizamento";
+import { ETAPA_REAJUIZAMENTO, partesDaDemanda, trocarMotivoNaDescricao } from "@/lib/reajuizamento";
 import { PorQueCaiu } from "@/components/PorQueCaiu";
 import {
   ArrowLeft, Pencil, User, FolderOpen, ExternalLink, FileSignature, Briefcase,
@@ -1610,6 +1610,10 @@ export function EspelhoProtocoloDialog({
      sai o motivo vivo: o da descrição é o retrato de quando a demanda nasceu,
      e quem corrigiu o motivo na ficha depois espera ver a correção aqui. */
   const [extinto, setExtinto] = useState<{ numero_processo: string | null; reajuizamento_motivo: string | null; observacoes: string | null } | null>(null);
+  /* O motivo corrigido pelo lápis, nesta abertura. A demanda chega por prop e
+     não se atualiza sozinha; sem isto, quem corrigisse via o texto antigo até
+     fechar e abrir de novo. */
+  const [motivoEditado, setMotivoEditado] = useState<string | null>(null);
   const ehReajuizamento = demanda?.etapa === ETAPA_REAJUIZAMENTO;
 
   useEffect(() => {
@@ -1649,6 +1653,7 @@ export function EspelhoProtocoloDialog({
       setPendTipos(new Set());
       setPendCustom("");
       setSalvandoPend(false);
+      setMotivoEditado(null);
       // Inicializa competencia: prioriza valor gravado pelo Writer, senao
       // fallback baseado em valor (limite atualizado 64.840).
       const v = Number(demanda.valor_causa || 0);
@@ -1659,6 +1664,40 @@ export function EspelhoProtocoloDialog({
   }, [demanda?.id, demanda?.valor_causa, demanda?.comarca, demanda?.local_tramite, demanda?.procedimento]);
 
   if (!demanda || !cliente) return null;
+
+  /* O LÁPIS DO MOTIVO (chefe, 24/09). O motivo mora em dois lugares, e os dois
+     mudam juntos: o PROCESSO, que é a fonte viva e é o que a ficha do processo
+     mostra, e a DESCRIÇÃO da demanda, que é o que a busca da esteira lê. O
+     processo vai primeiro porque é ele que vale; se a descrição falhar depois,
+     o aviso diz exatamente isso. Rejeitar mantém a edição aberta. */
+  const salvarMotivo = async (novo: string) => {
+    const texto = novo.trim();
+    if (!texto) {
+      toast.error("Escreva o motivo do reajuizamento.");
+      throw new Error("motivo vazio");
+    }
+    if (demanda.processo_id) {
+      const { error } = await (supabase.from("processos") as never as any)
+        .update({ reajuizamento_motivo: texto })
+        .eq("id", demanda.processo_id);
+      if (error) {
+        toast.error("Não consegui salvar o motivo: " + error.message);
+        throw error;
+      }
+    }
+    const { error: eDem } = await supabase.from("demandas" as any)
+      .update({ descricao: trocarMotivoNaDescricao(demanda.descricao, texto) })
+      .eq("id", demanda.id);
+    if (eDem) {
+      toast.error(demanda.processo_id
+        ? "O motivo foi salvo no processo, mas não na demanda: " + eDem.message
+        : "Não consegui salvar o motivo: " + eDem.message);
+      throw eDem;
+    }
+    setMotivoEditado(texto);
+    setExtinto((p) => (p ? { ...p, reajuizamento_motivo: texto } : p));
+    toast.success("Motivo do reajuizamento atualizado.");
+  };
 
   const valor = Number(demanda.valor_causa || 0);
   const LIMITE_JEC = 64840;
@@ -1882,6 +1921,11 @@ export function EspelhoProtocoloDialog({
     <Dialog open={!!demanda} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent
         className={`${stage === "actions" ? "sm:max-w-2xl" : "sm:max-w-lg"} max-w-[95vw] max-h-[88dvh] flex flex-col overflow-hidden`}
+        /* SEM FOCO AUTOMÁTICO AO ABRIR. O diálogo focava sozinho o primeiro
+           botão, e o cartão "Abrir perfil do cliente" abria com o contorno azul
+           de foco sem ninguém ter clicado nele: parecia selecionado. O Tab
+           continua preso dentro do diálogo. */
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div key={stage} className="animate-in fade-in duration-300 flex flex-col min-h-0 flex-1 overflow-hidden">
         {stage === "actions" && (
@@ -1900,7 +1944,13 @@ export function EspelhoProtocoloDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 pt-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+            {/* A ÁREA QUE ROLA NÃO CORTA SECO. Folga de um fio dos dois lados
+                (px-1 -mx-1) para contorno e sombra dos cartões não serem comidos
+                pela borda, e as pontas de cima e de baixo esmaecem em vez de
+                cortar no meio de uma linha (ver .rolagem-suave). O padding de
+                cima e de baixo é maior que o esmaecido, então sem rolar nada
+                fica apagado. */}
+            <div className={`${ehReajuizamento ? "space-y-3" : "space-y-4"} pt-2.5 pb-2.5 flex-1 min-h-0 overflow-y-auto px-1 -mx-1 rolagem-suave`}>
               {/* POR QUE ESTA AÇÃO CAIU, antes de tudo. É a única informação que
                   a demanda de reajuizamento existe para carregar, e ela estava
                   chegando na esteira e morrendo aqui sem ser mostrada. */}
@@ -1909,8 +1959,10 @@ export function EspelhoProtocoloDialog({
                 return (
                   <PorQueCaiu
                     numero={extinto?.numero_processo ?? demanda.numero_processo ?? doTexto.numero}
-                    motivo={extinto?.reajuizamento_motivo ?? doTexto.motivo}
+                    motivo={motivoEditado ?? extinto?.reajuizamento_motivo ?? doTexto.motivo}
                     observacoes={extinto?.observacoes ?? doTexto.observacoes}
+                    processoId={demanda.processo_id}
+                    onSalvarMotivo={salvarMotivo}
                   />
                 );
               })()}
@@ -1919,7 +1971,7 @@ export function EspelhoProtocoloDialog({
                   Primária: à esquerda os dados de leitura da peça, à direita
                   os atalhos (perfil / Drive). No mobile colapsa pra coluna. */}
               <div className="rounded-xl border border-border bg-card/40 overflow-hidden">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 p-4">
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 ${ehReajuizamento ? "p-3" : "p-4"}`}>
                   {/* Coluna esquerda: o que é a peça e quando ficou pronta */}
                   <div className="space-y-2.5 min-w-0 sm:self-center">
                     <div className="flex items-start gap-2.5">
@@ -1973,49 +2025,70 @@ export function EspelhoProtocoloDialog({
                 </div>
               </div>
 
-              {/* ── A PEÇA — o arquivo e o que pode travá-lo ─────────────── */}
-              <div className="space-y-2.5">
-                <SectionLabel>{ehReajuizamento ? "A ação que caiu" : "A peça"}</SectionLabel>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {ehReajuizamento ? (
-                    /* Num reajuizamento não existe peça para baixar, e o botão
-                       desabilitado dizendo "peça não foi gerada" só confundia.
-                       O que a pessoa quer daqui é a ficha do extinto: é lá que
-                       está a história inteira e o que mais se consulta antes de
-                       reprotocolar. */
-                    <ActionRow
-                      icon={FileText}
-                      title="Abrir o processo extinto"
-                      subtitle={demanda.processo_id ? "Histórico, partes e documentos" : "Demanda sem processo vinculado"}
-                      href={demanda.processo_id ? `/processos/${demanda.processo_id}` : undefined}
-                      disabled={!demanda.processo_id}
-                      tone="amber"
-                      trailing={<ArrowRight className="h-4 w-4 text-amber-400/70 shrink-0" />}
-                    />
-                  ) : (
+              {/* ── A PEÇA — o arquivo e o que pode travá-lo ───────────────
+                  Só na peça nova. No reajuizamento não há arquivo para baixar,
+                  e o atalho para o processo extinto mora no rodapé do bloco do
+                  motivo: uma seção inteira para um botão empurrava o diálogo
+                  além da altura da tela, e a rolagem cortava o topo. */}
+              {!ehReajuizamento && (
+                <div className="space-y-2.5">
+                  <SectionLabel>A peça</SectionLabel>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <ActionRow
                       icon={Download}
                       title="Baixar peça (.docx)"
-                      subtitle={demanda.peca_drive_url ? "Abre no Drive" : "Sem URL — peça não foi gerada"}
+                      subtitle={demanda.peca_drive_url ? "Abre no Drive" : "Sem link: a peça não foi gerada"}
                       href={demanda.peca_drive_url || undefined}
                       external
                       disabled={!demanda.peca_drive_url}
                       trailing={<ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />}
                     />
-                  )}
-                  <ActionRow
-                    icon={AlertTriangle}
-                    title="Relatar pendência"
-                    subtitle="Trava a peça na esteira até o documento chegar"
-                    onClick={() => setStage("pendencia")}
-                    tone="amber"
-                  />
+                    <ActionRow
+                      icon={AlertTriangle}
+                      title="Relatar pendência"
+                      subtitle="Trava a peça na esteira até o documento chegar"
+                      onClick={() => setStage("pendencia")}
+                      tone="amber"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* ── PROTOCOLO — os dois desfechos possíveis ──────────────── */}
-              <div className="space-y-2.5">
-                <SectionLabel>Protocolo</SectionLabel>
+              {/* ── PROTOCOLO, NA PEÇA NOVA: dentro da rolagem, como sempre foi ── */}
+              {!ehReajuizamento && (
+                <div className="space-y-2.5">
+                  <SectionLabel>Protocolo</SectionLabel>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <ActionRow
+                      hero
+                      icon={Scale}
+                      title="Espelho de Protocolo"
+                      subtitle="Copia-cola assistido pelo tribunal"
+                      onClick={() => setStage("tribunal")}
+                      trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
+                    />
+                    <ActionRow
+                      icon={XCircle}
+                      title="Cancelar protocolo"
+                      subtitle="A peça sai da esteira e fica registrada como cancelada"
+                      onClick={() => setStage("cancelar")}
+                      tone="rose"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── PROTOCOLO NO REAJUIZAMENTO: ANCORADO, FORA DA ROLAGEM ──────
+                O mesmo desenho que os Chamados ganharam: o que se FAZ fica
+                preso embaixo e só o que se LÊ rola. Motivo longo e observações
+                empurravam os cartões para fora da tela e a rolagem cortava os
+                dois no meio (24/09). Ancorados, eles nunca são cortados.
+                A pendência sobe para o lado do espelho, porque é o que trava o
+                reprotocolo, e o cancelamento vira ação discreta: é raro, e um
+                cartão do tamanho do espelho dava a ele um peso que não tem. */}
+            {ehReajuizamento && (
+              <div className="shrink-0 pt-3 border-t border-white/[0.06] space-y-1.5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <ActionRow
                     hero
@@ -2026,15 +2099,22 @@ export function EspelhoProtocoloDialog({
                     trailing={<ChevronRight className="h-5 w-5 text-primary shrink-0" />}
                   />
                   <ActionRow
-                    icon={XCircle}
-                    title="Cancelar protocolo"
-                    subtitle="A peça sai da esteira e fica registrada como cancelada"
-                    onClick={() => setStage("cancelar")}
-                    tone="rose"
+                    icon={AlertTriangle}
+                    title="Relatar pendência"
+                    subtitle="Trava o reprotocolo até o documento chegar"
+                    onClick={() => setStage("pendencia")}
+                    tone="amber"
                   />
                 </div>
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => setStage("cancelar")}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] text-muted-foreground
+                               hover:text-rose-300 hover:bg-rose-500/10 transition-colors">
+                    <XCircle className="h-3.5 w-3.5" /> Cancelar este reajuizamento
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
 

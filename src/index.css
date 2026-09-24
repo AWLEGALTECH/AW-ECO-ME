@@ -405,6 +405,17 @@ body {
     .chacoalha { animation: none; }
   }
 
+  /* ROLAGEM SEM CORTE SECO.
+     Área que rola dentro de um diálogo cortava o conteúdo numa linha reta, no
+     meio de um cartão, e o que ficava pela metade parecia defeito (o topo do
+     bloco do reajuizamento, 24/09). As pontas esmaecem em 10px. Quem usa deve
+     ter padding de cima e de baixo maior que isso, para que, sem rolar, nada
+     fique apagado. */
+  .rolagem-suave {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  }
+
   /* Fechamentos gamificados — pulso de brilho pro multiplicador especial ativo */
   @keyframes fech-glow {
     0%, 100% { box-shadow: 0 0 0 0 hsla(38,92%,50%,0.45); }

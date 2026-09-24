@@ -235,6 +235,36 @@ export function partesDaDemanda(descricao: string | null | undefined): PartesDaD
 }
 
 /**
+ * TROCA O MOTIVO dentro da descrição da demanda, sem mexer no resto.
+ *
+ * Existe pelo lápis do espelho (chefe, 24/09): quem abre o reajuizamento pode
+ * corrigir o motivo ali mesmo. O motivo vivo mora no processo, mas a descrição
+ * da demanda também o carrega, e deixá-la com o texto antigo faria a busca da
+ * esteira e o retrato da demanda contarem outra história.
+ *
+ * O motivo antigo pode ter várias linhas: tudo o que vem depois de "Motivo:"
+ * até o próximo rótulo conhecido é dele, e sai inteiro. Descrição sem motivo
+ * ganha a linha logo depois da primeira, que é onde `demandaDeReajuizamento`
+ * a teria escrito.
+ */
+export function trocarMotivoNaDescricao(descricao: string | null | undefined, novo: string): string {
+  const motivo = String(novo ?? "").trim();
+  const bloco = motivo ? [`Motivo: ${motivo}`] : [];
+  const texto = String(descricao ?? "");
+  if (!texto.trim()) return bloco.join("\n");
+
+  const linhas = texto.split("\n");
+  const ehRotulo = (l: string) => ROTULOS.some((r) => l.trimStart().startsWith(r));
+  const i = linhas.findIndex((l) => l.trimStart().startsWith("Motivo:"));
+  if (i >= 0) {
+    let fim = i + 1;
+    while (fim < linhas.length && !ehRotulo(linhas[fim])) fim++;
+    return [...linhas.slice(0, i), ...bloco, ...linhas.slice(fim)].join("\n");
+  }
+  return [linhas[0], ...bloco, ...linhas.slice(1)].join("\n");
+}
+
+/**
  * Já existe demanda de reajuizamento viva para este processo?
  *
  * Vale para não oferecer o botão duas vezes e acabar com duas petições do
