@@ -23,11 +23,16 @@ const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 // as rubricas detectadas e abre um popup pra salvar a "análise comercial"
 // (tabela analises_comerciais) marcando as rubricas NÃO ajuizáveis.
 //
-// OBS: é uma PONTE temporária pro bundle atual do Finder. Quando o build
-// nativo do AW-FINDER (que já tem o botão "não ajuizável" embutido) for
-// copiado pra public/finder-app/, este componente pode ser removido.
+// Com o Finder NOVO (src/apps/finder, prop `nativo`), o "não ajuizável" é o
+// cadeado do próprio Finder, e este componente só salva: a análise chega por
+// prop e a lista fica em leitura. Com o pacote antigo, segue como antes.
 
 type Motivo = "cliente_nao_quer" | "ja_ajuizada" | "rubrica_invalida";
+const MOTIVO_CURTO: Record<string, string> = {
+  rubrica_invalida: "Rúbrica inválida",
+  ja_ajuizada: "Já ajuizada",
+  cliente_nao_quer: "Cliente não quer",
+};
 
 interface RubricaCaptada { rubrica: string; valor: number | null; bloqueada: boolean; motivo: Motivo | null; naoReembolsavel?: boolean; }
 interface AnaliseCaptada { nome: string; rubricas: RubricaCaptada[]; fileName: string | null; }
@@ -62,8 +67,22 @@ function valorDoGrupo(g: any): number | null {
 // Então priorizamos `grouped` e fazemos união com o resto por segurança —
 // assim tudo que aparece no drill-down pode ser bloqueado na análise comercial.
 function extrairRubricas(detail: any): RubricaCaptada[] {
+  return bloquearNaoReembolsaveis(extrairRubricasCruas(detail));
+}
+
+/* NÃO REEMBOLSÁVEL JÁ ENTRA BLOQUEADA. Elas aparecem na lista para ficar
+   registrado que foram vistas, mas não são ação: o fechamento conta como ação
+   toda rubrica não bloqueada (`fn_recalcular_fechamento`), e o Invest Fácil
+   liberado viraria uma ação que não existe. */
+function bloquearNaoReembolsaveis(rs: RubricaCaptada[]): RubricaCaptada[] {
+  return rs.map((r) => (r.naoReembolsavel && !r.bloqueada ? { ...r, bloqueada: true, motivo: "rubrica_invalida" } : r));
+}
+
+function extrairRubricasCruas(detail: any): RubricaCaptada[] {
   const byKey = new Map<string, RubricaCaptada>();
-  const add = (label: any, valor: number | null, naoReemb: boolean) => {
+  const add = (label: any, valorCru: number | null, naoReemb: boolean) => {
+    // em centavos: a soma dos lançamentos chega com dízima de ponto flutuante
+    const valor = valorCru == null ? null : Math.round(valorCru * 100) / 100;
     const rub = String(label ?? "").trim();
     if (!rub) return;
     const k = normRub(rub);
@@ -76,11 +95,28 @@ function extrairRubricas(detail: any): RubricaCaptada[] {
     byKey.set(k, { rubrica: rub, valor, bloqueada: false, motivo: null, naoReembolsavel: naoReemb });
   };
 
-  // 1) grouped — lista completa (inclui não reembolsáveis)
-  if (Array.isArray(detail?.grouped)) {
-    for (const g of detail.grouped) {
-      add(g?.cat?.label ?? g?.label ?? g?.rubrica ?? g?.nome, valorDoGrupo(g), !!g?.cat?.naoReembolsavel);
+  /* 0) Finder novo: a lista inteira, já com o que foi marcado como não
+        ajuizável no cadeado do próprio Finder. */
+  if (Array.isArray(detail?.rubricasTodas)) {
+    for (const r of detail.rubricasTodas) {
+      add(r?.label, Number(r?.total) || null, !!r?.naoReembolsavel);
+      if (r?.anulada) {
+        const k = normRub(String(r.label ?? ""));
+        const item = byKey.get(k);
+        if (item) { item.bloqueada = true; item.motivo = r.anulada as Motivo; }
+      }
     }
+    return [...byKey.values()];
+  }
+  /* 1) grouped: lista completa (inclui não reembolsáveis).
+        O Finder manda um OBJETO por categoria, e não uma lista. Ler só lista
+        deixava as não reembolsáveis (Invest Fácil) de fora do popup, apesar
+        de este passo existir exatamente para elas (corrigido em 25/09). */
+  const grupos = Array.isArray(detail?.grouped)
+    ? detail.grouped
+    : detail?.grouped && typeof detail.grouped === "object" ? Object.values(detail.grouped) : [];
+  for (const g of grupos as any[]) {
+    add(g?.cat?.label ?? g?.label ?? g?.rubrica ?? g?.nome, valorDoGrupo(g), !!g?.cat?.naoReembolsavel);
   }
   // 2) rubricasDetalhadas — reembolsáveis (união por segurança)
   if (Array.isArray(detail?.rubricasDetalhadas)) {
@@ -103,8 +139,15 @@ export function FinderAnaliseComercial({
   refazerClienteId = null,
   refazerNome = null,
   conversaId = null,
+  nativo = false,
+  detalhe = null,
 }: {
-  iframeRef: RefObject<HTMLIFrameElement>;
+  iframeRef?: RefObject<HTMLIFrameElement>;
+  /* FINDER NOVO: a análise chega por prop (o que ele avisou ao ficar
+     pronta), e o não ajuizável é marcado no cadeado do cartão, dentro dele.
+     Aqui a lista vira leitura: mostra o que ficou marcado, não marca. */
+  nativo?: boolean;
+  detalhe?: Record<string, any> | null;
   // Quando setado, o salvar NÃO cria no catálogo — refaz a análise comercial
   // deste cliente (recalcula o fechamento) e volta pro perfil dele.
   refazerClienteId?: string | null;
@@ -171,7 +214,16 @@ export function FinderAnaliseComercial({
     [leads, analise?.nome],
   );
 
+  /* Finder novo: a análise pronta chega por prop. */
   useEffect(() => {
+    if (!nativo) return;
+    if (!detalhe) { setAnalise(null); setSalvouId(null); return; }
+    setAnalise({ nome: extrairNome(detalhe.meta, detalhe.fileName || null), rubricas: extrairRubricas(detalhe), fileName: detalhe.fileName || null });
+    setSalvouId(null);
+  }, [nativo, detalhe]);
+
+  useEffect(() => {
+    if (nativo || !iframeRef) return;
     const onReady = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       setAnalise({ nome: extrairNome(detail?.meta, detail?.fileName || null), rubricas: extrairRubricas(detail), fileName: detail?.fileName || null });
@@ -191,6 +243,7 @@ export function FinderAnaliseComercial({
     };
     attach();
     const iv = setInterval(attach, 1500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => {
       clearInterval(iv);
       if (attachedWin.current) {
@@ -199,7 +252,7 @@ export function FinderAnaliseComercial({
         attachedWin.current = null;
       }
     };
-  }, [iframeRef]);
+  }, [iframeRef, nativo]);
 
   const toggleBloqueio = (i: number) => {
     setAnalise((a) => {
@@ -299,7 +352,9 @@ export function FinderAnaliseComercial({
             <DialogDescription>
               {refazendo
                 ? <>Marque as <strong>não ajuizáveis</strong>. Ao salvar, esta análise <strong>substitui</strong> a anterior deste cliente e <strong>recalcula o fechamento</strong> (mantendo quem captou).</>
-                : <>Todas as rubricas do drill-down aparecem aqui. Marque as <strong>não ajuizáveis</strong> (rúbrica inválida, já ajuizada ou cliente não quer). Fica salvo pro Writer e pra análise primária.</>}
+                : nativo
+                  ? <>Todas as rubricas do drill-down aparecem aqui, as <strong>não ajuizáveis</strong> com o motivo marcado no cadeado do cartão, no Finder. Fica salvo pro Writer e pra análise primária.</>
+                  : <>Todas as rubricas do drill-down aparecem aqui. Marque as <strong>não ajuizáveis</strong> (rúbrica inválida, já ajuizada ou cliente não quer). Fica salvo pro Writer e pra análise primária.</>}
             </DialogDescription>
           </DialogHeader>
 
@@ -437,9 +492,15 @@ export function FinderAnaliseComercial({
                 <p className="text-center text-[12px] text-muted-foreground py-6">Nenhuma rubrica capturada.</p>
               ) : analise.rubricas.map((r, i) => (
                 <div key={i} className={`flex items-center gap-2 px-3 py-2 ${r.bloqueada ? "bg-amber-400/5" : ""}`}>
-                  <button onClick={() => toggleBloqueio(i)} className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/50 hover:text-foreground"}`} title={r.bloqueada ? "Liberar" : "Marcar como não ajuizável"}>
-                    {r.bloqueada ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-                  </button>
+                  {nativo ? (
+                    <span className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/40"}`}>
+                      {r.bloqueada ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                    </span>
+                  ) : (
+                    <button onClick={() => toggleBloqueio(i)} className={`shrink-0 ${r.bloqueada ? "text-amber-400" : "text-muted-foreground/50 hover:text-foreground"}`} title={r.bloqueada ? "Liberar" : "Marcar como não ajuizável"}>
+                      {r.bloqueada ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                    </button>
+                  )}
                   <span className={`text-[13px] flex-1 min-w-0 truncate ${r.bloqueada ? "line-through decoration-amber-400/50 text-foreground/70" : ""}`}>
                     {r.rubrica}
                     {r.naoReembolsavel && (
@@ -447,7 +508,11 @@ export function FinderAnaliseComercial({
                     )}
                   </span>
                   <span className="text-[12px] tabular-nums text-muted-foreground shrink-0 w-24 text-right">{fmtBRL(r.valor)}</span>
-                  {r.bloqueada ? (
+                  {r.bloqueada && nativo ? (
+                    <span className="shrink-0 w-[104px] text-right text-[11px] text-amber-300">
+                      {MOTIVO_CURTO[r.motivo || "rubrica_invalida"] || r.motivo}
+                    </span>
+                  ) : r.bloqueada ? (
                     <select value={r.motivo || "rubrica_invalida"} onChange={(e) => setRubrica(i, { motivo: e.target.value as Motivo })}
                       className="shrink-0 text-[11px] bg-background border border-amber-400/40 rounded-md px-1.5 py-1 text-amber-200">
                       <option value="rubrica_invalida">Rúbrica inválida</option>

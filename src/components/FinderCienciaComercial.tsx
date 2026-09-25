@@ -19,16 +19,15 @@ const MOTIVO_LABEL: Record<string, string> = {
   rubrica_invalida: "rúbrica inválida",
 };
 
-// Dá CIÊNCIA + BLOQUEIO REAL, dentro do Finder da análise primária, das rubricas
-// bloqueadas na análise comercial. Cadeado clicável abre confirmação de
-// desbloqueio (com motivo e quem fez a comercial).
-export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { clienteId: string; nome: string; iframeRef?: RefObject<HTMLIFrameElement> }) {
+/* A ANÁLISE COMERCIAL DO CLIENTE: o que foi bloqueado no comercial, quem
+   fez, e o desbloqueio. Usada pela faixa de ciência (Finder antigo e novo) e
+   pelo Finder novo, que abre essas rubricas já como não ajuizáveis. */
+export function useComercialDoCliente(clienteId: string | null) {
   const [analise, setAnalise] = useState<any | null>(null);
-  const [open, setOpen] = useState(false);
-  const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
   const [criador, setCriador] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!clienteId) { setAnalise(null); return; }
     let cancel = false;
     (async () => {
       const { data } = await supabase
@@ -59,12 +58,50 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
 
   const rubricas = rubricasDaAnalise(analise);
   const bloqueadas = rubricas.filter((r) => r.bloqueada);
+
+  /** Desbloqueia pelo nome (normalizado) e grava na ficha do cliente. */
+  const liberar = async (rubricaNorm: string): Promise<boolean> => {
+    if (!clienteId) return false;
+    const rawArr: any[] = Array.isArray(analise) ? analise : (analise?.rubricas || []);
+    const novasRubricas = rawArr.map((r: any) =>
+      normRub(r?.rubrica) === rubricaNorm ? { ...r, bloqueada: false, motivo: null } : r,
+    );
+    const nova = Array.isArray(analise) ? novasRubricas : { ...analise, rubricas: novasRubricas };
+    const { error } = await supabase.from("clientes").update({ analise_comercial: nova } as any).eq("id", clienteId);
+    if (error) { toast.error("Erro ao desbloquear: " + error.message); return false; }
+    setAnalise(nova);
+    toast.success("Desconto desbloqueado. Agora pode ser considerado na análise primária.");
+    return true;
+  };
+
+  return { analise, criador, rubricas, bloqueadas, liberar };
+}
+
+export const normalizarRubrica = normRub;
+
+// Dá CIÊNCIA + BLOQUEIO REAL, dentro do Finder da análise primária, das rubricas
+// bloqueadas na análise comercial. Cadeado clicável abre confirmação de
+// desbloqueio (com motivo e quem fez a comercial).
+export function FinderCienciaComercial({ clienteId, nome, iframeRef, comercial }: {
+  clienteId: string;
+  nome: string;
+  iframeRef?: RefObject<HTMLIFrameElement>;
+  /* Finder NOVO: a análise vem de fora (o mesmo hook que abre as bloqueadas
+     como não ajuizáveis dentro dele) e o cadeado é o do próprio Finder. Aqui
+     fica só a faixa de ciência e a janela "ver análise comercial". */
+  comercial?: ReturnType<typeof useComercialDoCliente>;
+}) {
+  const proprio = useComercialDoCliente(comercial ? null : clienteId);
+  const { analise, criador, rubricas, bloqueadas, liberar } = comercial ?? proprio;
+  const [open, setOpen] = useState(false);
+  const [desbloqueandoKey, setDesbloqueandoKey] = useState<string | null>(null);
+
   const desbRub = desbloqueandoKey ? rubricas.find((r) => normRub(r.rubrica) === desbloqueandoKey) || null : null;
 
   // Bloqueio REAL no drill-down do Finder (mesma origem). Clicar no cadeado
   // pede desbloqueio (setDesbloqueandoKey).
   useEffect(() => {
-    if (!iframeRef?.current || bloqueadas.length === 0) return;
+    if (comercial || !iframeRef?.current || bloqueadas.length === 0) return;
     const set = new Set(bloqueadas.map((r) => normRub(r.rubrica)));
     return instalarBloqueioFinder(iframeRef.current, set, (k) => setDesbloqueandoKey(k));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,16 +109,7 @@ export function FinderCienciaComercial({ clienteId, nome, iframeRef }: { cliente
 
   const confirmarDesbloqueio = async () => {
     if (!desbloqueandoKey) return;
-    const rawArr: any[] = Array.isArray(analise) ? analise : (analise?.rubricas || []);
-    const novasRubricas = rawArr.map((r: any) =>
-      normRub(r?.rubrica) === desbloqueandoKey ? { ...r, bloqueada: false, motivo: null } : r,
-    );
-    const nova = Array.isArray(analise) ? novasRubricas : { ...analise, rubricas: novasRubricas };
-    const { error } = await supabase.from("clientes").update({ analise_comercial: nova } as any).eq("id", clienteId);
-    if (error) { toast.error("Erro ao desbloquear: " + error.message); return; }
-    setAnalise(nova);
-    setDesbloqueandoKey(null);
-    toast.success("Desconto desbloqueado — agora pode ser considerado na análise primária.");
+    if (await liberar(desbloqueandoKey)) setDesbloqueandoKey(null);
   };
 
   if (rubricas.length === 0) return null;

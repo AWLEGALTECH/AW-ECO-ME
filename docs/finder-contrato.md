@@ -202,3 +202,40 @@ fechar quando **nada mais** depender delas. O Writer também usa a chave públic
 Números do banco em 25/09, para comparar depois: 14 análises comerciais (3
 ligadas a conversa), 256 `analise_vinculada`, 147 `analise_documental`, 91
 clientes com análise comercial, 305 planilhas no bucket `analises-vinculadas`.
+
+---
+
+## 11. Estado da migração (25/09)
+
+**O Finder novo existe e está atrás de um interruptor.** Código em
+`src/apps/finder/` (cópia oficial do ME; não sincroniza com o AW-ECO nem com o
+AW-FINDER). O antigo, em `public/finder-app/`, continua sendo o padrão.
+
+- Ligar no seu navegador: abrir `/finder?nativo=1` uma vez. Desligar: `/finder?nativo=0`.
+- Tornar o novo o padrão para todos: `PADRAO = true` em `src/lib/finderNativo.ts`.
+
+| Peça | Onde ficou no Finder novo |
+|---|---|
+| Leitor de extrato, revisor, bancos | `src/apps/finder/parser.js`, `reviewer.js`, `banks/` (da base, sem mudança de lógica) |
+| Tela e visual do ME | `src/apps/finder/App.jsx` (cores do AW por variável; estilos presos a `.aw-finder`) |
+| Faixa do cliente, Drive, Vincular Análise, selo Vinculado | `App.jsx` + `src/apps/finder/vincular.jsx`, reconstruídos do pacote |
+| Banco (sem chave no código) | `src/apps/finder/ponteAw.ts`, com o login de quem usa |
+| Entradas e saídas | props de `App` (contexto, arquivosIniciais, anuladasIniciais, onLiberarAnulada, onAnalisePronta, onReset) em vez de endereço, eventos na janela e campo de envio |
+| Carregamento | `src/components/FinderNativo.tsx` (sob demanda) |
+| Modo solto, conversa e refazer | `src/pages/Finder.tsx` |
+| Modo cliente (sessão persistente) | `src/components/PersistentFinderHost.tsx` |
+| OCR | `public/tesseract/por.traineddata` |
+
+**Decisões aplicadas (25/09):**
+- O "não ajuizável" é o cadeado nativo do cartão (motivos: já ajuizada, cliente não quer, rubrica inválida). As bloqueadas no comercial abrem já marcadas; liberar uma grava na ficha do cliente. A janela da análise comercial passa a só mostrar e salvar.
+- Invest Fácil e outras não reembolsáveis agora entram na análise comercial, **já bloqueadas** (rubrica inválida): aparecem para registro e não viram ação no fechamento, que conta toda rubrica não bloqueada.
+- Textos com travessão reescritos (regra da casa). Os nomes das rubricas não mudaram.
+
+**Conferido:**
+- Os 10 extratos de teste (`AW-FINDER/tests/fixtures`, 2 escaneados) dão resultado idêntico no pacote e no novo: titular, banco, conta, período, categorias, quantidades e valores.
+- No AW com o banco simulado: modo cliente (Drive, Vincular com planilha e demanda no formato da seção 4.3, bloqueada do comercial aberta como não ajuizável), modo solto (análise comercial), modo conversa (PDF entregue, análise gravada com `conversa_id`), refazer (`fn_editar_analise_comercial`). Tema escuro e Off-White.
+
+**Falta, na ordem:**
+1. Conferência com extratos reais do escritório e uso real com `?nativo=1`.
+2. Virar o padrão e apagar `public/finder-app/`.
+3. Fechar as portas da seção 9 (antes, tirar a chave pública do Writer).

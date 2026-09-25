@@ -21,6 +21,14 @@ Não inclui: atendimento WhatsApp, CRM, financeiro, marketing, publicações, ge
 
 Cliente: `src/integrations/supabase/client.ts` → `supabase`
 
+## Finder
+
+O Finder é código do AW em `src/apps/finder/` (cópia oficial do ME, não
+sincroniza com o AW-ECO). O que ele recebe e grava, e o que não pode mudar
+(nomes das rubricas, formato da `analise_vinculada`), está em
+`docs/finder-contrato.md`. Enquanto a migração não vira padrão, o pacote antigo
+continua em `public/finder-app/` e o novo liga com `/finder?nativo=1`.
+
 ## Tabelas
 
 - `profiles` (id, email, nome, avatar_url)

@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
 import { FinderAnaliseComercial } from "@/components/FinderAnaliseComercial";
 import { docsDaUrl, nomeDoDocumento } from "@/lib/finderDaConversa";
+import { usarFinderNativo } from "@/lib/finderNativo";
+import { FinderNativo, type DetalheDaAnalise } from "@/components/FinderNativo";
 
 // Pagina /finder tem tres modos:
 //
@@ -91,6 +93,14 @@ export default function Finder() {
     { estado: "parado", quantos: 0 });
   const { active, iniciar } = useFinderSession();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  /* Finder novo ou pacote antigo (ver lib/finderNativo.ts). Lido uma vez: a
+     troca vale na próxima abertura, e não no meio de uma análise. */
+  const nativo = useMemo(() => usarFinderNativo(), []);
+  /* Finder novo: os PDFs da conversa chegam como arquivos, por prop, e a
+     análise pronta chega por callback. Nada de campo de envio nem de evento
+     na janela. */
+  const [arquivosDaConversa, setArquivosDaConversa] = useState<File[] | null>(null);
+  const [detalhe, setDetalhe] = useState<DetalheDaAnalise | null>(null);
 
   useEffect(() => {
     document.title = nome
@@ -119,7 +129,7 @@ export default function Finder() {
      do computador. */
   const entregar = useCallback(async () => {
     const iframe = iframeRef.current;
-    if (!iframe || !conversaId || docsPedidos.length === 0) return;
+    if ((!nativo && !iframe) || !conversaId || docsPedidos.length === 0) return;
     setEntrega({ estado: "baixando", quantos: 0 });
     try {
       const { data, error } = await supabase
@@ -142,7 +152,12 @@ export default function Finder() {
       }
       if (arquivos.length === 0) throw new Error("nenhum anexo pôde ser baixado");
 
-      const pronto = await esperarOInput(iframe);
+      if (nativo) {
+        setArquivosDaConversa(arquivos.map((a) => new File([a.blob], a.nome, { type: "application/pdf" })));
+        setEntrega({ estado: "entregue", quantos: arquivos.length });
+        return;
+      }
+      const pronto = await esperarOInput(iframe!);
       if (!pronto) throw new Error("o Finder não abriu a tela de upload a tempo");
       const ok = await entregarAoFinder(iframe, arquivos);
       if (!ok) throw new Error("não consegui entregar os arquivos ao Finder");
@@ -150,7 +165,12 @@ export default function Finder() {
     } catch (e) {
       setEntrega({ estado: "erro", quantos: 0, motivo: (e as Error).message });
     }
-  }, [conversaId, docsPedidos]);
+  }, [conversaId, docsPedidos, nativo]);
+
+  // Finder novo: não há iframe para esperar carregar; a entrega começa já.
+  useEffect(() => {
+    if (nativo && conversaId) void entregar();
+  }, [nativo, conversaId, entregar]);
 
   // Modo cliente-linked: inicia/reusa a sessao persistente.
   useEffect(() => {
@@ -220,6 +240,25 @@ export default function Finder() {
         </div>
       )}
 
+      {nativo ? (
+        <>
+          <div className="flex-1 min-h-0 w-full">
+            <FinderNativo
+              arquivosIniciais={arquivosDaConversa}
+              onAnalisePronta={setDetalhe}
+              onReset={() => setDetalhe(null)}
+            />
+          </div>
+          <FinderAnaliseComercial
+            nativo
+            detalhe={detalhe}
+            refazerClienteId={refazerClienteId}
+            refazerNome={refazerNome}
+            conversaId={conversaId}
+          />
+        </>
+      ) : (
+      <>
       {carregando && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-background">
           <Loader2 className="h-8 w-8 text-primary animate-spin" />
@@ -250,6 +289,8 @@ export default function Finder() {
         refazerNome={refazerNome}
         conversaId={conversaId}
       />
+      </>
+      )}
     </div>
   );
 }

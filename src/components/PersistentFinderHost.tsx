@@ -3,7 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
-import { FinderCienciaComercial } from "@/components/FinderCienciaComercial";
+import { FinderCienciaComercial, useComercialDoCliente, normalizarRubrica } from "@/components/FinderCienciaComercial";
+import { usarFinderNativo } from "@/lib/finderNativo";
+import { FinderNativo } from "@/components/FinderNativo";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
 // esta em /finder, ele aparece sobre o Outlet com o header de contexto
@@ -24,6 +26,17 @@ export function PersistentFinderHost() {
   const daConversa = new URLSearchParams(location.search).has("conversa");
   const visivel = location.pathname.startsWith("/finder") && !daConversa;
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const nativo = useMemo(() => usarFinderNativo(), []);
+  /* Finder novo: as rubricas bloqueadas no comercial abrem já como não
+     ajuizáveis dentro dele, e liberar uma lá grava na ficha do cliente. */
+  const comercial = useComercialDoCliente(nativo ? active?.clienteId ?? null : null);
+  const anuladasIniciais = useMemo(() => {
+    if (!nativo) return null;
+    const m: Record<string, string> = {};
+    for (const r of comercial.bloqueadas) m[r.rubrica] = r.motivo || "rubrica_invalida";
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativo, comercial.analise]);
 
   // Fallback resiliente: se a sessão veio sem driveUrl (corrida ao iniciar),
   // busca a pasta do Drive direto no cadastro do cliente. Assim o botão "Pasta
@@ -129,15 +142,27 @@ export function PersistentFinderHost() {
 
       {/* Ciência da análise comercial DENTRO da análise primária: mostra o que
           foi bloqueado no comercial pra não ser reconsiderado aqui. */}
-      {visivel && <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} iframeRef={iframeRef} />}
+      {visivel && (nativo
+        ? <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} comercial={comercial} />
+        : <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} iframeRef={iframeRef} />)}
 
-      <iframe
-        ref={iframeRef}
-        src={iframeSrc}
-        title="AW Finder"
-        className="flex-1 w-full border-0"
-        allow="clipboard-read; clipboard-write; downloads"
-      />
+      {nativo ? (
+        <div className="flex-1 min-h-0 w-full">
+          <FinderNativo
+            contexto={{ clienteId: active.clienteId, clienteNome: active.nome, driveFolderId, driveUrl }}
+            anuladasIniciais={anuladasIniciais}
+            onLiberarAnulada={(rubrica) => { void comercial.liberar(normalizarRubrica(rubrica)); }}
+          />
+        </div>
+      ) : (
+        <iframe
+          ref={iframeRef}
+          src={iframeSrc}
+          title="AW Finder"
+          className="flex-1 w-full border-0"
+          allow="clipboard-read; clipboard-write; downloads"
+        />
+      )}
     </div>
   );
 }
