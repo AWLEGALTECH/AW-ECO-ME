@@ -144,8 +144,27 @@ export interface ConfigDoGatilho {
   bases_todas?: boolean;
   /** etapa_mudou: quais etapas. Lista vazia = qualquer uma. */
   etapas?: string[];
-  /** mensagem_recebida: só quando a mensagem contém isto. Vazio = qualquer mensagem. */
+  /**
+   * mensagem_recebida: só quando a mensagem contém isto. Vazio = qualquer
+   * mensagem. Comparado sem acento, caixa nem pontuação (no banco,
+   * `fn_wa_texto_normal`).
+   */
   contendo?: string | null;
+  /**
+   * mensagem_recebida: só a PRIMEIRA mensagem que este telefone nos manda, em
+   * qualquer número. É o que faz do gatilho uma recepção, e não uma resposta
+   * a toda mensagem que repita a frase.
+   *
+   * Quando um fluxo assim assume a conversa, o "Primeiro atendimento" do
+   * número não manda a saudação dele: a recepção do fluxo já é a saudação.
+   */
+  so_primeira?: boolean;
+  /** mensagem_recebida: só de quem não está em base nenhuma (qualquer planilha, de qualquer número). */
+  fora_das_bases?: boolean;
+  /** mensagem_recebida: só quem chegou clicando num anúncio da Meta (clique para o WhatsApp). */
+  de_anuncio?: boolean;
+  /** mensagem_recebida, com de_anuncio: só anúncio cujo título ou texto contém isto. */
+  anuncio_contendo?: string | null;
   /** sem_resposta: dias de silêncio. */
   dias?: number;
 }
@@ -815,7 +834,17 @@ export function fraseDoGatilho(
   }
   if (gatilho === "mensagem_recebida") {
     const c = (cfg.contendo || "").trim();
-    return c ? `quando o lead escreve algo com “${c}”` : "quando o lead escreve";
+    const partes = [
+      cfg.so_primeira
+        ? (c ? `quando a primeira mensagem do contato traz “${c}”` : "quando o contato manda a primeira mensagem")
+        : (c ? `quando o lead escreve algo com “${c}”` : "quando o lead escreve"),
+    ];
+    if (cfg.de_anuncio) {
+      const an = (cfg.anuncio_contendo || "").trim();
+      partes.push(an ? `vindo do anúncio “${an}”` : "vindo de um anúncio da Meta");
+    }
+    if (cfg.fora_das_bases) partes.push("e ele não está em nenhuma base");
+    return partes.join(", ");
   }
   if (gatilho === "sem_resposta") {
     const d = Number(cfg.dias ?? 0);

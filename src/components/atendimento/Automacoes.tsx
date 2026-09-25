@@ -1576,6 +1576,35 @@ function EscolhaDasFaixas({ condicoes, onTrocar }: {
   );
 }
 
+/** Um filtro de público do gatilho: interruptor, nome e o que ele faz agora. */
+function FiltroDoGatilho({ ligado, onTrocar, titulo, ligadoDiz, desligadoDiz }: {
+  ligado: boolean;
+  onTrocar: (v: boolean) => void;
+  titulo: string;
+  ligadoDiz: string;
+  desligadoDiz: string;
+}) {
+  return (
+    <label className="flex items-start gap-2 cursor-pointer">
+      <Switch checked={ligado} onCheckedChange={onTrocar} />
+      <span className="min-w-0">
+        <span className="block text-[11.5px]">{titulo}</span>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={ligado ? "sim" : "nao"}
+            initial={{ opacity: 0, y: 3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+            className="block text-[10px] text-muted-foreground leading-snug">
+            {ligado ? ligadoDiz : desligadoDiz}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+    </label>
+  );
+}
+
 /** A pergunta que o gatilho escolhido faz, aberta logo abaixo dele. */
 function ConfigDoGatilho({ campo, cfg, fontes, instancia, nomeDe, onTrocarCfg }: {
   campo: NonNullable<GatilhoDef["campo"]>;
@@ -1638,6 +1667,53 @@ function ConfigDoGatilho({ campo, cfg, fontes, instancia, nomeDe, onTrocarCfg }:
           placeholder="deixe vazio para qualquer mensagem"
           className="h-8 text-[12px] bg-transparent border-white/[0.08]"
         />
+        <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1.5">
+          Acento, maiúscula e pontuação não contam: “analise” acha “Análise!”.
+        </p>
+
+        {/* OS FILTROS DE PÚBLICO. Nasceram da campanha de empresários, que
+            chega pelo mesmo número do Bradesco: separar um público do outro
+            logo na primeira mensagem é o que faz disto uma recepção. */}
+        <div className="mt-2 pt-2 border-t border-white/[0.06] flex flex-col gap-2">
+          <FiltroDoGatilho
+            ligado={!!cfg.so_primeira}
+            onTrocar={(v) => onTrocarCfg({ ...cfg, so_primeira: v })}
+            titulo="Só a primeira mensagem do contato"
+            ligadoDiz="Quem já nos escreveu antes, em qualquer número, não entra. E o Primeiro atendimento do número não manda a saudação dele: a deste fluxo já é a saudação."
+            desligadoDiz="Dispara em toda mensagem que casar, inclusive no meio de uma conversa."
+          />
+          <FiltroDoGatilho
+            ligado={!!cfg.fora_das_bases}
+            onTrocar={(v) => onTrocarCfg({ ...cfg, fora_das_bases: v })}
+            titulo="Só quem não está em nenhuma base"
+            ligadoDiz="Telefone que aparece em qualquer planilha (a do Bradesco, a empresarial) fica de fora."
+            desligadoDiz="Vale para lead de base e para quem chegou sem planilha."
+          />
+          <FiltroDoGatilho
+            ligado={!!cfg.de_anuncio}
+            onTrocar={(v) => onTrocarCfg({ ...cfg, de_anuncio: v })}
+            titulo="Só quem veio de um anúncio da Meta"
+            ligadoDiz="A mensagem precisa ter vindo do botão de WhatsApp de um anúncio. Pega até quem apagou o texto pronto e escreveu outro."
+            desligadoDiz="Não importa de onde a pessoa veio."
+          />
+          <AnimatePresence initial={false}>
+            {cfg.de_anuncio && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={MOLA}
+                className="overflow-hidden pl-[52px]">
+                <Input
+                  value={cfg.anuncio_contendo ?? ""}
+                  onChange={(e) => onTrocarCfg({ ...cfg, anuncio_contendo: e.target.value })}
+                  placeholder="título do anúncio contém (vazio: qualquer anúncio)"
+                  className="h-8 text-[12px] bg-transparent border-white/[0.08]"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     );
   }

@@ -404,3 +404,15 @@ test("sem grade, mas mandando a qualquer hora, não há o que acusar", () => {
   const f = fluxo([msg("oi")], { condicoes: { ...CONDICOES_PADRAO, faixas: [] } });
   expect(impedimentos(f, null, false)).toEqual([]);
 });
+
+test("mensagem recebida: a frase do gatilho diz os filtros de público", () => {
+  expect(fraseDoGatilho("mensagem_recebida", {})).toBe("quando o lead escreve");
+  const f = fraseDoGatilho("mensagem_recebida", {
+    contendo: "Sou empresário", so_primeira: true, fora_das_bases: true,
+  });
+  expect(f).toContain("primeira mensagem");
+  expect(f).toContain("“Sou empresário”");
+  expect(f).toContain("não está em nenhuma base");
+  expect(fraseDoGatilho("mensagem_recebida", { de_anuncio: true })).toContain("anúncio da Meta");
+  expect(fraseDoGatilho("mensagem_recebida", { de_anuncio: true, anuncio_contendo: "PJ" })).toContain("“PJ”");
+});
