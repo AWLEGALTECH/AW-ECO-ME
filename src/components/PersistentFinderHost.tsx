@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle2, FolderOpen, Minimize2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
 import { FinderCienciaComercial, useComercialDoCliente, normalizarRubrica } from "@/components/FinderCienciaComercial";
-import { usarFinderNativo } from "@/lib/finderNativo";
+import { useFinderNativo } from "@/hooks/useFinderNativo";
 import { FinderNativo } from "@/components/FinderNativo";
 
 // Iframe do Finder montado uma unica vez no SidebarLayout. Quando o user
@@ -26,7 +26,7 @@ export function PersistentFinderHost() {
   const daConversa = new URLSearchParams(location.search).has("conversa");
   const visivel = location.pathname.startsWith("/finder") && !daConversa;
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const nativo = useMemo(() => usarFinderNativo(), []);
+  const nativo = useFinderNativo();
   /* Finder novo: as rubricas bloqueadas no comercial abrem já como não
      ajuizáveis dentro dele, e liberar uma lá grava na ficha do cliente. */
   const comercial = useComercialDoCliente(nativo ? active?.clienteId ?? null : null);
@@ -146,7 +146,9 @@ export function PersistentFinderHost() {
         ? <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} comercial={comercial} />
         : <FinderCienciaComercial clienteId={active.clienteId} nome={active.nome} iframeRef={iframeRef} />)}
 
-      {nativo ? (
+      {nativo === null ? (
+        <div className="flex-1 min-h-0 w-full bg-background" />
+      ) : nativo ? (
         <div className="flex-1 min-h-0 w-full">
           <FinderNativo
             contexto={{ clienteId: active.clienteId, clienteNome: active.nome, driveFolderId, driveUrl }}

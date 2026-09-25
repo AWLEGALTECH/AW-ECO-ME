@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFinderSession } from "@/hooks/useFinderSession";
 import { FinderAnaliseComercial } from "@/components/FinderAnaliseComercial";
 import { docsDaUrl, nomeDoDocumento } from "@/lib/finderDaConversa";
-import { usarFinderNativo } from "@/lib/finderNativo";
+import { useFinderNativo } from "@/hooks/useFinderNativo";
 import { FinderNativo, type DetalheDaAnalise } from "@/components/FinderNativo";
 
 // Pagina /finder tem tres modos:
@@ -93,9 +93,9 @@ export default function Finder() {
     { estado: "parado", quantos: 0 });
   const { active, iniciar } = useFinderSession();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  /* Finder novo ou pacote antigo (ver lib/finderNativo.ts). Lido uma vez: a
-     troca vale na próxima abertura, e não no meio de uma análise. */
-  const nativo = useMemo(() => usarFinderNativo(), []);
+  /* Finder novo ou pacote antigo (ver lib/finderNativo.ts), pela conta.
+     `null` enquanto a conta carrega: aí não se mostra nenhum dos dois. */
+  const nativo = useFinderNativo();
   /* Finder novo: os PDFs da conversa chegam como arquivos, por prop, e a
      análise pronta chega por callback. Nada de campo de envio nem de evento
      na janela. */
@@ -199,6 +199,9 @@ export default function Finder() {
   // pode sequestrar a tela.
   if (active && !conversaId) {
     return <div className="h-full w-full -m-3 sm:-m-6" />;
+  }
+  if (nativo === null) {
+    return <div className="h-full w-full -m-3 sm:-m-6 bg-background" />;
   }
 
   // Modo standalone: usa o iframe local. Eh o caminho que a Adria pega

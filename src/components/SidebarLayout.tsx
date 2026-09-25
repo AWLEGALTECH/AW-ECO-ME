@@ -9,6 +9,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Outlet, useLocation, Navigate } from "react-router-dom";
 import { toast } from "sonner";
 import { FinderSessionProvider } from "@/hooks/useFinderSession";
+import { useFinderNativo } from "@/hooks/useFinderNativo";
+import { carregarFinder } from "@/components/FinderNativo";
 import { PersistentFinderHost } from "@/components/PersistentFinderHost";
 import { FinderPill } from "@/components/FinderPill";
 import { SpyProgressBar } from "@/components/SpyProgressBar";
@@ -16,6 +18,16 @@ import { SpyProgressBar } from "@/components/SpyProgressBar";
 export function SidebarLayout() {
   const { user, loading, accessReady } = useAuth();
   const { palette } = useTheme();
+
+  /* O FINDER NOVO JÁ VEM CARREGADO. Para quem tem ele ligado, o código é
+     buscado em segundo plano uns segundos depois do login; quando a pessoa
+     clica em Finder, ele abre na hora, sem tela de carregando. */
+  const finderNativo = useFinderNativo();
+  useEffect(() => {
+    if (!finderNativo) return;
+    const t = window.setTimeout(() => { void carregarFinder(); }, 2500);
+    return () => window.clearTimeout(t);
+  }, [finderNativo]);
   const isSei = palette === "sei";
   const location = useLocation();
 

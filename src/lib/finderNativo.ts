@@ -1,13 +1,16 @@
 /* QUAL FINDER ABRE: o antigo (pacote no iframe) ou o novo (código do AW).
  *
  * Os dois convivem até o novo provar que acha os mesmos descontos e que cada
- * ligação com o AW continua no lugar (docs/finder-contrato.md). O novo liga
- * por navegador, para conferir no uso real sem mexer no de ninguém:
+ * ligação com o AW continua no lugar (docs/finder-contrato.md). Quem decide,
+ * nesta ordem:
  *
- *   /finder?nativo=1   liga neste navegador (fica lembrado)
- *   /finder?nativo=0   volta para o antigo
+ *   1. o endereço: /finder?nativo=1 liga, ?nativo=0 desliga (e o navegador
+ *      lembra), para testar sem mexer na conta de ninguém
+ *   2. o navegador, se alguém já usou o endereço nele
+ *   3. a conta: `preferencias_usuario.finder_nativo`, ligada pessoa a pessoa
+ *   4. o padrão abaixo
  *
- * Quando a troca for definitiva, o padrão abaixo vira `true` e o pacote sai.
+ * Quando a troca for definitiva, o padrão vira `true` e o pacote sai.
  */
 const CHAVE = "aw-finder-nativo";
 const PADRAO = false;
@@ -19,8 +22,8 @@ export function lerEscolhaDoEndereco(busca: string): boolean | null {
   return null;
 }
 
-export function usarFinderNativo(): boolean {
-  if (typeof window === "undefined") return PADRAO;
+export function usarFinderNativo(daConta = false): boolean {
+  if (typeof window === "undefined") return daConta || PADRAO;
   const doEndereco = lerEscolhaDoEndereco(window.location.search);
   try {
     if (doEndereco !== null) {
@@ -30,6 +33,7 @@ export function usarFinderNativo(): boolean {
     const salvo = window.localStorage.getItem(CHAVE);
     if (salvo === "1") return true;
     if (salvo === "0") return false;
-  } catch { /* modo privado: vale o padrão */ }
-  return PADRAO;
+  } catch { /* modo privado: vale a conta */ }
+  return daConta || PADRAO;
 }
+
