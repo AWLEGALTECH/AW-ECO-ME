@@ -20,8 +20,9 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 import { motion, AnimatePresence, useReducedMotion, animate } from "framer-motion";
 import {
   FileText, X, Play, FolderOpen, ExternalLink, Check, Loader2,
-  AlertTriangle, UserRound, Circle, ScanText, Plus, FastForward, Users, Clock,
+  AlertTriangle, UserRound, Circle, ScanText, Plus, FastForward, Users, Clock, Upload, Search, ArrowLeft,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -29,7 +30,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { LogoBradesco, Lupa, OrbitaDeAnalises } from "./marcas";
+import { LogoBradesco, LogoDrive, Lupa, OrbitaDeAnalises } from "./marcas";
 import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
@@ -141,6 +142,7 @@ function Barra({ valor, grossa, cor = "bg-primary" }: { valor: number; grossa?: 
 /* ═══════════════════════ o saguão ═══════════════════════ */
 
 export interface ArquivoDoDriveSaguao { id: string; name: string; mimeType?: string; size?: string }
+export interface ClienteDoDrive { id: string; nome: string; cpf_cnpj: string | null; drive_folder_url?: string | null }
 
 export interface ResumoDoDesfecho {
   rubricas: number;
@@ -169,7 +171,15 @@ export interface SaguaoProps {
   drive: {
     aberto: boolean; carregando: boolean; arquivos: ArquivoDoDriveSaguao[]; selecionados: Set<string>;
     erro: string; baixando: boolean; progresso: { done: number; total: number };
+    /** "cliente": escolhendo de quem é a pasta; "arquivos": dentro dela */
+    etapa: "cliente" | "arquivos";
+    /** o dono da pasta aberta; `fixo` quando é o cliente do contexto */
+    dono: { id: string | null; nome: string | null; fixo: boolean } | null;
+    clientes: ClienteDoDrive[];
+    carregandoClientes: boolean;
   };
+  onDriveCliente: (c: ClienteDoDrive) => void;
+  onDriveTrocarCliente: () => void;
   onDriveAlternar: (id: string) => void;
   onDriveTodos: () => void;
   onDriveLimpar: () => void;
@@ -224,40 +234,6 @@ export function SaguaoFinder(p: SaguaoProps) {
           subtitulo={p.clienteNome
             ? <>Extratos de <strong className="text-foreground font-medium">{p.clienteNome}</strong>. Lê, separa o que é cobrança indevida e agrupa por rubrica.</>
             : "Lê os extratos, separa o que é cobrança indevida e agrupa por rubrica, com a base legal de cada uma."}
-          acoes={<AnimatePresence initial={false}>
-            {naFila && (
-              <motion.div key="acoes" className="flex items-center gap-2 flex-wrap"
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.25, ease: CURVA }}>
-                {p.driveFolderId && (
-                  <Button variant="outline" onClick={p.onAbrirDrive} className="gap-1.5">
-                    <FolderOpen className="h-4 w-4" /> Pasta do cliente
-                  </Button>
-                )}
-                <Button variant={p.arquivos.length ? "outline" : "default"} onClick={escolher} className="gap-1.5">
-                  <Plus className="h-4 w-4" /> Adicionar PDFs
-                </Button>
-                <AnimatePresence initial={false}>
-                  {p.arquivos.length > 0 && (
-                    <motion.div key="analisar" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.94 }} transition={MOLA}>
-                      <Button onClick={p.onAnalisar} disabled={identificando} className="gap-1.5 min-w-[9.5rem]">
-                        <AnimatePresence mode="wait" initial={false}>
-                          <motion.span key={identificando ? "id" : "ok"} className="inline-flex items-center gap-1.5"
-                            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                            transition={{ duration: 0.16, ease: CURVA }}>
-                            {identificando
-                              ? <><Loader2 className="h-4 w-4 animate-spin" /> Identificando…</>
-                              : <><Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` ${p.arquivos.length} extratos` : ""}</>}
-                          </motion.span>
-                        </AnimatePresence>
-                      </Button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>}
         />
 
         {/* AS ANÁLISES DO FINDER. Uma aba por análise, com a marca que desliza
@@ -280,6 +256,45 @@ export function SaguaoFinder(p: SaguaoProps) {
               <span className="inline-flex items-center rounded-xl border border-dashed border-white/[0.1] px-3 py-2 text-xs text-muted-foreground/60">
                 Outras análises em breve
               </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* A PORTA DE ENTRADA, UMA SÓ: junto da lupa. Os dois jeitos de trazer
+            extrato (do computador e do Drive de um cliente) e, quando já há
+            fila, o Analisar. Antes havia botões no canto de cima e a lupa
+            também recebia, cada um num lugar. A lupa segue aceitando arrastar
+            e clicar. */}
+        <AnimatePresence initial={false}>
+          {naFila && (
+            <motion.div key="entradas" className="flex flex-wrap items-center gap-2"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3, ease: CURVA, delay: 0.08 }}>
+              <Button variant="outline" onClick={escolher} className="gap-1.5">
+                <Upload className="h-4 w-4" /> Adicionar do dispositivo
+              </Button>
+              <Button variant="outline" onClick={p.onAbrirDrive} className="gap-1.5">
+                <LogoDrive className="h-4 w-4" /> Adicionar do Drive
+              </Button>
+              <AnimatePresence initial={false}>
+                {p.arquivos.length > 0 && (
+                  <motion.div key="analisar" className="ml-auto"
+                    initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.94 }} transition={MOLA}>
+                    <Button onClick={p.onAnalisar} disabled={identificando} className="gap-1.5 min-w-[9.5rem]">
+                      <AnimatePresence mode="wait" initial={false}>
+                        <motion.span key={identificando ? "id" : "ok"} className="inline-flex items-center gap-1.5"
+                          initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.16, ease: CURVA }}>
+                          {identificando
+                            ? <><Loader2 className="h-4 w-4 animate-spin" /> Identificando…</>
+                            : <><Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` ${p.arquivos.length} extratos` : ""}</>}
+                        </motion.span>
+                      </AnimatePresence>
+                    </Button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
         </AnimatePresence>
@@ -345,6 +360,7 @@ function Fila(p: SaguaoProps & { onEscolher: () => void; detectados: Record<stri
         {vazia ? (
           /* ESTADO VAZIO: a órbita do Finder, que também é o lugar de soltar */
           <motion.button key="vazia" type="button" onClick={p.onEscolher}
+            aria-label="Soltar extratos aqui ou escolher do dispositivo"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.3, ease: CURVA }}
             className={cn("group w-full rounded-2xl border border-dashed px-6 py-10 sm:py-12 transition-colors",
@@ -363,8 +379,8 @@ function Fila(p: SaguaoProps & { onEscolher: () => void; detectados: Record<stri
                   </motion.p>
                 </AnimatePresence>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  ou clique para escolher{p.driveFolderId ? ", ou busque na pasta do cliente" : ""}. O Finder identifica o banco
-                  e separa o que é cobrança indevida. Até 100 MB por arquivo.
+                  ou clique para escolher do dispositivo. Para puxar da pasta de um cliente, use Adicionar do Drive.
+                  O Finder identifica o banco e separa o que é cobrança indevida. Até 100 MB por arquivo.
                 </p>
               </div>
             </div>
@@ -378,10 +394,8 @@ function Fila(p: SaguaoProps & { onEscolher: () => void; detectados: Record<stri
               <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-muted-foreground">
                 Fila de análise <span className="ml-1 tabular-nums text-foreground/70">{p.arquivos.length}</span>
               </p>
-              <button type="button" onClick={p.onEscolher}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
-                <Plus className="h-3.5 w-3.5" /> mais PDFs
-              </button>
+              {/* mais extratos entram pelos botões de cima ou arrastando para cá */}
+              <span className="text-xs text-muted-foreground/70">arraste mais PDFs para cá</span>
             </div>
             <ul className="divide-y divide-white/[0.05]">
               <AnimatePresence initial={false}>
@@ -809,77 +823,155 @@ function BarraDeEspera({ duracao }: { duracao: number }) {
 
 function EscolherDoDrive(p: SaguaoProps) {
   const d = p.drive;
+  const [busca, setBusca] = useState("");
+  useEffect(() => { if (d.aberto) setBusca(""); }, [d.aberto, d.etapa]);
+  const noCliente = d.etapa === "cliente";
+  const q = busca.trim().toLowerCase();
+  /* Quem tem pasta vem primeiro; quem não tem aparece apagado, para ficar
+     claro por que não abre (e não parecer que sumiu). */
+  const clientes = [...d.clientes]
+    .filter((c) => !q || c.nome?.toLowerCase().includes(q) || c.cpf_cnpj?.toLowerCase().includes(q))
+    .sort((a, b) => Number(!!b.drive_folder_url) - Number(!!a.drive_folder_url));
+
   return (
     <Dialog open={d.aberto} onOpenChange={(a) => { if (!a && !d.baixando) p.onDriveFechar(); }}>
       <DialogContent className="sm:max-w-xl gap-0 p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border text-left">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <FolderOpen className="h-4 w-4 text-primary" /> Pasta de {p.clienteNome || "cliente"} no Drive
+            <LogoDrive className="h-4 w-4" />
+            {noCliente ? "Extratos do Drive" : <>Pasta de {d.dono?.nome || "cliente"} no Drive</>}
           </DialogTitle>
           <DialogDescription className="text-[12.5px]">
-            Escolha os extratos. Eles ficam só nesta aba, nada é salvo no seu computador.
+            {noCliente
+              ? "Escolha o cliente. Os extratos vêm da pasta do Drive cadastrada na ficha dele."
+              : "Escolha os extratos. Eles ficam só nesta aba, nada é salvo no seu computador."}
           </DialogDescription>
+          {!noCliente && d.dono && !d.dono.fixo && !d.baixando && (
+            <button type="button" onClick={p.onDriveTrocarCliente}
+              className="mt-2 inline-flex w-fit items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+              <ArrowLeft className="h-3.5 w-3.5" /> Trocar de cliente
+            </button>
+          )}
         </DialogHeader>
 
-        <div className="max-h-[50vh] min-h-[180px] overflow-y-auto px-6 py-4">
-          {d.carregando ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" /> Lendo a pasta…
-            </div>
-          ) : d.erro ? (
-            <div className="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-[12.5px] text-destructive">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {d.erro}
-            </div>
-          ) : d.arquivos.length === 0 ? (
-            <p className="py-10 text-center text-[13px] text-muted-foreground">Nenhum arquivo nesta pasta. Suba os extratos no Drive primeiro.</p>
-          ) : (
-            <>
-              <div className="mb-2 flex items-center justify-between text-[12px]">
-                <span className="text-muted-foreground">{d.arquivos.length} {d.arquivos.length === 1 ? "arquivo" : "arquivos"}</span>
-                <span className="flex gap-3">
-                  <button onClick={p.onDriveTodos} className="font-medium text-primary hover:underline">Marcar todos</button>
-                  <button onClick={p.onDriveLimpar} className="text-muted-foreground hover:text-foreground transition-colors">Limpar</button>
-                </span>
+        <AnimatePresence mode="wait" initial={false}>
+          {noCliente ? (
+            <motion.div key="clientes" className="px-6 py-4"
+              initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.2, ease: CURVA }}>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente por nome ou CPF…" className="pl-9" />
               </div>
-              <ul className="flex flex-col gap-1.5">
-                {d.arquivos.map((f, i) => {
-                  const marcado = d.selecionados.has(f.id);
-                  const tipo = f.mimeType === "application/pdf" ? "PDF" : f.mimeType?.startsWith("image/") ? (f.mimeType.split("/")[1] || "imagem").toUpperCase() : "outro";
-                  return (
-                    <motion.li key={f.id}
-                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.25, ease: CURVA, delay: Math.min(i, 10) * 0.05 }}>
-                      <button type="button" role="checkbox" aria-checked={marcado} onClick={() => p.onDriveAlternar(f.id)}
-                        className={cn("flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                          marcado ? "border-primary/40 bg-primary/[0.06]" : "border-border hover:bg-white/[0.03]")}>
-                        <span className={cn("grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
-                          marcado ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
-                          {marcado && <Check className="h-3 w-3" strokeWidth={3} />}
-                        </span>
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium">{f.name}</span>
-                          <span className="block text-[11px] text-muted-foreground">{[tamanho(f.size), tipo].filter(Boolean).join(" · ")}</span>
-                        </span>
-                      </button>
-                    </motion.li>
-                  );
-                })}
-              </ul>
-            </>
+              <div className="mt-3 max-h-[46vh] min-h-[180px] overflow-y-auto -mx-1 px-1">
+                {d.carregandoClientes ? (
+                  <div className="flex h-40 flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" /> Carregando clientes…
+                  </div>
+                ) : d.erro ? (
+                  <div className="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-[12.5px] text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {d.erro}
+                  </div>
+                ) : clientes.length === 0 ? (
+                  <p className="py-10 text-center text-[13px] text-muted-foreground">
+                    {q ? "Nenhum cliente com esse nome ou CPF." : "Nenhum cliente cadastrado."}
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {clientes.slice(0, 80).map((c, i) => {
+                      const temPasta = !!c.drive_folder_url;
+                      return (
+                        <motion.li key={c.id}
+                          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, ease: CURVA, delay: Math.min(i, 10) * 0.03 }}>
+                          <button type="button" disabled={!temPasta} onClick={() => p.onDriveCliente(c)}
+                            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+                              <UserRound className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">{c.nome}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {[c.cpf_cnpj, temPasta ? null : "sem pasta no Drive"].filter(Boolean).join(" · ") || "\u00a0"}
+                              </span>
+                            </span>
+                            {temPasta && <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                          </button>
+                        </motion.li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div key="arquivos" className="max-h-[50vh] min-h-[180px] overflow-y-auto px-6 py-4"
+              initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }}
+              transition={{ duration: 0.2, ease: CURVA }}>
+              {d.carregando ? (
+                <div className="flex h-40 flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" /> Lendo a pasta…
+                </div>
+              ) : d.erro ? (
+                <div className="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-[12.5px] text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {d.erro}
+                </div>
+              ) : d.arquivos.length === 0 ? (
+                <p className="py-10 text-center text-[13px] text-muted-foreground">Nenhum arquivo nesta pasta. Suba os extratos no Drive primeiro.</p>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between text-[12px]">
+                    <span className="text-muted-foreground">{d.arquivos.length} {d.arquivos.length === 1 ? "arquivo" : "arquivos"}</span>
+                    <span className="flex gap-3">
+                      <button onClick={p.onDriveTodos} className="font-medium text-primary hover:underline">Marcar todos</button>
+                      <button onClick={p.onDriveLimpar} className="text-muted-foreground hover:text-foreground transition-colors">Limpar</button>
+                    </span>
+                  </div>
+                  <ul className="flex flex-col gap-1.5">
+                    {d.arquivos.map((f, i) => {
+                      const marcado = d.selecionados.has(f.id);
+                      const tipo = f.mimeType === "application/pdf" ? "PDF" : f.mimeType?.startsWith("image/") ? (f.mimeType.split("/")[1] || "imagem").toUpperCase() : "outro";
+                      return (
+                        <motion.li key={f.id}
+                          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25, ease: CURVA, delay: Math.min(i, 10) * 0.05 }}>
+                          <button type="button" role="checkbox" aria-checked={marcado} onClick={() => p.onDriveAlternar(f.id)}
+                            className={cn("flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
+                              marcado ? "border-primary/40 bg-primary/[0.06]" : "border-border hover:bg-white/[0.03]")}>
+                            <span className={cn("grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
+                              marcado ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
+                              {marcado && <Check className="h-3 w-3" strokeWidth={3} />}
+                            </span>
+                            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-medium">{f.name}</span>
+                              <span className="block text-[11px] text-muted-foreground">{[tamanho(f.size), tipo].filter(Boolean).join(" · ")}</span>
+                            </span>
+                          </button>
+                        </motion.li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
 
         <DialogFooter className="flex-row items-center justify-between gap-3 border-t border-border px-6 py-4 sm:justify-between">
           <span className="text-[12.5px] text-muted-foreground tabular-nums">
-            {d.baixando ? `Baixando ${d.progresso.done} de ${d.progresso.total}…` : d.selecionados.size ? `${d.selecionados.size} marcado${d.selecionados.size > 1 ? "s" : ""}` : "Nenhum marcado"}
+            {noCliente
+              ? `${d.clientes.filter((c) => c.drive_folder_url).length} com pasta no Drive`
+              : d.baixando ? `Baixando ${d.progresso.done} de ${d.progresso.total}…` : d.selecionados.size ? `${d.selecionados.size} marcado${d.selecionados.size > 1 ? "s" : ""}` : "Nenhum marcado"}
           </span>
           <span className="flex gap-2">
             {!d.baixando && <Button variant="outline" onClick={p.onDriveFechar}>Cancelar</Button>}
-            <Button onClick={p.onDriveAdicionar} disabled={d.baixando || d.selecionados.size === 0} className="gap-2">
-              {d.baixando && <Loader2 className="h-4 w-4 animate-spin" />}
-              Pôr na fila
-            </Button>
+            {!noCliente && (
+              <Button onClick={p.onDriveAdicionar} disabled={d.baixando || d.selecionados.size === 0} className="gap-2">
+                {d.baixando && <Loader2 className="h-4 w-4 animate-spin" />}
+                Pôr na fila
+              </Button>
+            )}
           </span>
         </DialogFooter>
       </DialogContent>

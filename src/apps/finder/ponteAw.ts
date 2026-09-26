@@ -10,7 +10,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 
-export interface ClienteDaLista { id: string; nome: string; cpf_cnpj: string | null }
+export interface ClienteDaLista { id: string; nome: string; cpf_cnpj: string | null; drive_folder_url?: string | null }
 export interface ArquivoDoDrive { id: string; name: string; mimeType?: string; size?: string }
 
 export interface NovaVinculada {
@@ -75,7 +75,7 @@ export function contarVinculados(linhas: { desconto: string | null }[]): Map<str
 
 export const ponteAw: PonteDoFinder = {
   async listarClientes() {
-    const { data, error } = await tabela("clientes").select("id, nome, cpf_cnpj").order("nome", { ascending: true });
+    const { data, error } = await tabela("clientes").select("id, nome, cpf_cnpj, drive_folder_url").order("nome", { ascending: true });
     if (error) throw new Error(`Listar clientes falhou (${error.message})`);
     return (data ?? []) as ClienteDaLista[];
   },

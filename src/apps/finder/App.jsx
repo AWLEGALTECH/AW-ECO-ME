@@ -174,12 +174,19 @@ export default function App({
   const [driveErro, setDriveErro] = useState("");
   const [driveBaixando, setDriveBaixando] = useState(false);
   const [driveProgresso, setDriveProgresso] = useState({ done: 0, total: 0 });
+  /* DE QUAL CLIENTE é a pasta. Com o Finder aberto num cliente, é ele e a
+     janela vai direto aos arquivos; no Finder solto, a janela pergunta antes
+     (etapa "cliente") e só então abre a pasta dele (etapa "arquivos"). */
+  const [driveEtapa, setDriveEtapa] = useState("arquivos");
+  const [driveDono, setDriveDono] = useState(null);
+  const [driveClientes, setDriveClientes] = useState([]);
+  const [driveClientesCarregando, setDriveClientesCarregando] = useState(false);
 
-  const abrirDrive = useCallback(async () => {
-    if (!driveFolderId || !ponte) return;
-    setDriveAberto(true); setDriveCarregando(true); setDriveErro(""); setDriveSel(new Set());
+  const lerPasta = useCallback(async (pastaId) => {
+    if (!pastaId || !ponte) return;
+    setDriveEtapa("arquivos"); setDriveCarregando(true); setDriveErro(""); setDriveSel(new Set()); setDriveArquivos([]);
     try {
-      const lista = await ponte.listarDrive(driveFolderId, null);
+      const lista = await ponte.listarDrive(pastaId, null);
       setDriveArquivos(lista);
       // o que se chama "extrato" já vem marcado: é quase sempre o que se quer
       const ehExtrato = /extrato/i;
@@ -189,7 +196,32 @@ export default function App({
     } finally {
       setDriveCarregando(false);
     }
-  }, [driveFolderId, ponte]);
+  }, [ponte]);
+
+  const abrirDrive = useCallback(async () => {
+    if (!ponte) return;
+    setDriveAberto(true); setDriveErro("");
+    if (driveFolderId) {
+      setDriveDono({ id: clienteId, nome: clienteNome, fixo: true });
+      lerPasta(driveFolderId);
+      return;
+    }
+    setDriveEtapa("cliente"); setDriveDono(null); setDriveClientesCarregando(true);
+    try { setDriveClientes(await ponte.listarClientes()); }
+    catch (e) { setDriveErro(String(e?.message || e)); }
+    finally { setDriveClientesCarregando(false); }
+  }, [ponte, driveFolderId, clienteId, clienteNome, lerPasta]);
+
+  const escolherClienteDoDrive = useCallback((c) => {
+    const pasta = String(c?.drive_folder_url || "").match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+    setDriveDono({ id: c.id, nome: c.nome, fixo: false });
+    if (!pasta) {
+      setDriveEtapa("arquivos"); setDriveArquivos([]);
+      setDriveErro(`${c.nome} não tem pasta do Drive cadastrada na ficha.`);
+      return;
+    }
+    lerPasta(pasta);
+  }, [lerPasta]);
 
   const adicionarDoDrive = useCallback(async () => {
     const escolhidos = driveArquivos.filter(f => driveSel.has(f.id));
@@ -854,7 +886,10 @@ export default function App({
             };
           })()}
           onAbrirDrive={abrirDrive}
-          drive={{ aberto: driveAberto, carregando: driveCarregando, arquivos: driveArquivos, selecionados: driveSel, erro: driveErro, baixando: driveBaixando, progresso: driveProgresso }}
+          drive={{ aberto: driveAberto, carregando: driveCarregando, arquivos: driveArquivos, selecionados: driveSel, erro: driveErro, baixando: driveBaixando, progresso: driveProgresso,
+            etapa: driveEtapa, dono: driveDono, clientes: driveClientes, carregandoClientes: driveClientesCarregando }}
+          onDriveCliente={escolherClienteDoDrive}
+          onDriveTrocarCliente={()=>{ setDriveEtapa("cliente"); setDriveErro(""); setDriveArquivos([]); setDriveSel(new Set()); if (!driveClientes.length) abrirDrive(); }}
           onDriveAlternar={(id)=>setDriveSel(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; })}
           onDriveTodos={()=>setDriveSel(new Set(driveArquivos.map(f=>f.id)))}
           onDriveLimpar={()=>setDriveSel(new Set())}

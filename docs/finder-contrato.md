@@ -38,7 +38,7 @@ AW-ECO (Martins Pontes) não é tocado.
 
 ### 3.1 Pelo endereço do iframe
 - `cliente`, `nome`: a faixa "Analisando extratos para: *nome*" e o cliente já escolhido no "Vincular Análise".
-- `drive`, `drive_folder_id`: a pasta do Google Drive do cliente (vem de `clientes.drive_folder_url`), para o botão "Buscar do Drive do cliente".
+- `drive`, `drive_folder_id`: a pasta do Google Drive do cliente (vem de `clientes.drive_folder_url`), para o botão "Buscar do Drive do cliente". No Finder novo o botão é "Adicionar do Drive", junto da lupa: com cliente no contexto abre a pasta dele direto; no Finder solto pergunta antes de qual cliente (`listarClientes` traz `drive_folder_url`) e abre a pasta daquele.
 
 ### 3.2 Pelos arquivos (modo conversa)
 `Finder.tsx` baixa os PDFs escolhidos do bucket **`wa-midia`** (pelos ids de
