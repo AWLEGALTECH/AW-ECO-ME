@@ -565,6 +565,9 @@ export async function refineWithLLM(autoResult, webhookUrl, opts = {}) {
     };
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeout);
+    // "Pular auditor de IA": quem chamou pode derrubar o lote em andamento
+    const aoPular = () => ctrl.abort();
+    if (opts.signal) opts.signal.addEventListener("abort", aoPular, { once: true });
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
@@ -580,8 +583,10 @@ export async function refineWithLLM(autoResult, webhookUrl, opts = {}) {
       return Array.isArray(root?.results) ? root.results : [];
     } catch (err) {
       clearTimeout(t);
-      console.warn("[AWFINDER REVISOR] batch falhou:", err?.message || err);
+      if (!opts.signal?.aborted) console.warn("[AWFINDER REVISOR] batch falhou:", err?.message || err);
       return [];
+    } finally {
+      if (opts.signal) opts.signal.removeEventListener("abort", aoPular);
     }
   }
 
@@ -590,10 +595,14 @@ export async function refineWithLLM(autoResult, webhookUrl, opts = {}) {
   // cada lote respondido pelo auditor, e não só no fim.
   if (typeof opts.onProgress === "function") opts.onProgress(0, batches.length);
   for (let b = 0; b < batches.length; b++) {
+    if (opts.signal?.aborted) break;
     const r = await callBatch(batches[b], b);
     allResults = allResults.concat(r);
     if (typeof opts.onProgress === "function") opts.onProgress(b + 1, batches.length);
   }
+  /* PULADO: volta o resultado só do código, inteiro. Aplicar metade dos lotes
+     deixaria umas rubricas conferidas pela IA e outras não, sem dizer quais. */
+  if (opts.signal?.aborted) return autoResult;
 
   // Aplica APENAS results com applied=true (já passou triple-gate no n8n)
   const newRejected = [...autoResult.autoRejected];

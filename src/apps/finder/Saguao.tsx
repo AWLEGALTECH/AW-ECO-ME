@@ -1,38 +1,47 @@
-/* O SAGUÃO DO FINDER: a tela de envio, a análise em andamento e o desfecho.
+/* O SAGUÃO DO FINDER: a fila, a análise em andamento e o desfecho.
  *
- * O saguão antigo era o do Finder separado (o MVP que vivia fora do AW): selo
- * "AW LEGALTECH · AUDITORIA BANCÁRIA", título de landing page, emoji, estilo
- * escrito à mão em cada bloco e cores próprias que só acertavam o tema por
- * inversão. Este é uma tela do AW como as outras: título no padrão do
- * Dashboard, cartões e botões do sistema, ícones do lucide, cores dos tokens
- * (claro e escuro sem truque) e movimento do framer.
+ * NO MOLDE DAS OUTRAS ABAS DO AW, e não no do Finder. Cabeçalho como o de
+ * Chamados e Esteira (ícone, título, frase, ações à direita), página na largura
+ * toda com o respiro de sempre, cartões translúcidos da casa, estado vazio
+ * centralizado com o ícone apagado. O saguão antigo era o do MVP separado
+ * (selo de marca, título de landing, emoji, estilo à mão), e a primeira
+ * versão deste ainda copiava a divisão dele em dois painéis.
  *
- * A tela de resultados continua a do Finder, que ainda não foi refeita.
+ * A BARRA DE PROGRESSO É REAL, e toda etapa fala a mesma língua: uma barra de
+ * 0 a 100%. A leitura anda por página (cada extrato com a sua barra), o
+ * auditor de IA anda por lote, a revisão e o agrupamento vão de 0 a 100 quando
+ * acontecem. A barra geral é a soma ponderada delas.
  *
- * A BARRA DE PROGRESSO É REAL. Ela anda com o que de fato aconteceu: cada
- * página lida de cada extrato, cada lote que o auditor de IA devolveu, cada
- * etapa concluída. Nada de tempo estimado nem de animação que finge andar.
+ * O DESFECHO é um momento, e não um pulo: antes do relatório, a tela diz o que
+ * aconteceu, com a animação de cada caso (achou, não achou, achou com pontos a
+ * conferir, extratos de pessoas diferentes, não deu para ler).
  */
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { motion, AnimatePresence, useReducedMotion, animate } from "framer-motion";
 import {
   ScanSearch, Upload, FileText, X, Play, FolderOpen, ExternalLink, Check, Loader2,
-  AlertTriangle, SearchX, CheckCircle2, Users, UserRound, Circle, ScanText,
+  AlertTriangle, UserRound, Circle, ScanText, Plus, FastForward, Users, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 const CURVA = [0.22, 1, 0.36, 1] as const;
+const CARTAO = "rounded-2xl border border-white/[0.07] bg-white/[0.03]";
 
 const BANCOS_LIDOS = ["Bradesco", "Itaú", "Santander", "Agibank"];
 
-const kb = (bytes?: number | string | null) => {
+const tamanho = (bytes?: number | string | null) => {
   const n = typeof bytes === "string" ? parseInt(bytes, 10) : bytes ?? 0;
   if (!n) return null;
   return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 };
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /* ═══════════════════════ progresso ═══════════════════════ */
 
@@ -51,27 +60,32 @@ export interface ProgressoDaAnalise {
   arquivos: ArquivoEmLeitura[];
   etapa: EtapaDaAnalise;
   auditor: { feitos: number; total: number };
+  /** o auditor de IA foi pulado: o relatório saiu só da análise por código */
+  iaPulada?: boolean;
 }
 
-/* Quanto cada etapa vale na barra. A leitura é quase tudo porque é quase todo
-   o tempo: um extrato escaneado passa minutos no OCR, e o resto leva segundos. */
-const PESO = { leitura: 0.8, revisao: 0.05, auditor: 0.12, agrupamento: 0.03 };
+/* Quanto cada etapa pesa na barra geral. A leitura é quase tudo porque é
+   quase todo o tempo (um extrato escaneado passa minutos no OCR). */
+const PESO: Record<Exclude<EtapaDaAnalise, "fim">, number> = { leitura: 0.8, revisao: 0.05, auditor: 0.12, agrupamento: 0.03 };
 const ORDEM: EtapaDaAnalise[] = ["leitura", "revisao", "auditor", "agrupamento", "fim"];
+
+const fracDoArquivo = (a: ArquivoEmLeitura) =>
+  a.estado === "lido" || a.estado === "falhou" ? 1 : a.estado === "lendo" && a.paginas > 0 ? Math.min(1, a.pagina / a.paginas) : 0;
+
+/** De 0 a 1, quanto desta etapa já foi feito. */
+export function fracaoDaEtapa(p: ProgressoDaAnalise | null, e: Exclude<EtapaDaAnalise, "fim">): number {
+  if (!p) return 0;
+  const i = ORDEM.indexOf(p.etapa), j = ORDEM.indexOf(e);
+  if (i > j) return 1;
+  if (i < j) return 0;
+  if (e === "leitura") return p.arquivos.length ? p.arquivos.reduce((s, a) => s + fracDoArquivo(a), 0) / p.arquivos.length : 0;
+  if (e === "auditor") return p.auditor.total > 0 ? p.auditor.feitos / p.auditor.total : 0;
+  return 0;
+}
 
 export function percentualDaAnalise(p: ProgressoDaAnalise | null): number {
   if (!p) return 0;
-  const n = p.arquivos.length || 1;
-  const leitura = p.arquivos.reduce((s, a) => {
-    if (a.estado === "lido" || a.estado === "falhou") return s + 1;
-    if (a.estado === "lendo" && a.paginas > 0) return s + Math.min(1, a.pagina / a.paginas);
-    return s;
-  }, 0) / n;
-  const passou = (e: EtapaDaAnalise) => ORDEM.indexOf(p.etapa) > ORDEM.indexOf(e);
-  let v = PESO.leitura * (passou("leitura") ? 1 : leitura);
-  if (passou("revisao")) v += PESO.revisao;
-  if (passou("auditor")) v += PESO.auditor;
-  else if (p.etapa === "auditor" && p.auditor.total > 0) v += PESO.auditor * (p.auditor.feitos / p.auditor.total);
-  if (passou("agrupamento")) v += PESO.agrupamento;
+  const v = (Object.keys(PESO) as (keyof typeof PESO)[]).reduce((s, e) => s + PESO[e] * fracaoDaEtapa(p, e), 0);
   return Math.max(0, Math.min(1, v));
 }
 
@@ -87,9 +101,47 @@ function useRelogio(inicio: number | null, parado: boolean) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** O número que sobe até o valor, em vez de saltar. */
+function Porcento({ valor, className }: { valor: number; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const anterior = useRef(0);
+  const reduzir = useReducedMotion();
+  useEffect(() => {
+    const alvo = Math.floor(valor * 100);
+    if (reduzir || !ref.current) { if (ref.current) ref.current.textContent = `${alvo}%`; anterior.current = alvo; return; }
+    const c = animate(anterior.current, alvo, {
+      duration: 0.5, ease: CURVA,
+      onUpdate: (v) => { if (ref.current) ref.current.textContent = `${Math.round(v)}%`; },
+    });
+    anterior.current = alvo;
+    return () => c.stop();
+  }, [valor, reduzir]);
+  return <span ref={ref} className={cn("tabular-nums", className)}>0%</span>;
+}
+
+/** A barra da casa: trilho apagado, preenchimento que anda com mola. */
+function Barra({ valor, grossa, cor = "bg-primary" }: { valor: number; grossa?: boolean; cor?: string }) {
+  const reduzir = useReducedMotion();
+  return (
+    <div className={cn("w-full overflow-hidden rounded-full bg-white/[0.06]", grossa ? "h-2.5" : "h-1.5")}
+      role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(valor * 100)}>
+      <motion.div className={cn("h-full rounded-full", cor)}
+        initial={{ width: 0 }} animate={{ width: `${valor * 100}%` }}
+        transition={reduzir ? { duration: 0 } : MOLA} />
+    </div>
+  );
+}
+
 /* ═══════════════════════ o saguão ═══════════════════════ */
 
 export interface ArquivoDoDriveSaguao { id: string; name: string; mimeType?: string; size?: string }
+
+export interface ResumoDoDesfecho {
+  rubricas: number;
+  total: number;
+  /** lançamentos que a revisão deixou para a pessoa conferir */
+  conferir: number;
+}
 
 export interface SaguaoProps {
   fase: "upload" | "parsing" | "analyzing" | "success" | "noDiscount" | "error";
@@ -102,9 +154,10 @@ export interface SaguaoProps {
   onRemover: (idx: number) => void;
   onAnalisar: () => void;
   progresso: ProgressoDaAnalise | null;
+  onPularIa: () => void;
   erro: string;
   onRecomecar: () => void;
-  quantasRubricas: number;
+  resumo: ResumoDoDesfecho;
   // Drive
   onAbrirDrive: () => void;
   drive: {
@@ -123,378 +176,359 @@ export interface SaguaoProps {
 }
 
 export function SaguaoFinder(p: SaguaoProps) {
-  const analisando = p.fase === "parsing" || p.fase === "analyzing" || p.fase === "success" || p.fase === "noDiscount";
+  const inputRef = useRef<HTMLInputElement>(null);
+  const escolher = () => inputRef.current?.click();
+  const analisando = p.fase === "parsing" || p.fase === "analyzing";
+  const desfecho: Desfecho | null =
+    p.titulares ? "titulares"
+      : p.fase === "success" ? (p.resumo.conferir > 0 ? "conferir" : "achou")
+      : p.fase === "noDiscount" ? "nada"
+      : p.fase === "error" ? "erro"
+      : null;
+  const naFila = p.fase === "upload" && !desfecho;
+
   return (
-    <div className="h-full overflow-y-auto bg-background text-foreground">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-8 py-8 sm:py-10">
-        <Cabecalho clienteNome={p.clienteNome} />
+    <div className="h-full overflow-y-auto">
+      <div className="w-full space-y-6 px-3 py-3 sm:px-6 sm:py-6">
+        <input ref={inputRef} type="file" accept=".pdf" multiple className="hidden"
+          onChange={(e) => { if (e.target.files?.length) p.onAdicionar(e.target.files); e.target.value = ""; }} />
+
+        {/* Cabeçalho no molde das outras abas */}
+        <header className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <ScanSearch className="h-6 w-6 text-primary" /> Finder
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {p.clienteNome
+                ? <>Extratos de <strong className="text-foreground font-medium">{p.clienteNome}</strong>. Lê, separa o que é cobrança indevida e agrupa por rubrica.</>
+                : "Lê os extratos, separa o que é cobrança indevida e agrupa por rubrica, com a base legal de cada uma."}
+            </p>
+          </div>
+          <AnimatePresence initial={false}>
+            {naFila && (
+              <motion.div key="acoes" className="flex items-center gap-2 flex-wrap"
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: CURVA }}>
+                {p.driveFolderId && (
+                  <Button variant="outline" onClick={p.onAbrirDrive} className="gap-1.5">
+                    <FolderOpen className="h-4 w-4" /> Pasta do cliente
+                  </Button>
+                )}
+                <Button variant={p.arquivos.length ? "outline" : "default"} onClick={escolher} className="gap-1.5">
+                  <Plus className="h-4 w-4" /> Adicionar PDFs
+                </Button>
+                <AnimatePresence initial={false}>
+                  {p.arquivos.length > 0 && (
+                    <motion.div key="analisar" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.94 }} transition={MOLA}>
+                      <Button onClick={p.onAnalisar} className="gap-1.5">
+                        <Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` ${p.arquivos.length} extratos` : ""}
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </header>
+
         <AnimatePresence mode="wait" initial={false}>
-          {p.fase === "upload" && (
-            <motion.div key="envio"
+          {naFila && (
+            <motion.div key="fila"
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, ease: CURVA }}>
-              <Envio {...p} />
+              <Fila {...p} onEscolher={escolher} />
             </motion.div>
           )}
-          {analisando && (
-            <motion.div key="analise"
+          {analisando && !desfecho && (
+            <motion.div key="andamento"
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, ease: CURVA }}>
-              <Andamento fase={p.fase} progresso={p.progresso} clienteNome={p.clienteNome} quantasRubricas={p.quantasRubricas} />
+              <Andamento progresso={p.progresso} arquivosNaFila={p.arquivos.length} onPularIa={p.onPularIa} />
             </motion.div>
           )}
-          {p.fase === "error" && (
-            <motion.div key="erro"
+          {desfecho && (
+            <motion.div key={`desfecho-${desfecho}`}
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, ease: CURVA }}>
-              <Falhou erro={p.erro} onRecomecar={p.onRecomecar} />
+              <TelaDeDesfecho tipo={desfecho} {...p} />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
       <EscolherDoDrive {...p} />
-      <TitularesDiferentes titulares={p.titulares} onAjustar={p.onAjustarArquivos} onMesmoAssim={p.onAnalisarMesmoAssim} />
     </div>
   );
 }
 
-function Cabecalho({ clienteNome }: { clienteNome: string | null }) {
-  return (
-    <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          <ScanSearch className="h-3.5 w-3.5" /> Auditoria de extratos
-        </p>
-        <h1 className="font-display mt-2 text-[2.125rem] sm:text-[2.625rem] font-semibold tracking-[-0.03em] leading-[1.05]">
-          Finder
-        </h1>
-        <p className="mt-2 max-w-xl text-[0.9375rem] text-muted-foreground/80 tracking-[-0.011em]">
-          Lê os extratos, separa o que é cobrança indevida e agrupa por rubrica, com a base legal de cada uma.
-        </p>
-      </div>
-      {clienteNome && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: CURVA, delay: 0.05 }}
-          className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
-            <UserRound className="h-4 w-4" />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">Extratos de</span>
-            <span className="block text-sm font-medium">{clienteNome}</span>
-          </span>
-        </motion.div>
-      )}
-    </header>
-  );
-}
+/* ─────────────── a fila ─────────────── */
 
-/* ─────────────── envio ─────────────── */
-
-function Envio(p: SaguaoProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+function Fila(p: SaguaoProps & { onEscolher: () => void }) {
   const [sobre, setSobre] = useState(false);
-  const temDrive = !!(p.driveFolderId || p.driveUrl);
-
   const soltar = (e: DragEvent) => {
     e.preventDefault();
     setSobre(false);
     if (e.dataTransfer?.files?.length) p.onAdicionar(e.dataTransfer.files);
   };
+  const vazia = p.arquivos.length === 0;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-      {/* ── ADICIONAR ── */}
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 flex flex-col gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">Adicionar extratos</h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {temDrive ? "Da pasta do cliente no Drive ou do seu computador." : "Do seu computador. Pode mandar vários de uma vez."}
-          </p>
-        </div>
-
-        {temDrive && (
-          <div className="flex flex-col gap-2">
-            {p.driveFolderId && (
-              <Button onClick={p.onAbrirDrive} className="w-full justify-center gap-2">
-                <FolderOpen className="h-4 w-4" /> Buscar na pasta do cliente
-              </Button>
-            )}
-            {p.driveUrl && (
-              <a href={p.driveUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 rounded-md py-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
-                <ExternalLink className="h-3.5 w-3.5" /> Abrir a pasta no Drive
-              </a>
-            )}
-            <div className="flex items-center gap-3 py-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">
-              <span className="h-px flex-1 bg-border" /> ou <span className="h-px flex-1 bg-border" />
+    <div className="space-y-4"
+      onDragOver={(e) => { e.preventDefault(); setSobre(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setSobre(false); }}
+      onDrop={soltar}>
+      <AnimatePresence initial={false}>
+        {p.aviso && (
+          <motion.div key="aviso" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }} transition={MOLA} className="overflow-hidden">
+            <div className="flex items-start gap-2 rounded-xl bg-amber-400/[0.07] px-3 py-2.5 text-[12.5px] text-amber-300 ring-1 ring-inset ring-amber-400/25">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {p.aviso}
             </div>
-          </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        <label
-          onDragOver={(e) => { e.preventDefault(); setSobre(true); }}
-          onDragLeave={() => setSobre(false)}
-          onDrop={soltar}
-          className={cn(
-            "group flex flex-1 min-h-[190px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed px-6 py-8 text-center transition-colors",
-            sobre ? "border-primary bg-primary/[0.06]" : "border-border hover:border-primary/40 hover:bg-foreground/[0.02]",
-          )}>
-          <input ref={inputRef} type="file" accept=".pdf" multiple className="hidden"
-            onChange={(e) => { if (e.target.files?.length) p.onAdicionar(e.target.files); e.target.value = ""; }} />
-          <motion.span
-            animate={{ scale: sobre ? 1.08 : 1 }} transition={MOLA}
-            className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary">
-            <Upload className="h-5 w-5" />
+      {vazia ? (
+        /* ESTADO VAZIO, que também é o lugar de soltar os arquivos */
+        <button type="button" onClick={p.onEscolher}
+          className={cn("group w-full rounded-2xl border border-dashed px-6 py-16 text-center transition-colors",
+            sobre ? "border-primary/60 bg-primary/[0.05]" : "border-border/60 bg-white/[0.01] hover:border-primary/40")}>
+          <motion.span animate={{ y: sobre ? -4 : 0 }} transition={MOLA} className="inline-block">
+            <Upload className={cn("h-10 w-10 mx-auto mb-3 transition-colors", sobre ? "text-primary" : "text-muted-foreground/25 group-hover:text-primary/60")} />
           </motion.span>
-          <span>
-            <span className="block text-sm font-medium">Arraste os PDFs aqui</span>
-            <span className="mt-1 block text-[12.5px] text-muted-foreground">ou clique para escolher. Até 100 MB por arquivo.</span>
-          </span>
-        </label>
-
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-          Lê extratos do {BANCOS_LIDOS.slice(0, -1).join(", ")} e {BANCOS_LIDOS[BANCOS_LIDOS.length - 1]}. Extrato
-          escaneado também entra: ele é lido por OCR, que leva mais tempo.
-        </p>
-      </section>
-
-      {/* ── FILA ── */}
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6 flex flex-col min-h-[320px]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">Fila de análise</h2>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
-              {p.arquivos.length === 0
-                ? "Os extratos entram aqui antes de rodar."
-                : `${p.arquivos.length} ${p.arquivos.length === 1 ? "extrato pronto" : "extratos prontos"} para analisar.`}
+          <p className="text-sm font-medium">{sobre ? "Solte para pôr na fila" : "Arraste os extratos em PDF para cá"}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            ou clique para escolher{p.driveFolderId ? ", ou busque na pasta do cliente" : ""}. Até 100 MB por arquivo.
+          </p>
+        </button>
+      ) : (
+        <div className={cn(CARTAO, "overflow-hidden transition-colors", sobre && "border-primary/40")}>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06]">
+            <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-muted-foreground">
+              Fila de análise <span className="ml-1 tabular-nums text-foreground/70">{p.arquivos.length}</span>
             </p>
+            <button type="button" onClick={p.onEscolher}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
+              <Plus className="h-3.5 w-3.5" /> mais PDFs
+            </button>
           </div>
-          <AnimatePresence initial={false}>
-            {p.arquivos.length > 0 && (
-              <motion.div key="analisar"
-                initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.94 }}
-                transition={MOLA}>
-                <Button onClick={p.onAnalisar} className="gap-2">
-                  <Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` (${p.arquivos.length})` : ""}
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <ul className="divide-y divide-white/[0.05]">
+            <AnimatePresence initial={false}>
+              {p.arquivos.map((f, i) => (
+                <motion.li key={`${f.name}-${f.size}`} layout
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 12 }}
+                  transition={{ ...MOLA, delay: Math.min(i, 8) * 0.05 }}
+                  className="flex items-center gap-3 px-4 py-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{f.name}</span>
+                    <span className="block text-xs text-muted-foreground">{tamanho(f.size) ?? "PDF"} · PDF</span>
+                  </span>
+                  <button type="button" onClick={() => p.onRemover(i)} aria-label={`Tirar ${f.name} da fila`}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                    <X className="h-4 w-4" />
+                  </button>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
         </div>
+      )}
 
-        <AnimatePresence initial={false}>
-          {p.aviso && (
-            <motion.div key="aviso"
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-              transition={MOLA} className="overflow-hidden">
-              <div className="mt-4 flex items-start gap-2 rounded-xl bg-amber-500/10 px-3 py-2.5 text-[12.5px] text-amber-300 ring-1 ring-inset ring-amber-500/25">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {p.aviso}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="mt-4 flex-1">
-          {p.arquivos.length === 0 ? (
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 rounded-xl text-center">
-              <span className="grid h-11 w-11 place-items-center rounded-xl bg-muted text-muted-foreground">
-                <FileText className="h-5 w-5" />
-              </span>
-              <p className="text-sm font-medium text-muted-foreground">Nenhum extrato na fila</p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              <AnimatePresence initial={false}>
-                {p.arquivos.map((f, i) => (
-                  <motion.li key={`${f.name}-${f.size}`} layout
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 12 }}
-                    transition={{ ...MOLA, delay: Math.min(i, 8) * 0.05 }}
-                    className="flex items-center gap-3 rounded-xl border border-border bg-background/60 px-3 py-2.5">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                      <FileText className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium">{f.name}</span>
-                      <span className="block text-[11.5px] text-muted-foreground">{kb(f.size) ?? "PDF"} · PDF</span>
-                    </span>
-                    <button type="button" onClick={() => p.onRemover(i)} aria-label={`Tirar ${f.name} da fila`}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </motion.li>
-                ))}
-              </AnimatePresence>
-            </ul>
-          )}
-        </div>
-      </section>
+      <p className="text-xs text-muted-foreground">
+        Lê extratos do {BANCOS_LIDOS.slice(0, -1).join(", ")} e {BANCOS_LIDOS[BANCOS_LIDOS.length - 1]}.
+        Extrato escaneado também entra, lido por OCR, e leva mais tempo.
+        {p.driveUrl && (
+          <> <a href={p.driveUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-foreground/80 hover:text-foreground transition-colors">
+            Abrir a pasta no Drive <ExternalLink className="h-3 w-3" /></a></>
+        )}
+      </p>
     </div>
   );
 }
 
-/* ─────────────── análise em andamento ─────────────── */
+/* ─────────────── a análise em andamento ─────────────── */
 
-function Andamento({ fase, progresso, clienteNome, quantasRubricas }: {
-  fase: SaguaoProps["fase"]; progresso: ProgressoDaAnalise | null; clienteNome: string | null; quantasRubricas: number;
+function Andamento({ progresso, arquivosNaFila, onPularIa }: {
+  progresso: ProgressoDaAnalise | null; arquivosNaFila: number; onPularIa: () => void;
 }) {
-  const acabou = fase === "success" || fase === "noDiscount";
-  const pct = acabou ? 1 : percentualDaAnalise(progresso);
-  const relogio = useRelogio(progresso?.inicio ?? null, acabou);
-  const reduzir = useReducedMotion();
+  const relogio = useRelogio(progresso?.inicio ?? null, false);
+  const [confirmarPulo, setConfirmarPulo] = useState(false);
   const arquivos = progresso?.arquivos ?? [];
-  const lendo = arquivos.find((a) => a.estado === "lendo");
-  const indiceLendo = lendo ? arquivos.indexOf(lendo) : -1;
-  const temOcr = arquivos.some((a) => a.ocr);
   const etapa = progresso?.etapa ?? "leitura";
+  const lendo = arquivos.find((a) => a.estado === "lendo");
+  const temOcr = arquivos.some((a) => a.ocr && a.estado !== "lido");
+  const total = percentualDaAnalise(progresso);
+  const noAuditor = etapa === "auditor" && !progresso?.iaPulada;
 
-  const frase = useMemo(() => {
-    if (fase === "success") return `Pronto. Descontos em ${quantasRubricas} ${quantasRubricas === 1 ? "rubrica" : "rubricas"}. Abrindo o relatório…`;
-    if (fase === "noDiscount") return "Pronto. Nenhum desconto indevido nestes extratos. Abrindo o relatório…";
+  const frase = (() => {
     if (etapa === "leitura") {
       if (!lendo) return "Preparando a leitura…";
-      const qual = arquivos.length > 1 ? `Extrato ${indiceLendo + 1} de ${arquivos.length}` : "Lendo o extrato";
-      if (lendo.paginas === 0) return `${qual}: abrindo o PDF…`;
-      return `${qual}: página ${lendo.pagina} de ${lendo.paginas}${lendo.ocr ? " (OCR)" : ""}`;
+      const i = arquivos.indexOf(lendo);
+      const qual = arquivos.length > 1 ? `Extrato ${i + 1} de ${arquivos.length}` : "Lendo o extrato";
+      return lendo.paginas ? `${qual}, página ${lendo.pagina} de ${lendo.paginas}${lendo.ocr ? " por OCR" : ""}` : `${qual}, abrindo o PDF…`;
     }
-    if (etapa === "revisao") return "Revisando os lançamentos encontrados…";
-    if (etapa === "auditor") {
-      const a = progresso?.auditor;
-      return a && a.total > 0 ? `Auditor de IA conferindo: lote ${Math.min(a.feitos + 1, a.total)} de ${a.total}` : "Auditor de IA conferindo…";
-    }
+    if (etapa === "revisao") return "Revisando os lançamentos por código…";
+    if (etapa === "auditor") return progresso?.iaPulada ? "Pulando o auditor de IA…" : "Auditor de IA conferindo os descontos…";
     return "Agrupando por rubrica…";
-  }, [fase, etapa, lendo, indiceLendo, arquivos.length, progresso?.auditor, quantasRubricas]);
+  })();
 
-  const etapas: { chave: EtapaDaAnalise; rotulo: string; detalhe?: string }[] = [
-    { chave: "leitura", rotulo: arquivos.length > 1 ? `Leitura dos ${arquivos.length} extratos` : "Leitura do extrato" },
-    { chave: "revisao", rotulo: "Revisão automática", detalhe: "tira falso positivo e recupera o que o leitor perdeu" },
-    { chave: "auditor", rotulo: "Auditor de IA", detalhe: progresso?.auditor.total ? `${progresso.auditor.feitos} de ${progresso.auditor.total} lotes` : undefined },
-    { chave: "agrupamento", rotulo: "Agrupamento por rubrica" },
+  const etapas: { chave: Exclude<EtapaDaAnalise, "fim">; rotulo: string; detalhe: string | null }[] = [
+    { chave: "leitura", rotulo: arquivos.length > 1 ? `Leitura dos ${arquivos.length} extratos` : "Leitura do extrato",
+      detalhe: lendo?.paginas ? `página ${lendo.pagina} de ${lendo.paginas}${lendo.ocr ? ", OCR" : ""}` : null },
+    { chave: "revisao", rotulo: "Revisão por código", detalhe: "tira falso positivo e recupera o que a leitura perdeu" },
+    { chave: "auditor", rotulo: "Auditor de IA",
+      detalhe: progresso?.iaPulada ? "pulado" : progresso?.auditor.total ? `${progresso.auditor.total} ${progresso.auditor.total === 1 ? "lote" : "lotes"}` : null },
+    { chave: "agrupamento", rotulo: "Agrupamento por rubrica", detalhe: null },
   ];
   const estadoDa = (e: EtapaDaAnalise) => {
-    if (acabou) return "feito";
     const a = ORDEM.indexOf(etapa), b = ORDEM.indexOf(e);
     return a > b ? "feito" : a === b ? "rodando" : "fila";
   };
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-7">
+    <div className="space-y-4">
+      {/* A BARRA GERAL */}
+      <section className={cn(CARTAO, "p-5")}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-tight">
-              {acabou ? "Análise concluída" : "Analisando os extratos"}
-            </h2>
-            <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
-              {clienteNome ? `Extratos de ${clienteNome}` : arquivos.length === 1 ? arquivos[0].nome : `${arquivos.length} extratos`}
-            </p>
-          </div>
-          <span className="shrink-0 rounded-lg bg-muted px-2 py-1 font-mono text-[12px] tabular-nums text-muted-foreground">{relogio}</span>
-        </div>
-
-        {/* A BARRA */}
-        <div className="mt-6">
-          <div className="flex items-baseline justify-between gap-3">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.p key={frase}
+            <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-muted-foreground">Analisando</p>
+            {/* Anima quando MUDA A ETAPA, não a cada página: a frase muda várias
+                vezes por segundo na leitura, e um texto que sai e entra nesse
+                ritmo engasga e fica preso no antigo. */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.p key={etapa}
                 initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.18, ease: CURVA }}
-                className="min-w-0 truncate text-[13.5px] text-foreground/90">
+                className="mt-1 truncate text-sm text-foreground/90">
                 {frase}
               </motion.p>
             </AnimatePresence>
-            <span className="shrink-0 text-2xl font-semibold tabular-nums tracking-tight">{Math.floor(pct * 100)}%</span>
           </div>
-          <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(pct * 100)}>
-            <motion.div
-              className={cn("h-full rounded-full", acabou && fase === "success" ? "bg-emerald-500" : "bg-primary")}
-              initial={false}
-              animate={{ width: `${Math.max(pct * 100, 2)}%` }}
-              transition={reduzir ? { duration: 0 } : MOLA}
-            />
+          <div className="shrink-0 text-right">
+            <Porcento valor={total} className="block text-3xl font-semibold tracking-tight" />
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+              <Clock className="h-3 w-3" /> {relogio}
+            </span>
           </div>
         </div>
-
-        {/* AS ETAPAS */}
-        <ol className="mt-6 flex flex-col gap-1">
-          {etapas.map((e, i) => {
-            const est = estadoDa(e.chave);
-            return (
-              <motion.li key={e.chave}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, ease: CURVA, delay: i * 0.05 }}
-                className="rounded-xl px-2 py-2">
-                <div className="flex items-center gap-3">
-                  <EstadoIcone estado={est} />
-                  <span className={cn("text-[13.5px]", est === "fila" ? "text-muted-foreground" : "text-foreground")}>{e.rotulo}</span>
-                  {e.detalhe && est !== "fila" && (
-                    <span className="ml-auto truncate text-[11.5px] text-muted-foreground">{e.detalhe}</span>
-                  )}
-                </div>
-
-                {/* os extratos, um por um, dentro da leitura */}
-                {e.chave === "leitura" && arquivos.length > 0 && (
-                  <ul className="mt-2 ml-8 flex flex-col gap-2">
-                    {arquivos.map((a, j) => {
-                      const frac = a.estado === "lido" ? 1 : a.estado === "lendo" && a.paginas ? a.pagina / a.paginas : 0;
-                      return (
-                        <li key={`${a.nome}-${j}`} className="flex items-center gap-3">
-                          <FileText className={cn("h-3.5 w-3.5 shrink-0", a.estado === "falhou" ? "text-destructive" : "text-muted-foreground")} />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center justify-between gap-2 text-[12px]">
-                              <span className="truncate text-foreground/85">{a.nome}</span>
-                              <span className="shrink-0 tabular-nums text-muted-foreground">
-                                {a.estado === "falhou" ? "não abriu"
-                                  : a.estado === "lido" ? (a.paginas ? `${a.paginas} pág.` : "lido")
-                                  : a.estado === "lendo" && a.paginas ? `${a.pagina}/${a.paginas}${a.ocr ? " OCR" : ""}`
-                                  : a.estado === "lendo" ? "abrindo" : "na fila"}
-                              </span>
-                            </span>
-                            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-muted">
-                              <motion.span className={cn("block h-full rounded-full", a.estado === "falhou" ? "bg-destructive" : "bg-primary/70")}
-                                initial={false} animate={{ width: `${a.estado === "falhou" ? 100 : frac * 100}%` }}
-                                transition={reduzir ? { duration: 0 } : MOLA} />
-                            </span>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </motion.li>
-            );
-          })}
-        </ol>
-
-        <AnimatePresence initial={false}>
-          {temOcr && !acabou && (
-            <motion.p key="ocr"
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-              transition={MOLA}
-              className="overflow-hidden">
-              <span className="mt-4 flex items-start gap-2 rounded-xl bg-muted px-3 py-2.5 text-[12px] text-muted-foreground">
-                <ScanText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Este extrato é escaneado e está sendo lido por OCR, página por página. Em PDFs grandes isso passa de 10 minutos. Pode trocar de tela: a análise continua.
-              </span>
-            </motion.p>
-          )}
-        </AnimatePresence>
+        <div className="mt-4"><Barra valor={total} grossa /></div>
       </section>
 
-      <AnimatePresence>
-        {acabou && (
-          <motion.div key="fim"
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: CURVA }}
-            className="mt-4 flex items-center justify-center gap-2 text-[13px] text-muted-foreground">
-            {fase === "success"
-              ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              : <SearchX className="h-4 w-4" />}
-            Abrindo o relatório
-          </motion.div>
+      {/* AS ETAPAS, cada uma de 0 a 100% */}
+      <section className={cn(CARTAO, "divide-y divide-white/[0.05]")}>
+        {etapas.map((e, i) => {
+          const est = estadoDa(e.chave);
+          const frac = fracaoDaEtapa(progresso, e.chave);
+          return (
+            <motion.div key={e.chave} layout
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ ...MOLA, delay: i * 0.05 }}
+              className="px-5 py-4">
+              <div className="flex items-center gap-3">
+                <EstadoIcone estado={est} />
+                <span className={cn("text-sm font-medium", est === "fila" && "text-muted-foreground font-normal")}>{e.rotulo}</span>
+                <AnimatePresence initial={false}>
+                  {e.detalhe && est !== "fila" && (
+                    <motion.span key="detalhe" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      className="hidden sm:inline truncate text-xs text-muted-foreground">
+                      · {e.detalhe}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+                <Porcento valor={frac} className={cn("ml-auto text-sm font-medium", est === "fila" && "text-muted-foreground/60")} />
+              </div>
+              <div className="mt-2.5 pl-8">
+                <Barra valor={frac} cor={e.chave === "auditor" && progresso?.iaPulada ? "bg-amber-400" : est === "feito" ? "bg-emerald-500" : "bg-primary"} />
+              </div>
+
+              {/* os extratos, um por um */}
+              {e.chave === "leitura" && arquivos.length > 1 && (
+                <ul className="mt-3 pl-8 space-y-2.5">
+                  {arquivos.map((a, j) => (
+                    <motion.li key={`${a.nome}-${j}`}
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...MOLA, delay: j * 0.05 }}>
+                      <div className="flex items-center gap-2 text-xs">
+                        <FileText className={cn("h-3.5 w-3.5 shrink-0", a.estado === "falhou" ? "text-destructive" : "text-muted-foreground")} />
+                        <span className="min-w-0 flex-1 truncate text-foreground/85">{a.nome}</span>
+                        <span className="shrink-0 text-muted-foreground">
+                          {a.estado === "falhou" ? "não abriu" : a.estado === "fila" ? "na fila" : a.ocr && a.estado === "lendo" ? "OCR" : ""}
+                        </span>
+                        <Porcento valor={fracDoArquivo(a)} className="w-10 shrink-0 text-right text-muted-foreground" />
+                      </div>
+                      <div className="mt-1.5 pl-5">
+                        <Barra valor={fracDoArquivo(a)} cor={a.estado === "falhou" ? "bg-destructive" : a.estado === "lido" ? "bg-emerald-500/80" : "bg-primary/80"} />
+                      </div>
+                    </motion.li>
+                  ))}
+                </ul>
+              )}
+
+              {/* PULAR O AUDITOR: a saída para nunca ficar preso na IA */}
+              {e.chave === "auditor" && (
+                <AnimatePresence initial={false}>
+                  {noAuditor && (
+                    <motion.div key="pular"
+                      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                      transition={MOLA} className="overflow-hidden">
+                      <div className="mt-3 pl-8 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">Demorando? Dá para seguir só com a análise por código.</p>
+                        <Button size="sm" variant="outline" onClick={() => setConfirmarPulo(true)} className="h-8 gap-1.5">
+                          <FastForward className="h-3.5 w-3.5" /> Pular auditor de IA
+                        </Button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              )}
+            </motion.div>
+          );
+        })}
+      </section>
+
+      <AnimatePresence initial={false}>
+        {temOcr && (
+          <motion.p key="ocr" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }} transition={MOLA} className="overflow-hidden">
+            <span className="flex items-start gap-2 text-xs text-muted-foreground">
+              <ScanText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              Extrato escaneado: a leitura é por OCR, página por página, e em PDFs grandes passa de 10 minutos. Pode trocar de tela, a análise continua.
+            </span>
+          </motion.p>
         )}
       </AnimatePresence>
+
+      <AlertDialog open={confirmarPulo} onOpenChange={setConfirmarPulo}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <FastForward className="h-5 w-5 text-amber-400" /> Pular o auditor de IA?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>O relatório sai agora, só com a análise por código.</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>A IA confere cada desconto e derruba o que não é cobrança indevida. Sem ela, algum lançamento que ela teria descartado pode ficar no relatório.</li>
+                  <li>O que a IA já conferiu nesta análise é descartado, para o relatório não ficar metade conferido e metade não.</li>
+                  <li>Revise as rubricas antes de vincular ou gerar a análise comercial.</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar esperando</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmarPulo(false); onPularIa(); }} className="bg-amber-500 text-black hover:bg-amber-400">
+              Sim, pular
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -505,17 +539,17 @@ function EstadoIcone({ estado }: { estado: "feito" | "rodando" | "fila" }) {
       <AnimatePresence mode="wait" initial={false}>
         {estado === "feito" ? (
           <motion.span key="feito" initial={{ scale: 0.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}
-            transition={MOLA} className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/15 text-emerald-500">
+            transition={MOLA} className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/15 text-emerald-400">
             <Check className="h-3 w-3" strokeWidth={3} />
           </motion.span>
         ) : estado === "rodando" ? (
-          <motion.span key="rodando" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="text-primary">
+          <motion.span key="rodando" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+            transition={MOLA} className="text-primary">
             <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
           </motion.span>
         ) : (
           <motion.span key="fila" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="text-muted-foreground/50">
+            className="text-muted-foreground/40">
             <Circle className="h-3.5 w-3.5" />
           </motion.span>
         )}
@@ -524,19 +558,122 @@ function EstadoIcone({ estado }: { estado: "feito" | "rodando" | "fila" }) {
   );
 }
 
-/* ─────────────── falhou ─────────────── */
+/* ─────────────── o desfecho ─────────────── */
 
-function Falhou({ erro, onRecomecar }: { erro: string; onRecomecar: () => void }) {
+type Desfecho = "achou" | "conferir" | "nada" | "titulares" | "erro";
+
+const TOM: Record<Desfecho, { anel: string; fundo: string; texto: string }> = {
+  achou: { anel: "border-emerald-400/50", fundo: "bg-emerald-500/10", texto: "text-emerald-400" },
+  conferir: { anel: "border-amber-400/50", fundo: "bg-amber-400/10", texto: "text-amber-400" },
+  nada: { anel: "border-rose-400/50", fundo: "bg-rose-500/10", texto: "text-rose-400" },
+  titulares: { anel: "border-amber-400/50", fundo: "bg-amber-400/10", texto: "text-amber-400" },
+  erro: { anel: "border-rose-400/50", fundo: "bg-rose-500/10", texto: "text-rose-400" },
+};
+
+/** O selo animado: círculo que cresce, anéis que se abrem e o traço desenhado. */
+function Selo({ tipo }: { tipo: Desfecho }) {
+  const reduzir = useReducedMotion();
+  const t = TOM[tipo];
+  const desenho = { initial: { pathLength: reduzir ? 1 : 0 }, animate: { pathLength: 1 }, transition: { duration: 0.45, ease: CURVA, delay: 0.25 } };
   return (
-    <div className="mx-auto max-w-lg">
-      <section className="rounded-2xl border border-border bg-card p-6 text-center">
-        <span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-destructive/10 text-destructive">
-          <AlertTriangle className="h-5 w-5" />
-        </span>
-        <h2 className="mt-4 text-lg font-semibold tracking-tight">Não deu para analisar</h2>
-        <p className="mx-auto mt-1.5 max-w-sm text-[13.5px] leading-relaxed text-muted-foreground">{erro}</p>
-        <Button onClick={onRecomecar} variant="outline" className="mt-5">Voltar para a fila</Button>
-      </section>
+    <div className="relative mx-auto h-28 w-28">
+      {!reduzir && [0, 1].map((k) => (
+        <motion.span key={k} className={cn("absolute inset-0 rounded-full border-2", t.anel)}
+          initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1.55, opacity: [0, 0.9, 0] }}
+          transition={{ duration: 1.4, ease: "easeOut", delay: 0.15 + k * 0.25 }} />
+      ))}
+      <motion.div className={cn("absolute inset-2 grid place-items-center rounded-full border-2", t.anel, t.fundo, t.texto)}
+        initial={{ scale: reduzir ? 1 : 0, rotate: reduzir ? 0 : -20 }} animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 16 }}>
+        {tipo === "titulares" ? (
+          <motion.span initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ ...MOLA, delay: 0.25 }}>
+            <Users className="h-10 w-10" />
+          </motion.span>
+        ) : (
+          <svg viewBox="0 0 24 24" className="h-11 w-11" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {tipo === "achou" && <motion.path d="M5 12.5l4.5 4.5L19 7.5" {...desenho} />}
+            {tipo === "nada" && <><motion.path d="M7 7l10 10" {...desenho} /><motion.path d="M17 7L7 17" {...desenho} transition={{ ...desenho.transition, delay: 0.4 }} /></>}
+            {(tipo === "conferir" || tipo === "erro") && <>
+              <motion.path d="M12 4L2.5 20h19L12 4z" {...desenho} />
+              <motion.path d="M12 10v4.5" {...desenho} transition={{ ...desenho.transition, delay: 0.55 }} />
+              <motion.path d="M12 17.5h.01" {...desenho} transition={{ ...desenho.transition, delay: 0.7 }} />
+            </>}
+          </svg>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+function TelaDeDesfecho({ tipo, ...p }: SaguaoProps & { tipo: Desfecho }) {
+  const r = p.resumo;
+  const titulo = {
+    achou: "Descontos indevidos encontrados",
+    conferir: "Descontos encontrados, com pontos a conferir",
+    nada: "Nenhum desconto indevido",
+    titulares: "Extratos de pessoas diferentes",
+    erro: "Não deu para analisar",
+  }[tipo];
+  const frase = {
+    achou: `${r.rubricas} ${r.rubricas === 1 ? "rubrica" : "rubricas"}, ${brl(r.total)} a restituir. Abrindo o relatório…`,
+    conferir: `${r.rubricas} ${r.rubricas === 1 ? "rubrica" : "rubricas"}, ${brl(r.total)}. ${r.conferir} ${r.conferir === 1 ? "lançamento ficou" : "lançamentos ficaram"} com baixa confiança e ${r.conferir === 1 ? "está marcado" : "estão marcados"} no relatório para você conferir.`,
+    nada: "A leitura terminou e nenhum lançamento destes extratos é cobrança indevida. Abrindo o relatório…",
+    titulares: "A fila tem extratos de mais de um titular. O certo é analisar um por vez; juntar só faz sentido de propósito, como um casal com contas separadas.",
+    erro: p.erro,
+  }[tipo];
+
+  return (
+    <section className={cn(CARTAO, "mx-auto max-w-xl px-6 py-10 text-center")}>
+      <Selo tipo={tipo} />
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: CURVA, delay: 0.45 }}>
+        <h2 className="mt-6 text-xl font-semibold tracking-tight">{titulo}</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{frase}</p>
+
+        {p.progresso?.iaPulada && (tipo === "achou" || tipo === "conferir" || tipo === "nada") && (
+          <p className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs text-amber-300 ring-1 ring-inset ring-amber-400/25">
+            <FastForward className="h-3 w-3" /> Só análise por código: o auditor de IA foi pulado
+          </p>
+        )}
+
+        {tipo === "titulares" && (
+          <>
+            <ul className="mx-auto mt-5 max-w-sm space-y-1.5 text-left">
+              {(p.titulares ?? []).map((n, i) => (
+                <motion.li key={n} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...MOLA, delay: 0.55 + i * 0.05 }}
+                  className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm ring-1 ring-inset ring-white/[0.06]">
+                  <UserRound className="h-3.5 w-3.5 text-muted-foreground" /> {n}
+                </motion.li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-muted-foreground">Juntos, os descontos de todos saem num relatório só, sem separar por pessoa.</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <Button variant="outline" onClick={p.onAnalisarMesmoAssim}>Analisar juntos</Button>
+              <Button onClick={p.onAjustarArquivos}>Ajustar a fila</Button>
+            </div>
+          </>
+        )}
+        {tipo === "erro" && (
+          <div className="mt-6"><Button variant="outline" onClick={p.onRecomecar}>Voltar para a fila</Button></div>
+        )}
+        {(tipo === "achou" || tipo === "conferir" || tipo === "nada") && (
+          <div className="mx-auto mt-6 max-w-xs">
+            <BarraDeEspera duracao={tipo === "conferir" ? 3.6 : tipo === "nada" ? 3 : 2.6} />
+          </div>
+        )}
+      </motion.div>
+    </section>
+  );
+}
+
+/** A contagem até o relatório abrir, para o desfecho não parecer travado. */
+function BarraDeEspera({ duracao }: { duracao: number }) {
+  const reduzir = useReducedMotion();
+  return (
+    <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+      <motion.div className="h-full rounded-full bg-foreground/30"
+        initial={{ width: "0%" }} animate={{ width: "100%" }}
+        transition={reduzir ? { duration: 0 } : { duration: duracao - 0.5, ease: "linear", delay: 0.5 }} />
     </div>
   );
 }
@@ -587,7 +724,7 @@ function EscolherDoDrive(p: SaguaoProps) {
                       transition={{ duration: 0.25, ease: CURVA, delay: Math.min(i, 10) * 0.05 }}>
                       <button type="button" role="checkbox" aria-checked={marcado} onClick={() => p.onDriveAlternar(f.id)}
                         className={cn("flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                          marcado ? "border-primary/40 bg-primary/[0.06]" : "border-border hover:bg-foreground/[0.03]")}>
+                          marcado ? "border-primary/40 bg-primary/[0.06]" : "border-border hover:bg-white/[0.03]")}>
                         <span className={cn("grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors",
                           marcado ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
                           {marcado && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -595,7 +732,7 @@ function EscolherDoDrive(p: SaguaoProps) {
                         <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium">{f.name}</span>
-                          <span className="block text-[11px] text-muted-foreground">{[kb(f.size), tipo].filter(Boolean).join(" · ")}</span>
+                          <span className="block text-[11px] text-muted-foreground">{[tamanho(f.size), tipo].filter(Boolean).join(" · ")}</span>
                         </span>
                       </button>
                     </motion.li>
@@ -617,45 +754,6 @@ function EscolherDoDrive(p: SaguaoProps) {
               Pôr na fila
             </Button>
           </span>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/* ─────────────── titulares diferentes ─────────────── */
-
-function TitularesDiferentes({ titulares, onAjustar, onMesmoAssim }: {
-  titulares: string[] | null; onAjustar: () => void; onMesmoAssim: () => void;
-}) {
-  return (
-    <Dialog open={!!titulares} onOpenChange={(a) => { if (!a) onAjustar(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader className="text-left">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Users className="h-4 w-4 text-amber-500" /> Extratos de pessoas diferentes
-          </DialogTitle>
-          <DialogDescription className="text-[13px] leading-relaxed">
-            A fila tem extratos de mais de um titular. O certo é analisar um titular por vez; juntar só faz sentido
-            quando é de propósito, como um casal com contas separadas.
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="flex flex-col gap-1.5 rounded-xl border border-border bg-muted/40 p-2">
-          {(titulares ?? []).map((n, i) => (
-            <motion.li key={n}
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: CURVA, delay: i * 0.05 }}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]">
-              <UserRound className="h-3.5 w-3.5 text-muted-foreground" /> {n}
-            </motion.li>
-          ))}
-        </ul>
-        <p className="text-[12px] text-muted-foreground">
-          Juntos, os descontos de todos saem num relatório só, sem separar por pessoa.
-        </p>
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={onMesmoAssim}>Analisar juntos</Button>
-          <Button onClick={onAjustar}>Ajustar a fila</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

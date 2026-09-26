@@ -585,6 +585,14 @@ export default function App({
   const [progresso, setProgresso] = useState(null);
   const mexerNoProgresso = useCallback((fn) => setProgresso(p => (p ? fn(p) : p)), []);
   const umQuadro = () => new Promise(r => setTimeout(r, 40));
+  /* "Pular auditor de IA": derruba o lote em andamento e o relatório sai só
+     da análise por código (ver refineWithLLM). */
+  const iaRef = useRef(null);
+  const pularIa = useCallback(() => {
+    if (!iaRef.current) return;
+    mexerNoProgresso(p => ({ ...p, iaPulada: true }));
+    iaRef.current.abort();
+  }, [mexerNoProgresso]);
   const [grouped, setGrouped] = useState({});
   const [meta, setMeta] = useState({});
   const [activeModal, setActiveModal] = useState(null);
@@ -787,11 +795,18 @@ export default function App({
     // Fase B: AWFINDER REVISOR audita TODAS as tx classificadas via LLM com
     // cross-check ULTRA (triple-gate no n8n). Falha silenciosa se webhook off.
     if (FINDER_LLM_URL) {
+      const ctrl = new AbortController();
+      iaRef.current = ctrl;
       try {
         auto = await refineWithLLM(auto, FINDER_LLM_URL, {
           onProgress: (feitos, total) => mexerNoProgresso(p => ({ ...p, auditor: { feitos, total } })),
+          signal: ctrl.signal,
         });
       } catch (e) { console.warn("AWFINDER REVISOR falhou:", e); }
+      finally { iaRef.current = null; }
+      if (ctrl.signal.aborted) {
+        auto = { ...auto, summary: (auto.summary || "") + " · auditor de IA pulado, análise só por código" };
+      }
     }
     mexerNoProgresso(p => ({ ...p, etapa: "agrupamento" }));
     await umQuadro();
@@ -813,7 +828,10 @@ export default function App({
     setExcludedKeys(new Set()); setManualAdditions({});
     const fileList = results.map(r=>r.file);
     setFileName(fileList.length===1?fileList[0].name:`${fileList.length} documentos analisados`);
-    if (Object.keys(g).length>0) { setPhase("success"); setTimeout(()=>setPhase("results"),2200); }
+    /* O DESFECHO fica na tela o bastante para ser lido: com pontos a conferir,
+       um pouco mais, porque ali tem uma frase que importa. */
+    const aConferir = auto.needsHumanReview ? ((auto.residualSuspicious?.length || 0) + (auto.residualMissing?.length || 0)) : 0;
+    if (Object.keys(g).length>0) { setPhase("success"); setTimeout(()=>setPhase("results"), aConferir > 0 ? 3600 : 2600); }
     else { setPhase("noDiscount"); setTimeout(()=>setPhase("results"),3000); }
   }, [mexerNoProgresso]);
 
@@ -1334,7 +1352,16 @@ export default function App({
           progresso={progresso}
           erro={errorMsg}
           onRecomecar={()=>{ setErrorMsg(""); setPhase("upload"); }}
-          quantasRubricas={Object.keys(grouped).length}
+          onPularIa={pularIa}
+          resumo={(() => {
+            const gs = Object.values(grouped);
+            const conferir = reviewReport?.needsHumanReview ? ((reviewReport.suspicious?.length || 0) + (reviewReport.missing?.length || 0)) : 0;
+            return {
+              rubricas: gs.filter(g2 => !g2.cat.naoReembolsavel).length,
+              total: gs.filter(g2 => !g2.cat.naoReembolsavel).reduce((t, g2) => t + g2.items.reduce((u, it) => u + (Number(it.valor) || 0), 0), 0),
+              conferir,
+            };
+          })()}
           onAbrirDrive={abrirDrive}
           drive={{ aberto: driveAberto, carregando: driveCarregando, arquivos: driveArquivos, selecionados: driveSel, erro: driveErro, baixando: driveBaixando, progresso: driveProgresso }}
           onDriveAlternar={(id)=>setDriveSel(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; })}
