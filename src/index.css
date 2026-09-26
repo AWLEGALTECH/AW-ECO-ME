@@ -580,6 +580,15 @@ body {
   .lupa-varre { animation: lupa-varre 1.8s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) { .lupa-varre { animation: none; } }
 
+  /* FINDER, relatório para o cliente: o número do prejuízo pulsa em vermelho.
+     É a única tela do Finder que é exagerada de propósito. */
+  @keyframes finder-pulso {
+    0%, 100% { transform: scale(1);    text-shadow: 0 0 40px rgba(239,68,68,0.5), 0 0 80px rgba(239,68,68,0.2); }
+    50%      { transform: scale(1.02); text-shadow: 0 0 60px rgba(239,68,68,0.7), 0 0 100px rgba(239,68,68,0.35); }
+  }
+  .finder-pulso { animation: finder-pulso 2.5s ease-in-out infinite; text-shadow: 0 0 40px rgba(239,68,68,0.5), 0 0 80px rgba(239,68,68,0.2); }
+  @media (prefers-reduced-motion: reduce) { .finder-pulso { animation: none; } }
+
   /* Fechamentos gamificados — pulso de brilho pro multiplicador especial ativo */
   @keyframes fech-glow {
     0%, 100% { box-shadow: 0 0 0 0 hsla(38,92%,50%,0.45); }

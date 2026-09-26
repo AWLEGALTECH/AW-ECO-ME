@@ -240,7 +240,15 @@ desfecho são agora `src/apps/finder/Saguao.tsx`, no padrão visual do AW
 (tokens, componentes, lucide, framer), sem inversão de tema. A análise tem
 barra de progresso real: página a página de cada extrato (inclusive OCR),
 lote a lote do auditor de IA (`refineWithLLM(..., { onProgress })`) e etapa a
-etapa. A tela de resultados segue a antiga, em `.aw-finder-legado`.
+etapa.
+
+**Relatório refeito (26/09).** Todo o resto também virou tela do AW, sem a
+inversão de tema: o relatório (`Resultados.tsx`, com as decisões numa barra
+só: vincular, extrair e análise comercial), a janela de lançamentos da
+rubrica e a de mover lançamento (`JanelaDaRubrica.tsx`) e o relatório para o
+cliente (`RelatorioDoCliente.tsx`, exagerado de propósito). O
+`.aw-finder-legado` e o CSS à mão saíram. Vincular é o hook `useVincular`
+(`vincular.jsx`), com o mesmo gravado de antes.
 
 **Falta, na ordem:**
 1. Conferência com extratos reais do escritório e uso real com `?nativo=1`.

@@ -57,19 +57,14 @@ export function periodoDosItens(itens) {
 /* O nome de aba que o Excel aceita. */
 export const nomeDeAba = (s) => String(s || "").replace(/[:\\/?*[\]]/g, "-").trim().slice(0, 31) || "Planilha";
 
-const VERDE_BG = "rgba(16,185,129,0.12)";
-const VERDE_BORDA = "rgba(16,185,129,0.45)";
-const VERDE_TEXTO = "#34d399";
-const VERDE_HOVER = "rgba(16,185,129,0.22)";
-
 /* ─────────────────────────────────────────────
    VINCULAR, a lógica sem o botão
    - uma categoria: `produceBlob` + `desconto`
    - várias (lote): `produceCombinedBlob` + `batchLabels`
    Com cliente no contexto, vincula direto; sem, pergunta qual.
    Devolve `clicar`, `ocupado` e a `janela` de escolher o cliente, que quem usa
-   põe na tela. Assim o botão da janela da rubrica e o da barra de decisão
-   do relatório são a mesma coisa, cada um com a sua cara.
+   põe na tela. Assim o botão da janela da rubrica (JanelaDaRubrica.tsx) e o
+   da barra de decisão do relatório (Resultados.tsx) são a mesma coisa.
 ───────────────────────────────────────────── */
 export function useVincular({ produceBlob, desconto, produceCombinedBlob, batchLabels, bancoMeta, onVinculado, ponte: ponteDada }) {
   /* `ponte` explícita para quem usa o hook ACIMA do PonteFinder.Provider (o
@@ -143,30 +138,6 @@ export function useVincular({ produceBlob, desconto, produceCombinedBlob, batchL
     ? `Cria UMA analise combinada com ${batchLabels.length} categoria${batchLabels.length>1?"s":""}: ${batchLabels.join(", ")}`
     : cliente?.id ? "Vincular ao cliente atual" : "Escolher cliente";
   return { clicar, ocupado, janela, dica, emLote };
-}
-
-/* O BOTÃO "Vincular Análise" da janela da rubrica (tela antiga). */
-export function VincularBotao({ compact, ...opcoes }) {
-  const { clicar, ocupado, janela, dica, emLote } = useVincular(opcoes);
-  const { batchLabels } = opcoes;
-  const rotulo = ocupado ? "Vinculando…" : emLote ? `Vincular ${batchLabels.length} Análise${batchLabels.length > 1 ? "s" : ""}` : "Vincular Análise";
-  const tam = compact ? "11" : "13";
-
-  return (
-    <>
-      <button onClick={clicar} disabled={ocupado}
-        style={{ display:"inline-flex",alignItems:"center",gap:7,background:VERDE_BG,border:`1px solid ${VERDE_BORDA}`,borderRadius:compact?6:8,color:VERDE_TEXTO,fontFamily:"Inter,sans-serif",fontSize:compact?"0.62rem":"0.7rem",fontWeight:700,letterSpacing:compact?"1px":"1.5px",textTransform:"uppercase",padding:compact?"5px 12px":"8px 14px",cursor:ocupado?"wait":"pointer",transition:"all 0.18s",whiteSpace:"nowrap",flexShrink:0 }}
-        onMouseEnter={e=>{ if(!ocupado){ e.currentTarget.style.background=VERDE_HOVER; e.currentTarget.style.boxShadow="0 0 16px rgba(16,185,129,0.25)"; } }}
-        onMouseLeave={e=>{ e.currentTarget.style.background=VERDE_BG; e.currentTarget.style.boxShadow="none"; }}
-        title={dica}>
-        {ocupado
-          ? <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation:"spin 0.8s linear infinite" }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-          : <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
-        {rotulo}
-      </button>
-      {janela}
-    </>
-  );
 }
 
 /* ─────────────────────────────────────────────
