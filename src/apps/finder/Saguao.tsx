@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { motion, AnimatePresence, useReducedMotion, animate } from "framer-motion";
 import {
-  ScanSearch, Upload, FileText, X, Play, FolderOpen, ExternalLink, Check, Loader2,
+  FileText, X, Play, FolderOpen, ExternalLink, Check, Loader2,
   AlertTriangle, UserRound, Circle, ScanText, Plus, FastForward, Users, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,17 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { LogoBradesco, Lupa, OrbitaDeAnalises } from "./marcas";
 
 const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 const CURVA = [0.22, 1, 0.36, 1] as const;
 const CARTAO = "rounded-2xl border border-white/[0.07] bg-white/[0.03]";
 
-const BANCOS_LIDOS = ["Bradesco", "Itaú", "Santander", "Agibank"];
+/* As análises que o Finder faz. Hoje uma só; o lobby já está desenhado para a
+   lista crescer (ver OrbitaDeAnalises). */
+const ANALISES = [{ chave: "bradesco", rotulo: "Extratos Bradesco" }] as const;
+
+const chaveDoArquivo = (f: File) => `${f.name}-${f.size}-${f.lastModified}`;
 
 const tamanho = (bytes?: number | string | null) => {
   const n = typeof bytes === "string" ? parseInt(bytes, 10) : bytes ?? 0;
@@ -187,6 +192,22 @@ export function SaguaoFinder(p: SaguaoProps) {
       : null;
   const naFila = p.fase === "upload" && !desfecho;
 
+  /* DETECÇÃO DO BANCO. Por enquanto o Finder só lê Bradesco, então a
+     detecção é de fachada: cada extrato que entra passa pela lupa e sai
+     identificado. Quando entrar outro banco, este é o lugar da leitura de
+     verdade (o cabeçalho da primeira página já diz o banco). */
+  const [detectados, setDetectados] = useState<Record<string, "lendo" | "bradesco">>({});
+  useEffect(() => {
+    const novos = p.arquivos.map(chaveDoArquivo).filter((k) => !detectados[k]);
+    if (!novos.length) return;
+    setDetectados((d) => ({ ...d, ...Object.fromEntries(novos.map((k) => [k, "lendo" as const])) }));
+    const timers = novos.map((k, i) => window.setTimeout(
+      () => setDetectados((d) => ({ ...d, [k]: "bradesco" })), 1300 + i * 450));
+    return () => timers.forEach(window.clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.arquivos]);
+  const identificando = p.arquivos.some((f) => detectados[chaveDoArquivo(f)] !== "bradesco");
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="w-full space-y-6 px-3 py-3 sm:px-6 sm:py-6">
@@ -197,7 +218,7 @@ export function SaguaoFinder(p: SaguaoProps) {
         <header className="flex items-end justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <ScanSearch className="h-6 w-6 text-primary" /> Finder
+              <Lupa className="h-6 w-6 text-primary" /> Finder
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               {p.clienteNome
@@ -222,8 +243,16 @@ export function SaguaoFinder(p: SaguaoProps) {
                   {p.arquivos.length > 0 && (
                     <motion.div key="analisar" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.94 }} transition={MOLA}>
-                      <Button onClick={p.onAnalisar} className="gap-1.5">
-                        <Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` ${p.arquivos.length} extratos` : ""}
+                      <Button onClick={p.onAnalisar} disabled={identificando} className="gap-1.5 min-w-[9.5rem]">
+                        <AnimatePresence mode="wait" initial={false}>
+                          <motion.span key={identificando ? "id" : "ok"} className="inline-flex items-center gap-1.5"
+                            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.16, ease: CURVA }}>
+                            {identificando
+                              ? <><Loader2 className="h-4 w-4 animate-spin" /> Identificando…</>
+                              : <><Play className="h-4 w-4" /> Analisar{p.arquivos.length > 1 ? ` ${p.arquivos.length} extratos` : ""}</>}
+                          </motion.span>
+                        </AnimatePresence>
                       </Button>
                     </motion.div>
                   )}
@@ -233,12 +262,36 @@ export function SaguaoFinder(p: SaguaoProps) {
           </AnimatePresence>
         </header>
 
+        {/* AS ANÁLISES DO FINDER. Uma aba por análise, com a marca que desliza
+            (layoutId) quando houver mais de uma. As que vêm por aí aparecem
+            como vaga, sem clique. */}
+        <AnimatePresence initial={false}>
+          {naFila && (
+            <motion.div key="analises" className="flex flex-wrap items-center gap-2"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3, ease: CURVA, delay: 0.05 }}>
+              <div className="inline-flex rounded-xl bg-white/[0.03] border border-white/[0.07] p-1">
+                {ANALISES.map((a) => (
+                  <span key={a.chave} className="relative inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium">
+                    <motion.span layoutId="analise-ativa" transition={MOLA} className="absolute inset-0 rounded-lg bg-primary/15" />
+                    <LogoBradesco className="relative h-4 w-4 text-foreground" desenhar atraso={0.2} />
+                    <span className="relative text-primary">{a.rotulo}</span>
+                  </span>
+                ))}
+              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-white/[0.1] px-3 py-2 text-xs text-muted-foreground/60">
+                <Plus className="h-3.5 w-3.5" /> Outras análises em breve
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence mode="wait" initial={false}>
           {naFila && (
             <motion.div key="fila"
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, ease: CURVA }}>
-              <Fila {...p} onEscolher={escolher} />
+              <Fila {...p} onEscolher={escolher} detectados={detectados} />
             </motion.div>
           )}
           {analisando && !desfecho && (
@@ -265,7 +318,7 @@ export function SaguaoFinder(p: SaguaoProps) {
 
 /* ─────────────── a fila ─────────────── */
 
-function Fila(p: SaguaoProps & { onEscolher: () => void }) {
+function Fila(p: SaguaoProps & { onEscolher: () => void; detectados: Record<string, "lendo" | "bradesco"> }) {
   const [sobre, setSobre] = useState(false);
   const soltar = (e: DragEvent) => {
     e.preventDefault();
@@ -277,7 +330,7 @@ function Fila(p: SaguaoProps & { onEscolher: () => void }) {
   return (
     <div className="space-y-4"
       onDragOver={(e) => { e.preventDefault(); setSobre(true); }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setSobre(false); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setSobre(false); }}
       onDrop={soltar}>
       <AnimatePresence initial={false}>
         {p.aviso && (
@@ -290,58 +343,104 @@ function Fila(p: SaguaoProps & { onEscolher: () => void }) {
         )}
       </AnimatePresence>
 
-      {vazia ? (
-        /* ESTADO VAZIO, que também é o lugar de soltar os arquivos */
-        <button type="button" onClick={p.onEscolher}
-          className={cn("group w-full rounded-2xl border border-dashed px-6 py-16 text-center transition-colors",
-            sobre ? "border-primary/60 bg-primary/[0.05]" : "border-border/60 bg-white/[0.01] hover:border-primary/40")}>
-          <motion.span animate={{ y: sobre ? -4 : 0 }} transition={MOLA} className="inline-block">
-            <Upload className={cn("h-10 w-10 mx-auto mb-3 transition-colors", sobre ? "text-primary" : "text-muted-foreground/25 group-hover:text-primary/60")} />
-          </motion.span>
-          <p className="text-sm font-medium">{sobre ? "Solte para pôr na fila" : "Arraste os extratos em PDF para cá"}</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            ou clique para escolher{p.driveFolderId ? ", ou busque na pasta do cliente" : ""}. Até 100 MB por arquivo.
-          </p>
-        </button>
-      ) : (
-        <div className={cn(CARTAO, "overflow-hidden transition-colors", sobre && "border-primary/40")}>
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06]">
-            <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-muted-foreground">
-              Fila de análise <span className="ml-1 tabular-nums text-foreground/70">{p.arquivos.length}</span>
-            </p>
-            <button type="button" onClick={p.onEscolher}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
-              <Plus className="h-3.5 w-3.5" /> mais PDFs
-            </button>
-          </div>
-          <ul className="divide-y divide-white/[0.05]">
-            <AnimatePresence initial={false}>
-              {p.arquivos.map((f, i) => (
-                <motion.li key={`${f.name}-${f.size}`} layout
-                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 12 }}
-                  transition={{ ...MOLA, delay: Math.min(i, 8) * 0.05 }}
-                  className="flex items-center gap-3 px-4 py-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
-                    <FileText className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{f.name}</span>
-                    <span className="block text-xs text-muted-foreground">{tamanho(f.size) ?? "PDF"} · PDF</span>
-                  </span>
-                  <button type="button" onClick={() => p.onRemover(i)} aria-label={`Tirar ${f.name} da fila`}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-                    <X className="h-4 w-4" />
-                  </button>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </ul>
-        </div>
-      )}
+      <AnimatePresence mode="wait" initial={false}>
+        {vazia ? (
+          /* ESTADO VAZIO: a órbita do Finder, que também é o lugar de soltar */
+          <motion.button key="vazia" type="button" onClick={p.onEscolher}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.3, ease: CURVA }}
+            className={cn("group w-full rounded-2xl border border-dashed px-6 py-10 sm:py-12 transition-colors",
+              sobre ? "border-primary/60 bg-primary/[0.05]" : "border-border/60 bg-white/[0.01] hover:border-primary/40")}>
+            <div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-center sm:gap-10">
+              <OrbitaDeAnalises ativa={sobre} tamanho={228} />
+              <div className="text-center sm:text-left max-w-sm">
+                <p className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-inset ring-white/[0.06]">
+                  <LogoBradesco className="h-3 w-3 text-foreground" /> Extratos Bradesco
+                </p>
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.p key={sobre ? "solta" : "arrasta"} className="mt-3 text-base font-semibold tracking-tight"
+                    initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.16, ease: CURVA }}>
+                    {sobre ? "Solte para a lupa ler" : "Arraste os extratos em PDF para cá"}
+                  </motion.p>
+                </AnimatePresence>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  ou clique para escolher{p.driveFolderId ? ", ou busque na pasta do cliente" : ""}. O Finder identifica o banco
+                  e separa o que é cobrança indevida. Até 100 MB por arquivo.
+                </p>
+              </div>
+            </div>
+          </motion.button>
+        ) : (
+          <motion.div key="cheia"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3, ease: CURVA }}
+            className={cn(CARTAO, "overflow-hidden transition-colors", sobre && "border-primary/40")}>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06]">
+              <p className="text-[11px] uppercase tracking-[0.14em] font-medium text-muted-foreground">
+                Fila de análise <span className="ml-1 tabular-nums text-foreground/70">{p.arquivos.length}</span>
+              </p>
+              <button type="button" onClick={p.onEscolher}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
+                <Plus className="h-3.5 w-3.5" /> mais PDFs
+              </button>
+            </div>
+            <ul className="divide-y divide-white/[0.05]">
+              <AnimatePresence initial={false}>
+                {p.arquivos.map((f, i) => {
+                  const est = p.detectados[chaveDoArquivo(f)] ?? "lendo";
+                  return (
+                    <motion.li key={chaveDoArquivo(f)} layout
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 12 }}
+                      transition={{ ...MOLA, delay: Math.min(i, 8) * 0.05 }}
+                      className="relative flex items-center gap-3 px-4 py-3 overflow-hidden">
+                      <Detector estado={est} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{f.name}</span>
+                        <AnimatePresence mode="wait" initial={false}>
+                          <motion.span key={est} className="block text-xs text-muted-foreground"
+                            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                            transition={{ duration: 0.18, ease: CURVA }}>
+                            {est === "lendo"
+                              ? <>{tamanho(f.size) ?? "PDF"} · identificando o banco…</>
+                              : <>{tamanho(f.size) ?? "PDF"} · extrato do Bradesco</>}
+                          </motion.span>
+                        </AnimatePresence>
+                      </span>
+                      <AnimatePresence initial={false}>
+                        {est === "bradesco" && (
+                          <motion.span key="selo"
+                            initial={{ opacity: 0, scale: 0.8, x: 6 }} animate={{ opacity: 1, scale: 1, x: 0 }} exit={{ opacity: 0 }}
+                            transition={{ ...MOLA, delay: 0.35 }}
+                            className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/25">
+                            <Check className="h-3 w-3" strokeWidth={3} /> Bradesco
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                      <button type="button" onClick={() => p.onRemover(i)} aria-label={`Tirar ${f.name} da fila`}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                        <X className="h-4 w-4" />
+                      </button>
+                      {/* a varredura: uma faixa que passa pela linha enquanto a lupa lê */}
+                      <AnimatePresence>
+                        {est === "lendo" && (
+                          <motion.span key="varre" aria-hidden
+                            className="pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-primary/[0.07] to-transparent"
+                            initial={{ left: "-35%" }} animate={{ left: "105%" }} exit={{ opacity: 0 }}
+                            transition={{ duration: 1.1, ease: "easeInOut", repeat: Infinity }} />
+                        )}
+                      </AnimatePresence>
+                    </motion.li>
+                  );
+                })}
+              </AnimatePresence>
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <p className="text-xs text-muted-foreground">
-        Lê extratos do {BANCOS_LIDOS.slice(0, -1).join(", ")} e {BANCOS_LIDOS[BANCOS_LIDOS.length - 1]}.
-        Extrato escaneado também entra, lido por OCR, e leva mais tempo.
+        Por enquanto o Finder lê extratos do Bradesco. Extrato escaneado também entra, lido por OCR, e leva mais tempo.
         {p.driveUrl && (
           <> <a href={p.driveUrl} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-foreground/80 hover:text-foreground transition-colors">
@@ -349,6 +448,36 @@ function Fila(p: SaguaoProps & { onEscolher: () => void }) {
         )}
       </p>
     </div>
+  );
+}
+
+/** O quadradinho do arquivo: a lupa varre o documento e, identificado, vira a
+ *  marca do banco desenhada na hora. */
+function Detector({ estado }: { estado: "lendo" | "bradesco" }) {
+  const reduzir = useReducedMotion();
+  return (
+    <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-inset ring-white/[0.08]">
+      <AnimatePresence mode="wait" initial={false}>
+        {estado === "lendo" ? (
+          <motion.span key="lendo" className="relative grid h-full w-full place-items-center text-muted-foreground"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.7 }}
+            transition={{ duration: 0.18, ease: CURVA }}>
+            <FileText className="h-4 w-4 opacity-50" />
+            <motion.span className="absolute text-primary"
+              animate={reduzir ? undefined : { x: [-7, 7, -7], y: [-5, 4, -5] }}
+              transition={{ duration: 1.6, ease: "easeInOut", repeat: Infinity }}>
+              <Lupa className="h-4 w-4" />
+            </motion.span>
+          </motion.span>
+        ) : (
+          <motion.span key="bradesco" className="grid h-full w-full place-items-center text-foreground"
+            initial={{ opacity: 0, scale: 0.6, rotate: -12 }} animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 18 }}>
+            <LogoBradesco className="h-6 w-6" desenhar />
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
   );
 }
 
