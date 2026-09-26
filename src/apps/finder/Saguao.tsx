@@ -279,8 +279,8 @@ export function SaguaoFinder(p: SaguaoProps) {
                   </span>
                 ))}
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-white/[0.1] px-3 py-2 text-xs text-muted-foreground/60">
-                <Plus className="h-3.5 w-3.5" /> Outras análises em breve
+              <span className="inline-flex items-center rounded-xl border border-dashed border-white/[0.1] px-3 py-2 text-xs text-muted-foreground/60">
+                Outras análises em breve
               </span>
             </motion.div>
           )}
@@ -454,20 +454,20 @@ function Fila(p: SaguaoProps & { onEscolher: () => void; detectados: Record<stri
 /** O quadradinho do arquivo: a lupa varre o documento e, identificado, vira a
  *  marca do banco desenhada na hora. */
 function Detector({ estado }: { estado: "lendo" | "bradesco" }) {
-  const reduzir = useReducedMotion();
   return (
     <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-inset ring-white/[0.08]">
       <AnimatePresence mode="wait" initial={false}>
         {estado === "lendo" ? (
-          <motion.span key="lendo" className="relative grid h-full w-full place-items-center text-muted-foreground"
+          /* SÓ A LUPA, andando num oito pequeno: o documento por baixo dela
+             ficava encavalado com a lente e virava um borrão. */
+          <motion.span key="lendo" className="relative grid h-full w-full place-items-center text-primary"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.7 }}
             transition={{ duration: 0.18, ease: CURVA }}>
-            <FileText className="h-4 w-4 opacity-50" />
-            <motion.span className="absolute text-primary"
-              animate={reduzir ? undefined : { x: [-7, 7, -7], y: [-5, 4, -5] }}
-              transition={{ duration: 1.6, ease: "easeInOut", repeat: Infinity }}>
-              <Lupa className="h-4 w-4" />
-            </motion.span>
+            {/* CSS, e não framer: a linha nasce dentro de um AnimatePresence
+                com initial={false}, que prenderia um laço do framer parado. */}
+            <span className="grid place-items-center lupa-varre">
+              <Lupa className="h-5 w-5" />
+            </span>
           </motion.span>
         ) : (
           <motion.span key="bradesco" className="grid h-full w-full place-items-center text-foreground"

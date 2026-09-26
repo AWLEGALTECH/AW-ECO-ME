@@ -569,6 +569,17 @@ body {
     mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   }
 
+  /* FINDER: a lupa que varre o arquivo enquanto o banco é identificado.
+     Um quadrado de cantos arredondados, devagar, como quem lê linha a linha. */
+  @keyframes lupa-varre {
+    0%, 100% { transform: translate(-5px, -4px); }
+    25%      { transform: translate(5px, -4px); }
+    50%      { transform: translate(5px, 4px); }
+    75%      { transform: translate(-5px, 4px); }
+  }
+  .lupa-varre { animation: lupa-varre 1.8s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .lupa-varre { animation: none; } }
+
   /* Fechamentos gamificados — pulso de brilho pro multiplicador especial ativo */
   @keyframes fech-glow {
     0%, 100% { box-shadow: 0 0 0 0 hsla(38,92%,50%,0.45); }

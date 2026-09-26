@@ -11,7 +11,6 @@
  * segunda, ela ocupa uma vaga e o desenho não muda.
  */
 import { motion, useReducedMotion } from "framer-motion";
-import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const CURVA = [0.22, 1, 0.36, 1] as const;
@@ -63,7 +62,6 @@ export function Lupa({ className }: { className?: string }) {
 export function OrbitaDeAnalises({ ativa = false, tamanho = 196, className }: {
   ativa?: boolean; tamanho?: number; className?: string;
 }) {
-  const reduzir = useReducedMotion();
   const r = tamanho / 2;
   const raio = r * 0.78;
   const sat = Math.round(tamanho * 0.2);
@@ -73,18 +71,21 @@ export function OrbitaDeAnalises({ ativa = false, tamanho = 196, className }: {
     { angulo: 80, tipo: "vaga" },
     { angulo: 200, tipo: "vaga" },
   ];
-  const volta = reduzir ? undefined : { rotate: 360 };
-  const contraVolta = reduzir ? undefined : { rotate: -360 };
-  const giro = { duration: 48, ease: "linear" as const, repeat: Infinity };
+  /* O GIRO É CSS, e não do framer. O saguão abre dentro de um
+     AnimatePresence com `initial={false}`, que desliga a animação de
+     montagem dos filhos: um giro do framer ficava parado na primeira vez que
+     o Finder abria e só rodava quando a tela era montada de novo. A animação
+     de CSS não passa por isso. `motion-reduce` a desliga para quem pediu. */
+  const GIRO = "animate-[spin_48s_linear_infinite] motion-reduce:animate-none";
+  const CONTRA = "animate-[spin_48s_linear_infinite_reverse] motion-reduce:animate-none";
 
   return (
     <div className={cn("relative shrink-0", className)} style={{ width: tamanho, height: tamanho }} aria-hidden>
       {/* anel de fora, parado, só de moldura */}
       <div className="absolute inset-0 rounded-full border border-white/[0.05]" />
       {/* o anel da órbita */}
-      <motion.div className="absolute rounded-full border border-dashed border-white/[0.12]"
-        style={{ inset: r - raio }}
-        animate={volta} transition={giro}>
+      <div className={cn("absolute rounded-full border border-dashed border-white/[0.12]", GIRO)}
+        style={{ inset: r - raio }}>
         {satelites.map((s, i) => {
           const rad = (s.angulo * Math.PI) / 180;
           const x = raio + raio * Math.cos(rad) - sat / 2;
@@ -94,30 +95,29 @@ export function OrbitaDeAnalises({ ativa = false, tamanho = 196, className }: {
               initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }}
               transition={{ type: "spring", stiffness: 380, damping: 34, delay: 0.25 + i * 0.08 }}>
               {/* contra-giro: o satélite viaja no anel sem ficar de cabeça para baixo */}
-              <motion.div className="h-full w-full" animate={contraVolta} transition={giro}>
+              <div className={cn("h-full w-full", CONTRA)}>
                 {s.tipo === "bradesco" ? (
                   <div className="grid h-full w-full place-items-center rounded-full border border-white/[0.1] bg-card text-foreground">
                     <LogoBradesco className="h-[58%] w-[58%]" />
                   </div>
                 ) : (
-                  <div className="grid h-full w-full place-items-center rounded-full border border-dashed border-white/[0.14] text-muted-foreground/40">
-                    <Plus className="h-[38%] w-[38%]" />
+                  /* VAGA: só o lugar, tracejado e vazio. Um "+" aqui parecia
+                     botão de adicionar, e não é. */
+                  <div className="grid h-full w-full place-items-center rounded-full border border-dashed border-white/[0.14]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/[0.14]" />
                   </div>
                 )}
-              </motion.div>
+              </div>
             </motion.div>
           );
         })}
-      </motion.div>
+      </div>
       {/* a lupa, no centro */}
       <motion.div className="absolute grid place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
         style={{ inset: r - tamanho * 0.2 }}
         animate={{ scale: ativa ? 1.12 : 1 }}
         transition={{ type: "spring", stiffness: 380, damping: 34 }}>
-        <motion.span animate={reduzir ? undefined : { rotate: [0, -8, 0, 6, 0] }}
-          transition={{ duration: 6, ease: "easeInOut", repeat: Infinity }}>
-          <Lupa className="h-[46%] w-[46%] min-h-6 min-w-6" />
-        </motion.span>
+        <Lupa className="h-[46%] w-[46%] min-h-6 min-w-6" />
       </motion.div>
     </div>
   );
