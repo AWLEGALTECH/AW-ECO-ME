@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { CATEGORIAS, THEME, matchCategoria, analyzeAll, parseDocumentoPDF } from "./parser.js";
 import { reviewMatches, recoverMissingTransactions, autoCorrectTransactions, refineWithLLM } from "./reviewer.js";
-import { PonteFinder, VincularBotao, periodoDosItens, nomeDeAba } from "./vincular.jsx";
+import { PonteFinder, VincularBotao, useVincular, periodoDosItens, nomeDeAba } from "./vincular.jsx";
 import { SaguaoFinder } from "./Saguao.tsx";
+import { ResultadosFinder } from "./Resultados.tsx";
 
 // Fase B (AWFINDER REVISOR) — auditor IA via n8n com cross-check ULTRA.
 // Workflow ebpSwVQvRb7vdSGP no n8n Oracle. Ver doc em reviewer.js.
@@ -66,7 +67,9 @@ function Modal({ group, onClose, clientName, onExported, buildSheet, loadXLSX, o
   };
 
   useEffect(() => {
-    const fn = e => e.key === "Escape" && onClose();
+    /* Com uma janela do AW aberta por cima (escolher o cliente), o Esc é
+       dela: fechar as duas de uma vez perderia a rubrica que estava aberta. */
+    const fn = e => { if (e.key === "Escape" && !document.querySelector('[role="dialog"][data-state="open"]')) onClose(); };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
   }, [onClose]);
@@ -210,13 +213,13 @@ function Modal({ group, onClose, clientName, onExported, buildSheet, loadXLSX, o
 }
 
 /* ─────────────────────────────────────────────
-   CATEGORY CARD
-───────────────────────────────────────────── */
-/* ── Rubricas não ajuizáveis (feature recuperada do ME, 11/06/2026) ──
+   RUBRICAS NÃO AJUIZÁVEIS (feature recuperada do ME, 11/06/2026)
    A atendente/advogado marca uma rubrica que NÃO entra na ação (cliente já
    entrou com essa ação por outro advogado, ou não quer ajuizar). A rubrica
    fica amarela + riscada + cadeado e SAI dos totais, da planilha e do evento
-   analysis-ready (o pré-protocolo não a leva pras filas/peça). */
+   analysis-ready (o pré-protocolo não a leva pras filas/peça). A linha da
+   rubrica e as janelas do cadeado moram em Resultados.tsx.
+───────────────────────────────────────────── */
 const MOTIVOS_ANULACAO = [
   { id: "ja_ajuizada", label: "Já ajuizada por outro advogado", sub: "Cliente já entrou com essa ação, então a rubrica não pode ser ajuizada de novo." },
   { id: "cliente_nao_quer", label: "Cliente não quer ajuizar", sub: "O cliente recusou a inclusão desta rubrica na ação." },
@@ -224,79 +227,6 @@ const MOTIVOS_ANULACAO = [
      ele, uma rubrica bloqueada lá chegaria aqui com o código cru no cartão. */
   { id: "rubrica_invalida", label: "Rubrica inválida", sub: "Não é cobrança indevida de verdade: fica fora da ação." },
 ];
-const MOTIVO_ANULACAO_LABEL = Object.fromEntries(MOTIVOS_ANULACAO.map(m => [m.id, m.label]));
-
-function CategoryCard({ cat, items, onClick, delay, downloaded, selected, onToggleSelect, anulada, onToggleAnulada, vinculado, vinculadoCount }) {
-  const [hov, setHov] = useState(false);
-  const total = items.reduce((s,i)=>s+i.valor,0);
-  const isAnulada = !!anulada;
-  const isWarning = cat.naoReembolsavel || isAnulada;
-  const accentColor = isWarning ? "#fbbf24" : cat.color;
-  const accentBorder = isWarning ? "rgba(251,191,36,0.25)" : cat.border;
-  const accentGlow = isWarning ? "rgba(251,191,36,0.15)" : cat.glow;
-  const accentGradient = isWarning ? "linear-gradient(135deg, rgba(251,191,36,0.06), transparent 60%)" : cat.gradient;
-  // Anulada: card não abre o modal de itens (não-clicável, como no original)
-  const abrir = isAnulada ? undefined : onClick;
-  return (
-    <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{ background:"var(--aw-card-2)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",border:`1px solid ${selected?"hsl(var(--accent-h), var(--accent-s), var(--accent-l))":hov?accentColor:accentBorder}`,borderRadius:12,padding:"1.1rem 1.6rem",cursor:"pointer",transition:"all 0.22s cubic-bezier(0.4,0,0.2,1)",boxShadow:selected?`0 0 24px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.25),inset 0 1px 0 rgba(255,255,255,0.05)`:hov?`0 0 36px ${accentGlow},0 8px 28px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.05)`:"0 2px 12px rgba(0,0,0,0.25),inset 0 1px 0 rgba(255,255,255,0.03)",transform:hov?"translateY(-2px)":"translateY(0)",position:"relative",overflow:"hidden",animation:`cIn 0.38s ease ${delay}s both`,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",gap:"1.4rem" }}>
-      <div style={{ position:"absolute",inset:0,background:accentGradient,opacity:hov?1:0.5,transition:"opacity 0.22s",borderRadius:12,pointerEvents:"none" }}/>
-      <div style={{ position:"absolute",right:-24,top:"50%",transform:"translateY(-50%)",width:70,height:70,borderRadius:"50%",background:accentColor,opacity:hov?0.14:0.05,filter:"blur(24px)",transition:"opacity 0.3s",pointerEvents:"none" }}/>
-      {/* Checkbox (anulada não entra em extração em lote) */}
-      <div onClick={e=>{e.stopPropagation();if(!isAnulada&&onToggleSelect)onToggleSelect(cat.id);}} style={{ position:"relative",zIndex:1,flexShrink:0,width:22,height:22,borderRadius:5,background:selected?"hsl(var(--accent-h), var(--accent-s), var(--accent-l))":"rgba(255,255,255,0.04)",border:selected?"1px solid hsl(var(--accent-h), var(--accent-s), var(--accent-l))":"1px solid rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.18s",cursor:isAnulada?"not-allowed":"pointer",opacity:isAnulada?0.35:1 }}>
-        {selected && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-      </div>
-      <div onClick={abrir} style={{ position:"relative",zIndex:1,flexShrink:0,width:40,height:40,borderRadius:9,background:isWarning?"rgba(251,191,36,0.08)":"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.08)",border:`1px solid ${hov?accentColor:isWarning?"rgba(251,191,36,0.2)":"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.2)"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:accentColor,fontFamily:"Inter,sans-serif",boxShadow:hov?`0 0 12px ${accentGlow}`:"none",transition:"all 0.22s" }}>{isAnulada?"🔒":isWarning?"⚠":"!"}</div>
-      <div onClick={abrir} style={{ position:"relative",zIndex:1,flex:1,minWidth:0 }}>
-        <div style={{ fontWeight:700,fontSize:"0.92rem",color:isAnulada?"var(--aw-text-muted)":"var(--aw-text)",letterSpacing:"-0.2px",marginBottom:2,display:"flex",alignItems:"center",gap:7,textDecoration:isAnulada?"line-through":"none",textDecorationColor:"rgba(251,191,36,0.55)",textDecorationThickness:2 }}>{cat.label}
-          {/* JÁ VINCULADO a este cliente: a corrente verde, com a contagem
-              quando foi vinculado mais de uma vez */}
-          {vinculado && (
-            <span title={vinculadoCount>1?`Vinculado ${vinculadoCount} vezes a este cliente`:"Vinculado ao cliente"} style={{ position:"relative",display:"inline-flex",alignItems:"center",flexShrink:0,textDecoration:"none" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              {vinculadoCount>1 && <span style={{ position:"absolute",top:-6,right:-10,minWidth:16,height:16,padding:"0 4px",borderRadius:10,background:"#10b981",color:"#0a1a14",fontSize:9.5,fontWeight:900,fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 8px rgba(16,185,129,0.6)",border:"1.5px solid #050208",lineHeight:1 }}>{vinculadoCount}</span>}
-            </span>
-          )}
-        </div>
-        <div style={{ fontSize:"0.72rem",color:"var(--aw-text-dim)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{isAnulada?(MOTIVO_ANULACAO_LABEL[anulada]||anulada):cat.sublabel}</div>
-      </div>
-      {isAnulada && (
-        <div style={{ position:"relative",zIndex:1,flexShrink:0,display:"flex",alignItems:"center",gap:5,background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:20,padding:"4px 11px",fontSize:"0.62rem",fontWeight:800,color:"#fbbf24",whiteSpace:"nowrap",letterSpacing:"0.5px" }}>
-          🔒 NÃO AJUIZÁVEL
-        </div>
-      )}
-      <div onClick={abrir} style={{ position:"relative",zIndex:1,flexShrink:0,background:"rgba(255,255,255,0.05)",border:`1px solid ${accentBorder}`,borderRadius:20,padding:"4px 12px",fontSize:"0.68rem",fontWeight:700,color:accentColor,whiteSpace:"nowrap" }}>{items.length} ocorr.</div>
-      {downloaded && (
-        <div style={{ position:"relative",zIndex:1,flexShrink:0,display:"flex",alignItems:"center",gap:5,background:"rgba(34,197,94,0.1)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:20,padding:"4px 11px",fontSize:"0.65rem",fontWeight:700,color:"#4ade80",whiteSpace:"nowrap" }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Baixado
-        </div>
-      )}
-      <div onClick={abrir} style={{ position:"relative",zIndex:1,flexShrink:0,width:1,height:32,background:"rgba(255,255,255,0.06)" }}/>
-      <div onClick={abrir} style={{ position:"relative",zIndex:1,flexShrink:0,textAlign:"right" }}>
-        <div style={{ fontSize:"0.55rem",fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:"var(--aw-text-dim)",marginBottom:3 }}>Valor</div>
-        <div style={{ fontWeight:800,fontSize:"1.25rem",color:isAnulada?accentColor:"hsl(0 0% 95%)",letterSpacing:"-0.8px",textDecoration:isAnulada?"line-through":"none",textDecorationColor:"rgba(251,191,36,0.55)" }}>{fmt(total)}</div>
-        {cat.naoReembolsavel && !isAnulada && <div style={{ fontSize:"0.55rem",fontWeight:700,color:"#fbbf24",letterSpacing:"0.5px",marginTop:2 }}>NÃO REEMBOLSÁVEL</div>}
-        {isAnulada && <div style={{ fontSize:"0.55rem",fontWeight:700,color:"#fbbf24",letterSpacing:"0.5px",marginTop:2 }}>FORA DA AÇÃO</div>}
-      </div>
-      {/* Botão cadeado: marcar/cancelar inviabilidade (feature ME recuperada) */}
-      {onToggleAnulada && (
-        <button
-          onClick={e=>{e.stopPropagation();onToggleAnulada();}}
-          title={isAnulada?"Cancelar inviabilidade":"Marcar como não ajuizável (cliente já entrou com essa ação / não quer ajuizar)"}
-          style={{ position:"relative",zIndex:2,flexShrink:0,width:30,height:30,borderRadius:"50%",background:isAnulada?"rgba(251,191,36,0.14)":"rgba(255,255,255,0.03)",border:`1px solid ${isAnulada?"rgba(251,191,36,0.5)":"rgba(255,255,255,0.1)"}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.2s",padding:0 }}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#fbbf24";e.currentTarget.style.boxShadow="0 0 12px rgba(251,191,36,0.25)";}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=isAnulada?"rgba(251,191,36,0.5)":"rgba(255,255,255,0.1)";e.currentTarget.style.boxShadow="none";}}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={isAnulada?"#fbbf24":"#64748b"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            {isAnulada
-              ? <><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>
-              : <><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></>}
-          </svg>
-        </button>
-      )}
-      {!isAnulada && <div onClick={abrir} style={{ position:"relative",zIndex:1,flexShrink:0,width:30,height:30,borderRadius:"50%",background:hov?"rgba(255,255,255,0.07)":"rgba(255,255,255,0.03)",border:`1px solid ${hov?accentColor:"rgba(255,255,255,0.07)"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:hov?accentColor:"var(--aw-text-dim)",transition:"all 0.22s",transform:hov?"rotate(-45deg)":"rotate(0)" }}>→</div>}
-    </div>
-  );
-}
 
 /* ─────────────────────────────────────────────
    ANALYTICS DASHBOARD
@@ -543,6 +473,8 @@ class DashboardErrorBoundary extends React.Component {
  *  onLiberarAnulada  (rubrica) quando alguém libera uma dessas
  *  onAnalisePronta   o antigo evento `aw-finder:analysis-ready`
  *  onReset           o antigo evento `aw-finder:reset`
+ *  acaoComercial     o botão de gerar a análise comercial, que a página põe
+ *                    na barra de decisão do relatório (Finder solto)
  */
 export default function App({
   contexto = null,
@@ -552,6 +484,7 @@ export default function App({
   onLiberarAnulada = null,
   onAnalisePronta = null,
   onReset = null,
+  acaoComercial = null,
 } = {}) {
   /* Callbacks do AW por referência: a página pode mandar uma função nova a
      cada render, e ela está nas dependências do efeito que avisa a análise
@@ -860,11 +793,8 @@ export default function App({
     setSelectedCats(prev => { const next = new Set(prev); if (next.has(catId)) next.delete(catId); else next.add(catId); return next; });
   }, []);
 
-  const selectAllCats = useCallback(() => {
-    setSelectedCats(new Set(Object.values(grouped).map(g => g.cat.id)));
-  }, [grouped]);
-
-  const clearSelection = useCallback(() => { setSelectedCats(new Set()); }, []);
+  /* "Selecionar todos" saiu (ver Resultados.tsx): marcar tudo sem olhar é o
+     que a lista existe para evitar. */
 
   // Extrai Descrição (keyword matchada) e Operação (restante) do historico
   const extractDescricaoOperacao = useCallback((historico, cat) => {
@@ -1122,6 +1052,29 @@ export default function App({
   const totalOcorrencias = reembolsaveis.reduce((s,g)=>s+g.items.length,0);
   const totalValor = reembolsaveis.reduce((s,g)=>s+g.items.reduce((ss,i)=>ss+i.valor,0),0);
 
+  /* VINCULAR EM LOTE, o da barra de decisão: UMA análise com as rubricas
+     marcadas vai para o cliente (a mesma planilha combinada de antes). */
+  const marcadasParaVincular = useMemo(() => groups.filter(g => selectedCats.has(g.cat.id)), [groups, selectedCats]);
+  const vinculoEmLote = useVincular({
+    ponte: ponteComCliente,
+    onVinculado: aoVincular,
+    bancoMeta: { banco: meta.banco, agencia: meta.agencia, conta: meta.conta },
+    batchLabels: marcadasParaVincular.map(g => g.cat.label),
+    produceCombinedBlob: async () => {
+      const XLSX = await loadXLSX();
+      const sel = marcadasParaVincular;
+      if (sel.length === 0) return null;
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, buildMultiSheet(XLSX, sel), "Descontos Identificados");
+      const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const totalValor = sel.reduce((s2, g) => s2 + g.items.reduce((s3, it) => s3 + Math.abs(it.valor || 0), 0), 0);
+      const qtdItens = sel.reduce((s2, g) => s2 + g.items.length, 0);
+      const { dataInicio, dataFim } = periodoDosItens(sel.flatMap(g => g.items));
+      return { blob, fileName: `Analise-${sel.length}cats.xlsx`, totalValor, qtdItens, dataInicio, dataFim };
+    },
+  });
+
   // Porta dormente — dispara evento com os dados da análise quando pronta.
   // Host (AW-ECO wrapper) pode escutar e integrar; standalone: ninguém escuta, no-op.
   useEffect(() => {
@@ -1310,6 +1263,7 @@ export default function App({
         html[data-theme="branco"] .aw-finder-legado img,html[data-theme="branco"] .aw-finder-legado video,html[data-theme="branco"] .aw-finder-legado canvas,
         html[data-theme="sei"] .aw-finder-legado img,html[data-theme="sei"] .aw-finder-legado video,html[data-theme="sei"] .aw-finder-legado canvas{filter:invert(1) hue-rotate(180deg)}
         .aw-finder-legado *,.aw-finder-legado *::before,.aw-finder-legado *::after{box-sizing:border-box;margin:0;padding:0}
+        .aw-finder-camada>*{pointer-events:auto}
         .aw-finder-legado button{font-family:inherit;color:inherit}
         .aw-finder-legado input,.aw-finder-legado select,.aw-finder-legado textarea{font-family:inherit;color:inherit}
         .aw-finder-legado ::selection{background:hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35);color:#fff}
@@ -1374,298 +1328,56 @@ export default function App({
           onAnalisarMesmoAssim={analisarMesmoAssim}
         />
       ) : (
-      <div className="aw-finder-legado" style={{ height:"100%",position:"relative" }}>
-      <div style={{ height:"100%",overflowY:"auto",background:"var(--bg)",color:"var(--aw-text)",fontFamily:"Inter,sans-serif" }}>
-
-        {/* HEADER */}
-        {/* A faixa de cima ficou vazia de propósito: a marca e o "Motor Ativo"
-            saíram quando o Finder entrou no AW (o AW já tem cabeçalho), e a
-            faixa ficou como respiro entre o cabeçalho e o conteúdo. */}
-        <header style={{ position:"sticky",top:0,zIndex:50,height:64,borderBottom:"1px solid rgba(255,255,255,0.04)",background:"transparent",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 2rem" }} />
-
-        {/* DE QUEM SÃO ESTES EXTRATOS (modo cliente) */}
-        {clienteNome && (
-          <div style={{ padding:"10px 2rem",background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.08)",borderBottom:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.20)",display:"flex",alignItems:"center",gap:10,fontSize:12,color:"hsl(0 0% 75%)",fontFamily:"Inter,sans-serif" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color:"hsl(var(--accent-h) 60% 70%)" }}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>Analisando extratos para: <strong style={{ color:"hsl(0 0% 95%)",fontWeight:600 }}>{clienteNome}</strong></span>
-            <span style={{ marginLeft:"auto",fontSize:11,color:"hsl(0 0% 55%)" }}>Vincule cada planilha gerada ao perfil do cliente.</span>
-          </div>
-        )}
-
-        {/* ── UPLOAD ── */}
-        {/* ── CONFIRM RESET ── */}
-        {confirmReset && (
-          <div style={{ position:"fixed",inset:0,zIndex:300,background:"var(--aw-card)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.18s ease" }}>
-            <div style={{ width:"100%",maxWidth:420,background:"rgba(12,10,18,0.97)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:"2.2rem",boxShadow:"0 0 60px rgba(0,0,0,0.5)",animation:"mSlideUp 0.22s ease",textAlign:"center" }}>
-              <div style={{ width:56,height:56,borderRadius:14,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1.4rem" }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--aw-text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              </div>
-              <p style={{ fontSize:"1.1rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.3px",marginBottom:10,fontFamily:"Inter,sans-serif" }}>Tem certeza?</p>
-              <p style={{ fontSize:"0.82rem",color:"#64748b",lineHeight:1.7,marginBottom:"1.8rem",fontFamily:"Inter,sans-serif" }}>O relatório atual será descartado e você voltará à tela inicial.</p>
-              <div style={{ display:"flex",gap:"0.75rem" }}>
-                <button onClick={()=>setConfirmReset(false)} style={{ flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"var(--aw-text-muted)",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.2)";e.currentTarget.style.color="var(--aw-text)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";e.currentTarget.style.color="var(--aw-text-muted)";}}>Cancelar</button>
-                <button onClick={reset} style={{ flex:1,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:9,color:"#f87171",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.background="rgba(239,68,68,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(239,68,68,0.1)";}}>Sim, Nova Análise</button>
-              </div>
+      <>
+        <ResultadosFinder
+          meta={meta}
+          arquivo={fileName}
+          clienteNome={clienteNome}
+          grupos={groups}
+          anuladas={anuladas}
+          motivos={MOTIVOS_ANULACAO}
+          vinculados={vinculados}
+          baixadas={downloadedCats}
+          selecionadas={selectedCats}
+          onAlternar={toggleSelectCat}
+          onAbrir={(g)=>setActiveModal(g)}
+          onCadeado={(g)=> anuladas[g.cat.id] ? setCancelAnulacaoCat(g.cat) : setMotivoAnulacaoCat(g.cat)}
+          totalValor={totalValor}
+          totalOcorrencias={totalOcorrencias}
+          revisao={reviewReport}
+          revisaoConferida={reviewAcknowledged}
+          onConferir={()=>setReviewAcknowledged(true)}
+          titularesMisturados={mixedTitulares}
+          vinculo={vinculoEmLote}
+          onExtrair={batchExport}
+          extraindo={batchExporting}
+          acaoComercial={acaoComercial}
+          confirmandoNova={confirmReset}
+          onPedirNova={()=>setConfirmReset(true)}
+          onCancelarNova={()=>setConfirmReset(false)}
+          onConfirmarNova={reset}
+          pedindoMotivo={motivoAnulacaoCat}
+          onMotivo={anularRubrica}
+          onFecharMotivo={()=>setMotivoAnulacaoCat(null)}
+          liberando={cancelAnulacaoCat}
+          onLiberar={cancelarAnulacao}
+          onFecharLiberar={()=>setCancelAnulacaoCat(null)}
+          relatorioAberto={showDashboard}
+          onAlternarRelatorio={()=>setShowDashboard(v=>!v)}
+          relatorio={
+            /* O relatório para o cliente segue na tela antiga, com a inversão
+               dos temas claros que o acompanha. */
+            <div className="aw-finder-legado">
+              <DashboardErrorBoundary><AnalyticsDashboard groups={groups.filter(g => !anuladas[g.cat.id])} meta={meta} totalValor={totalValor} totalOcorrencias={totalOcorrencias} /></DashboardErrorBoundary>
             </div>
-          </div>
-        )}
+          }
+        />
 
-        {/* ── MODAL: motivo da inviabilidade (marcar rubrica não ajuizável) ── */}
-        {motivoAnulacaoCat && (
-          <div style={{ position:"fixed",inset:0,zIndex:300,background:"var(--aw-card)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.18s ease" }}>
-            <div style={{ width:"100%",maxWidth:460,background:"rgba(12,10,18,0.97)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:16,padding:"2.2rem",boxShadow:"0 0 60px rgba(0,0,0,0.5)",animation:"mSlideUp 0.22s ease" }}>
-              <div style={{ width:56,height:56,borderRadius:14,background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1.4rem" }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              </div>
-              <p style={{ fontSize:"1.1rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.3px",marginBottom:8,fontFamily:"Inter,sans-serif",textAlign:"center" }}>Marcar como não ajuizável</p>
-              <p style={{ fontSize:"0.82rem",color:"#64748b",lineHeight:1.7,marginBottom:"1.6rem",fontFamily:"Inter,sans-serif",textAlign:"center" }}>Por que <strong style={{ color:"#fbbf24" }}>{motivoAnulacaoCat.label}</strong> não entra na ação? A rubrica sai dos totais, da planilha e das filas do pré-protocolo.</p>
-              <div style={{ display:"flex",flexDirection:"column",gap:"0.7rem",marginBottom:"1.4rem" }}>
-                {MOTIVOS_ANULACAO.map(m => (
-                  <button key={m.id} onClick={()=>anularRubrica(motivoAnulacaoCat.id, m.id)}
-                    style={{ textAlign:"left",background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.22)",borderRadius:10,padding:"14px 16px",cursor:"pointer",transition:"all 0.18s",fontFamily:"Inter,sans-serif" }}
-                    onMouseEnter={e=>{e.currentTarget.style.borderColor="#fbbf24";e.currentTarget.style.background="rgba(251,191,36,0.1)";}}
-                    onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(251,191,36,0.22)";e.currentTarget.style.background="rgba(251,191,36,0.05)";}}>
-                    <div style={{ fontSize:"0.88rem",fontWeight:700,color:"var(--aw-text)",letterSpacing:"-0.3px",marginBottom:3 }}>{m.label}</div>
-                    <div style={{ fontSize:"0.72rem",color:"var(--aw-text-muted)",lineHeight:1.5 }}>{m.sub}</div>
-                  </button>
-                ))}
-              </div>
-              <button onClick={()=>setMotivoAnulacaoCat(null)} style={{ width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"var(--aw-text-muted)",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.color="var(--aw-text)";}} onMouseLeave={e=>{e.currentTarget.style.color="var(--aw-text-muted)";}}>Cancelar</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── MODAL: cancelar inviabilidade (liberar rubrica de volta) ── */}
-        {cancelAnulacaoCat && (
-          <div style={{ position:"fixed",inset:0,zIndex:300,background:"var(--aw-card)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.18s ease" }}>
-            <div style={{ width:"100%",maxWidth:440,background:"rgba(12,10,18,0.97)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:"2.2rem",boxShadow:"0 0 60px rgba(0,0,0,0.5)",animation:"mSlideUp 0.22s ease",textAlign:"center" }}>
-              <div style={{ width:56,height:56,borderRadius:14,background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.3)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1.4rem" }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-              </div>
-              <p style={{ fontSize:"1.1rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.3px",marginBottom:10,fontFamily:"Inter,sans-serif" }}>Cancelar inviabilidade?</p>
-              <p style={{ fontSize:"0.82rem",color:"#64748b",lineHeight:1.7,marginBottom:"1.8rem",fontFamily:"Inter,sans-serif" }}>Apesar do motivo sinalizado (<strong style={{ color:"#f87171" }}>{MOTIVO_ANULACAO_LABEL[anuladas[cancelAnulacaoCat.id]?.motivo] || "sem motivo"}</strong>), a rubrica <strong style={{ color:"#fbbf24" }}>{cancelAnulacaoCat.label}</strong> voltará a contar na ação, nos totais e na planilha.</p>
-              <div style={{ display:"flex",gap:"0.75rem" }}>
-                <button onClick={()=>setCancelAnulacaoCat(null)} style={{ flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"var(--aw-text-muted)",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.color="var(--aw-text)";}} onMouseLeave={e=>{e.currentTarget.style.color="var(--aw-text-muted)";}}>Voltar</button>
-                <button onClick={()=>cancelarAnulacao(cancelAnulacaoCat.id)} style={{ flex:1,background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:9,color:"#fbbf24",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.background="rgba(251,191,36,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(251,191,36,0.1)";}}>Sim, liberar</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── RESULTS ── */}
-        {phase==="results" && (
-          <div style={{ maxWidth:1080,margin:"0 auto",padding:"2.5rem 2rem" }}>
-            <div style={{ marginBottom:"2rem",paddingBottom:"2rem",borderBottom:"1px solid rgba(255,255,255,0.06)",animation:"fadeSlide 0.3s ease" }}>
-              <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:"1rem" }}>
-                <div>
-                  <div style={{ fontSize:"0.6rem",fontWeight:700,letterSpacing:"3px",textTransform:"uppercase",color:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",marginBottom:10 }}>Relatório de Análise · Descontos Indevidos</div>
-                  <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:10 }}>
-                    <div style={{ width:40,height:40,borderRadius:"50%",background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.1)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.22)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    </div>
-                    <h2 style={{ fontSize:"2rem",fontWeight:900,color:"var(--aw-text)",letterSpacing:"-1px",lineHeight:1.1 }}>{meta.clientName}</h2>
-                  </div>
-                  <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
-                    {[meta.banco||"Bradesco", meta.agencia?`Ag. ${meta.agencia}`:null, meta.conta?`Cta. ${meta.conta}`:null, meta.periodo&&meta.periodo!=="—"?meta.periodo:null, fileName].filter(Boolean).map((tag,i)=>(
-                      <span key={i} style={{ fontSize:"0.75rem",color:"var(--aw-text-dim)",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:6,padding:"3px 10px" }}>{tag}</span>
-                    ))}
-                  </div>
-                </div>
-                <button onClick={()=>setConfirmReset(true)} style={{ background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,color:"var(--aw-text-dim)",fontFamily:"Inter,sans-serif",fontSize:"0.7rem",fontWeight:600,letterSpacing:"1.5px",textTransform:"uppercase",padding:"9px 18px",cursor:"pointer",transition:"all 0.2s",alignSelf:"flex-start" }} onMouseEnter={e=>{e.currentTarget.style.color="var(--aw-text-muted)";e.currentTarget.style.borderColor="rgba(255,255,255,0.14)";}} onMouseLeave={e=>{e.currentTarget.style.color="var(--aw-text-dim)";e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";}}>← Nova Análise</button>
-              </div>
-            </div>
-
-            {/* ── BANNER ÂMBAR: titulares misturados por decisão do usuário ── */}
-            {mixedTitulares && mixedTitulares.length > 1 && (
-              <div style={{ marginBottom:"1rem",padding:"1.1rem 1.5rem",background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.32)",borderRadius:12,display:"flex",alignItems:"flex-start",gap:12,animation:"fadeSlide 0.35s ease" }}>
-                <div style={{ flexShrink:0,width:32,height:32,borderRadius:9,background:"rgba(251,191,36,0.12)",border:"1px solid rgba(251,191,36,0.35)",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                </div>
-                <div>
-                  <p style={{ fontSize:"0.82rem",fontWeight:700,color:"#fbbf24",fontFamily:"Inter,sans-serif",marginBottom:3 }}>Análise com titulares misturados</p>
-                  <p style={{ fontSize:"0.76rem",color:"var(--aw-text-muted)",lineHeight:1.6,fontFamily:"Inter,sans-serif" }}>Este relatório consolida extratos de <strong style={{color:"var(--aw-text)"}}>{mixedTitulares.join(" e ")}</strong>. Os descontos NÃO estão separados por pessoa: confira a origem de cada lançamento antes de usar em petição.</p>
-                </div>
-              </div>
-            )}
-
-            {/* ── BANNER VERDE: correções automáticas aplicadas ── */}
-            {reviewReport && ((reviewReport.autoRejected?.length||0) > 0 || (reviewReport.autoRecovered?.length||0) > 0) && (
-              <div style={{ marginBottom: reviewReport.needsHumanReview ? "1rem" : "2rem", padding:"1.5rem 1.75rem",background:"rgba(34,197,94,0.06)",border:"1px solid rgba(34,197,94,0.32)",borderRadius:12,boxShadow:"0 0 24px rgba(34,197,94,0.08), inset 0 1px 0 rgba(255,255,255,0.04)",animation:"fadeSlide 0.35s ease" }}>
-                <div style={{ display:"flex",alignItems:"flex-start",gap:14,marginBottom:reviewReport.autoRejected.length||reviewReport.autoRecovered.length?14:0 }}>
-                  <div style={{ flexShrink:0,width:36,height:36,borderRadius:10,background:"rgba(34,197,94,0.14)",border:"1px solid rgba(34,197,94,0.35)",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:"0.6rem",fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",color:"#22c55e",marginBottom:6 }}>Auto-correção aplicada</div>
-                    <div style={{ fontSize:"0.95rem",fontWeight:700,color:"var(--aw-text)",marginBottom:4 }}>O AW Finder ajustou inconsistências automaticamente.</div>
-                    <div style={{ fontSize:"0.78rem",color:"var(--aw-text-muted)",lineHeight:1.5 }}>{reviewReport.summary || "Revisão limpa."}</div>
-                  </div>
-                </div>
-
-                {reviewReport.autoRejected.length > 0 && (
-                  <div style={{ marginTop:14,padding:"12px 14px",background:"rgba(34,197,94,0.04)",border:"1px solid rgba(34,197,94,0.18)",borderRadius:8 }}>
-                    <div style={{ fontSize:"0.62rem",fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:"#86efac",marginBottom:8 }}>✓ Falsos positivos removidos ({reviewReport.autoRejected.length})</div>
-                    {reviewReport.autoRejected.slice(0,5).map((r,i)=>(
-                      <div key={i} style={{ fontSize:"0.74rem",color:"var(--aw-text)",lineHeight:1.55,marginBottom:6,paddingLeft:14,borderLeft:"2px solid rgba(34,197,94,0.4)" }}>
-                        <strong style={{ color:"#86efac" }}>{r.tx.data} · R$ {r.tx.valor.toFixed(2)} · {r.tx.categoryId}</strong>: {r.reasons.join("; ")} (score {r.score})
-                      </div>
-                    ))}
-                    {reviewReport.autoRejected.length > 5 && (
-                      <div style={{ fontSize:"0.7rem",color:"#64748b",fontStyle:"italic",marginTop:6 }}>+ {reviewReport.autoRejected.length - 5} remoção(ões) adicional(is)</div>
-                    )}
-                  </div>
-                )}
-
-                {reviewReport.autoRecovered.length > 0 && (
-                  <div style={{ marginTop:12,padding:"12px 14px",background:"rgba(34,197,94,0.04)",border:"1px solid rgba(34,197,94,0.18)",borderRadius:8 }}>
-                    <div style={{ fontSize:"0.62rem",fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:"#86efac",marginBottom:8 }}>✓ Descontos recuperados ({reviewReport.autoRecovered.length})</div>
-                    {reviewReport.autoRecovered.slice(0,5).map((m,i)=>(
-                      <div key={i} style={{ fontSize:"0.74rem",color:"var(--aw-text)",lineHeight:1.55,marginBottom:6,paddingLeft:14,borderLeft:"2px solid rgba(34,197,94,0.4)" }}>
-                        <strong style={{ color:"#86efac" }}>{m.data} · R$ {m.valor.toFixed(2)}</strong>: recuperado da row "{(m.historico||"").slice(0,80)}"
-                      </div>
-                    ))}
-                    {reviewReport.autoRecovered.length > 5 && (
-                      <div style={{ fontSize:"0.7rem",color:"#64748b",fontStyle:"italic",marginTop:6 }}>+ {reviewReport.autoRecovered.length - 5} recuperação(ões) adicional(is)</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── BANNER LARANJA: residual que ainda precisa revisão manual ── */}
-            {reviewReport && reviewReport.needsHumanReview && !reviewAcknowledged && (
-              <div style={{ marginBottom:"2rem",padding:"1.5rem 1.75rem",background:"rgba(251,146,60,0.06)",border:"1px solid rgba(251,146,60,0.35)",borderRadius:12,boxShadow:"0 0 24px rgba(251,146,60,0.08), inset 0 1px 0 rgba(255,255,255,0.04)",animation:"fadeSlide 0.35s ease" }}>
-                <div style={{ display:"flex",alignItems:"flex-start",gap:14,marginBottom:14 }}>
-                  <div style={{ flexShrink:0,width:36,height:36,borderRadius:10,background:"rgba(251,146,60,0.14)",border:"1px solid rgba(251,146,60,0.35)",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fb923c" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:"0.6rem",fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",color:"#fb923c",marginBottom:6 }}>Revisão Manual Recomendada</div>
-                    <div style={{ fontSize:"0.95rem",fontWeight:700,color:"var(--aw-text)",marginBottom:4 }}>Itens com baixa confiança: não foram corrigidos automaticamente.</div>
-                    <div style={{ fontSize:"0.78rem",color:"var(--aw-text-muted)",lineHeight:1.5 }}>O Finder detectou inconsistência mas não tem sinais suficientes pra decidir. Confira manualmente antes de gerar a peça.</div>
-                  </div>
-                </div>
-
-                {reviewReport.suspicious.length > 0 && (
-                  <div style={{ marginTop:14,padding:"12px 14px",background:"rgba(239,68,68,0.05)",border:"1px solid rgba(239,68,68,0.22)",borderRadius:8 }}>
-                    <div style={{ fontSize:"0.62rem",fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:"#f87171",marginBottom:8 }}>⚠ Possíveis falsos positivos ({reviewReport.suspicious.length})</div>
-                    {reviewReport.suspicious.slice(0,5).map((s,i)=>(
-                      <div key={i} style={{ fontSize:"0.74rem",color:"var(--aw-text)",lineHeight:1.55,marginBottom:6,paddingLeft:14,borderLeft:"2px solid rgba(239,68,68,0.4)" }}>
-                        <strong style={{ color:"#fca5a5" }}>{s.tx.data} · R$ {s.tx.valor.toFixed(2)}</strong>: {s.detail}{s.score!=null?` (score ${s.score})`:""}
-                      </div>
-                    ))}
-                    {reviewReport.suspicious.length > 5 && (
-                      <div style={{ fontSize:"0.7rem",color:"#64748b",fontStyle:"italic",marginTop:6 }}>+ {reviewReport.suspicious.length - 5} suspeito(s) adicional(is). Verifique no extrato.</div>
-                    )}
-                  </div>
-                )}
-
-                <div style={{ marginTop:16,display:"flex",gap:10,justifyContent:"flex-end" }}>
-                  <button onClick={()=>setReviewAcknowledged(true)} style={{ background:"rgba(251,146,60,0.12)",border:"1px solid rgba(251,146,60,0.4)",borderRadius:8,color:"#fb923c",fontFamily:"Inter,sans-serif",fontSize:"0.72rem",fontWeight:700,letterSpacing:"1.2px",textTransform:"uppercase",padding:"9px 18px",cursor:"pointer",transition:"all 0.18s" }} onMouseEnter={e=>{e.currentTarget.style.background="rgba(251,146,60,0.2)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(251,146,60,0.12)";}}>Conferi manualmente · Continuar</button>
-                </div>
-              </div>
-            )}
-
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"1rem",marginBottom:"2rem" }}>
-              {[
-                { label:"Categorias de Irregularidade", val:groups.length, color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)", sub:"tipologias distintas identificadas", featured:true, icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
-                { label:"Ocorrências Detectadas", val:totalOcorrencias, color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)", sub:"descontos irregulares", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-                { label:"Valor Total a Restituir", val:fmt(totalValor), color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)", sub:"sujeito à devolução com correção legal", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
-              ].map((k,i)=>(
-                <div key={i} style={{ background:k.featured?"rgba(12,10,18,0.9)":"var(--aw-card-2)",backdropFilter:"blur(16px)",border:k.featured?"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35)":"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"1.3rem 1.5rem",position:"relative",overflow:"hidden",animation:`fadeSlide 0.35s ease ${i*0.07}s both`,boxShadow:k.featured?"0 0 22px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.18), inset 0 1px 0 rgba(255,255,255,0.06)":undefined }} className={k.featured?"kpi-featured":""}>
-                  <div style={{ position:"absolute",top:0,left:0,right:0,height:1,background:k.featured?"linear-gradient(90deg,transparent,hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.8),transparent)":"linear-gradient(90deg,transparent,hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35),transparent)" }}/>
-                  {k.featured&&<div style={{ position:"absolute",top:-20,right:-20,width:80,height:80,borderRadius:"50%",background:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",opacity:0.14,filter:"blur(28px)",pointerEvents:"none" }}/>}
-                  <div style={{ position:"relative",zIndex:1 }}>
-                    <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12 }}>
-                      <div style={{ fontSize:"0.6rem",fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",color:k.featured?"rgba(96,165,250,0.7)":"var(--aw-text-dim)" }}>{k.label}</div>
-                      <div style={{ opacity:k.featured?1:0.7 }}>{k.icon}</div>
-                    </div>
-                    <div style={{ fontSize:"1.85rem",fontWeight:800,color:k.color,letterSpacing:"-1px",lineHeight:1 }}>{k.val}</div>
-                    <div style={{ fontSize:"0.7rem",color:k.featured?"rgba(96,165,250,0.45)":"var(--aw-text-dim)",marginTop:6 }}>{k.sub}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {groups.length===0 && (
-              <div style={{ textAlign:"center",padding:"3rem 2rem",background:"var(--aw-card)",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div style={{ fontSize:"2rem",marginBottom:"1rem" }}>✅</div>
-                <p style={{ fontWeight:700,color:"var(--aw-text)",marginBottom:6 }}>Nenhum desconto irregular identificado</p>
-                <p style={{ fontSize:"0.82rem",color:"var(--aw-text-dim)" }}>Não foram encontradas rubricas suspeitas no documento analisado.</p>
-              </div>
-            )}
-
-            {groups.length>0 && (
-              <>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:"1rem" }}>
-                  <span style={{ fontSize:"0.62rem",fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",color:"var(--aw-text-dim)" }}>Drill-down por Categoria</span>
-                  <div style={{ flex:1,height:1,background:"rgba(255,255,255,0.05)" }}/>
-                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                    <button onClick={selectedCats.size===groups.length?clearSelection:selectAllCats} style={{ background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#64748b",fontFamily:"Inter,sans-serif",fontSize:"0.62rem",fontWeight:600,letterSpacing:"1px",textTransform:"uppercase",padding:"5px 12px",cursor:"pointer",transition:"all 0.15s" }} onMouseEnter={e=>{e.currentTarget.style.color="var(--aw-text-muted)";e.currentTarget.style.borderColor="rgba(255,255,255,0.2)";}} onMouseLeave={e=>{e.currentTarget.style.color="#64748b";e.currentTarget.style.borderColor="rgba(255,255,255,0.1)";}}>
-                      {selectedCats.size===groups.length?"Limpar Seleção":"Selecionar Todos"}
-                    </button>
-                    {selectedCats.size>0 && (
-                      <VincularBotao compact onVinculado={aoVincular}
-                        bancoMeta={{ banco: meta.banco, agencia: meta.agencia, conta: meta.conta }}
-                        batchLabels={groups.filter(g => selectedCats.has(g.cat.id)).map(g => g.cat.label)}
-                        produceCombinedBlob={async () => {
-                          const XLSX = await loadXLSX();
-                          const sel = groups.filter(g => selectedCats.has(g.cat.id));
-                          if (sel.length === 0) return null;
-                          const wb = XLSX.utils.book_new();
-                          XLSX.utils.book_append_sheet(wb, buildMultiSheet(XLSX, sel), "Descontos Identificados");
-                          const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-                          const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                          const totalValor = sel.reduce((s2, g) => s2 + g.items.reduce((s3, it) => s3 + Math.abs(it.valor || 0), 0), 0);
-                          const qtdItens = sel.reduce((s2, g) => s2 + g.items.length, 0);
-                          const { dataInicio, dataFim } = periodoDosItens(sel.flatMap(g => g.items));
-                          return { blob, fileName: `Analise-${sel.length}cats.xlsx`, totalValor, qtdItens, dataInicio, dataFim };
-                        }} />
-                    )}
-                    {selectedCats.size>0 && (
-                      <button onClick={batchExport} disabled={batchExporting} style={{ display:"flex",alignItems:"center",gap:6,background:"rgba(34,197,94,0.1)",border:"1px solid rgba(34,197,94,0.35)",borderRadius:6,color:"#4ade80",fontFamily:"Inter,sans-serif",fontSize:"0.62rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"5px 14px",cursor:batchExporting?"wait":"pointer",transition:"all 0.15s" }} onMouseEnter={e=>{if(!batchExporting){e.currentTarget.style.background="rgba(34,197,94,0.18)";e.currentTarget.style.boxShadow="0 0 16px rgba(34,197,94,0.2)";}}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(34,197,94,0.1)";e.currentTarget.style.boxShadow="none";}}>
-                        {batchExporting?<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation:"spin 0.8s linear infinite" }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>:<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-                        {batchExporting?"Gerando…":`Extrair ${selectedCats.size} Relatório${selectedCats.size>1?"s":""}`}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display:"flex",flexDirection:"column",gap:"0.75rem" }}>
-                  {groups.map((group,idx)=>(
-                    <CategoryCard key={group.cat.id} vinculado={(vinculados.get(group.cat.label)||0)>0} vinculadoCount={vinculados.get(group.cat.label)||0} cat={group.cat} items={group.items} delay={idx*0.07} downloaded={downloadedCats.has(group.cat.id)} selected={selectedCats.has(group.cat.id)} onToggleSelect={toggleSelectCat} onClick={()=>setActiveModal(group)}
-                      anulada={anuladas[group.cat.id]?.motivo || null}
-                      onToggleAnulada={()=> anuladas[group.cat.id] ? setCancelAnulacaoCat(group.cat) : setMotivoAnulacaoCat(group.cat)} />
-                  ))}
-                </div>
-                {Object.keys(anuladas).length > 0 && (
-                  <div style={{ marginTop:"1rem",padding:"0.9rem 1.2rem",background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:10,display:"flex",alignItems:"flex-start",gap:10,fontSize:"0.77rem",color:"#fcd34d" }}>
-                    <span style={{ fontSize:14,flexShrink:0,marginTop:1 }}>🔒</span>
-                    <div><strong>{Object.keys(anuladas).length} rubrica{Object.keys(anuladas).length>1?"s":""} marcada{Object.keys(anuladas).length>1?"s":""} como não ajuizável{Object.keys(anuladas).length>1?"is":""}.</strong> Ficam fora dos totais, da planilha e das filas do pré-protocolo. Clique no cadeado da rubrica pra cancelar a inviabilidade.</div>
-                  </div>
-                )}
-                {groups.some(g => g.cat.naoReembolsavel) && (
-                  <div style={{ marginTop:"1rem",padding:"0.9rem 1.2rem",background:"rgba(251,191,36,0.06)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:10,display:"flex",alignItems:"flex-start",gap:10,fontSize:"0.77rem",color:"#fcd34d" }}>
-                    <span style={{ fontSize:14,flexShrink:0,marginTop:1 }}>⚠</span>
-                    <div><strong>Invest Fácil: prática abusiva identificada.</strong> Os valores destacados em amarelo NÃO são para reembolso direto (o dinheiro retorna ao cliente). A irregularidade está na prática em si: o banco aplica os recursos do cliente sem rendimento real, em benefício próprio. Documentar como fundamento adicional na ação.</div>
-                  </div>
-                )}
-                <div style={{ marginTop:"1rem",padding:"0.9rem 1.2rem",background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.04)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.1)",borderRadius:10,display:"flex",alignItems:"center",gap:10,fontSize:"0.77rem",color:"var(--aw-text-dim)" }}>
-                  <span style={{ fontSize:14,flexShrink:0 }}>💡</span>
-                  Clique em qualquer card para ver os lançamentos detalhados, com data, rubrica, valor e fundamentação jurídica.
-                </div>
-                <div style={{ marginTop:"1.8rem",display:"flex",justifyContent:"center" }}>
-                  <button onClick={()=>setShowDashboard(v=>!v)} style={{ display:"flex",alignItems:"center",gap:10,background:showDashboard?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.14)":"rgba(255,255,255,0.03)",border:showDashboard?"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.4)":"1px solid rgba(255,255,255,0.08)",borderRadius:12,color:showDashboard?"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)":"var(--aw-text-dim)",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:600,letterSpacing:"0.5px",padding:"11px 24px",cursor:"pointer",transition:"all 0.22s ease",boxShadow:showDashboard?"0 0 24px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.2)":"none" }} onMouseEnter={e=>{e.currentTarget.style.borderColor="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.45)";e.currentTarget.style.color="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)";e.currentTarget.style.background="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.1)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=showDashboard?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.4)":"rgba(255,255,255,0.08)";e.currentTarget.style.color=showDashboard?"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)":"var(--aw-text-dim)";e.currentTarget.style.background=showDashboard?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.14)":"rgba(255,255,255,0.03)";}}>
-                    {showDashboard?<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
-                    {showDashboard?"Ocultar Relatório":"Ver Relatório para o Cliente"}
-                  </button>
-                </div>
-                {showDashboard && <DashboardErrorBoundary><AnalyticsDashboard groups={groups.filter(g => !anuladas[g.cat.id])} meta={meta} totalValor={totalValor} totalOcorrencias={totalOcorrencias} /></DashboardErrorBoundary>}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
+        {/* A CAMADA DAS JANELAS ANTIGAS (lançamentos da rubrica e mover
+            lançamento). Cobre a área do Finder sem pegar clique; só as janelas
+            abertas pegam. É .aw-finder-legado para herdar o estilo e a
+            inversão dos temas claros que essas janelas ainda usam. */}
+        <div className="aw-finder-legado aw-finder-camada" style={{ position:"absolute",inset:0,pointerEvents:"none",zIndex:40 }}>
       {activeModal && (() => {
         // Re-derivar group ao vivo: items podem ter sido excluídos/adicionados depois do click inicial
         const liveGroup = finalGrouped[activeModal.cat.id] || activeModal;
@@ -1695,7 +1407,8 @@ export default function App({
           </div>
         </div>
       )}
-      </div>
+        </div>
+      </>
       )}
       </div>
     </PonteFinder.Provider>

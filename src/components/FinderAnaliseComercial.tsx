@@ -15,6 +15,7 @@ import {
   type LeadCandidato,
 } from "@/lib/leadDaAnalise";
 import { rotuloDaEtapa } from "@/lib/jornada";
+import { cn } from "@/lib/utils";
 
 const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 
@@ -141,6 +142,7 @@ export function FinderAnaliseComercial({
   conversaId = null,
   nativo = false,
   detalhe = null,
+  embutido = false,
 }: {
   iframeRef?: RefObject<HTMLIFrameElement>;
   /* FINDER NOVO: a análise chega por prop (o que ele avisou ao ficar
@@ -148,6 +150,10 @@ export function FinderAnaliseComercial({
      Aqui a lista vira leitura: mostra o que ficou marcado, não marca. */
   nativo?: boolean;
   detalhe?: Record<string, any> | null;
+  /* NA BARRA DE DECISÃO do relatório do Finder novo, ao lado de vincular e
+     extrair, e não mais solto no canto da tela: o botão vira um botão comum
+     e quem posiciona é a barra. */
+  embutido?: boolean;
   // Quando setado, o salvar NÃO cria no catálogo — refaz a análise comercial
   // deste cliente (recalcula o fechamento) e volta pro perfil dele.
   refazerClienteId?: string | null;
@@ -160,6 +166,9 @@ export function FinderAnaliseComercial({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const refazendo = !!refazerClienteId;
+  /* Na barra de decisão do relatório o aviso vem de cima, para não cobrir a
+     própria barra (ver avisar, em src/apps/finder/vincular.jsx). */
+  const onde = embutido ? { position: "top-center" as const } : undefined;
   const [analise, setAnalise] = useState<AnaliseCaptada | null>(null);
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -268,7 +277,7 @@ export function FinderAnaliseComercial({
 
   const salvar = async () => {
     if (!analise) return;
-    if (!analise.nome.trim()) { toast.error("Informe o nome do cliente."); return; }
+    if (!analise.nome.trim()) { toast.error("Informe o nome do cliente.", onde); return; }
     setSalvando(true);
     const rubricas = analise.rubricas.map((r) => ({
       rubrica: r.rubrica, valor: r.valor, bloqueada: r.bloqueada, motivo: r.bloqueada ? r.motivo : null,
@@ -286,17 +295,17 @@ export function FinderAnaliseComercial({
         p_editor: user?.id || null,
       } as any);
       setSalvando(false);
-      if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+      if (error) { toast.error("Erro ao salvar: " + error.message, onde); return; }
       // Recalculou o fechamento no banco — invalida o quadro pra não ficar
       // preso no cache velho (staleTime 30s + persistência em localStorage).
       qc.invalidateQueries({ queryKey: ["fechamentos"] });
       const r = (data as any) || {};
       setSalvouId("ok");
       const partes = [
-        r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação nova" : "ações novas"} para ${r.creditadas_a || "—"}` : null,
+        r.novas > 0 ? `${r.novas} ${r.novas === 1 ? "ação nova" : "ações novas"} para ${r.creditadas_a || "quem já respondia pelo cliente"}` : null,
         r.removidas > 0 ? `${r.removidas} ${r.removidas === 1 ? "retirada" : "retiradas"}` : null,
       ].filter(Boolean);
-      toast.success(partes.length ? `Análise refeita — ${partes.join(" · ")}.` : "Análise refeita.", { duration: 4000 });
+      toast.success(partes.length ? `Análise refeita: ${partes.join(" · ")}.` : "Análise refeita.", { duration: 4000, ...onde });
       setTimeout(() => navigate(`/clientes/${refazerClienteId}`), 900);
       return;
     }
@@ -313,41 +322,59 @@ export function FinderAnaliseComercial({
     };
     const { data, error } = await supabase.from("analises_comerciais" as any).insert(payload as any).select("id").single();
     setSalvando(false);
-    if (error) { toast.error("Erro ao salvar: " + error.message); return; }
+    if (error) { toast.error("Erro ao salvar: " + error.message, onde); return; }
     setSalvouId((data as any)?.id || "ok");
     toast.success(vinculo
       ? "Análise comercial gerada. O lead avançou na jornada."
-      : "Análise comercial gerada. Disponível no Writer.");
+      : "Análise comercial gerada. Disponível no Writer.", onde);
   };
 
   if (!analise) return null;
   const nBloq = analise.rubricas.filter((r) => r.bloqueada).length;
 
+  const conteudo = (
+    <>
+      {salvouId ? <Check className="h-4 w-4" strokeWidth={3} /> : <ClipboardList className="h-4 w-4" />}
+      {salvouId
+        ? (refazendo ? "Análise refeita" : "Análise comercial gerada")
+        : (refazendo ? `Salvar nova análise${refazerNome ? " de " + refazerNome : ""}` : "Gerar análise comercial")}
+      {!salvouId && nBloq > 0 && (
+        /* Embutido, o selo usa a cor do texto do próprio botão: o âmbar claro
+           sumia no botão preto do tema Off-White. */
+        <span className={cn("inline-flex items-center gap-1 text-[11px] rounded-full px-1.5",
+          embutido ? "bg-primary-foreground/20 text-primary-foreground" : "bg-amber-400/20 text-amber-200")}>
+          <Lock className="h-3 w-3" /> {nBloq}
+        </span>
+      )}
+    </>
+  );
+
   return (
     <>
+      {embutido ? (
+        <motion.span className="inline-flex" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={MOLA}>
+          <Button size="sm" onClick={() => setOpen(true)}
+            className={cn("gap-1.5", salvouId && "bg-emerald-600 text-white hover:bg-emerald-600/90")}>
+            {conteudo}
+          </Button>
+        </motion.span>
+      ) : (
       <button
         onClick={() => setOpen(true)}
         className={`fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium shadow-lg shadow-black/30 hover:brightness-110 transition ${
           salvouId ? "bg-emerald-600 text-white" : "bg-primary text-primary-foreground"
         }`}
       >
-        {salvouId ? <Check className="h-4 w-4" strokeWidth={3} /> : <ClipboardList className="h-4 w-4" />}
-        {salvouId
-          ? (refazendo ? "Análise refeita" : "Análise comercial gerada")
-          : (refazendo ? `Salvar nova análise${refazerNome ? " de " + refazerNome : ""}` : "Gerar análise comercial")}
-        {!salvouId && nBloq > 0 && (
-          <span className="inline-flex items-center gap-1 text-[11px] bg-amber-400/20 text-amber-200 rounded-full px-1.5">
-            <Lock className="h-3 w-3" /> {nBloq}
-          </span>
-        )}
+        {conteudo}
       </button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-primary" />
-              {refazendo ? `Refazer análise comercial${refazerNome ? " — " + refazerNome : ""}` : "Gerar análise comercial"}
+              {refazendo ? `Refazer análise comercial${refazerNome ? " de " + refazerNome : ""}` : "Gerar análise comercial"}
             </DialogTitle>
             <DialogDescription>
               {refazendo

@@ -113,7 +113,7 @@ quem está usando. Por isso existem políticas abertas para `anon` (seção 9).
 
 | Peça | Arquivo | O que faz | Grava em |
 |---|---|---|---|
-| Gerar análise comercial | `FinderAnaliseComercial.tsx` | botão flutuante depois do `analysis-ready`; marca rubricas **não ajuizáveis** (motivo: rúbrica inválida, já ajuizada, cliente não quer); pergunta de qual lead é, se não veio de conversa | `analises_comerciais` `{nome, origem:'finder', rubricas:[{rubrica,valor,bloqueada,motivo}], created_by, created_by_email, conversa_id?}` |
+| Gerar análise comercial | `FinderAnaliseComercial.tsx` | no Finder novo, botão na barra de decisão do relatório (`Resultados.tsx`, prop `acaoComercial`), ao lado de vincular e extrair; no pacote antigo, botão flutuante; aparece depois do `analysis-ready`; marca rubricas **não ajuizáveis** (motivo: rúbrica inválida, já ajuizada, cliente não quer); pergunta de qual lead é, se não veio de conversa | `analises_comerciais` `{nome, origem:'finder', rubricas:[{rubrica,valor,bloqueada,motivo}], created_by, created_by_email, conversa_id?}` |
 | Refazer análise comercial | mesmo arquivo, modo `refazerComercial` | substitui a análise do cliente e recalcula o fechamento | RPC `fn_editar_analise_comercial(p_cliente_id, p_analise:{origem:'finder',rubricas}, p_editor)` |
 | Lead anda sozinho | gatilho `trg_wa_analise_avanca_jornada` | análise com `conversa_id` move o lead para Proposta e batiza com o nome do titular | `wa_conversas` |
 | Ligar análise depois | `VincularAnalise.tsx` (Atendimento) | liga uma análise solta a uma conversa | `analises_comerciais.conversa_id` |

@@ -3,7 +3,7 @@
  * São quase cinco mil linhas de leitor de extrato; quem nunca abre o Finder
  * não baixa nada disso. A ponte com o banco é a do AW, com o login de quem
  * usa (src/apps/finder/ponteAw.ts). */
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { ponteAw } from "@/apps/finder/ponteAw";
 
 /** Busca o código do Finder sem mostrar nada (chamado depois do login). */
@@ -29,6 +29,8 @@ export function FinderNativo(props: {
   onLiberarAnulada?: ((rubrica: string) => void) | null;
   onAnalisePronta?: ((d: DetalheDaAnalise) => void) | null;
   onReset?: (() => void) | null;
+  /** o botão da análise comercial, que vai para a barra de decisão do relatório */
+  acaoComercial?: ReactNode;
 }) {
   return (
     /* Sem tela de "carregando": o código do Finder já foi buscado em segundo

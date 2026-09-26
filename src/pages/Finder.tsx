@@ -257,15 +257,20 @@ export default function Finder() {
               arquivosIniciais={arquivosDaConversa}
               onAnalisePronta={setDetalhe}
               onReset={() => setDetalhe(null)}
+              /* A análise comercial mora na barra de decisão do relatório,
+                 junto de vincular e extrair, e não mais no canto da tela. */
+              acaoComercial={
+                <FinderAnaliseComercial
+                  nativo
+                  embutido
+                  detalhe={detalhe}
+                  refazerClienteId={refazerClienteId}
+                  refazerNome={refazerNome}
+                  conversaId={conversaId}
+                />
+              }
             />
           </div>
-          <FinderAnaliseComercial
-            nativo
-            detalhe={detalhe}
-            refazerClienteId={refazerClienteId}
-            refazerNome={refazerNome}
-            conversaId={conversaId}
-          />
         </>
       ) : (
       <>
