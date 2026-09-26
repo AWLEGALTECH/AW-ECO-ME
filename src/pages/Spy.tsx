@@ -20,6 +20,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip } from "recharts";
 import { useTheme } from "@/hooks/useTheme";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 // Mesma paleta do gráfico da aba Processos (o stroke SVG não resolve var()).
 const PRIMARY_HSL: Record<string, string> = {
@@ -170,12 +171,8 @@ export default function Spy() {
   return (
     <div className="w-full space-y-5">
       {!sel && (
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Spy</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano, então você pode navegar pelo Eco enquanto o radar trabalha.
-          </p>
-        </header>
+        <CabecalhoDaPagina titulo="Spy"
+          subtitulo="Inteligência sobre o cliente a partir dos extratos. Roda em segundo plano, então você pode navegar pelo Eco enquanto o radar trabalha." />
       )}
 
       {sel ? (

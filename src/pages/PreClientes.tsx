@@ -26,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { appConfig } from "@/config/app-config";
 import { hojeISO } from "@/lib/hoje";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface PreCliente {
   id: string;
@@ -1167,13 +1168,9 @@ export default function PreClientes() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <header className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-medium tracking-tight">Pré-clientes</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Cadastros gerados pelo Writer aguardando confirmação pós-assinatura do contrato.
-          </p>
-        </div>
+      <CabecalhoDaPagina titulo="Pré-clientes"
+        subtitulo="Cadastros gerados pelo Writer aguardando confirmação pós-assinatura do contrato."
+        acoes={
         <div className="flex items-center gap-1 rounded-xl border border-border bg-card/40 p-1">
           {(["aguardando_assinatura", "confirmado", "cancelado", "todos"] as const).map(s => (
             <button
@@ -1189,7 +1186,7 @@ export default function PreClientes() {
             </button>
           ))}
         </div>
-      </header>
+        } />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

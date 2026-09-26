@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Newspaper, Search, RefreshCw, CheckCircle2, Archive, ExternalLink, Hourglass, Inbox, Filter, Scale, Copy, Calendar, FileText, UserCheck, MapPin, Check } from "lucide-react";
 import { appConfig } from "@/config/app-config";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 type StatusLeitura = "nao_lida" | "lida" | "arquivada";
 
@@ -193,21 +194,14 @@ export default function Publicacoes() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Newspaper className="h-6 w-6 text-primary" />
-            Publicações
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Diário de Justiça Eletrônico Nacional (DJEN/CNJ) — endereçadas à OAB do escritório.
-          </p>
-        </div>
-        <Button onClick={sincronizar} disabled={sincronizando || !algumAtivo} size="sm">
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${sincronizando ? "animate-spin" : ""}`} />
-          {sincronizando ? "Sincronizando..." : "Sincronizar agora"}
-        </Button>
-      </header>
+      <CabecalhoDaPagina titulo="Publicações"
+        subtitulo="Diário de Justiça Eletrônico Nacional (DJEN/CNJ), endereçadas à OAB do escritório."
+        acoes={
+          <Button onClick={sincronizar} disabled={sincronizando || !algumAtivo}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${sincronizando ? "animate-spin" : ""}`} />
+            {sincronizando ? "Sincronizando..." : "Sincronizar agora"}
+          </Button>
+        } />
 
       {advogados.length === 0 ? (
         <Card>

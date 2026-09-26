@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Bell, Zap, Users, PenLine, ShieldCheck, Check, Plus, RotateCcw, Clock, ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface ConfigRow {
   tipo: string;
@@ -107,16 +108,12 @@ export default function AdminNotificacoes({ embutido = false }: { embutido?: boo
   return (
     <div className={embutido ? "space-y-6" : "max-w-3xl mx-auto space-y-6"}>
       {!embutido && (
-        <header>
-          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
-            <Bell className="h-6 w-6 text-primary" /> Central de notificações
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+        <CabecalhoDaPagina titulo="Central de notificações"
+          subtitulo={<>
             Tudo em um lugar: <strong>ligue ou desligue</strong> cada tipo, veja e ajuste
             {" "}<strong>quem recebe</strong>, e <strong>edite a copy</strong> (título e corpo). Você
             (admin) sempre recebe todas.
-          </p>
-        </header>
+          </>} />
       )}
 
       {isLoading ? (

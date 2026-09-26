@@ -12,6 +12,7 @@ import {
   CalendarDays, Loader2, Hash, ExternalLink, Layers, MapPin, BarChart3, CalendarRange,
   Handshake, CalendarClock, CheckCircle2, Landmark, Check,
 } from "lucide-react";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 /* ─────────────────────────── tipos ───────────────────────────
    O Tracker é um REFLEXO do System: tudo vem da linha_temporal dos
@@ -244,13 +245,7 @@ export default function Tracker() {
            porque derivarVitorias passa a marcá-lo como fora do Tracker */
         onBaixado={() => procRes.refetch()}
       />
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight">Tracker</h2>
-          <p className="text-sm text-muted-foreground mt-1">Reflexo do System: o que ainda vai entrar (em sentença, em acordo ou em cumprimento). O que já foi pago sai da conta.</p>
-        </div>
-      </div>
+      <CabecalhoDaPagina titulo="Tracker" subtitulo={<>Reflexo do System: o que ainda vai entrar (em sentença, em acordo ou em cumprimento). O que já foi pago sai da conta.</>} />
 
       {procRes.isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-10 justify-center">

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Archive, ArrowLeft, Search, ChevronRight, CalendarDays, User } from "lucide-react";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface Arquivado {
   id: string;
@@ -82,18 +83,9 @@ export default function ClientesArquivados() {
         <ArrowLeft className="h-4 w-4 mr-1.5" /> Clientes
       </Button>
 
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <span className="h-10 w-10 rounded-xl bg-amber-400/10 ring-1 ring-amber-400/25 text-amber-300 grid place-items-center shrink-0">
-            <Archive className="h-5 w-5" />
-          </span>
-          <div>
-            <h1 className="font-display text-2xl font-medium tracking-tight">Clientes arquivados</h1>
-            <p className="text-[12.5px] text-muted-foreground mt-0.5">
-              Fora da lista de ativos. Nada foi apagado — processos, contratos e histórico continuam na ficha.
-            </p>
-          </div>
-        </div>
+      <CabecalhoDaPagina titulo="Clientes arquivados"
+        subtitulo="Fora da lista de ativos. Nada foi apagado: processos, contratos e histórico continuam na ficha."
+        acoes={
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -103,7 +95,7 @@ export default function ClientesArquivados() {
             className="pl-9 h-9"
           />
         </div>
-      </div>
+        } />
 
       {carregando ? (
         <p className="text-center text-muted-foreground py-10">Carregando…</p>

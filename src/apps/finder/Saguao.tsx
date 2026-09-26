@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { LogoBradesco, Lupa, OrbitaDeAnalises } from "./marcas";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const MOLA = { type: "spring" as const, stiffness: 380, damping: 34 };
 const CURVA = [0.22, 1, 0.36, 1] as const;
@@ -211,22 +212,19 @@ export function SaguaoFinder(p: SaguaoProps) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="w-full space-y-6 px-3 py-3 sm:px-6 sm:py-6">
-        <input ref={inputRef} type="file" accept=".pdf" multiple className="hidden"
+        {/* `hidden` como ATRIBUTO, e não só classe: o `space-y-6` pula quem tem
+            o atributo. Só com a classe, este input invisível era o "primeiro
+            filho" e empurrava o título 24px para baixo das outras abas. */}
+        <input ref={inputRef} type="file" accept=".pdf" multiple hidden className="hidden"
           onChange={(e) => { if (e.target.files?.length) p.onAdicionar(e.target.files); e.target.value = ""; }} />
 
-        {/* Cabeçalho no molde das outras abas */}
-        <header className="flex items-end justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <Lupa className="h-6 w-6 text-primary" /> Finder
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {p.clienteNome
-                ? <>Extratos de <strong className="text-foreground font-medium">{p.clienteNome}</strong>. Lê, separa o que é cobrança indevida e agrupa por rubrica.</>
-                : "Lê os extratos, separa o que é cobrança indevida e agrupa por rubrica, com a base legal de cada uma."}
-            </p>
-          </div>
-          <AnimatePresence initial={false}>
+        {/* O cabeçalho de toda aba: título sóbrio, sem ícone, na mesma altura */}
+        <CabecalhoDaPagina
+          titulo="Finder"
+          subtitulo={p.clienteNome
+            ? <>Extratos de <strong className="text-foreground font-medium">{p.clienteNome}</strong>. Lê, separa o que é cobrança indevida e agrupa por rubrica.</>
+            : "Lê os extratos, separa o que é cobrança indevida e agrupa por rubrica, com a base legal de cada uma."}
+          acoes={<AnimatePresence initial={false}>
             {naFila && (
               <motion.div key="acoes" className="flex items-center gap-2 flex-wrap"
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
@@ -259,8 +257,8 @@ export function SaguaoFinder(p: SaguaoProps) {
                 </AnimatePresence>
               </motion.div>
             )}
-          </AnimatePresence>
-        </header>
+          </AnimatePresence>}
+        />
 
         {/* AS ANÁLISES DO FINDER. Uma aba por análise, com a marca que desliza
             (layoutId) quando houver mais de uma. As que vêm por aí aparecem

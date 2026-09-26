@@ -5,6 +5,7 @@ import { Hash, ChevronLeft, ChevronRight, Sparkles, Clapperboard, Megaphone, Bar
 import { cn } from "@/lib/utils";
 import { CounterStudio } from "@/components/marketing/CounterStudio";
 import { MetaAds } from "@/components/marketing/MetaAds";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -107,12 +108,7 @@ export default function Marketing() {
 
   return (
     <div className="space-y-5">
-      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
-        <h2 className="font-display text-3xl font-medium tracking-tight">Marketing</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Material de apoio para produção e divulgação.
-        </p>
-      </motion.div>
+      <CabecalhoDaPagina titulo="Marketing" subtitulo="Material de apoio para produção e divulgação." />
 
       {secao && (
         <div className="flex items-center gap-1.5 flex-wrap text-[11.5px]">

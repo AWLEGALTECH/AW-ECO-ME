@@ -75,6 +75,13 @@ function esperarOInput(iframe: HTMLIFrameElement, limiteMs = 20_000): Promise<bo
   });
 }
 
+/* O Finder ocupa a área inteira, até a borda: a margem negativa desfaz o
+   respiro do <main>. Mas margem negativa só DESLOCA a caixa; com `h-full
+   w-full` ela ficava do tamanho de antes, curta 2x o respiro na direita e
+   embaixo, e o conteúdo terminava 48px antes do das outras abas. Por isso o
+   tamanho soma o respiro dos dois lados. */
+const SANGRIA = "-m-3 sm:-m-6 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] sm:h-[calc(100%+3rem)] sm:w-[calc(100%+3rem)]";
+
 export default function Finder() {
   const [searchParams] = useSearchParams();
   const cliente = searchParams.get("cliente");
@@ -198,16 +205,16 @@ export default function Finder() {
   // iframe local, entao uma sessao de cliente que tenha sobrado na aba nao
   // pode sequestrar a tela.
   if (active && !conversaId) {
-    return <div className="h-full w-full -m-3 sm:-m-6" />;
+    return <div className={SANGRIA} />;
   }
   if (nativo === null) {
-    return <div className="h-full w-full -m-3 sm:-m-6 bg-background" />;
+    return <div className={`${SANGRIA} bg-background`} />;
   }
 
   // Modo standalone: usa o iframe local. Eh o caminho que a Adria pega
   // quando clica em "Finder" no sidebar.
   return (
-    <div className="h-full w-full flex flex-col -m-3 sm:-m-6 relative">
+    <div className={`${SANGRIA} flex flex-col relative`}>
       {/* ── DE ONDE VIERAM OS DOCUMENTOS ──
           Uma faixa fina, e não um cartão: o Finder precisa da tela inteira. Ela
           responde a única pergunta que a tela não responde sozinha (estes PDFs

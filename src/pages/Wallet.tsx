@@ -55,6 +55,7 @@ import { cn } from "@/lib/utils";
 import { hojeISO } from "@/lib/hoje";
 import { indexarRepasses, parteDoCliente, type ParteDoCliente } from "@/lib/repasseDoLancamento";
 import { lerHistorico } from "@/lib/historicoLancamento";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -429,12 +430,8 @@ export default function WalletPage() {
        tela inteira. Wallet fazia os dois, e por isso vinha estreito e
        centralizado enquanto o resto do app é largo. */
     <div className="space-y-6">
-      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
-        <h2 className="font-display text-3xl font-medium tracking-tight">Wallet</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Entradas e saídas do escritório. O dinheiro de cliente aparece separado do que é seu.
-        </p>
-      </motion.div>
+      <CabecalhoDaPagina titulo="Wallet"
+        subtitulo="Entradas e saídas do escritório. O dinheiro de cliente aparece separado do que é seu." />
 
       {semConta ? (
         <SpotlightCard className="p-8 text-center">

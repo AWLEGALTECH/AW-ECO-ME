@@ -52,7 +52,7 @@ export default function DashboardLayout() {
         {/* Altura reservada para a barra não pular quando o texto troca de
             painel, e margem PRÓPRIA em vez de min-h maior: se a frase quebrar em
             duas linhas no celular, o bloco cresce e o respiro continua lá. */}
-        <div className="min-h-[4.5rem] sm:min-h-[5rem] mb-7">
+        <div className="min-h-[3.75rem] mb-6">
           <AnimatePresence mode="wait">
             <motion.div
               key={ativa.to}
@@ -61,14 +61,15 @@ export default function DashboardLayout() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.3, ease: EASE }}
             >
-              {/* GRANDE, APERTADO E PESADO, que é o que dá ar de coisa cara.
-                  O tracking negativo é o detalhe que mais muda a impressão: na
-                  escala de display, a letra espaçada do padrão parece software
-                  de painel, e a apertada parece marca. */}
-              <h1 className="font-display text-[2.125rem] sm:text-[2.625rem] font-semibold tracking-[-0.03em] leading-[1.05]">
+              {/* O MESMO TÍTULO DE TODA ABA (o de CabecalhoDaPagina): tamanho,
+                  peso e altura iguais aos de Processos, Clientes e o resto. O
+                  título de vitrine que havia aqui fazia o painel parecer outro
+                  sistema. Fica só a troca animada por painel, que as outras
+                  abas não têm. */}
+              <h1 className="font-display text-3xl font-medium tracking-tight leading-9 break-words">
                 {ativa.rotulo}
               </h1>
-              <p className="text-[0.9375rem] text-muted-foreground/70 mt-2 tracking-[-0.011em]">
+              <p className="text-sm text-muted-foreground mt-1">
                 {ativa.frase}
               </p>
             </motion.div>

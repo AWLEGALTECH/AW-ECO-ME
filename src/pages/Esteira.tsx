@@ -21,6 +21,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface AuditInfo {
   who: string;
@@ -629,26 +630,21 @@ export default function Esteira() {
     /* O cabeçalho e a busca ficam na largura de leitura; o quadro usa a tela
        inteira, porque cada centímetro a mais é uma coluna a menos de rolagem. */
     <div className="space-y-6">
-      <header className="flex items-end justify-between gap-4 flex-wrap max-w-7xl">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Workflow className="h-6 w-6 text-primary" />
-            Esteira Pré-Protocolo
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Visão unificada de tudo pendente em produção. Total:{" "}
-            <strong className="text-foreground">{total}</strong>
-            {busca.trim() && totalSemFiltro !== total ? (
-              <> de {totalSemFiltro}</>
-            ) : null}
-            {" "}item{total === 1 ? "" : "s"}{busca.trim() ? " (filtrado)" : ""}.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={refetchAll} disabled={isFetching}>
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
-      </header>
+      <CabecalhoDaPagina className="max-w-7xl" titulo="Esteira Pré-Protocolo"
+        subtitulo={<>
+          Visão unificada de tudo pendente em produção. Total:{" "}
+          <strong className="text-foreground">{total}</strong>
+          {busca.trim() && totalSemFiltro !== total ? (
+            <> de {totalSemFiltro}</>
+          ) : null}
+          {" "}item{total === 1 ? "" : "s"}{busca.trim() ? " (filtrado)" : ""}.
+        </>}
+        acoes={
+          <Button variant="outline" onClick={refetchAll} disabled={isFetching}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        } />
 
       <div className="relative max-w-7xl">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

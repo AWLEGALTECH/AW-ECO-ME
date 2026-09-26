@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ProjetoDrive } from "@/components/ProjetoDrive";
 import { cn } from "@/lib/utils";
 import { hojeISO } from "@/lib/hoje";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -1378,17 +1379,8 @@ export default function Projetos() {
   /* ══════════════ LOBBY ══════════════ */
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight">Projetos</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            O trabalho do escritório que não é processo nem peça
-          </p>
-        </div>
-        <Button onClick={() => setNovoOpen(true)}>
-          <Plus className="h-4 w-4 mr-1.5" /> Novo projeto
-        </Button>
-      </div>
+      <CabecalhoDaPagina titulo="Projetos" subtitulo="O trabalho do escritório que não é processo nem peça"
+        acoes={<Button onClick={() => setNovoOpen(true)}><Plus className="h-4 w-4 mr-1.5" /> Novo projeto</Button>} />
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">

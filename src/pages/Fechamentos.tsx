@@ -24,6 +24,7 @@ import { BuscaRubrica, filtraPorBusca } from "@/components/BuscaRubrica";
 import { hojeISO, mesDeHoje } from "@/lib/hoje";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 /* ─────────────────────────── tipos ─────────────────────────── */
 interface Fechamento {
@@ -566,13 +567,9 @@ export default function Fechamentos() {
 
   return (
     <div className="space-y-6">
-      {/* Header — padrão do dashboard principal (font-display) */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight">Fechamentos &amp; Comissões</h2>
-          <p className="text-sm text-muted-foreground mt-1">Placar do mês, metas e comissão por multiplicador.</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <CabecalhoDaPagina titulo="Fechamentos & Comissões"
+        subtitulo="Placar do mês, metas e comissão por multiplicador."
+        acoes={<>
           {isAdmin && (
             <Button variant="outline" onClick={() => setRegrasOpen(true)} className="gap-1.5">
               <Settings2 className="h-4 w-4" /> Regras do mês
@@ -581,8 +578,7 @@ export default function Fechamentos() {
           <Button onClick={() => setNovoOpen(true)} className="gap-1.5">
             <Plus className="h-4 w-4" /> Novo fechamento
           </Button>
-        </div>
-      </div>
+        </>} />
 
       {/* Navegação de mês — estilo calendário, foco no mês atual */}
       <div className="flex items-center justify-center gap-2">

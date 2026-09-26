@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Activity, RefreshCw, User, Search, Clock, ChevronDown } from "lucide-react";
 import { appConfig } from "@/config/app-config";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface LogRow {
   id: number;
@@ -90,21 +91,14 @@ export default function AdminLogs() {
 
   return (
     <div className="space-y-6 max-w-7xl">
-      <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Activity className="h-6 w-6 text-primary" />
-            Logs do Sistema
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Registro completo de eventos: criação, edição, exclusão, login, ações administrativas.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${q.isFetching ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
-      </header>
+      <CabecalhoDaPagina titulo="Logs do Sistema"
+        subtitulo="Registro completo de eventos: criação, edição, exclusão, login, ações administrativas."
+        acoes={
+          <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${q.isFetching ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        } />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">

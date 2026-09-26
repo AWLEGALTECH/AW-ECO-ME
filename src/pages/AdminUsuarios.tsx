@@ -22,6 +22,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 interface ProfileRow {
   id: string;
@@ -188,27 +189,19 @@ export default function AdminUsuarios() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold font-display flex items-center gap-2">
-            <UserCog className="h-6 w-6 text-primary" /> Equipe
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Contas, permissões de módulo e preferências de notificação.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <CabecalhoDaPagina titulo="Equipe"
+        subtitulo="Contas, permissões de módulo e preferências de notificação."
+        acoes={<>
           {vista === "pessoas" && (
             <div className="relative w-52">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome ou e-mail" className="pl-9 h-9" />
             </div>
           )}
-          <Button variant="outline" size="sm" onClick={refetchAll}>
-            <RefreshCw className="h-4 w-4 mr-1.5" /> Atualizar
+          <Button variant="outline" onClick={refetchAll}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Atualizar
           </Button>
-        </div>
-      </header>
+        </>} />
 
       {/* As duas metades da antiga Central de notificações: por pessoa (dentro
           do painel de cada uma) e por tipo (aqui). O que era uma tela separada

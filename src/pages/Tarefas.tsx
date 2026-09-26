@@ -25,6 +25,7 @@ import {
   achatarTarefas, salvarTarefaNoBanco,
   type ItemTarefa as Item, type PatchTarefa, type ProcessoComTarefas as Proc,
 } from "@/lib/tarefas";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -331,10 +332,7 @@ export default function Tarefas() {
   return (
     <div className="space-y-5">
       {/* ── Cabeçalho ── */}
-      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}>
-        <h2 className="font-display text-3xl font-medium tracking-tight">Tarefas</h2>
-        <p className="text-sm text-muted-foreground mt-1">Todas as tarefas e pendências de todos os processos, num lugar só.</p>
-      </motion.div>
+      <CabecalhoDaPagina titulo="Tarefas" subtitulo="Todas as tarefas e pendências de todos os processos, num lugar só." />
 
       {/* ── Dashzinho: total / em aberto / finalizadas ── */}
       <motion.div

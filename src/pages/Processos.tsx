@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { PinButton } from "@/components/PinButton";
 import { ProcessosLista, usePins, fmtBRL, ordemStatus, type ProcessoDaLista } from "@/components/ProcessosLista";
 import { FAIXAS, diasSemMov, faixaDe } from "@/lib/parados";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -165,21 +166,12 @@ export default function Processos() {
   return (
     <div className="space-y-5">
       {/* ── Cabeçalho ── */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}
-        className="flex items-center justify-between flex-wrap gap-2"
-      >
-        <div>
-          <h2 className="font-display text-3xl font-medium tracking-tight">Processos</h2>
-          <p className="text-sm text-muted-foreground mt-1">Painel de controle · aba ADV</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => navigate("/tarefas")}>
-            <Layers className="h-4 w-4" /> Tarefas
-          </Button>
-          <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>
-        </div>
-      </motion.div>
+      <CabecalhoDaPagina titulo="Processos" subtitulo="Painel de controle · aba ADV" acoes={<>
+        <Button variant="outline" className="gap-2" onClick={() => navigate("/tarefas")}>
+          <Layers className="h-4 w-4" /> Tarefas
+        </Button>
+        <Button onClick={() => navigate("/processos/novo")}><Plus className="h-4 w-4 mr-2" />Novo Processo</Button>
+      </>} />
 
       {/* ── Movimentações (faixas + suspensos + curva acumulada) ── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}>

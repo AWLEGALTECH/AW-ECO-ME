@@ -24,6 +24,7 @@ import { BarraDeMensagem, type ItemDaBarra } from "@/components/chamados/BarraDe
 import { SpotlightCard } from "@/components/SpotlightCard";
 import { mandarAnexo, mandarRecado } from "@/hooks/useChamadoMensagens";
 import { tamanhoBonito } from "@/lib/comprimirAnexo";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 /* A CURVA DA CASA. Mesma de todas as telas: sai rápido, chega devagar, que é
    como as coisas com peso se movem. */
@@ -194,20 +195,9 @@ export default function Chamados() {
   return (
     <div className="w-full space-y-6">
       {/* Header */}
-      <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Ticket className="h-6 w-6 text-primary" /> Chamados
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Achou um bug, quer uma melhoria ou teve uma ideia? Abre um chamado. Fica tudo aqui
-            à vista de quem vai resolver.
-          </p>
-        </div>
-        <Button onClick={() => setAbrir(true)} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Abrir chamado
-        </Button>
-      </header>
+      <CabecalhoDaPagina titulo="Chamados"
+        subtitulo="Achou um bug, quer uma melhoria ou teve uma ideia? Abre um chamado. Fica tudo aqui à vista de quem vai resolver."
+        acoes={<Button onClick={() => setAbrir(true)} className="gap-1.5"><Plus className="h-4 w-4" /> Abrir chamado</Button>} />
 
       {/* ── ABAS DE STATUS ─────────────────────────────────────────────────
           UM ÚNICO FUNDO QUE DESLIZA, e não um que acende numa aba e apaga na

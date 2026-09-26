@@ -17,6 +17,7 @@ import {
   FileSpreadsheet, Shield, Landmark, Briefcase, ChevronRight, ArrowLeft, Upload,
   FileText, X, Loader2, Check, AlertTriangle, Download, RefreshCw, CheckCircle2,
 } from "lucide-react";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -33,12 +34,8 @@ export default function Sheets() {
   return (
     <div className="w-full space-y-5">
       {!tipo && (
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Sheets</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Extração de rubricas de contracheques direto no navegador. Anexe os PDFs, escolha as rubricas e gere a tabela.
-          </p>
-        </header>
+        <CabecalhoDaPagina titulo="Sheets"
+          subtitulo="Extração de rubricas de contracheques direto no navegador. Anexe os PDFs, escolha as rubricas e gere a tabela." />
       )}
       {tipo ? <Sessao tipo={tipo} onBack={() => setTipo(null)} /> : <EscolhaTipo onEscolher={setTipo} />}
     </div>

@@ -16,6 +16,7 @@ import { useComarcasSugeridas } from "@/hooks/useComarcasSugeridas";
 import { nomeSobrenome } from "@/lib/audit";
 import { Plus, Search, Eye, User, FolderOpen, ExternalLink, Loader2, Check, Workflow, CheckCircle2, Hourglass, Send, CreditCard, Phone, Mail, Building2, DollarSign, FileText, ClipboardList, ChevronUp, ChevronDown, ChevronsUpDown, Calendar, UserPlus, Copy, ArrowRight, AlertTriangle, Archive, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { CabecalhoDaPagina } from "@/components/CabecalhoDaPagina";
 
 type SocioStatus = "preenchido" | "aguardando_resposta" | "aguardando_geracao";
 
@@ -252,8 +253,7 @@ export default function Clientes() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display text-3xl font-medium tracking-tight">Clientes</h2>
+      <CabecalhoDaPagina className="mb-4" titulo="Clientes" acoes={
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetDialog(); }}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 mr-2" />Novo Cliente</Button>
@@ -358,7 +358,7 @@ export default function Clientes() {
             )}
           </DialogContent>
         </Dialog>
-      </div>
+      } />
 
       <ClientesDashboard clientes={clientes} onRefetch={fetchAll} />
 
