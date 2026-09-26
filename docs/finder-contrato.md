@@ -235,6 +235,13 @@ AW-FINDER). O antigo, em `public/finder-app/`, continua sendo o padrão.
 - Os 10 extratos de teste (`AW-FINDER/tests/fixtures`, 2 escaneados) dão resultado idêntico no pacote e no novo: titular, banco, conta, período, categorias, quantidades e valores.
 - No AW com o banco simulado: modo cliente (Drive, Vincular com planilha e demanda no formato da seção 4.3, bloqueada do comercial aberta como não ajuizável), modo solto (análise comercial), modo conversa (PDF entregue, análise gravada com `conversa_id`), refazer (`fn_editar_analise_comercial`). Tema escuro e Off-White.
 
+**Saguão refeito (26/09).** A tela de envio, a análise em andamento e o
+desfecho são agora `src/apps/finder/Saguao.tsx`, no padrão visual do AW
+(tokens, componentes, lucide, framer), sem inversão de tema. A análise tem
+barra de progresso real: página a página de cada extrato (inclusive OCR),
+lote a lote do auditor de IA (`refineWithLLM(..., { onProgress })`) e etapa a
+etapa. A tela de resultados segue a antiga, em `.aw-finder-legado`.
+
 **Falta, na ordem:**
 1. Conferência com extratos reais do escritório e uso real com `?nativo=1`.
 2. Virar o padrão e apagar `public/finder-app/`.

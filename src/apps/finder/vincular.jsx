@@ -56,7 +56,7 @@ export function avisar(texto, tipo = "success") {
   /* Dentro da caixa do Finder, e não no corpo da página: assim o aviso segue o
      tema dele (inclusive a inversão dos temas claros) e aparece no canto do
      Finder, como aparecia quando ele era um iframe. */
-  (document.querySelector(".aw-finder") || document.body).appendChild(el);
+  (document.querySelector(".aw-finder-legado") || document.querySelector(".aw-finder") || document.body).appendChild(el);
   setTimeout(() => {
     el.style.animation = "awToastOut 0.25s ease-in forwards";
     setTimeout(() => el.remove(), 260);

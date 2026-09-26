@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { CATEGORIAS, THEME, matchCategoria, analyzeAll, parseDocumentoPDF } from "./parser.js";
 import { reviewMatches, recoverMissingTransactions, autoCorrectTransactions, refineWithLLM } from "./reviewer.js";
 import { PonteFinder, VincularBotao, periodoDosItens, nomeDeAba } from "./vincular.jsx";
+import { SaguaoFinder } from "./Saguao.tsx";
 
 // Fase B (AWFINDER REVISOR) — auditor IA via n8n com cross-check ULTRA.
 // Workflow ebpSwVQvRb7vdSGP no n8n Oracle. Ver doc em reviewer.js.
@@ -579,6 +580,11 @@ export default function App({
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [fileName, setFileName] = useState("");
   const [parseProgress, setParseProgress] = useState({ page:0, total:0 });
+  /* O PROGRESSO REAL da análise (ver Saguao.tsx): cada extrato com a página em
+     que está, a etapa atual e os lotes do auditor de IA. */
+  const [progresso, setProgresso] = useState(null);
+  const mexerNoProgresso = useCallback((fn) => setProgresso(p => (p ? fn(p) : p)), []);
+  const umQuadro = () => new Promise(r => setTimeout(r, 40));
   const [grouped, setGrouped] = useState({});
   const [meta, setMeta] = useState({});
   const [activeModal, setActiveModal] = useState(null);
@@ -712,17 +718,29 @@ export default function App({
     if (!files.length) return;
     setMultipleClientsWarning(null); setMixedTitulares(null); pendingResultsRef.current = null;
     setPhase("parsing"); setErrorMsg("");
+    setProgresso({
+      inicio: Date.now(),
+      arquivos: files.map(f => ({ nome: f.name, pagina: 0, paginas: 0, ocr: false, estado: "fila" })),
+      etapa: "leitura",
+      auditor: { feitos: 0, total: 0 },
+    });
+    const noArquivo = (i, patch) => mexerNoProgresso(p => ({ ...p, arquivos: p.arquivos.map((a, j) => j === i ? { ...a, ...patch } : a) }));
     const results = [];
     for (let i=0; i<files.length; i++) {
       const file = files[i]; setFileName(file.name);
+      noArquivo(i, { estado: "lendo" });
       try {
         const PARSE_TIMEOUT = 1_800_000; // 30min — OCR de PDFs grandes (45+ páginas) pode levar 10-15 min
         const result = await Promise.race([
-          parseDocumentoPDF(file,(page,total,ocr)=>setParseProgress({page,total,ocr})),
+          parseDocumentoPDF(file,(page,total,ocr)=>{ setParseProgress({page,total,ocr}); noArquivo(i, { pagina: page, paginas: total, ocr: !!ocr }); }),
           new Promise((_,reject) => setTimeout(() => reject(new Error("Timeout: processamento excedeu 10 minutos")), PARSE_TIMEOUT))
         ]);
         results.push({result,file});
-      } catch(err) { setErrorMsg(prev => prev ? prev : `Erro ao processar "${file.name}": ${err.message}`); }
+        noArquivo(i, { estado: "lido" });
+      } catch(err) {
+        noArquivo(i, { estado: "falhou" });
+        setErrorMsg(prev => prev ? prev : `Erro ao processar "${file.name}": ${err.message}`);
+      }
     }
     if (!results.length) { setErrorMsg("Não foi possível processar nenhum PDF. Verifique se os arquivos são documentos válidos."); setPhase("error"); return; }
     // ── Banco não suportado ──
@@ -740,7 +758,7 @@ export default function App({
       setPhase("upload"); setMultipleClientsWarning({names:uniqueNames}); return;
     }
     await runAnalysis(results, null);
-  }, []);
+  }, [mexerNoProgresso]);
 
   // Continuação da análise (pós-guardas). `mixedNames` != null quando o
   // usuário optou por analisar extratos de titulares distintos juntos —
@@ -749,6 +767,7 @@ export default function App({
   const runAnalysis = useCallback(async (results, mixedNames) => {
     setMixedTitulares(mixedNames || null);
     setPhase("analyzing");
+    mexerNoProgresso(p => ({ ...p, etapa: "revisao" }));
     await new Promise(r=>setTimeout(r,600));
     const allTransactions = results.flatMap(r=>r.result.transactions);
     const primary = results[0].result;
@@ -763,12 +782,21 @@ export default function App({
     // extremo), remove falsos positivos com score>=50 e recupera missing.
     // Itens com score baixo ficam em residualSuspicious.
     let auto = autoCorrectTransactions(allTransactions, reviewerData);
+    mexerNoProgresso(p => ({ ...p, etapa: "auditor" }));
+    await umQuadro();
     // Fase B: AWFINDER REVISOR audita TODAS as tx classificadas via LLM com
     // cross-check ULTRA (triple-gate no n8n). Falha silenciosa se webhook off.
     if (FINDER_LLM_URL) {
-      try { auto = await refineWithLLM(auto, FINDER_LLM_URL); } catch (e) { console.warn("AWFINDER REVISOR falhou:", e); }
+      try {
+        auto = await refineWithLLM(auto, FINDER_LLM_URL, {
+          onProgress: (feitos, total) => mexerNoProgresso(p => ({ ...p, auditor: { feitos, total } })),
+        });
+      } catch (e) { console.warn("AWFINDER REVISOR falhou:", e); }
     }
+    mexerNoProgresso(p => ({ ...p, etapa: "agrupamento" }));
+    await umQuadro();
     const g = analyzeAll(auto.transactions);
+    mexerNoProgresso(p => ({ ...p, etapa: "fim" }));
     // reviewReport agora carrega tudo: o que foi auto-corrigido (verde) +
     // o que ainda precisa revisão (laranja).
     setReviewReport({
@@ -787,7 +815,7 @@ export default function App({
     setFileName(fileList.length===1?fileList[0].name:`${fileList.length} documentos analisados`);
     if (Object.keys(g).length>0) { setPhase("success"); setTimeout(()=>setPhase("results"),2200); }
     else { setPhase("noDiscount"); setTimeout(()=>setPhase("results"),3000); }
-  }, []);
+  }, [mexerNoProgresso]);
 
   // "Analisar mesmo assim": usuário assume a mistura de titulares (ex.: casal
   // com extratos separados, ou conferência conjunta). Continua dos resultados
@@ -1183,6 +1211,10 @@ export default function App({
     }
   }, [phase, grouped]);
 
+  /* Saguão (envio, análise em andamento, desfecho) é tela do AW: Saguao.tsx.
+     Os resultados seguem na tela antiga do Finder, dentro de .aw-finder-legado. */
+  const faseDoSaguao = ["upload","parsing","analyzing","success","noDiscount","error"].includes(phase);
+
   return (
     <PonteFinder.Provider value={ponteComCliente}>
       <style>{`
@@ -1218,6 +1250,8 @@ export default function App({
           --amber-border:rgba(251,191,36,0.4);
           --amber-bg:rgba(251,191,36,0.08);
           --font:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+        }
+        .aw-finder-legado{
           font-family:var(--font);font-size:14px;line-height:1.5;color:var(--text);
           -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;letter-spacing:-0.01em;
         }
@@ -1241,7 +1275,7 @@ export default function App({
            matiz devolve verde, âmbar e vermelho, escuros e legíveis no claro.
            Os tons abaixo são escolhidos para, depois de invertidos, darem papel
            branco e borda fina. Foto e canvas invertem de volta. */
-        html[data-theme="branco"] .aw-finder,html[data-theme="sei"] .aw-finder{
+        html[data-theme="branco"] .aw-finder-legado,html[data-theme="sei"] .aw-finder-legado{
           filter:invert(1) hue-rotate(180deg);
           --bg:#000;
           --aw-bg:hsl(0 0% 0%);
@@ -1253,18 +1287,18 @@ export default function App({
           --aw-text-muted:hsl(0 0% 60%);
           --aw-text-dim:hsl(0 0% 45%);
         }
-        html[data-theme="branco"] .aw-finder{--accent-s:0%;--accent-l:50%;--sat-destaque:0%}
-        html[data-theme="sei"] .aw-finder{--accent-l:53%}
-        html[data-theme="branco"] .aw-finder img,html[data-theme="branco"] .aw-finder video,html[data-theme="branco"] .aw-finder canvas,
-        html[data-theme="sei"] .aw-finder img,html[data-theme="sei"] .aw-finder video,html[data-theme="sei"] .aw-finder canvas{filter:invert(1) hue-rotate(180deg)}
-        .aw-finder *,.aw-finder *::before,.aw-finder *::after{box-sizing:border-box;margin:0;padding:0}
-        .aw-finder button{font-family:inherit;color:inherit}
-        .aw-finder input,.aw-finder select,.aw-finder textarea{font-family:inherit;color:inherit}
-        .aw-finder ::selection{background:hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35);color:#fff}
-        .aw-finder ::-webkit-scrollbar{width:8px;height:8px}
-        .aw-finder ::-webkit-scrollbar-track{background:transparent}
-        .aw-finder ::-webkit-scrollbar-thumb{background:hsla(0,0%,22%,0.7);border-radius:4px}
-        .aw-finder ::-webkit-scrollbar-thumb:hover{background:hsla(0,0%,32%,0.9)}
+        html[data-theme="branco"] .aw-finder-legado{--accent-s:0%;--accent-l:50%;--sat-destaque:0%}
+        html[data-theme="sei"] .aw-finder-legado{--accent-l:53%}
+        html[data-theme="branco"] .aw-finder-legado img,html[data-theme="branco"] .aw-finder-legado video,html[data-theme="branco"] .aw-finder-legado canvas,
+        html[data-theme="sei"] .aw-finder-legado img,html[data-theme="sei"] .aw-finder-legado video,html[data-theme="sei"] .aw-finder-legado canvas{filter:invert(1) hue-rotate(180deg)}
+        .aw-finder-legado *,.aw-finder-legado *::before,.aw-finder-legado *::after{box-sizing:border-box;margin:0;padding:0}
+        .aw-finder-legado button{font-family:inherit;color:inherit}
+        .aw-finder-legado input,.aw-finder-legado select,.aw-finder-legado textarea{font-family:inherit;color:inherit}
+        .aw-finder-legado ::selection{background:hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35);color:#fff}
+        .aw-finder-legado ::-webkit-scrollbar{width:8px;height:8px}
+        .aw-finder-legado ::-webkit-scrollbar-track{background:transparent}
+        .aw-finder-legado ::-webkit-scrollbar-thumb{background:hsla(0,0%,22%,0.7);border-radius:4px}
+        .aw-finder-legado ::-webkit-scrollbar-thumb:hover{background:hsla(0,0%,32%,0.9)}
         @keyframes mFadeIn{from{opacity:0}to{opacity:1}}
         @keyframes mSlideUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
         @keyframes cIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
@@ -1278,14 +1312,42 @@ export default function App({
         @keyframes xRing{0%{transform:scale(0.6);opacity:0}50%{opacity:1}100%{transform:scale(1.7);opacity:0}}
         @keyframes warnPop{0%{transform:scale(0);opacity:0}65%{transform:scale(1.12);opacity:1}100%{transform:scale(1);opacity:1}}
         @keyframes redPulse{0%,100%{transform:scale(1);text-shadow:0 0 40px rgba(239,68,68,0.5),0 0 80px rgba(239,68,68,0.2)}50%{transform:scale(1.02);text-shadow:0 0 60px rgba(239,68,68,0.7),0 0 100px rgba(239,68,68,0.35)}}
-        .aw-finder .kpi-featured{transition:box-shadow 0.3s ease,border-color 0.3s ease;}
-        .aw-finder .kpi-featured:hover{box-shadow:0 0 48px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.55),inset 0 1px 0 rgba(255,255,255,0.06) !important;border-color:hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.75) !important;}
+        .aw-finder-legado .kpi-featured{transition:box-shadow 0.3s ease,border-color 0.3s ease;}
+        .aw-finder-legado .kpi-featured:hover{box-shadow:0 0 48px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.55),inset 0 1px 0 rgba(255,255,255,0.06) !important;border-color:hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.75) !important;}
       `}</style>
 
       {/* Duas caixas: a de fora prende as janelas do Finder à área dele (e
           recebe a inversão dos temas claros); a de dentro é a que rola. Com
           uma só, uma janela aberta com a lista rolada nasceria lá no topo. */}
       <div className="aw-finder" style={{ height:"100%",position:"relative" }}>
+      {faseDoSaguao ? (
+        <SaguaoFinder
+          fase={phase}
+          clienteNome={clienteNome}
+          driveFolderId={driveFolderId}
+          driveUrl={driveUrl}
+          arquivos={uploadedFiles}
+          aviso={phase==="upload" ? errorMsg : ""}
+          onAdicionar={(files)=>{ setErrorMsg(""); addFiles(files); }}
+          onRemover={removeFile}
+          onAnalisar={()=>processFiles(uploadedFiles)}
+          progresso={progresso}
+          erro={errorMsg}
+          onRecomecar={()=>{ setErrorMsg(""); setPhase("upload"); }}
+          quantasRubricas={Object.keys(grouped).length}
+          onAbrirDrive={abrirDrive}
+          drive={{ aberto: driveAberto, carregando: driveCarregando, arquivos: driveArquivos, selecionados: driveSel, erro: driveErro, baixando: driveBaixando, progresso: driveProgresso }}
+          onDriveAlternar={(id)=>setDriveSel(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; })}
+          onDriveTodos={()=>setDriveSel(new Set(driveArquivos.map(f=>f.id)))}
+          onDriveLimpar={()=>setDriveSel(new Set())}
+          onDriveFechar={()=>setDriveAberto(false)}
+          onDriveAdicionar={adicionarDoDrive}
+          titulares={multipleClientsWarning && phase==="upload" ? multipleClientsWarning.names : null}
+          onAjustarArquivos={()=>{ setMultipleClientsWarning(null); pendingResultsRef.current = null; }}
+          onAnalisarMesmoAssim={analisarMesmoAssim}
+        />
+      ) : (
+      <div className="aw-finder-legado" style={{ height:"100%",position:"relative" }}>
       <div style={{ height:"100%",overflowY:"auto",background:"var(--bg)",color:"var(--aw-text)",fontFamily:"Inter,sans-serif" }}>
 
         {/* HEADER */}
@@ -1304,281 +1366,6 @@ export default function App({
         )}
 
         {/* ── UPLOAD ── */}
-        {phase==="upload" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",alignItems:"stretch",animation:"fadeSlide 0.35s ease" }}>
-            <div style={{ flex:"0 0 420px",borderRight:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",justifyContent:"center",padding:"3rem 2.5rem",background:"var(--aw-card)" }}>
-              <div style={{ display:"inline-flex",alignItems:"center",gap:7,background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.1)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.22)",borderRadius:20,padding:"5px 14px",fontSize:10,fontWeight:700,color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)",letterSpacing:"1.8px",textTransform:"uppercase",marginBottom:"1.8rem",width:"fit-content",fontFamily:"Inter, sans-serif" }}>⚖ &nbsp;AW LEGALTECH · Auditoria Bancária</div>
-              <h1 style={{ fontSize:"2.25rem",fontWeight:800,lineHeight:1.1,color:"var(--aw-text)",letterSpacing:"-0.8px",marginBottom:"1rem",fontFamily:"Inter,sans-serif" }}>Auditor de<br/><span style={{ color:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))" }}>Cobranças Indevidas</span></h1>
-              <p style={{ fontSize:"0.88rem",color:"var(--aw-text-muted)",lineHeight:1.75,fontWeight:400,marginBottom:"2rem",fontFamily:"Inter, sans-serif" }}>Inteligência forense para extratos bancários. Carregue os PDFs e o motor identifica o titular, isola descontos irregulares e cruza com os fundamentos jurídicos aplicáveis (CDC arts. 39 e 42).</p>
-              {/* COM PASTA NO DRIVE (modo cliente): buscar de lá vem primeiro,
-                  porque é de onde os extratos do cliente já estão. */}
-              <div style={{ display:"flex",flexDirection:"column",gap:"1rem" }}>
-                {(driveFolderId || driveUrl) && (
-                  <div style={{ display:"flex",flexDirection:"column",gap:"0.6rem",alignItems:"stretch" }}>
-                    {driveFolderId && (
-                      <button onClick={abrirDrive} style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"0.55rem",padding:"0.75rem 1.1rem",background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.12)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35)",borderRadius:10,color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)",fontSize:"0.82rem",fontWeight:700,fontFamily:"Inter, sans-serif",transition:"all 0.2s",cursor:"pointer" }}
-                        onMouseEnter={e=>{ e.currentTarget.style.background="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.2)"; e.currentTarget.style.borderColor="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.6)"; }}
-                        onMouseLeave={e=>{ e.currentTarget.style.background="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.12)"; e.currentTarget.style.borderColor="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35)"; }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-                        Buscar do Drive do cliente
-                      </button>
-                    )}
-                    {driveUrl && (
-                      <a href={driveUrl} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"0.5rem",padding:"0.55rem 0.9rem",background:"transparent",border:"1px solid var(--aw-border)",borderRadius:8,color:"var(--aw-text-muted)",fontSize:"0.72rem",fontWeight:500,textDecoration:"none",fontFamily:"Inter, sans-serif",transition:"all 0.2s" }}
-                        onMouseEnter={e=>{ e.currentTarget.style.color="var(--aw-text)"; e.currentTarget.style.borderColor="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3)"; }}
-                        onMouseLeave={e=>{ e.currentTarget.style.color="var(--aw-text-muted)"; e.currentTarget.style.borderColor="var(--aw-border)"; }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                        ou abrir a pasta no navegador
-                      </a>
-                    )}
-                  </div>
-                )}
-                {(driveFolderId || driveUrl) && (
-                  <div style={{ display:"flex",alignItems:"center",gap:"0.5rem",width:"100%" }}>
-                    <div style={{ flex:1,height:1,background:"rgba(255,255,255,0.08)" }}/>
-                    <span style={{ fontSize:"0.65rem",color:"var(--aw-text-dim)",fontFamily:"Inter, sans-serif",letterSpacing:"1.5px",textTransform:"uppercase" }}>ou</span>
-                    <div style={{ flex:1,height:1,background:"rgba(255,255,255,0.08)" }}/>
-                  </div>
-                )}
-                <label onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"0.7rem",border:`1.5px dashed ${dragOver?"hsl(var(--accent-h), var(--accent-s), var(--accent-l))":"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.22)"}`,borderRadius:14,padding:"2rem 1.5rem",cursor:"pointer",background:dragOver?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.06)":"var(--aw-card)",backdropFilter:"blur(12px)",boxShadow:dragOver?"0 0 30px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.15)":"none",transition:"all 0.2s ease",textAlign:"center" }}>
-                  <input type="file" accept=".pdf" multiple style={{ display:"none" }} onChange={handleDrop}/>
-                  <div style={{ width:46,height:46,borderRadius:12,background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.1)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.2)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 18px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.15)" }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  </div>
-                  <div>
-                    <p style={{ color:"var(--aw-text)",fontSize:"0.88rem",fontWeight:600,marginBottom:3,fontFamily:"Inter, sans-serif" }}>Arraste os documentos aqui</p>
-                    <p style={{ color:"var(--aw-text-dim)",fontSize:"0.75rem",fontFamily:"Inter, sans-serif" }}>ou clique para selecionar · PDF · múltiplos arquivos</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-            <div style={{ flex:1,display:"flex",flexDirection:"column",padding:"3rem 2.5rem",overflowY:"auto" }}>
-              <div style={{ marginBottom:"1.8rem" }}>
-                <div style={{ fontSize:"0.62rem",fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",color:"var(--aw-text-dim)",marginBottom:6,fontFamily:"Inter, sans-serif" }}>Fila de Análise</div>
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"0.8rem" }}>
-                  <p style={{ fontSize:"1.1rem",fontWeight:700,color:uploadedFiles.length?"var(--aw-text)":"var(--aw-text-dim)",letterSpacing:"-0.3px",fontFamily:"Inter, sans-serif" }}>
-                    {uploadedFiles.length===0?"Nenhum documento adicionado":`${uploadedFiles.length} documento${uploadedFiles.length>1?"s":""} na fila`}
-                  </p>
-                  {uploadedFiles.length>0 && (
-                    <button onClick={()=>processFiles(uploadedFiles)} style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",border:"1px solid transparent",borderRadius:8,color:"#fff",fontFamily:"Inter, sans-serif",fontSize:12,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",padding:"11px 22px",cursor:"pointer",boxShadow:"0 0 20px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3), inset 0 1px 0 rgba(255,255,255,0.12)",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.background="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)";e.currentTarget.style.boxShadow="0 0 32px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.5), inset 0 1px 0 rgba(255,255,255,0.2)";e.currentTarget.style.transform="translateY(-1px)";}} onMouseLeave={e=>{e.currentTarget.style.background="hsl(var(--accent-h), var(--accent-s), var(--accent-l))";e.currentTarget.style.boxShadow="0 0 20px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3), inset 0 1px 0 rgba(255,255,255,0.12)";e.currentTarget.style.transform="translateY(0)";}}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                      Analisar {uploadedFiles.length>1?`(${uploadedFiles.length})`:""}
-                    </button>
-                  )}
-                </div>
-              </div>
-              {uploadedFiles.length===0 && (
-                <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1rem",opacity:0.4 }}>
-                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--aw-text-dim)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  <p style={{ fontSize:"0.82rem",color:"var(--aw-text-dim)",textAlign:"center",lineHeight:1.6,maxWidth:260 }}>Arraste os PDFs para a área à esquerda ou clique para selecionar os documentos</p>
-                </div>
-              )}
-              {uploadedFiles.length>0 && (
-                <div style={{ display:"flex",flexDirection:"column",gap:"0.75rem" }}>
-                  {uploadedFiles.map((file,idx)=>(
-                    <div key={`${file.name}-${idx}`} style={{ display:"flex",alignItems:"center",gap:"1rem",background:"var(--aw-card-2)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.18)",borderRadius:12,padding:"1rem 1.2rem",animation:`cIn 0.3s ease ${idx*0.06}s both`,backdropFilter:"blur(12px)" }}>
-                      <div style={{ flexShrink:0,width:44,height:52,position:"relative",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                        <svg width="38" height="46" viewBox="0 0 24 28" fill="none"><rect x="1" y="1" width="18" height="26" rx="2" fill="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.08)" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35)" strokeWidth="1.2"/><path d="M14 1v6h6" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.4)" strokeWidth="1.2" fill="none"/><line x1="5" y1="11" x2="15" y2="11" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.25)" strokeWidth="1"/><line x1="5" y1="14" x2="15" y2="14" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.25)" strokeWidth="1"/><line x1="5" y1="17" x2="11" y2="17" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.25)" strokeWidth="1"/></svg>
-                        <div style={{ position:"absolute",bottom:-2,right:-4,background:"hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 12%))",borderRadius:4,padding:"1px 5px",fontSize:"0.52rem",fontWeight:800,color:"#fff",letterSpacing:"0.5px" }}>PDF</div>
-                      </div>
-                      <div style={{ flex:1,minWidth:0 }}>
-                        <div style={{ fontWeight:600,fontSize:"0.88rem",color:"var(--aw-text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:3,fontFamily:"Inter, sans-serif" }}>{file.name}</div>
-                        <div style={{ fontSize:"0.72rem",color:"var(--aw-text-dim)",fontFamily:"Inter, sans-serif" }}>{(file.size/1024).toFixed(0)} KB · PDF</div>
-                      </div>
-                      <div style={{ flexShrink:0,display:"flex",alignItems:"center",gap:5,background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:20,padding:"3px 10px",fontSize:"0.65rem",fontWeight:700,color:"#4ade80",letterSpacing:"0.5px" }}>
-                        <div style={{ width:5,height:5,borderRadius:"50%",background:"#22c55e" }}/>Pronto
-                      </div>
-                      <button onClick={()=>removeFile(idx)} style={{ flexShrink:0,background:"none",border:"none",cursor:"pointer",color:"var(--aw-text-dim)",display:"flex",alignItems:"center",justifyContent:"center",padding:4,borderRadius:6,transition:"all 0.15s" }} onMouseEnter={e=>{e.currentTarget.style.color="#f87171";e.currentTarget.style.background="rgba(239,68,68,0.08)";}} onMouseLeave={e=>{e.currentTarget.style.color="var(--aw-text-dim)";e.currentTarget.style.background="none";}}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── PARSING ── */}
-        {phase==="parsing" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1.8rem" }}>
-            <div style={{ width:54,height:54,borderRadius:"50%",border:"2px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.12)",borderTop:"2px solid hsl(var(--accent-h), var(--accent-s), var(--accent-l))",animation:"spin 0.85s linear infinite",boxShadow:"0 0 24px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3)" }}/>
-            <div style={{ textAlign:"center" }}>
-              <p style={{ fontSize:"1.05rem",fontWeight:700,color:"var(--aw-text)",marginBottom:6 }}>Lendo Documento</p>
-              <p style={{ fontSize:"0.72rem",color:"var(--aw-text-dim)",letterSpacing:"2px",textTransform:"uppercase",marginBottom:"1.5rem" }}>{parseProgress.total>0?(parseProgress.ocr?`OCR · Página ${parseProgress.page} de ${parseProgress.total}`:`Página ${parseProgress.page} de ${parseProgress.total}`):"Carregando motor de leitura…"}</p>
-              {parseProgress.total>0 && <div style={{ width:280,height:4,background:"rgba(255,255,255,0.06)",borderRadius:4,overflow:"hidden" }}><div style={{ height:"100%",background:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",borderRadius:4,width:`${(parseProgress.page/parseProgress.total)*100}%`,transition:"width 0.3s ease",boxShadow:"0 0 8px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.6)" }}/></div>}
-            </div>
-            <p style={{ fontSize:"0.72rem",color:"var(--aw-text-dim)" }}>{fileName}</p>
-          </div>
-        )}
-
-        {/* ── ANALYZING ── */}
-        {phase==="analyzing" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1.4rem" }}>
-            <div style={{ width:54,height:54,borderRadius:"50%",border:"2px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.12)",borderTop:"2px solid hsl(var(--accent-h), var(--accent-s), var(--accent-l))",animation:"spin 0.85s linear infinite",boxShadow:"0 0 24px hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3)" }}/>
-            <p style={{ fontSize:"1.05rem",fontWeight:700,color:"var(--aw-text)" }}>Cruzando Dados</p>
-            <p style={{ fontSize:"0.72rem",color:"var(--aw-text-dim)",letterSpacing:"2px",textTransform:"uppercase" }}>Identificando descontos irregulares…</p>
-          </div>
-        )}
-
-        {/* ── NO DISCOUNT ── */}
-        {phase==="noDiscount" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1.6rem",animation:"mFadeIn 0.2s ease" }}>
-            <div style={{ position:"relative",width:120,height:120,display:"flex",alignItems:"center",justifyContent:"center" }}>
-              <div style={{ position:"absolute",inset:0,borderRadius:"50%",border:"2px solid rgba(239,68,68,0.6)",animation:"xRing 1.4s ease-out 0.1s both" }}/>
-              <div style={{ position:"absolute",inset:0,borderRadius:"50%",border:"2px solid rgba(239,68,68,0.3)",animation:"xRing 1.4s ease-out 0.35s both" }}/>
-              <div style={{ width:88,height:88,borderRadius:"50%",background:"linear-gradient(135deg,rgba(239,68,68,0.18) 0%,rgba(185,28,28,0.1) 100%)",border:"2px solid rgba(239,68,68,0.5)",display:"flex",alignItems:"center",justifyContent:"center",animation:"xPop 0.55s cubic-bezier(0.34,1.56,0.64,1) 0.1s both",boxShadow:"0 0 48px rgba(239,68,68,0.35)" }}>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </div>
-            </div>
-            <div style={{ textAlign:"center",animation:"checkFadeIn 0.4s ease 0.5s both" }}>
-              <p style={{ fontSize:"1.35rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.5px",marginBottom:8 }}>Nenhum Desconto Indevido Encontrado</p>
-              <p style={{ fontSize:"0.82rem",color:"var(--aw-text-dim)" }}>Abrindo relatório…</p>
-            </div>
-          </div>
-        )}
-
-        {/* ── SUCCESS ── */}
-        {phase==="success" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1.6rem",animation:"mFadeIn 0.2s ease" }}>
-            <div style={{ position:"relative",width:120,height:120,display:"flex",alignItems:"center",justifyContent:"center" }}>
-              <div style={{ position:"absolute",inset:0,borderRadius:"50%",border:"2px solid rgba(34,197,94,0.6)",animation:"checkRing 1.4s ease-out 0.1s both" }}/>
-              <div style={{ position:"absolute",inset:0,borderRadius:"50%",border:"2px solid rgba(34,197,94,0.35)",animation:"checkRing 1.4s ease-out 0.35s both" }}/>
-              <div style={{ width:88,height:88,borderRadius:"50%",background:"linear-gradient(135deg,rgba(34,197,94,0.18) 0%,rgba(16,185,129,0.1) 100%)",border:"2px solid rgba(34,197,94,0.5)",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.55s cubic-bezier(0.34,1.56,0.64,1) 0.1s both",boxShadow:"0 0 48px rgba(34,197,94,0.35)" }}>
-                <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </div>
-            </div>
-            <div style={{ textAlign:"center",animation:"checkFadeIn 0.4s ease 0.5s both" }}>
-              <p style={{ fontSize:"1.35rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.5px",marginBottom:8 }}>Descontos Irregulares Encontrados!</p>
-              <p style={{ fontSize:"0.82rem",color:"var(--aw-text-dim)",letterSpacing:"0.5px" }}>Abrindo relatório detalhado…</p>
-            </div>
-          </div>
-        )}
-
-        {/* ── ERROR ── */}
-        {phase==="error" && (
-          <div style={{ minHeight:"calc(100% - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1.5rem",padding:"2rem",textAlign:"center" }}>
-            <div style={{ width:56,height:56,borderRadius:14,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24 }}>⚠</div>
-            <div><p style={{ fontSize:"1.1rem",fontWeight:700,color:"var(--aw-text)",marginBottom:8 }}>Erro ao processar PDF</p><p style={{ fontSize:"0.85rem",color:"#64748b",maxWidth:420,lineHeight:1.6 }}>{errorMsg}</p></div>
-            <button onClick={reset} style={{ background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.12)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.28)",borderRadius:8,color:"hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)",fontFamily:"Inter,sans-serif",fontSize:"0.8rem",fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",padding:"11px 24px",cursor:"pointer" }}>← Tentar Novamente</button>
-          </div>
-        )}
-
-        {/* ── MULTIPLE CLIENTS ── */}
-        {/* ARQUIVOS NO DRIVE DO CLIENTE */}
-        {driveAberto && (
-          <div onClick={e=>{ if(e.target===e.currentTarget && !driveBaixando) setDriveAberto(false); }} style={{ position:"fixed",inset:0,zIndex:250,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.2s ease" }}>
-            <div style={{ width:"100%",maxWidth:640,maxHeight:"85%",display:"flex",flexDirection:"column",background:"var(--aw-card)",border:"1px solid var(--aw-border)",borderRadius:16,boxShadow:"0 32px 64px rgba(0,0,0,0.6)",animation:"mSlideUp 0.25s ease",overflow:"hidden" }}>
-              <div style={{ padding:"1.4rem 1.6rem",borderBottom:"1px solid var(--aw-border-soft)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:"1rem" }}>
-                <div style={{ display:"flex",alignItems:"center",gap:"0.7rem",minWidth:0 }}>
-                  <div style={{ width:36,height:36,borderRadius:10,background:"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.15)",border:"1px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.3)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent-h), var(--sat-destaque, 95%), 76%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-                  </div>
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontSize:"0.95rem",fontWeight:700,color:"var(--aw-text)" }}>Arquivos no Drive de {clienteNome || "cliente"}</div>
-                    <div style={{ fontSize:"0.72rem",color:"var(--aw-text-muted)",marginTop:2 }}>Selecione os arquivos que entrarão na análise, eles ficam só na memória da aba e nada é salvo no seu HD</div>
-                  </div>
-                </div>
-                {!driveBaixando && (
-                  <button onClick={()=>setDriveAberto(false)} style={{ background:"none",border:"none",color:"var(--aw-text-muted)",cursor:"pointer",padding:6,borderRadius:6,display:"flex",alignItems:"center" }}
-                    onMouseEnter={e=>e.currentTarget.style.color="var(--aw-text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--aw-text-muted)"}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                )}
-              </div>
-              <div style={{ flex:1,overflowY:"auto",padding:"1rem 1.6rem" }}>
-                {driveCarregando && (
-                  <div style={{ padding:"3rem 1rem",textAlign:"center",color:"var(--aw-text-muted)",fontSize:"0.85rem" }}>
-                    <div style={{ display:"inline-block",width:28,height:28,border:"2.5px solid hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.2)",borderTopColor:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",borderRadius:"50%",animation:"spin 0.8s linear infinite",marginBottom:"0.8rem" }}/>
-                    <div>Carregando arquivos da pasta…</div>
-                  </div>
-                )}
-                {driveErro && !driveCarregando && (
-                  <div style={{ padding:"1rem",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,color:"#f87171",fontSize:"0.8rem" }}>Erro: {driveErro}</div>
-                )}
-                {!driveCarregando && !driveErro && driveArquivos.length === 0 && (
-                  <div style={{ padding:"3rem 1rem",textAlign:"center",color:"var(--aw-text-muted)",fontSize:"0.85rem" }}>Nenhum PDF encontrado nessa pasta. Suba os documentos no Drive primeiro.</div>
-                )}
-                {!driveCarregando && driveArquivos.length > 0 && (
-                  <div style={{ display:"flex",flexDirection:"column",gap:"0.5rem" }}>
-                    <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"0.5rem" }}>
-                      <span style={{ fontSize:"0.72rem",color:"var(--aw-text-muted)",fontWeight:600,letterSpacing:"0.5px",textTransform:"uppercase" }}>{driveArquivos.length} arquivo{driveArquivos.length>1?"s":""} encontrado{driveArquivos.length>1?"s":""}</span>
-                      <div style={{ display:"flex",gap:"0.5rem" }}>
-                        <button onClick={()=>setDriveSel(new Set(driveArquivos.map(f=>f.id)))} style={{ background:"none",border:"none",color:"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",fontSize:"0.7rem",cursor:"pointer",fontWeight:600 }}>Selecionar todos</button>
-                        <span style={{ color:"var(--aw-text-dim)" }}>·</span>
-                        <button onClick={()=>setDriveSel(new Set())} style={{ background:"none",border:"none",color:"var(--aw-text-muted)",fontSize:"0.7rem",cursor:"pointer",fontWeight:600 }}>Limpar</button>
-                      </div>
-                    </div>
-                    {driveArquivos.map(f => {
-                      const marcado = driveSel.has(f.id);
-                      const kb = f.size ? Math.round(parseInt(f.size, 10) / 1024) : null;
-                      const ehPdf = f.mimeType === "application/pdf";
-                      const ehImagem = f.mimeType && f.mimeType.startsWith("image/");
-                      const tipo = ehPdf ? "PDF" : ehImagem ? (f.mimeType.split("/")[1] || "imagem").toUpperCase() : (f.mimeType || "outro");
-                      const alternar = () => setDriveSel(prev => { const n = new Set(prev); if (n.has(f.id)) n.delete(f.id); else n.add(f.id); return n; });
-                      return (
-                        <div key={f.id} onClick={alternar} role="checkbox" aria-checked={marcado} tabIndex={0}
-                          onKeyDown={e=>{ if(e.key===" "||e.key==="Enter"){ e.preventDefault(); alternar(); } }}
-                          style={{ display:"flex",alignItems:"center",gap:"0.8rem",padding:"0.8rem 1rem",background:marcado?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.08)":"var(--aw-card-2)",border:`1px solid ${marcado?"hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.4)":"var(--aw-border)"}`,borderRadius:10,cursor:"pointer",transition:"all 0.15s",userSelect:"none" }}>
-                          <div aria-hidden="true" style={{ width:18,height:18,borderRadius:4,border:`1.5px solid ${marcado?"hsl(var(--accent-h), var(--accent-s), var(--accent-l))":"var(--aw-border)"}`,background:marcado?"hsl(var(--accent-h), var(--accent-s), var(--accent-l))":"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",flexShrink:0 }}>
-                            {marcado && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                          </div>
-                          <div style={{ width:34,height:42,position:"relative",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                            <svg width="28" height="36" viewBox="0 0 24 28" fill="none"><rect x="1" y="1" width="18" height="26" rx="2" fill="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.08)" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.35)" strokeWidth="1.2"/><path d="M14 1v6h6" stroke="hsla(var(--accent-h), var(--accent-s), var(--accent-l),0.4)" strokeWidth="1.2" fill="none"/></svg>
-                          </div>
-                          <div style={{ flex:1,minWidth:0 }}>
-                            <div style={{ fontSize:"0.85rem",fontWeight:600,color:"var(--aw-text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{f.name}</div>
-                            <div style={{ fontSize:"0.7rem",color:"var(--aw-text-muted)",marginTop:2 }}>{kb ? `${kb} KB · ` : ""}{tipo}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              <div style={{ padding:"1rem 1.6rem",borderTop:"1px solid var(--aw-border-soft)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:"0.8rem" }}>
-                <div style={{ fontSize:"0.78rem",color:"var(--aw-text-muted)" }}>
-                  {driveBaixando ? `Carregando ${driveProgresso.done} de ${driveProgresso.total}…` : driveSel.size ? `${driveSel.size} selecionado${driveSel.size>1?"s":""}` : "Nenhum selecionado"}
-                </div>
-                <div style={{ display:"flex",gap:"0.5rem" }}>
-                  {!driveBaixando && (
-                    <button onClick={()=>setDriveAberto(false)} style={{ background:"none",border:"1px solid var(--aw-border)",borderRadius:8,padding:"0.55rem 1rem",fontSize:"0.78rem",color:"var(--aw-text-muted)",cursor:"pointer",fontWeight:600 }}>Cancelar</button>
-                  )}
-                  <button onClick={adicionarDoDrive} disabled={driveBaixando || driveSel.size===0}
-                    style={{ background:driveBaixando||!driveSel.size?"hsla(var(--accent-h), var(--sat-destaque, 30%), 30%,0.3)":"hsl(var(--accent-h), var(--accent-s), var(--accent-l))",border:"1px solid transparent",borderRadius:8,color:"#fff",padding:"0.55rem 1.2rem",fontSize:"0.78rem",fontWeight:700,letterSpacing:"0.5px",cursor:driveBaixando||!driveSel.size?"not-allowed":"pointer",opacity:driveBaixando||!driveSel.size?0.5:1,transition:"all 0.2s",display:"inline-flex",alignItems:"center",gap:"0.4rem" }}>
-                    {driveBaixando
-                      ? <><div style={{ width:13,height:13,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.8s linear infinite" }}/>Carregando…</>
-                      : <>Adicionar à fila</>}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {multipleClientsWarning && phase==="upload" && (
-          <div style={{ position:"fixed",inset:0,zIndex:200,background:"var(--aw-card)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.2s ease" }}>
-            <div style={{ width:"100%",maxWidth:480,background:"rgba(12,10,18,0.97)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:16,padding:"2.2rem",boxShadow:"0 0 60px rgba(251,191,36,0.2),0 32px 64px rgba(0,0,0,0.6)",animation:"mSlideUp 0.25s ease",textAlign:"center" }}>
-              <div style={{ width:72,height:72,borderRadius:"50%",background:"rgba(251,191,36,0.1)",border:"2px solid rgba(251,191,36,0.4)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1.4rem",animation:"warnPop 0.45s cubic-bezier(0.34,1.56,0.64,1) both",boxShadow:"0 0 32px rgba(251,191,36,0.25)" }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><line x1="18" y1="2" x2="22" y2="6"/><line x1="22" y1="2" x2="18" y2="6"/></svg>
-              </div>
-              <p style={{ fontSize:"1.15rem",fontWeight:800,color:"var(--aw-text)",letterSpacing:"-0.4px",marginBottom:10,fontFamily:"Inter,sans-serif" }}>Documentos de Titulares Diferentes</p>
-              <p style={{ fontSize:"0.82rem",color:"#64748b",lineHeight:1.7,marginBottom:"1.4rem",fontFamily:"Inter,sans-serif" }}>Foram detectados documentos de titulares distintos. O recomendado é analisar um titular por vez, mas você pode seguir com todos juntos num relatório único.</p>
-              <div style={{ background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:10,padding:"0.9rem 1.1rem",marginBottom:"1.6rem" }}>
-                {multipleClientsWarning.names.map((n,i)=>(
-                  <div key={i} style={{ display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:i<multipleClientsWarning.names.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    <span style={{ fontSize:"0.82rem",color:"var(--aw-text-muted)",fontFamily:"Inter,sans-serif" }}>{n}</span>
-                  </div>
-                ))}
-              </div>
-              <button onClick={()=>{ setMultipleClientsWarning(null); pendingResultsRef.current = null; }} style={{ width:"100%",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.35)",borderRadius:9,color:"#fbbf24",fontFamily:"Inter,sans-serif",fontSize:"0.78rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"12px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.background="rgba(251,191,36,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(251,191,36,0.1)";}}>Entendido, ajustar arquivos</button>
-              <button onClick={analisarMesmoAssim} style={{ width:"100%",marginTop:10,background:"transparent",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"var(--aw-text-muted)",fontFamily:"Inter,sans-serif",fontSize:"0.72rem",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",padding:"11px",cursor:"pointer",transition:"all 0.2s" }} onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(251,191,36,0.4)";e.currentTarget.style.color="#fbbf24";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.12)";e.currentTarget.style.color="var(--aw-text-muted)";}}>Analisar Mesmo Assim (titulares juntos)</button>
-              <p style={{ fontSize:"0.68rem",color:"var(--aw-text-dim)",lineHeight:1.6,marginTop:10,fontFamily:"Inter,sans-serif" }}>Os descontos de todos os extratos serão consolidados num único relatório, identificado com os dois nomes.</p>
-            </div>
-          </div>
-        )}
-
         {/* ── CONFIRM RESET ── */}
         {confirmReset && (
           <div style={{ position:"fixed",inset:0,zIndex:300,background:"var(--aw-card)",backdropFilter:"blur(10px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"2rem",animation:"mFadeIn 0.18s ease" }}>
@@ -1880,6 +1667,8 @@ export default function App({
             </div>
           </div>
         </div>
+      )}
+      </div>
       )}
       </div>
     </PonteFinder.Provider>

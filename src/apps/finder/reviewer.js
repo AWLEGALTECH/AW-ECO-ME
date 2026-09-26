@@ -586,9 +586,13 @@ export async function refineWithLLM(autoResult, webhookUrl, opts = {}) {
   }
 
   let allResults = [];
+  // `opts.onProgress(feitos, total)`: a barra de progresso da análise anda a
+  // cada lote respondido pelo auditor, e não só no fim.
+  if (typeof opts.onProgress === "function") opts.onProgress(0, batches.length);
   for (let b = 0; b < batches.length; b++) {
     const r = await callBatch(batches[b], b);
     allResults = allResults.concat(r);
+    if (typeof opts.onProgress === "function") opts.onProgress(b + 1, batches.length);
   }
 
   // Aplica APENAS results com applied=true (já passou triple-gate no n8n)
